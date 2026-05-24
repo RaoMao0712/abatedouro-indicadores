@@ -30,6 +30,8 @@ body {
     margin: 0;
     font-size: 32px;
     letter-spacing: -1px;
+    display: flex;
+    align-items: center;
 }
 
 .brand h1 span {
@@ -109,7 +111,8 @@ label {
 }
 
 input,
-select {
+select,
+textarea {
     width: 100%;
     padding: 12px 13px;
     border-radius: 12px;
@@ -120,7 +123,8 @@ select {
 }
 
 input:focus,
-select:focus {
+select:focus,
+textarea:focus {
     border-color: #f97316;
     box-shadow: 0 0 0 3px rgba(249,115,22,0.14);
 }
@@ -249,6 +253,7 @@ button:hover {
 /* Responsividade */
 
 @media (max-width: 850px) {
+
     .topo {
         justify-content: center;
         text-align: center;
@@ -267,50 +272,71 @@ button:hover {
 
     .brand h1 {
         font-size: 28px;
+        justify-content: center;
     }
+
 }
 
+/* BOTÕES */
+
 .acoes-op,
-.acoes-op-topo{
-    display:flex;
-    gap:10px;
-    flex-wrap:wrap;
-    margin-top:15px;
+.acoes-op-topo {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-top: 15px;
 }
 
 .botao-editar,
-.botao-impressao{
-    background:#2563eb;
-    color:white;
-    text-decoration:none;
-    padding:10px 14px;
-    border-radius:10px;
-    font-weight:bold;
+.botao-impressao {
+    background: #2563eb;
+    color: white;
+    text-decoration: none;
+    padding: 10px 14px;
+    border-radius: 10px;
+    font-weight: bold;
 }
 
-.botao-impressao{
-    background:#ea580c;
+.botao-impressao {
+    background: #ea580c;
 }
 
-.botao-excluir{
-    background:#dc2626 !important;
-    width:auto;
-    margin-top:0;
-    padding:10px 14px;
-    /* ========= LOGO ========= */
-
-..logo-topo {
-
-    height: 42px;
-
+.botao-excluir {
+    background: #dc2626 !important;
     width: auto;
+    margin-top: 0;
+    padding: 10px 14px;
+    border: none;
+    border-radius: 10px;
+    color: white;
+    font-weight: bold;
+    cursor: pointer;
+}
 
-    display: inline-block;
+/* LOGO */
 
-    vertical-align: middle;
+.logo-topo {
 
-    margin-right: 10px;
+    height: 28px !important;
 
-    border-radius: 8px;
+    max-height: 28px !important;
+
+    width: auto !important;
+
+    max-width: 28px !important;
+
+    object-fit: contain !important;
+
+    display: inline-block !important;
+
+    vertical-align: middle !important;
+
+    margin-right: 8px !important;
+
+    border-radius: 4px !important;
+
+    background: white !important;
+
+    padding: 1px !important;
 
 }
