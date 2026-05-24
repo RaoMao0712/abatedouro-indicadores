@@ -299,21 +299,18 @@ button:hover {
     padding:10px 14px;
     /* ========= LOGO ========= */
 
-.logo-topo {
+..logo-topo {
 
-    height: 90px;
+    height: 42px;
+
     width: auto;
 
-    display: block;
+    display: inline-block;
 
-    margin: 0 auto 12px auto;
+    vertical-align: middle;
 
-    border-radius: 14px;
+    margin-right: 10px;
 
-    background: rgba(255,255,255,0.92);
-
-    padding: 6px;
-
-    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    border-radius: 8px;
 
 }
