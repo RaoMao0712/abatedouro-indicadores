@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Impressão OP</title>
+
+    <style>
+        body{
+            font-family: Arial, Helvetica, sans-serif;
+            padding: 30px;
+            color: #111827;
+        }
+
+        h1{
+            margin-bottom: 5px;
+        }
+
+        h2{
+            margin-top: 35px;
+            border-bottom: 2px solid #ea580c;
+            padding-bottom: 8px;
+        }
+
+        table{
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+
+        th, td{
+            border: 1px solid #d1d5db;
+            padding: 10px;
+            text-align: left;
+        }
+
+        th{
+            background: #f3f4f6;
+        }
+
+        .grid{
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px 30px;
+            margin-top: 20px;
+        }
+
+        .item{
+            padding: 8px 0;
+            border-bottom: 1px solid #e5e7eb;
+        }
+
+        .cards{
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 16px;
+            margin-top: 20px;
+        }
+
+        .card{
+            border: 1px solid #d1d5db;
+            border-left: 5px solid #ea580c;
+            padding: 15px;
+        }
+
+        .card h3{
+            margin: 0 0 10px 0;
+        }
+
+        .card p{
+            font-size: 28px;
+            margin: 0;
+            font-weight: bold;
+            color: #ea580c;
+        }
+
+        @media print{
+            button{
+                display:none;
+            }
+        }
+    </style>
+</head>
+<body>
+
+<button onclick="window.print()">
+    Imprimir
+</button>
+
+<h1>Ordem de Produção #{{ op.id }}</h1>
+
+<div class="grid">
+
+    <div class="item">
+        <strong>Data:</strong>
+        {{ op.data }}
+    </div>
+
+    <div class="item">
+        <strong>Fornecedor:</strong>
+        {{ op.fornecedor }}
+    </div>
+
+    <div class="item">
+        <strong>GTA:</strong>
+        {{ op.gta or "-" }}
+    </div>
+
+    <div class="item">
+        <strong>Nota Fiscal:</strong>
+        {{ op.nota_fiscal or "-" }}
+    </div>
+
+    <div class="item">
+        <strong>Aves recebidas:</strong>
+        {{ op.quantidade_aves }}
+    </div>
+
+    <div class="item">
+        <strong>Mortes antes da pendura:</strong>
+        {{ op.mortes_antes_pendura }}
+    </div>
+
+    <div class="item">
+        <strong>Peso vivo:</strong>
+        {{ op.peso_vivo }} kg
+    </div>
+
+    <div class="item">
+        <strong>Peso médio:</strong>
+        {{ "%.3f"|format(op.peso_medio) }} kg
+    </div>
+
+</div>
+
+<h2>Indicadores</h2>
+
+<div class="cards">
+
+    <div class="card">
+        <h3>Aves abatidas</h3>
+        <p>{{ resumo.aves_abatidas }}</p>
+    </div>
+
+    <div class="card">
+        <h3>Viabilidade</h3>
+        <p>{{ resumo.viabilidade_percentual }}%</p>
+    </div>
+
+    <div class="card">
+        <h3>Rendimento</h3>
+        <p>{{ resumo.rendimento }}%</p>
+    </div>
+
+</div>
+
+<h2>Apontamentos</h2>
+
+<table>
+    <thead>
+        <tr>
+            <th>Setor</th>
+            <th>Colab.</th>
+            <th>Horas</th>
+            <th>Paradas</th>
+            <th>Produção</th>
+            <th>Condenações</th>
+            <th>Perdas</th>
+            <th>Produtividade</th>
+        </tr>
+    </thead>
+
+    <tbody>
+        {% for item in apontamentos %}
+        <tr>
+            <td>{{ item.setor }}</td>
+            <td>{{ item.colaboradores }}</td>
+            <td>{{ item.horas_programadas }}</td>
+            <td>{{ item.horas_paradas }}</td>
+            <td>{{ item.quantidade_produzida }} {{ item.unidade }}</td>
+            <td>{{ item.condenacoes }}</td>
+            <td>{{ item.perdas }}</td>
+            <td>{{ item.produtividade }} {{ item.unidade }}/HH</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+</body>
+</html>

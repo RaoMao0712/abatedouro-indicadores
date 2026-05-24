@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+<div class="card login-card">
+    <h2>Acessar sistema</h2>
+
+    <form method="POST">
+        <label>E-mail</label>
+        <input type="email" name="email" required>
+
+        <label>Senha</label>
+        <input type="password" name="senha" required>
+
+        <button type="submit">Entrar</button>
+    </form>
+
+    <p class="obs">
+        Primeiro acesso: <strong>admin@app.com</strong> / <strong>admin123</strong>
+    </p>
+</div>
+{% endblock %}

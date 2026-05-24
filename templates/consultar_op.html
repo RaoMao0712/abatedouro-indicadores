@@ -1,0 +1,229 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+
+<div class="card">
+    <h2>Consultar Ordem de Produção</h2>
+
+    <form method="GET">
+
+        <div class="form-grid">
+            <div>
+                <label>Selecione a OP</label>
+
+                <select name="op_id" required>
+                    <option value="">Selecione</option>
+
+                    {% for item in ordens %}
+                        <option
+                            value="{{ item.id }}"
+                            {% if op and op.id == item.id %}selected{% endif %}
+                        >
+                            OP #{{ item.id }} - {{ item.data }} - {{ item.fornecedor }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+
+        <button type="submit">
+            Consultar OP
+        </button>
+
+    </form>
+</div>
+
+{% if op %}
+
+<div class="cards-resumo">
+
+    <div class="card resumo">
+        <h3>Aves abatidas</h3>
+        <p>{{ resumo.aves_abatidas }}</p>
+        <span>após pendura</span>
+    </div>
+
+    <div class="card resumo">
+        <h3>Viabilidade</h3>
+        <p>{{ resumo.viabilidade_percentual }}%</p>
+        <span>{{ resumo.viabilidade }} aves viáveis</span>
+    </div>
+
+    <div class="card resumo">
+        <h3>Rendimento</h3>
+        <p>{{ resumo.rendimento }}%</p>
+        <span>kg produzidos / peso vivo</span>
+    </div>
+
+</div>
+
+<div class="card">
+
+    <h2>Dados da OP</h2>
+
+    <div class="linha-info">
+        <strong>Fornecedor</strong>
+        <span>{{ op.fornecedor }}</span>
+    </div>
+
+    <div class="linha-info">
+        <strong>Data</strong>
+        <span>{{ op.data }}</span>
+    </div>
+
+    <div class="linha-info">
+        <strong>GTA</strong>
+        <span>{{ op.gta or "-" }}</span>
+    </div>
+
+    <div class="linha-info">
+        <strong>Nota Fiscal</strong>
+        <span>{{ op.nota_fiscal or "-" }}</span>
+    </div>
+
+    <div class="linha-info">
+        <strong>Aves recebidas</strong>
+        <span>{{ op.quantidade_aves }}</span>
+    </div>
+
+    <div class="linha-info">
+        <strong>Mortes antes da pendura</strong>
+        <span>{{ op.mortes_antes_pendura }}</span>
+    </div>
+
+    <div class="linha-info">
+        <strong>Peso vivo</strong>
+        <span>{{ op.peso_vivo }} kg</span>
+    </div>
+
+    <div class="linha-info">
+        <strong>Peso médio</strong>
+        <span>{{ "%.3f"|format(op.peso_medio) }} kg</span>
+    </div>
+
+    <div class="acoes-op-topo">
+
+        <a
+            href="{{ url_for('editar_op', op_id=op.id) }}"
+            class="botao-editar"
+        >
+            Editar OP
+        </a>
+
+        <form
+            method="POST"
+            action="{{ url_for('excluir_op', op_id=op.id) }}"
+            onsubmit="return confirm('Deseja realmente excluir esta OP? TODOS os apontamentos serão apagados.')"
+        >
+            <button
+                type="submit"
+                class="botao-excluir"
+            >
+                Excluir OP
+            </button>
+        </form>
+
+        <a
+            href="{{ url_for('imprimir_op', op_id=op.id) }}"
+            target="_blank"
+            class="botao-impressao"
+        >
+            Imprimir OP
+        </a>
+
+    </div>
+
+</div>
+
+<div class="card">
+
+    <h2>Apontamentos da OP</h2>
+
+    {% if apontamentos %}
+
+        {% for item in apontamentos %}
+
+        <div class="history-item">
+
+            <p><strong>Setor:</strong> {{ item.setor }}</p>
+
+            <p><strong>Data:</strong> {{ item.data }}</p>
+
+            <p><strong>Colaboradores:</strong> {{ item.colaboradores }}</p>
+
+            <p>
+                <strong>Horário:</strong>
+                {{ item.hora_inicio }} às {{ item.hora_fim }}
+            </p>
+
+            <p>
+                <strong>Horas programadas:</strong>
+                {{ item.horas_programadas }}
+            </p>
+
+            <p>
+                <strong>Horas paradas:</strong>
+                {{ item.horas_paradas }}
+            </p>
+
+            <p>
+                <strong>Produção:</strong>
+                {{ item.quantidade_produzida }} {{ item.unidade }}
+            </p>
+
+            <p>
+                <strong>Condenações:</strong>
+                {{ item.condenacoes }}
+            </p>
+
+            <p>
+                <strong>Perdas:</strong>
+                {{ item.perdas }}
+            </p>
+
+            <p>
+                <strong>Produtividade:</strong>
+                {{ item.produtividade }} {{ item.unidade }}/HH
+            </p>
+
+            <div class="acoes-op">
+
+                <a
+                    href="{{ url_for('editar_apontamento', apontamento_id=item.id) }}"
+                    class="botao-editar"
+                >
+                    Editar
+                </a>
+
+                <form
+                    method="POST"
+                    action="{{ url_for('excluir_apontamento', apontamento_id=item.id) }}"
+                    onsubmit="return confirm('Deseja realmente excluir este apontamento?')"
+                >
+                    <button
+                        type="submit"
+                        class="botao-excluir"
+                    >
+                        Excluir
+                    </button>
+                </form>
+
+            </div>
+
+        </div>
+
+        {% endfor %}
+
+    {% else %}
+
+        <p class="obs">
+            Nenhum apontamento registrado nesta OP.
+        </p>
+
+    {% endif %}
+
+</div>
+
+{% endif %}
+
+{% endblock %}

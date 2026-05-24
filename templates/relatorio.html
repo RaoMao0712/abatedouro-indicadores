@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+<div class="card">
+    <h2>Relatório por Setor</h2>
+
+    {% if dados_setores %}
+        {% for item in dados_setores %}
+        <div class="history-item">
+            <p><strong>Setor:</strong> {{ item.setor }}</p>
+            <p><strong>Registros:</strong> {{ item.registros }}</p>
+            <p><strong>Total produzido:</strong> {{ item.total_produzido }}</p>
+            <p><strong>Condenações:</strong> {{ item.total_condenacoes }}</p>
+            <p><strong>Perdas:</strong> {{ item.total_perdas }}</p>
+            <p><strong>Produtividade média:</strong> {{ "%.2f"|format(item.produtividade_media) }} unid./HH</p>
+        </div>
+        {% endfor %}
+    {% else %}
+        <p class="obs">Nenhum dado registrado ainda.</p>
+    {% endif %}
+</div>
+{% endblock %}

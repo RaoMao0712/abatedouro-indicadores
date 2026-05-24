@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+
+<div class="card">
+    <h2>Editar Ordem de Produção</h2>
+
+    <form method="POST">
+
+        <div class="form-grid">
+
+            <div>
+                <label>Data</label>
+                <input type="date" name="data" value="{{ op.data }}" required>
+            </div>
+
+            <div>
+                <label>Fornecedor</label>
+                <input type="text" name="fornecedor" value="{{ op.fornecedor }}" required>
+            </div>
+
+            <div>
+                <label>GTA</label>
+                <input type="text" name="gta" value="{{ op.gta }}">
+            </div>
+
+            <div>
+                <label>Nota Fiscal</label>
+                <input type="text" name="nota_fiscal" value="{{ op.nota_fiscal }}">
+            </div>
+
+            <div>
+                <label>Aves recebidas</label>
+                <input type="number" name="quantidade_aves" value="{{ op.quantidade_aves }}" required>
+            </div>
+
+            <div>
+                <label>Mortes antes da pendura</label>
+                <input type="number" name="mortes_antes_pendura" value="{{ op.mortes_antes_pendura }}">
+            </div>
+
+            <div>
+                <label>Peso vivo (kg)</label>
+                <input type="number" step="0.01" name="peso_vivo" value="{{ op.peso_vivo }}" required>
+            </div>
+
+        </div>
+
+        <label>Observações</label>
+        <input type="text" name="observacoes" value="{{ op.observacoes or '' }}">
+
+        <button type="submit">
+            Salvar alterações
+        </button>
+
+    </form>
+</div>
+
+{% endblock %}

@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+<div class="card">
+    <h2>Editar apontamento</h2>
+
+    <form method="POST">
+
+        <div class="ficha">
+            <h3>1. Setor e data</h3>
+
+            <div class="form-grid">
+                <div>
+                    <label>Data</label>
+                    <input type="date" name="data" value="{{ apontamento.data }}" required>
+                </div>
+
+                <div>
+                    <label>Setor</label>
+                    <select name="setor" required>
+                        {% for setor in setores %}
+                            <option value="{{ setor }}" {% if apontamento.setor == setor %}selected{% endif %}>
+                                {{ setor }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <div class="ficha">
+            <h3>2. Equipe e jornada</h3>
+
+            <div class="form-grid">
+                <div>
+                    <label>Colaboradores disponíveis</label>
+                    <input type="number" name="colaboradores" value="{{ apontamento.colaboradores }}" required>
+                </div>
+
+                <div>
+                    <label>Hora início</label>
+                    <input type="time" name="hora_inicio" value="{{ apontamento.hora_inicio }}" required>
+                </div>
+
+                <div>
+                    <label>Hora fim</label>
+                    <input type="time" name="hora_fim" value="{{ apontamento.hora_fim }}" required>
+                </div>
+
+                <div>
+                    <label>Horas paradas</label>
+                    <input type="number" step="0.01" name="horas_paradas" value="{{ apontamento.horas_paradas }}">
+                </div>
+
+                <div>
+                    <label>Motivo da parada</label>
+                    <input type="text" name="motivo_parada" value="{{ apontamento.motivo_parada or '' }}">
+                </div>
+            </div>
+        </div>
+
+        <div class="ficha">
+            <h3>3. Produção, perdas e qualidade</h3>
+
+            <div class="form-grid">
+                <div>
+                    <label>Quantidade produzida</label>
+                    <input type="number" step="0.01" name="quantidade_produzida" value="{{ apontamento.quantidade_produzida }}" required>
+                </div>
+
+                <div>
+                    <label>Unidade</label>
+                    <select name="unidade" required>
+                        <option value="aves" {% if apontamento.unidade == "aves" %}selected{% endif %}>Aves</option>
+                        <option value="kg" {% if apontamento.unidade == "kg" %}selected{% endif %}>Kg</option>
+                        <option value="bandejas" {% if apontamento.unidade == "bandejas" %}selected{% endif %}>Bandejas</option>
+                        <option value="caixas" {% if apontamento.unidade == "caixas" %}selected{% endif %}>Caixas</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label>Condenações</label>
+                    <input type="number" step="0.01" name="condenacoes" value="{{ apontamento.condenacoes }}">
+                </div>
+
+                <div>
+                    <label>Perdas</label>
+                    <input type="number" step="0.01" name="perdas" value="{{ apontamento.perdas }}">
+                </div>
+            </div>
+        </div>
+
+        <div class="ficha">
+            <h3>4. Observações</h3>
+
+            <label>Observações</label>
+            <input type="text" name="observacoes" value="{{ apontamento.observacoes or '' }}">
+        </div>
+
+        <button type="submit">Salvar alterações</button>
+    </form>
+</div>
+{% endblock %}

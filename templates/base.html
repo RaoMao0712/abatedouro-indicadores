@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Indicadores do Abatedouro</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+<div class="app-shell">
+
+    <header class="topo">
+        <div class="brand">
+            <h1>Indicadores<span>Abate</span></h1>
+            <p>Produtividade, eficiência e controle operacional</p>
+        </div>
+
+        {% if session.get("usuario_id") %}
+        <nav class="menu">
+            <a href="{{ url_for('dashboard') }}">Dashboard</a>
+            <a href="{{ url_for('ordem_producao') }}">OP</a>
+            <a href="{{ url_for('apontamento_setor') }}">Apontamento</a>
+            <a href="{{ url_for('consultar_op') }}">Consultar OP</a>
+            <a href="{{ url_for('relatorio') }}">Relatório</a>
+            <a href="{{ url_for('sair') }}">Sair</a>
+        </nav>
+        {% endif %}
+    </header>
+
+    <main class="container">
+        {% with mensagens = get_flashed_messages() %}
+            {% if mensagens %}
+                {% for msg in mensagens %}
+                    <div class="alerta">{{ msg }}</div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        {% block conteudo %}{% endblock %}
+    </main>
+
+</div>
+
+</body>
+</html>
