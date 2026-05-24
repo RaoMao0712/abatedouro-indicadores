@@ -297,4 +297,23 @@ button:hover {
     width:auto;
     margin-top:0;
     padding:10px 14px;
+    /* ========= LOGO ========= */
+
+.logo-topo {
+
+    height: 90px;
+    width: auto;
+
+    display: block;
+
+    margin: 0 auto 12px auto;
+
+    border-radius: 14px;
+
+    background: rgba(255,255,255,0.92);
+
+    padding: 6px;
+
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+
 }
