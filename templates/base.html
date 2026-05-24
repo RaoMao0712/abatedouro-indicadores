@@ -13,9 +13,23 @@
 
     <header class="topo">
         <div class="brand">
-            <h1>Indicadores<span>Abate</span></h1>
-            <p>Produtividade, eficiência e controle operacional</p>
-        </div>
+
+    <img
+        src="{{ url_for('static', filename='imagens/logo.png') }}"
+        class="logo-topo"
+        alt="São Pedro"
+    >
+
+    <h1>
+        Indicadores
+        <span>Abate</span>
+    </h1>
+
+    <p>
+        Produtividade, eficiência e controle operacional
+    </p>
+
+</div>
 
         {% if session.get("usuario_id") %}
         <nav class="menu">
