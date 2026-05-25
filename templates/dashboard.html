@@ -3,7 +3,7 @@
 {% block conteudo %}
 
 <div class="card">
-    <h2>Filtro de período</h2>
+    <h2>Dashboard Operacional</h2>
 
     <form method="GET" action="{{ url_for('dashboard') }}">
         <div class="form-grid">
@@ -18,7 +18,7 @@
             </div>
         </div>
 
-        <button type="submit">Filtrar dashboard</button>
+        <button type="submit">Filtrar</button>
     </form>
 </div>
 
@@ -27,7 +27,7 @@
     <div class="card resumo">
         <h3>Aves recebidas</h3>
         <p>{{ aves_recebidas }}</p>
-        <span>quantidade da GTA</span>
+        <span>Quantidade informada na GTA</span>
     </div>
 
     <div class="card resumo">
@@ -53,15 +53,15 @@
     </div>
 
     <div class="card resumo">
-        <h3>Kg produzidos</h3>
+        <h3>Produção</h3>
         <p>{{ kg_produzidos }}</p>
-        <span>produção em kg apontada</span>
+        <span>kg produzidos</span>
     </div>
 
     <div class="card resumo">
         <h3>Rendimento</h3>
         <p>{{ rendimento }}%</p>
-        <span>kg produzidos / peso entrada</span>
+        <span>kg produzidos / peso vivo</span>
     </div>
 
 </div>
@@ -69,7 +69,7 @@
 <div class="grid-dashboard">
 
     <div class="card">
-        <h2>Descartes do processo</h2>
+        <h2>Descartes e perdas</h2>
 
         <div class="linha-info">
             <strong>Mortes antes da pendura</strong>
@@ -77,28 +77,28 @@
         </div>
 
         <div class="linha-info">
-            <strong>Condenações</strong>
+            <strong>Descartes / condenações em aves</strong>
             <span>{{ total_condenacoes }}</span>
         </div>
 
         <div class="linha-info">
-            <strong>Perdas</strong>
+            <strong>Perdas em kg</strong>
             <span>{{ total_perdas }}</span>
         </div>
     </div>
 
     <div class="card">
-        <h2>Produtividade por setor</h2>
+        <h2>Produção por setor</h2>
 
         {% if produtividade_setores %}
             {% for item in produtividade_setores %}
                 <div class="linha-info">
                     <strong>{{ item.setor }}</strong>
-                    <span>{{ "%.2f"|format(item.produtividade_media) }} unid./HH</span>
+                    <span>{{ "%.2f"|format(item.total_produzido) }}</span>
                 </div>
             {% endfor %}
         {% else %}
-            <p class="obs">Nenhum apontamento no período selecionado.</p>
+            <p class="obs">Nenhum apontamento de produção no período.</p>
         {% endif %}
     </div>
 

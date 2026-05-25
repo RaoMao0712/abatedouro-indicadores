@@ -2,188 +2,328 @@
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <title>Impressão OP</title>
+    <title>Impressão da OP</title>
 
     <style>
-        body{
+        body {
             font-family: Arial, Helvetica, sans-serif;
-            padding: 30px;
-            color: #111827;
+            color: #1f2933;
+            margin: 30px;
         }
 
-        h1{
-            margin-bottom: 5px;
+        .topo-impressao {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            border-bottom: 3px solid #f97316;
+            padding-bottom: 14px;
+            margin-bottom: 24px;
         }
 
-        h2{
-            margin-top: 35px;
-            border-bottom: 2px solid #ea580c;
-            padding-bottom: 8px;
+        .topo-impressao img {
+            height: 48px;
+            width: auto;
         }
 
-        table{
+        h1 {
+            margin: 0;
+            color: #1f3b4d;
+            font-size: 24px;
+        }
+
+        h2 {
+            margin-top: 28px;
+            color: #1f3b4d;
+            border-bottom: 1px solid #d1d5db;
+            padding-bottom: 6px;
+            font-size: 18px;
+        }
+
+        .subtitulo {
+            margin: 2px 0 0;
+            color: #64748b;
+            font-size: 13px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px 24px;
+            margin-bottom: 18px;
+        }
+
+        .linha {
+            border-bottom: 1px solid #e5e7eb;
+            padding: 6px 0;
+            font-size: 14px;
+        }
+
+        .linha strong {
+            color: #374151;
+        }
+
+        .cards {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            margin: 18px 0;
+        }
+
+        .card {
+            border: 1px solid #d1d5db;
+            border-left: 5px solid #f97316;
+            padding: 12px;
+            border-radius: 8px;
+        }
+
+        .card h3 {
+            margin: 0 0 8px;
+            font-size: 14px;
+            color: #374151;
+        }
+
+        .card p {
+            margin: 0;
+            font-size: 22px;
+            font-weight: bold;
+            color: #f97316;
+        }
+
+        table {
             width: 100%;
             border-collapse: collapse;
-            margin-top: 15px;
+            margin-top: 10px;
+            font-size: 13px;
         }
 
-        th, td{
+        th, td {
             border: 1px solid #d1d5db;
-            padding: 10px;
+            padding: 7px;
             text-align: left;
         }
 
-        th{
+        th {
             background: #f3f4f6;
+            color: #374151;
         }
 
-        .grid{
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 10px 30px;
-            margin-top: 20px;
-        }
-
-        .item{
+        .vazio {
+            color: #64748b;
+            font-size: 13px;
             padding: 8px 0;
-            border-bottom: 1px solid #e5e7eb;
         }
 
-        .cards{
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 16px;
-            margin-top: 20px;
-        }
-
-        .card{
-            border: 1px solid #d1d5db;
-            border-left: 5px solid #ea580c;
-            padding: 15px;
-        }
-
-        .card h3{
-            margin: 0 0 10px 0;
-        }
-
-        .card p{
-            font-size: 28px;
-            margin: 0;
+        .botao-imprimir {
+            margin-bottom: 20px;
+            padding: 10px 16px;
+            background: #f97316;
+            color: white;
+            border: none;
+            border-radius: 8px;
             font-weight: bold;
-            color: #ea580c;
+            cursor: pointer;
         }
 
-        @media print{
-            button{
-                display:none;
+        @media print {
+            .botao-imprimir {
+                display: none;
+            }
+
+            body {
+                margin: 15mm;
             }
         }
     </style>
 </head>
 <body>
 
-<button onclick="window.print()">
-    Imprimir
-</button>
+<button class="botao-imprimir" onclick="window.print()">Imprimir</button>
 
-<h1>Ordem de Produção #{{ op.id }}</h1>
+<div class="topo-impressao">
+    <img src="{{ url_for('static', filename='imagens/logo.png') }}" alt="São Pedro">
 
-<div class="grid">
-
-    <div class="item">
-        <strong>Data:</strong>
-        {{ op.data }}
+    <div>
+        <h1>Ordem de Produção #{{ op.id }}</h1>
+        <p class="subtitulo">Indicadores do Abatedouro</p>
     </div>
-
-    <div class="item">
-        <strong>Fornecedor:</strong>
-        {{ op.fornecedor }}
-    </div>
-
-    <div class="item">
-        <strong>GTA:</strong>
-        {{ op.gta or "-" }}
-    </div>
-
-    <div class="item">
-        <strong>Nota Fiscal:</strong>
-        {{ op.nota_fiscal or "-" }}
-    </div>
-
-    <div class="item">
-        <strong>Aves recebidas:</strong>
-        {{ op.quantidade_aves }}
-    </div>
-
-    <div class="item">
-        <strong>Mortes antes da pendura:</strong>
-        {{ op.mortes_antes_pendura }}
-    </div>
-
-    <div class="item">
-        <strong>Peso vivo:</strong>
-        {{ op.peso_vivo }} kg
-    </div>
-
-    <div class="item">
-        <strong>Peso médio:</strong>
-        {{ "%.3f"|format(op.peso_medio) }} kg
-    </div>
-
 </div>
 
-<h2>Indicadores</h2>
+<h2>Dados da OP</h2>
+
+<div class="grid">
+    <div class="linha"><strong>Data:</strong> {{ op.data }}</div>
+    <div class="linha"><strong>Fornecedor:</strong> {{ op.fornecedor }}</div>
+    <div class="linha"><strong>GTA:</strong> {{ op.gta }}</div>
+    <div class="linha"><strong>Nota Fiscal:</strong> {{ op.nota_fiscal }}</div>
+    <div class="linha"><strong>Aves recebidas:</strong> {{ op.quantidade_aves }}</div>
+    <div class="linha"><strong>Mortes antes da pendura:</strong> {{ op.mortes_antes_pendura }}</div>
+    <div class="linha"><strong>Peso vivo:</strong> {{ "%.2f"|format(op.peso_vivo) }} kg</div>
+    <div class="linha"><strong>Peso médio:</strong> {{ "%.2f"|format(op.peso_medio) }} kg</div>
+    <div class="linha"><strong>Status:</strong> {{ op.status }}</div>
+    <div class="linha"><strong>Observações:</strong> {{ op.observacoes }}</div>
+</div>
+
+{% if resumo %}
+<h2>Resumo Consolidado</h2>
 
 <div class="cards">
-
     <div class="card">
         <h3>Aves abatidas</h3>
         <p>{{ resumo.aves_abatidas }}</p>
     </div>
 
     <div class="card">
+        <h3>Produção</h3>
+        <p>{{ "%.2f"|format(resumo.kg_produzidos) }} kg</p>
+    </div>
+
+    <div class="card">
         <h3>Viabilidade</h3>
-        <p>{{ resumo.viabilidade_percentual }}%</p>
+        <p>{{ "%.2f"|format(resumo.viabilidade_percentual) }}%</p>
     </div>
 
     <div class="card">
         <h3>Rendimento</h3>
-        <p>{{ resumo.rendimento }}%</p>
+        <p>{{ "%.2f"|format(resumo.rendimento) }}%</p>
     </div>
 
+    <div class="card">
+        <h3>Descartes aves</h3>
+        <p>{{ "%.2f"|format(resumo.descartes_aves) }}</p>
+    </div>
+
+    <div class="card">
+        <h3>Descartes kg</h3>
+        <p>{{ "%.2f"|format(resumo.descartes_kg) }}</p>
+    </div>
 </div>
+{% endif %}
 
-<h2>Apontamentos</h2>
+<h2>Produção</h2>
 
+{% if producoes %}
 <table>
     <thead>
         <tr>
+            <th>Data</th>
             <th>Setor</th>
-            <th>Colab.</th>
-            <th>Horas</th>
-            <th>Paradas</th>
-            <th>Produção</th>
-            <th>Condenações</th>
-            <th>Perdas</th>
-            <th>Produtividade</th>
+            <th>Quantidade</th>
+            <th>Unidade</th>
+            <th>Observações</th>
         </tr>
     </thead>
-
     <tbody>
-        {% for item in apontamentos %}
+        {% for item in producoes %}
         <tr>
+            <td>{{ item.data }}</td>
             <td>{{ item.setor }}</td>
-            <td>{{ item.colaboradores }}</td>
-            <td>{{ item.horas_programadas }}</td>
-            <td>{{ item.horas_paradas }}</td>
-            <td>{{ item.quantidade_produzida }} {{ item.unidade }}</td>
-            <td>{{ item.condenacoes }}</td>
-            <td>{{ item.perdas }}</td>
-            <td>{{ item.produtividade }} {{ item.unidade }}/HH</td>
+            <td>{{ item.quantidade }}</td>
+            <td>{{ item.unidade }}</td>
+            <td>{{ item.observacoes }}</td>
         </tr>
         {% endfor %}
     </tbody>
 </table>
+{% else %}
+<p class="vazio">Nenhum apontamento de produção.</p>
+{% endif %}
+
+<h2>Mão de Obra</h2>
+
+{% if mao_obra %}
+<table>
+    <thead>
+        <tr>
+            <th>Data</th>
+            <th>Colaborador</th>
+            <th>Função</th>
+            <th>Setor</th>
+            <th>Turno</th>
+            <th>Observações</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for item in mao_obra %}
+        <tr>
+            <td>{{ item.data }}</td>
+            <td>{{ item.colaborador }}</td>
+            <td>{{ item.funcao }}</td>
+            <td>{{ item.setor }}</td>
+            <td>{{ item.turno }}</td>
+            <td>{{ item.observacoes }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p class="vazio">Nenhum apontamento de mão de obra.</p>
+{% endif %}
+
+<h2>Paradas Operacionais</h2>
+
+{% if paradas %}
+<table>
+    <thead>
+        <tr>
+            <th>Data</th>
+            <th>Setor</th>
+            <th>Motivo</th>
+            <th>Início</th>
+            <th>Fim</th>
+            <th>Horas paradas</th>
+            <th>Observações</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for item in paradas %}
+        <tr>
+            <td>{{ item.data }}</td>
+            <td>{{ item.setor }}</td>
+            <td>{{ item.motivo }}</td>
+            <td>{{ item.hora_inicio }}</td>
+            <td>{{ item.hora_fim }}</td>
+            <td>{{ item.horas_paradas }}</td>
+            <td>{{ item.observacoes }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p class="vazio">Nenhuma parada operacional.</p>
+{% endif %}
+
+<h2>Descartes / Condenações</h2>
+
+{% if descartes %}
+<table>
+    <thead>
+        <tr>
+            <th>Data</th>
+            <th>Setor</th>
+            <th>Categoria</th>
+            <th>Motivo</th>
+            <th>Quantidade</th>
+            <th>Unidade</th>
+            <th>Observações</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for item in descartes %}
+        <tr>
+            <td>{{ item.data }}</td>
+            <td>{{ item.setor }}</td>
+            <td>{{ item.categoria }}</td>
+            <td>{{ item.motivo }}</td>
+            <td>{{ item.quantidade }}</td>
+            <td>{{ item.unidade }}</td>
+            <td>{{ item.observacoes }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p class="vazio">Nenhum descarte ou condenação registrado.</p>
+{% endif %}
 
 </body>
 </html>

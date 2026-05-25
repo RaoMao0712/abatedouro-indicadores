@@ -87,6 +87,14 @@
 
             {% endif %}
 
+            {% if perfil == "admin" %}
+
+                <a href="{{ url_for('cadastrar_usuario') }}">
+                    Usuários
+                </a>
+
+            {% endif %}
+
             {% if perfil == "admin" or perfil == "pcp" or perfil == "producao" or perfil == "qualidade" %}
 
                 <a href="{{ url_for('consultar_op') }}">

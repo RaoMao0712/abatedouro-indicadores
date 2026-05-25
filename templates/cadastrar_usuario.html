@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+
+<div class="card">
+    <h2>Cadastrar Usuário</h2>
+    <p class="obs">Apenas administradores podem cadastrar novos acessos.</p>
+
+    <form method="POST">
+
+        <div class="form-grid">
+
+            <div>
+                <label>Nome</label>
+                <input type="text" name="nome" required>
+            </div>
+
+            <div>
+                <label>E-mail</label>
+                <input type="email" name="email" required>
+            </div>
+
+            <div>
+                <label>Senha inicial</label>
+                <input type="password" name="senha" required>
+            </div>
+
+            <div>
+                <label>Perfil</label>
+                <select name="perfil" required>
+                    <option value="pcp">PCP</option>
+                    <option value="producao">Produção</option>
+                    <option value="qualidade">Qualidade</option>
+                    <option value="admin">Administrador</option>
+                </select>
+            </div>
+
+        </div>
+
+        <button type="submit">Cadastrar Usuário</button>
+
+    </form>
+</div>
+
+{% endblock %}

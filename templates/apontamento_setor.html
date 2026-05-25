@@ -1,114 +1,298 @@
 {% extends "base.html" %}
 
 {% block conteudo %}
+
 <div class="card">
-    <h2>Apontamento por Setor</h2>
+    <h2>Apontamentos Operacionais</h2>
+    <p class="obs">Cada lançamento representa um evento operacional dentro da OP.</p>
+</div>
+
+{% set lista_setores = [
+    "Recepção e Pendura",
+    "Escalda e Depenagem",
+    "Evisceração",
+    "Corte",
+    "Embalagem",
+    "Expedição"
+] %}
+
+{% set lista_funcoes = [
+    "Lavar gaiolas",
+    "Pendura",
+    "Sangria",
+    "Depenadeira",
+    "Transpasse",
+    "Retirada do papo",
+    "Retirada da cloaca",
+    "Corte abdominal",
+    "Eventração",
+    "Retirada da moela",
+    "Abertura da moela",
+    "Retirada do coração",
+    "Retirada do pulmão",
+    "Retirada da cabeça/Revisão final",
+    "Limpeza de miudos",
+    "Corte",
+    "Organização da bandeja",
+    "Ensaque da bandeja",
+    "Selagem",
+    "Pesagem",
+    "Embalagem secundária",
+    "Rotulagem",
+    "Outra"
+] %}
+
+{% set lista_motivos_descarte = [
+    "Morte na gaiola",
+    "Hematomas",
+    "Contaminação no processo",
+    "Aspecto Repugnante",
+    "Doença",
+    "Cozimento",
+    "Caquexia",
+    "Fratura",
+    "Carcaça incompleta",
+    "Outra"
+] %}
+
+{% set lista_motivos_parada = [
+    "Falta de materia prima",
+    "Falta de insumos",
+    "Falta de mão de obra",
+    "Quebra de equipamento"
+] %}
+
+<div class="card ficha">
+    <h3>Produção</h3>
 
     <form method="POST">
+        <input type="hidden" name="tipo_apontamento" value="producao">
 
-        <div class="ficha">
-            <h3>1. Ordem e setor</h3>
+        <div class="form-grid">
+            <div>
+                <label>OP</label>
+                <select name="op_id" required>
+                    {% for op in ordens %}
+                    <option value="{{ op.id }}">OP {{ op.id }} | {{ op.fornecedor }}</option>
+                    {% endfor %}
+                </select>
+            </div>
 
-            <div class="form-grid">
-                <div>
-                    <label>Ordem de Produção</label>
-                    <select name="op_id" required>
-                        <option value="">Selecione uma OP</option>
-                        {% for op in ordens %}
-                            <option value="{{ op.id }}">
-                                OP #{{ op.id }} - {{ op.data }} - {{ op.fornecedor }}
-                            </option>
-                        {% endfor %}
-                    </select>
-                </div>
+            <div>
+                <label>Data</label>
+                <input type="date" name="data" value="{{ hoje }}" required>
+            </div>
 
-                <div>
-                    <label>Data</label>
-                    <input type="date" name="data" value="{{ hoje }}" required>
-                </div>
+            <div>
+                <label>Setor</label>
+                <select name="setor" required>
+                    {% for setor in lista_setores %}
+                    <option value="{{ setor }}">{{ setor }}</option>
+                    {% endfor %}
+                </select>
+            </div>
 
-                <div>
-                    <label>Setor</label>
-                    <select name="setor" required>
-                        <option value="">Selecione</option>
-                        {% for setor in setores %}
-                            <option value="{{ setor }}">{{ setor }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
+            <div>
+                <label>Quantidade Produzida</label>
+                <input type="number" step="0.01" name="quantidade" required>
+            </div>
+
+            <div>
+                <label>Unidade</label>
+                <select name="unidade" required>
+                    <option value="kg">kg</option>
+                    <option value="aves">aves</option>
+                    <option value="unidades">unidades</option>
+                </select>
+            </div>
+
+            <div>
+                <label>Observações</label>
+                <input type="text" name="observacoes">
             </div>
         </div>
 
-        <div class="ficha">
-            <h3>2. Equipe e jornada</h3>
-
-            <div class="form-grid">
-                <div>
-                    <label>Colaboradores disponíveis</label>
-                    <input type="number" name="colaboradores" required>
-                </div>
-
-                <div>
-                    <label>Hora início</label>
-                    <input type="time" name="hora_inicio" required>
-                </div>
-
-                <div>
-                    <label>Hora fim</label>
-                    <input type="time" name="hora_fim" required>
-                </div>
-
-                <div>
-                    <label>Horas paradas</label>
-                    <input type="number" step="0.01" name="horas_paradas" value="0">
-                </div>
-
-                <div>
-                    <label>Motivo da parada</label>
-                    <input type="text" name="motivo_parada">
-                </div>
-            </div>
-        </div>
-
-        <div class="ficha">
-            <h3>3. Produção, perdas e qualidade</h3>
-
-            <div class="form-grid">
-                <div>
-                    <label>Quantidade produzida</label>
-                    <input type="number" step="0.01" name="quantidade_produzida" required>
-                </div>
-
-                <div>
-                    <label>Unidade</label>
-                    <select name="unidade" required>
-                        <option value="aves">Aves</option>
-                        <option value="kg">Kg</option>
-                        <option value="bandejas">Bandejas</option>
-                        <option value="caixas">Caixas</option>
-                    </select>
-                </div>
-
-                <div>
-                    <label>Condenações</label>
-                    <input type="number" step="0.01" name="condenacoes" value="0">
-                </div>
-
-                <div>
-                    <label>Perdas</label>
-                    <input type="number" step="0.01" name="perdas" value="0">
-                </div>
-            </div>
-        </div>
-
-        <div class="ficha">
-            <h3>4. Observações</h3>
-
-            <label>Observações</label>
-            <input type="text" name="observacoes">
-        </div>
-
-        <button type="submit">Salvar apontamento</button>
+        <button type="submit">Salvar Produção</button>
     </form>
 </div>
+
+<div class="card ficha">
+    <h3>Mão de Obra</h3>
+
+    <form method="POST">
+        <input type="hidden" name="tipo_apontamento" value="mao_obra">
+
+        <div class="form-grid">
+            <div>
+                <label>OP</label>
+                <select name="op_id" required>
+                    {% for op in ordens %}
+                    <option value="{{ op.id }}">OP {{ op.id }} | {{ op.fornecedor }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div>
+                <label>Data</label>
+                <input type="date" name="data" value="{{ hoje }}" required>
+            </div>
+
+            <div>
+                <label>Colaborador</label>
+                <input type="text" name="colaborador" required>
+            </div>
+
+            <div>
+                <label>Função</label>
+                <select name="funcao" required>
+                    {% for funcao in lista_funcoes %}
+                    <option value="{{ funcao }}">{{ funcao }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div>
+                <label>Setor</label>
+                <select name="setor" required>
+                    {% for setor in lista_setores %}
+                    <option value="{{ setor }}">{{ setor }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div>
+                <label>Observações</label>
+                <input type="text" name="observacoes">
+            </div>
+        </div>
+
+        <button type="submit">Salvar Mão de Obra</button>
+    </form>
+</div>
+
+<div class="card ficha">
+    <h3>Descartes e Condenações</h3>
+
+    <form method="POST">
+        <input type="hidden" name="tipo_apontamento" value="descarte">
+
+        <div class="form-grid">
+            <div>
+                <label>OP</label>
+                <select name="op_id" required>
+                    {% for op in ordens %}
+                    <option value="{{ op.id }}">OP {{ op.id }} | {{ op.fornecedor }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div>
+                <label>Data</label>
+                <input type="date" name="data" value="{{ hoje }}" required>
+            </div>
+
+            <div>
+                <label>Quantidade</label>
+                <input type="number" step="0.01" name="quantidade" required>
+            </div>
+
+            <div>
+                <label>Unidade</label>
+                <select name="unidade" required>
+                    <option value="aves">aves</option>
+                    <option value="kg">kg</option>
+                    <option value="unidades">unidades</option>
+                </select>
+            </div>
+
+            <div>
+                <label>Setor</label>
+                <select name="setor" required>
+                    {% for setor in lista_setores %}
+                    <option value="{{ setor }}">{{ setor }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div>
+                <label>Categoria</label>
+                <select name="categoria" required>
+                    <option value="Descarte">Descarte</option>
+                    <option value="Condenação">Condenação</option>
+                </select>
+            </div>
+
+            <div>
+                <label>Motivo</label>
+                <select name="motivo" required>
+                    {% for motivo in lista_motivos_descarte %}
+                    <option value="{{ motivo }}">{{ motivo }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div>
+                <label>Observações</label>
+                <input type="text" name="observacoes">
+            </div>
+        </div>
+
+        <button type="submit">Salvar Descarte / Condenação</button>
+    </form>
+</div>
+
+<div class="card ficha">
+    <h3>Horas Paradas</h3>
+
+    <form method="POST">
+        <input type="hidden" name="tipo_apontamento" value="parada">
+
+        <div class="form-grid">
+            <div>
+                <label>OP</label>
+                <select name="op_id" required>
+                    {% for op in ordens %}
+                    <option value="{{ op.id }}">OP {{ op.id }} | {{ op.fornecedor }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div>
+                <label>Data</label>
+                <input type="date" name="data" value="{{ hoje }}" required>
+            </div>
+
+            <div>
+                <label>Quantidade de horas paradas</label>
+                <input type="number" step="0.01" name="horas_paradas" required>
+            </div>
+
+            <div>
+                <label>Setor</label>
+                <select name="setor" required>
+                    {% for setor in lista_setores %}
+                    <option value="{{ setor }}">{{ setor }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div>
+                <label>Motivo</label>
+                <select name="motivo" required>
+                    {% for motivo in lista_motivos_parada %}
+                    <option value="{{ motivo }}">{{ motivo }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div>
+                <label>Observações</label>
+                <input type="text" name="observacoes">
+            </div>
+        </div>
+
+        <button type="submit">Salvar Horas Paradas</button>
+    </form>
+</div>
+
 {% endblock %}
