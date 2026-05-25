@@ -41,6 +41,7 @@ def conectar():
 def tentar_alter_table(cursor, conn, comando):
     try:
         cursor.execute(comando)
+        conn.commit()
     except Exception:
         conn.rollback()
 
@@ -309,6 +310,19 @@ def login_obrigatorio(funcao):
     return wrapper
 
 
+def destino_por_perfil(perfil):
+    if perfil == "admin" or perfil == "pcp":
+        return "dashboard"
+
+    if perfil == "qualidade":
+        return "apontamento_descartes"
+
+    if perfil == "producao":
+        return "apontamento_producao"
+
+    return "login"
+
+
 def perfil_permitido(*perfis_autorizados):
     def decorador(funcao):
         @wraps(funcao)
@@ -322,7 +336,7 @@ def perfil_permitido(*perfis_autorizados):
                 return funcao(*args, **kwargs)
 
             flash("Acesso não autorizado para este usuário.")
-            return redirect(url_for("dashboard"))
+            return redirect(url_for(destino_por_perfil(perfil)))
 
         return wrapper
 
@@ -553,19 +567,7 @@ def login():
             else:
                 session["perfil"] = "admin"
 
-            if session["perfil"] == "admin":
-                return redirect(url_for("dashboard"))
-
-            elif session["perfil"] == "pcp":
-                return redirect(url_for("dashboard"))
-
-            elif session["perfil"] == "qualidade":
-                return redirect(url_for("apontamento_descartes"))
-
-            elif session["perfil"] == "producao":
-                return redirect(url_for("apontamento_producao"))
-
-            return redirect(url_for("dashboard"))
+            return redirect(url_for(destino_por_perfil(session["perfil"])))
 
         flash("Usuário ou senha inválidos")
 
