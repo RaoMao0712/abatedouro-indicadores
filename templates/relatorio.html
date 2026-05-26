@@ -1,22 +1,30 @@
 {% extends "base.html" %}
 
 {% block conteudo %}
+
 <div class="card">
-    <h2>Relatório por Setor</h2>
+    <h2>Relatórios</h2>
+
+    <p class="obs">
+        Esta área será evoluída para relatórios gerenciais completos.
+        Por enquanto, os principais indicadores consolidados estão no Dashboard.
+    </p>
+</div>
+
+<div class="card">
+    <h2>Produção por Setor</h2>
 
     {% if dados_setores %}
         {% for item in dados_setores %}
         <div class="history-item">
             <p><strong>Setor:</strong> {{ item.setor }}</p>
             <p><strong>Registros:</strong> {{ item.registros }}</p>
-            <p><strong>Total produzido:</strong> {{ item.total_produzido }}</p>
-            <p><strong>Condenações:</strong> {{ item.total_condenacoes }}</p>
-            <p><strong>Perdas:</strong> {{ item.total_perdas }}</p>
-            <p><strong>Produtividade média:</strong> {{ "%.2f"|format(item.produtividade_media) }} unid./HH</p>
+            <p><strong>Total produzido:</strong> {{ "%.2f"|format(item.total_produzido or 0) }}</p>
         </div>
         {% endfor %}
     {% else %}
         <p class="obs">Nenhum dado registrado ainda.</p>
     {% endif %}
 </div>
+
 {% endblock %}
