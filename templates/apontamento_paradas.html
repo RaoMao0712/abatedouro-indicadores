@@ -20,7 +20,10 @@
 
 <div class="card">
     <h2>Apontamento de Horas Paradas</h2>
-    <p class="obs">Registre eventos de parada por OP, setor e motivo.</p>
+    <p class="obs">
+        Registre um único evento de parada e selecione todos os setores impactados.
+        O sistema lançará o mesmo tempo de parada para cada setor selecionado.
+    </p>
 </div>
 
 <div class="card ficha">
@@ -50,21 +53,33 @@
             </div>
 
             <div>
-                <label>Setor</label>
-                <select name="setor" required>
-                    {% for setor in lista_setores %}
-                    <option value="{{ setor }}">{{ setor }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-
-            <div>
                 <label>Motivo</label>
                 <select name="motivo" required>
                     {% for motivo in lista_motivos_parada %}
                     <option value="{{ motivo }}">{{ motivo }}</option>
                     {% endfor %}
                 </select>
+            </div>
+
+            <div>
+                <label>Setores impactados</label>
+
+                <div class="checkbox-lista">
+                    {% for setor in lista_setores %}
+                    <label class="checkbox-item">
+                        <input
+                            type="checkbox"
+                            name="setores"
+                            value="{{ setor }}"
+                        >
+                        {{ setor }}
+                    </label>
+                    {% endfor %}
+                </div>
+
+                <p class="obs">
+                    Marque todos os setores que ficaram parados pelo mesmo evento.
+                </p>
             </div>
 
             <div>

@@ -394,6 +394,44 @@ def buscar_ordens():
     return ordens
 
 
+def buscar_ordens_abertas():
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute("""
+    SELECT *
+    FROM ordens_producao
+    WHERE status IS NULL OR status <> 'Encerrada'
+    ORDER BY id DESC
+    """)
+    ordens = cursor.fetchall()
+    conn.close()
+    return ordens
+
+
+def op_esta_encerrada(op_id):
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q("""
+    SELECT status
+    FROM ordens_producao
+    WHERE id = ?
+    """), (op_id,))
+
+    op = cursor.fetchone()
+    conn.close()
+
+    if not op:
+        return False
+
+    return op["status"] == "Encerrada"
+
+
+def validar_op_aberta(op_id):
+    if op_esta_encerrada(op_id) and session.get("perfil") != "admin":
+        raise ValueError("Esta OP já está encerrada. Novos lançamentos não são permitidos.")
+
+
 def calcular_resumo_op(op, producoes, descartes):
     total_descartes_aves = sum(
         item["quantidade"] for item in descartes
@@ -434,6 +472,9 @@ def calcular_resumo_op(op, producoes, descartes):
 
 
 def salvar_apontamento_producao(form):
+    op_id = int(form["op_id"])
+    validar_op_aberta(op_id)
+
     conn = conectar()
     cursor = conn.cursor()
 
@@ -442,7 +483,7 @@ def salvar_apontamento_producao(form):
         op_id, data, setor, quantidade, unidade, observacoes
     ) VALUES (?, ?, ?, ?, ?, ?)
     """), (
-        int(form["op_id"]),
+        op_id,
         form["data"],
         form["setor"],
         float(form["quantidade"]),
@@ -455,6 +496,9 @@ def salvar_apontamento_producao(form):
 
 
 def salvar_apontamento_mao_obra(form):
+    op_id = int(form["op_id"])
+    validar_op_aberta(op_id)
+
     conn = conectar()
     cursor = conn.cursor()
 
@@ -463,7 +507,7 @@ def salvar_apontamento_mao_obra(form):
         op_id, data, colaborador, funcao, setor, turno, observacoes
     ) VALUES (?, ?, ?, ?, ?, ?, ?)
     """), (
-        int(form["op_id"]),
+        op_id,
         form["data"],
         form["colaborador"],
         form["funcao"],
@@ -477,6 +521,17 @@ def salvar_apontamento_mao_obra(form):
 
 
 def salvar_apontamento_parada(form):
+    op_id = int(form["op_id"])
+    validar_op_aberta(op_id)
+
+    setores_impactados = form.getlist("setores")
+
+    if not setores_impactados and form.get("setor"):
+        setores_impactados = [form.get("setor")]
+
+    if not setores_impactados:
+        raise ValueError("Selecione pelo menos um setor impactado pela parada.")
+
     conn = conectar()
     cursor = conn.cursor()
 
@@ -488,26 +543,29 @@ def salvar_apontamento_parada(form):
             form["hora_fim"]
         )
 
-    cursor.execute(q("""
-    INSERT INTO apontamentos_paradas (
-        op_id, data, setor, motivo, hora_inicio, hora_fim, horas_paradas, observacoes
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    """), (
-        int(form["op_id"]),
-        form["data"],
-        form["setor"],
-        form["motivo"],
-        form.get("hora_inicio", ""),
-        form.get("hora_fim", ""),
-        horas_paradas,
-        form.get("observacoes", "")
-    ))
+    for setor in setores_impactados:
+        cursor.execute(q("""
+        INSERT INTO apontamentos_paradas (
+            op_id, data, setor, motivo, hora_inicio, hora_fim, horas_paradas, observacoes
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """), (
+            op_id,
+            form["data"],
+            setor,
+            form["motivo"],
+            form.get("hora_inicio", ""),
+            form.get("hora_fim", ""),
+            horas_paradas,
+            form.get("observacoes", "")
+        ))
 
     conn.commit()
     conn.close()
 
-
 def salvar_apontamento_descarte(form):
+    op_id = int(form["op_id"])
+    validar_op_aberta(op_id)
+
     conn = conectar()
     cursor = conn.cursor()
 
@@ -516,7 +574,7 @@ def salvar_apontamento_descarte(form):
         op_id, data, setor, categoria, motivo, quantidade, unidade, observacoes
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     """), (
-        int(form["op_id"]),
+        op_id,
         form["data"],
         form["setor"],
         form["categoria"],
@@ -533,7 +591,7 @@ def salvar_apontamento_descarte(form):
 def contexto_apontamento():
     return {
         "hoje": datetime.now().strftime("%Y-%m-%d"),
-        "ordens": buscar_ordens(),
+        "ordens": buscar_ordens_abertas(),
         "setores": setores_padrao()
     }
 
@@ -583,58 +641,238 @@ def sair():
 @app.route("/dashboard")
 @perfil_permitido("pcp")
 def dashboard():
-    hoje = datetime.now().strftime("%Y-%m-%d")
+    agora = datetime.now()
+    hoje = agora.strftime("%Y-%m-%d")
+    primeiro_dia_mes = agora.replace(day=1).strftime("%Y-%m-%d")
 
-    data_inicio = request.args.get("data_inicio") or hoje
+    data_inicio = request.args.get("data_inicio") or primeiro_dia_mes
     data_fim = request.args.get("data_fim") or hoje
+    status_filtro = request.args.get("status") or "Encerrada"
+
+    jornada_padrao = 8.8
+    setores_produtivos = [
+        "Recepção e Pendura",
+        "Escalda e Depenagem",
+        "Evisceração",
+        "Corte",
+        "Embalagem"
+    ]
+
+    status_condicao_op = ""
+    status_condicao_alias = ""
+    parametros_status = ()
+
+    if status_filtro in ["Aberta", "Encerrada"]:
+        status_condicao_op = " AND COALESCE(status, 'Aberta') = ?"
+        status_condicao_alias = " AND COALESCE(o.status, 'Aberta') = ?"
+        parametros_status = (status_filtro,)
+    else:
+        status_filtro = "Todas"
 
     conn = conectar()
     cursor = conn.cursor()
 
-    cursor.execute(q("""
+    cursor.execute(q(f"""
     SELECT
-        COALESCE(SUM(quantidade_aves), 0) as aves_recebidas,
-        COALESCE(SUM(mortes_antes_pendura), 0) as mortes_antes_pendura,
-        COALESCE(SUM(peso_vivo), 0) as peso_entrada
+        id,
+        data,
+        quantidade_aves,
+        mortes_antes_pendura,
+        peso_vivo
     FROM ordens_producao
     WHERE data BETWEEN ? AND ?
-    """), (data_inicio, data_fim))
+    {status_condicao_op}
+    """), (data_inicio, data_fim) + parametros_status)
 
-    dados = cursor.fetchone()
-    aves_recebidas = dados["aves_recebidas"]
-    mortes_antes_pendura = dados["mortes_antes_pendura"]
-    peso_entrada = dados["peso_entrada"]
+    ordens_periodo = cursor.fetchall()
+
+    datas_periodo = sorted({op["data"] for op in ordens_periodo})
+    dias_periodo = len(datas_periodo)
+    horas_programadas = jornada_padrao * dias_periodo
+
+    aves_recebidas = sum(op["quantidade_aves"] or 0 for op in ordens_periodo)
+    mortes_antes_pendura = sum(op["mortes_antes_pendura"] or 0 for op in ordens_periodo)
+    peso_entrada = sum(op["peso_vivo"] or 0 for op in ordens_periodo)
     aves_abatidas = aves_recebidas - mortes_antes_pendura
 
-    cursor.execute(q("""
+    cursor.execute(q(f"""
     SELECT COALESCE(SUM(d.quantidade), 0) as descartes_aves
     FROM apontamentos_descartes d
     JOIN ordens_producao o ON o.id = d.op_id
     WHERE o.data BETWEEN ? AND ?
       AND LOWER(d.unidade) IN ('aves', 'ave', 'unidade', 'unidades')
-    """), (data_inicio, data_fim))
+      {status_condicao_alias}
+    """), (data_inicio, data_fim) + parametros_status)
 
-    descartes_aves = cursor.fetchone()["descartes_aves"]
+    descartes_aves = cursor.fetchone()["descartes_aves"] or 0
 
-    cursor.execute(q("""
+    cursor.execute(q(f"""
     SELECT COALESCE(SUM(d.quantidade), 0) as descartes_kg
     FROM apontamentos_descartes d
     JOIN ordens_producao o ON o.id = d.op_id
     WHERE o.data BETWEEN ? AND ?
       AND LOWER(d.unidade) = 'kg'
-    """), (data_inicio, data_fim))
+      {status_condicao_alias}
+    """), (data_inicio, data_fim) + parametros_status)
 
-    descartes_kg = cursor.fetchone()["descartes_kg"]
+    descartes_kg = cursor.fetchone()["descartes_kg"] or 0
 
-    cursor.execute(q("""
+    cursor.execute(q(f"""
     SELECT COALESCE(SUM(p.quantidade), 0) as kg
     FROM apontamentos_producao p
     JOIN ordens_producao o ON o.id = p.op_id
     WHERE o.data BETWEEN ? AND ?
       AND LOWER(p.unidade) = 'kg'
-    """), (data_inicio, data_fim))
+      {status_condicao_alias}
+    """), (data_inicio, data_fim) + parametros_status)
 
-    kg_produzidos = cursor.fetchone()["kg"]
+    kg_produzidos = cursor.fetchone()["kg"] or 0
+
+    total_problemas_aves = mortes_antes_pendura + descartes_aves
+
+    cursor.execute(q(f"""
+    SELECT d.setor, COALESCE(SUM(d.quantidade), 0) as quantidade
+    FROM apontamentos_descartes d
+    JOIN ordens_producao o ON o.id = d.op_id
+    WHERE o.data BETWEEN ? AND ?
+      AND LOWER(d.unidade) IN ('aves', 'ave', 'unidade', 'unidades')
+      {status_condicao_alias}
+    GROUP BY d.setor
+    ORDER BY quantidade DESC
+    """), (data_inicio, data_fim) + parametros_status)
+
+    descartes_por_setor_raw = cursor.fetchall()
+
+    descartes_por_setor = []
+    descartes_aves_por_setor = {}
+
+    if mortes_antes_pendura > 0:
+        percentual_transporte = 0
+
+        if total_problemas_aves > 0:
+            percentual_transporte = (mortes_antes_pendura / total_problemas_aves) * 100
+
+        descartes_por_setor.append({
+            "setor": "Transporte",
+            "quantidade": round(mortes_antes_pendura, 2),
+            "percentual": round(percentual_transporte, 2)
+        })
+
+    for item in descartes_por_setor_raw:
+        quantidade = item["quantidade"] or 0
+        descartes_aves_por_setor[item["setor"]] = quantidade
+        percentual = 0
+
+        if total_problemas_aves > 0:
+            percentual = (quantidade / total_problemas_aves) * 100
+
+        descartes_por_setor.append({
+            "setor": item["setor"],
+            "quantidade": round(quantidade, 2),
+            "percentual": round(percentual, 2)
+        })
+
+    descartes_por_setor = sorted(
+        descartes_por_setor,
+        key=lambda item: item["quantidade"],
+        reverse=True
+    )
+
+    cursor.execute(q(f"""
+    SELECT
+        p.op_id,
+        o.data as data_op,
+        p.data as data_apontamento,
+        p.setor,
+        p.motivo,
+        p.horas_paradas,
+        p.observacoes
+    FROM apontamentos_paradas p
+    JOIN ordens_producao o ON o.id = p.op_id
+    WHERE o.data BETWEEN ? AND ?
+      AND p.setor <> 'Expedição'
+      {status_condicao_alias}
+    """), (data_inicio, data_fim) + parametros_status)
+
+    paradas_produtivas = cursor.fetchall()
+
+    horas_perdidas_por_setor = {setor: 0 for setor in setores_produtivos}
+    horas_perdidas_por_data_setor = {}
+    eventos_parada_unicos = {}
+
+    for parada in paradas_produtivas:
+        setor = parada["setor"]
+
+        if setor not in setores_produtivos:
+            continue
+
+        horas = float(parada["horas_paradas"] or 0)
+        data_base = parada["data_op"] or parada["data_apontamento"]
+
+        horas_perdidas_por_setor[setor] += horas
+        chave_data_setor = (data_base, setor)
+        horas_perdidas_por_data_setor[chave_data_setor] = (
+            horas_perdidas_por_data_setor.get(chave_data_setor, 0) + horas
+        )
+
+        chave_evento = (
+            parada["op_id"],
+            data_base,
+            parada["motivo"],
+            round(horas, 4),
+            parada["observacoes"] or ""
+        )
+        eventos_parada_unicos[chave_evento] = horas
+
+    horas_perdidas_total = sum(eventos_parada_unicos.values())
+    horas_uteis_total = max(0, horas_programadas - horas_perdidas_total)
+
+    percentual_jornada_perdida = 0
+    if horas_programadas > 0:
+        percentual_jornada_perdida = (horas_perdidas_total / horas_programadas) * 100
+
+    cursor.execute(q(f"""
+    SELECT
+        o.data as data_op,
+        m.setor,
+        m.colaborador
+    FROM apontamentos_mao_obra m
+    JOIN ordens_producao o ON o.id = m.op_id
+    WHERE o.data BETWEEN ? AND ?
+      AND m.setor <> 'Expedição'
+      {status_condicao_alias}
+    """), (data_inicio, data_fim) + parametros_status)
+
+    mao_obra_periodo = cursor.fetchall()
+
+    colaboradores_por_data_setor = {}
+
+    for item in mao_obra_periodo:
+        setor = item["setor"]
+
+        if setor not in setores_produtivos:
+            continue
+
+        chave = (item["data_op"], setor)
+        nome = (item["colaborador"] or "").strip().lower()
+
+        if not nome:
+            continue
+
+        colaboradores_por_data_setor.setdefault(chave, set()).add(nome)
+
+    hh_total = 0
+    hh_por_setor = {setor: 0 for setor in setores_produtivos}
+    colaboradores_por_setor = {setor: set() for setor in setores_produtivos}
+
+    for (data_op, setor), colaboradores in colaboradores_por_data_setor.items():
+        horas_perdidas_setor_dia = horas_perdidas_por_data_setor.get((data_op, setor), 0)
+        horas_uteis_setor_dia = max(0, jornada_padrao - horas_perdidas_setor_dia)
+        hh = len(colaboradores) * horas_uteis_setor_dia
+
+        hh_por_setor[setor] += hh
+        hh_total += hh
+        colaboradores_por_setor[setor].update(colaboradores)
 
     viabilidade = aves_recebidas - mortes_antes_pendura - descartes_aves
     viabilidade_percentual = 0
@@ -646,22 +884,66 @@ def dashboard():
     if peso_entrada > 0:
         rendimento = (kg_produzidos / peso_entrada) * 100
 
-    cursor.execute(q("""
+    produtividade_hh = 0
+    if hh_total > 0:
+        produtividade_hh = viabilidade / hh_total
+
+    aves_hora_fabrica = 0
+    if horas_uteis_total > 0:
+        aves_hora_fabrica = viabilidade / horas_uteis_total
+
+    cursor.execute(q(f"""
     SELECT p.setor, SUM(p.quantidade) as total_produzido
     FROM apontamentos_producao p
     JOIN ordens_producao o ON o.id = p.op_id
     WHERE o.data BETWEEN ? AND ?
+      {status_condicao_alias}
     GROUP BY p.setor
     ORDER BY p.setor
-    """), (data_inicio, data_fim))
+    """), (data_inicio, data_fim) + parametros_status)
 
     produtividade_setores = cursor.fetchall()
+
+    produtividade_setores_hora = []
+    entrada_setor = aves_abatidas
+
+    for setor in setores_produtivos:
+        descartes_setor = descartes_aves_por_setor.get(setor, 0)
+        saida_liquida = max(0, entrada_setor - descartes_setor)
+        horas_perdidas_setor = horas_perdidas_por_setor.get(setor, 0)
+        horas_uteis_setor = max(0, horas_programadas - horas_perdidas_setor)
+        hh_setor = hh_por_setor.get(setor, 0)
+        aves_hora_setor = 0
+        produtividade_hh_setor = 0
+
+        if horas_uteis_setor > 0:
+            aves_hora_setor = saida_liquida / horas_uteis_setor
+
+        if hh_setor > 0:
+            produtividade_hh_setor = saida_liquida / hh_setor
+
+        produtividade_setores_hora.append({
+            "setor": setor,
+            "entrada": round(entrada_setor, 2),
+            "descartes": round(descartes_setor, 2),
+            "saida_liquida": round(saida_liquida, 2),
+            "horas_perdidas": round(horas_perdidas_setor, 2),
+            "horas_uteis": round(horas_uteis_setor, 2),
+            "colaboradores": len(colaboradores_por_setor.get(setor, set())),
+            "hh": round(hh_setor, 2),
+            "aves_hora": round(aves_hora_setor, 2),
+            "produtividade_hh": round(produtividade_hh_setor, 2)
+        })
+
+        entrada_setor = saida_liquida
+
     conn.close()
 
     return render_template(
         "dashboard.html",
         data_inicio=data_inicio,
         data_fim=data_fim,
+        status_filtro=status_filtro,
         aves_recebidas=round(aves_recebidas, 2),
         aves_abatidas=round(aves_abatidas, 2),
         viabilidade=round(viabilidade, 2),
@@ -672,9 +954,20 @@ def dashboard():
         mortes_antes_pendura=round(mortes_antes_pendura, 2),
         total_condenacoes=round(descartes_aves, 2),
         total_perdas=round(descartes_kg, 2),
-        produtividade_setores=produtividade_setores
+        total_problemas_aves=round(total_problemas_aves, 2),
+        jornada_padrao=round(jornada_padrao, 2),
+        dias_periodo=dias_periodo,
+        horas_programadas=round(horas_programadas, 2),
+        horas_perdidas_total=round(horas_perdidas_total, 2),
+        percentual_jornada_perdida=round(percentual_jornada_perdida, 2),
+        horas_uteis_total=round(horas_uteis_total, 2),
+        hh_total=round(hh_total, 2),
+        produtividade_hh=round(produtividade_hh, 2),
+        aves_hora_fabrica=round(aves_hora_fabrica, 2),
+        descartes_por_setor=descartes_por_setor,
+        produtividade_setores=produtividade_setores,
+        produtividade_setores_hora=produtividade_setores_hora
     )
-
 
 @app.route("/ordem-producao", methods=["GET", "POST"])
 @perfil_permitido("pcp")
@@ -758,8 +1051,12 @@ def apontamento_producao():
     criar_banco()
 
     if request.method == "POST":
-        salvar_apontamento_producao(request.form)
-        flash("Apontamento de produção salvo.")
+        try:
+            salvar_apontamento_producao(request.form)
+            flash("Apontamento de produção salvo.")
+        except ValueError as erro:
+            flash(str(erro))
+
         return redirect(url_for("apontamento_producao"))
 
     return render_template("apontamento_producao.html", **contexto_apontamento())
@@ -771,8 +1068,12 @@ def apontamento_mao_obra():
     criar_banco()
 
     if request.method == "POST":
-        salvar_apontamento_mao_obra(request.form)
-        flash("Apontamento de mão de obra salvo.")
+        try:
+            salvar_apontamento_mao_obra(request.form)
+            flash("Apontamento de mão de obra salvo.")
+        except ValueError as erro:
+            flash(str(erro))
+
         return redirect(url_for("apontamento_mao_obra"))
 
     return render_template("apontamento_mao_obra.html", **contexto_apontamento())
@@ -784,8 +1085,12 @@ def apontamento_paradas():
     criar_banco()
 
     if request.method == "POST":
-        salvar_apontamento_parada(request.form)
-        flash("Apontamento de horas paradas salvo.")
+        try:
+            salvar_apontamento_parada(request.form)
+            flash("Apontamento de horas paradas salvo.")
+        except ValueError as erro:
+            flash(str(erro))
+
         return redirect(url_for("apontamento_paradas"))
 
     return render_template("apontamento_paradas.html", **contexto_apontamento())
@@ -797,8 +1102,12 @@ def apontamento_descartes():
     criar_banco()
 
     if request.method == "POST":
-        salvar_apontamento_descarte(request.form)
-        flash("Apontamento de descarte/condenação salvo.")
+        try:
+            salvar_apontamento_descarte(request.form)
+            flash("Apontamento de descarte/condenação salvo.")
+        except ValueError as erro:
+            flash(str(erro))
+
         return redirect(url_for("apontamento_descartes"))
 
     return render_template("apontamento_descartes.html", **contexto_apontamento())
@@ -817,6 +1126,11 @@ def editar_op(op_id):
         conn.close()
         flash("OP não encontrada.")
         return redirect(url_for("consultar_op"))
+
+    if op["status"] == "Encerrada" and session.get("perfil") != "admin":
+        conn.close()
+        flash("Esta OP está encerrada. Edição bloqueada.")
+        return redirect(url_for("consultar_op", op_id=op_id))
 
     if request.method == "POST":
         data = request.form["data"]
@@ -872,6 +1186,44 @@ def excluir_op(op_id):
 
     flash("OP excluída com sucesso.")
     return redirect(url_for("consultar_op"))
+
+
+@app.route("/op/<int:op_id>/encerrar", methods=["POST"])
+@perfil_permitido("pcp")
+def encerrar_op(op_id):
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q("""
+    UPDATE ordens_producao
+    SET status = ?
+    WHERE id = ?
+    """), ("Encerrada", op_id))
+
+    conn.commit()
+    conn.close()
+
+    flash("OP encerrada com sucesso.")
+    return redirect(url_for("consultar_op", op_id=op_id))
+
+
+@app.route("/op/<int:op_id>/reabrir", methods=["POST"])
+@perfil_permitido("admin")
+def reabrir_op(op_id):
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q("""
+    UPDATE ordens_producao
+    SET status = ?
+    WHERE id = ?
+    """), ("Aberta", op_id))
+
+    conn.commit()
+    conn.close()
+
+    flash("OP reaberta com sucesso.")
+    return redirect(url_for("consultar_op", op_id=op_id))
 
 
 @app.route("/consultar-op")
