@@ -4,6 +4,7 @@ from functools import wraps
 from datetime import datetime
 from urllib.parse import urlparse
 import os
+import uuid
 import sqlite3
 import psycopg2
 import psycopg2.extras
@@ -128,6 +129,7 @@ def criar_banco():
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS apontamentos_paradas (
             id SERIAL PRIMARY KEY,
+            evento_id TEXT,
             op_id INTEGER NOT NULL,
             data TEXT NOT NULL,
             setor TEXT NOT NULL,
@@ -159,6 +161,9 @@ def criar_banco():
         conn = conectar()
         cursor = conn.cursor()
         tentar_alter_table(cursor, conn, "ALTER TABLE ordens_producao ADD COLUMN status TEXT DEFAULT 'Aberta'")
+        conn = conectar()
+        cursor = conn.cursor()
+        tentar_alter_table(cursor, conn, "ALTER TABLE apontamentos_paradas ADD COLUMN evento_id TEXT")
         conn = conectar()
         cursor = conn.cursor()
 
@@ -240,6 +245,7 @@ def criar_banco():
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS apontamentos_paradas (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            evento_id TEXT,
             op_id INTEGER NOT NULL,
             data TEXT NOT NULL,
             setor TEXT NOT NULL,
@@ -274,6 +280,11 @@ def criar_banco():
 
         try:
             cursor.execute("ALTER TABLE ordens_producao ADD COLUMN status TEXT DEFAULT 'Aberta'")
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            cursor.execute("ALTER TABLE apontamentos_paradas ADD COLUMN evento_id TEXT")
         except sqlite3.OperationalError:
             pass
 
@@ -535,6 +546,8 @@ def salvar_apontamento_parada(form):
     conn = conectar()
     cursor = conn.cursor()
 
+    evento_id = uuid.uuid4().hex
+
     horas_paradas = float(form.get("horas_paradas") or 0)
 
     if horas_paradas <= 0 and form.get("hora_inicio") and form.get("hora_fim"):
@@ -546,9 +559,10 @@ def salvar_apontamento_parada(form):
     for setor in setores_impactados:
         cursor.execute(q("""
         INSERT INTO apontamentos_paradas (
-            op_id, data, setor, motivo, hora_inicio, hora_fim, horas_paradas, observacoes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            evento_id, op_id, data, setor, motivo, hora_inicio, hora_fim, horas_paradas, observacoes
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """), (
+            evento_id,
             op_id,
             form["data"],
             setor,
@@ -780,6 +794,8 @@ def dashboard():
 
     cursor.execute(q(f"""
     SELECT
+        p.id,
+        p.evento_id,
         p.op_id,
         o.data as data_op,
         p.data as data_apontamento,
@@ -815,13 +831,17 @@ def dashboard():
             horas_perdidas_por_data_setor.get(chave_data_setor, 0) + horas
         )
 
-        chave_evento = (
-            parada["op_id"],
-            data_base,
-            parada["motivo"],
-            round(horas, 4),
-            parada["observacoes"] or ""
-        )
+        if parada["evento_id"]:
+            chave_evento = parada["evento_id"]
+        else:
+            chave_evento = (
+                parada["op_id"],
+                data_base,
+                parada["motivo"],
+                round(horas, 4),
+                parada["observacoes"] or ""
+            )
+
         eventos_parada_unicos[chave_evento] = horas
 
     horas_perdidas_total = sum(eventos_parada_unicos.values())
