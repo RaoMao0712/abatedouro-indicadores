@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+
+<div class="card">
+    <h2>Editar Mão de Obra em Lote</h2>
+    <p class="obs">
+        As alterações abaixo serão aplicadas a todos os lançamentos selecionados.
+        Os nomes dos colaboradores serão preservados.
+    </p>
+</div>
+
+<div class="card">
+    <h3>Lançamentos selecionados</h3>
+
+    <div class="lista-operacional">
+        {% for item in registros %}
+        <div class="item-selecionavel">
+            <span class="item-link-operacional">{{ item.colaborador }}</span>
+            <span class="item-detalhe-operacional">
+                {{ item.setor }} | {{ item.funcao }} | {{ item.turno or 'Sem turno' }}
+            </span>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<div class="card ficha">
+    <h3>Novas informações</h3>
+
+    <form method="POST">
+        <input type="hidden" name="acao" value="salvar">
+
+        {% for id in ids %}
+            <input type="hidden" name="ids" value="{{ id }}">
+        {% endfor %}
+
+        <div class="form-grid">
+            <div>
+                <label>Função</label>
+                <select name="funcao" required>
+                    {% for funcao in lista_funcoes %}
+                    <option value="{{ funcao }}">{{ funcao }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div>
+                <label>Setor</label>
+                <select name="setor" required>
+                    {% for setor in setores %}
+                    <option value="{{ setor }}">{{ setor }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div>
+                <label>Turno</label>
+                <input type="text" name="turno">
+            </div>
+
+            <div>
+                <label>Observações</label>
+                <input type="text" name="observacoes">
+            </div>
+        </div>
+
+        <button type="submit">Salvar alterações</button>
+    </form>
+</div>
+
+{% endblock %}

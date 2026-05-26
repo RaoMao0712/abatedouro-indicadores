@@ -1361,6 +1361,291 @@ def editar_parada(parada_id):
     )
 
 
+def obter_registros_por_ids(tabela, ids):
+    if not ids:
+        return []
+
+    placeholders = ",".join(["?"] * len(ids))
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q(f"""
+    SELECT
+        r.*,
+        o.status as op_status
+    FROM {tabela} r
+    JOIN ordens_producao o ON o.id = r.op_id
+    WHERE r.id IN ({placeholders})
+    ORDER BY r.id ASC
+    """), tuple(ids))
+
+    registros = cursor.fetchall()
+    conn.close()
+    return registros
+
+
+def ids_do_request(nome="ids"):
+    valores = request.values.getlist(nome)
+
+    if not valores:
+        valores = request.form.getlist(nome)
+
+    ids = []
+
+    for valor in valores:
+        try:
+            ids.append(int(valor))
+        except (TypeError, ValueError):
+            pass
+
+    return ids
+
+
+def primeiro_op_id(registros):
+    if not registros:
+        return None
+    return registros[0]["op_id"]
+
+
+def edicao_bloqueada_por_status(registros):
+    if session.get("perfil") == "admin":
+        return False
+
+    for registro in registros:
+        if registro["op_status"] == "Encerrada":
+            return True
+
+    return False
+
+
+@app.route("/mao-obra/lote/editar", methods=["GET", "POST"])
+@perfil_permitido("producao")
+def editar_mao_obra_lote():
+    ids = ids_do_request("ids")
+
+    if not ids:
+        flash("Selecione pelo menos um lançamento de mão de obra.")
+        return redirect(url_for("consultar_op"))
+
+    registros = obter_registros_por_ids("apontamentos_mao_obra", ids)
+
+    if not registros:
+        flash("Nenhum lançamento de mão de obra encontrado.")
+        return redirect(url_for("consultar_op"))
+
+    op_id = primeiro_op_id(registros)
+
+    if edicao_bloqueada_por_status(registros):
+        flash("Esta OP está encerrada. Edição de mão de obra bloqueada.")
+        return redirect(url_for("consultar_op", op_id=op_id))
+
+    if request.method == "POST" and request.form.get("acao") == "salvar":
+        funcao = request.form["funcao"]
+        setor = request.form["setor"]
+        turno = request.form.get("turno", "")
+        observacoes = request.form.get("observacoes", "")
+
+        placeholders = ",".join(["?"] * len(ids))
+
+        conn = conectar()
+        cursor = conn.cursor()
+
+        cursor.execute(q(f"""
+        UPDATE apontamentos_mao_obra
+        SET funcao = ?,
+            setor = ?,
+            turno = ?,
+            observacoes = ?
+        WHERE id IN ({placeholders})
+        """), (funcao, setor, turno, observacoes, *ids))
+
+        conn.commit()
+        conn.close()
+
+        flash("Lançamentos de mão de obra atualizados com sucesso.")
+        return redirect(url_for("consultar_op", op_id=op_id))
+
+    lista_funcoes = [
+        "Lavar gaiolas",
+        "Pendura",
+        "Sangria",
+        "Depenadeira",
+        "Transpasse",
+        "Retirada do papo",
+        "Retirada da cloaca",
+        "Corte abdominal",
+        "Eventração",
+        "Retirada da moela",
+        "Abertura da moela",
+        "Retirada do coração",
+        "Retirada do pulmão",
+        "Retirada da cabeça/Revisão final",
+        "Limpeza de miudos",
+        "Corte",
+        "Organização da bandeja",
+        "Ensaque da bandeja",
+        "Selagem",
+        "Pesagem",
+        "Embalagem secundária",
+        "Rotulagem",
+        "Outra"
+    ]
+
+    return render_template(
+        "editar_mao_obra_lote.html",
+        registros=registros,
+        ids=ids,
+        setores=setores_padrao(),
+        lista_funcoes=lista_funcoes
+    )
+
+
+@app.route("/mao-obra/lote/excluir", methods=["POST"])
+@perfil_permitido("producao")
+def excluir_mao_obra_lote():
+    ids = ids_do_request("ids")
+
+    if not ids:
+        flash("Selecione pelo menos um lançamento de mão de obra para excluir.")
+        return redirect(url_for("consultar_op"))
+
+    registros = obter_registros_por_ids("apontamentos_mao_obra", ids)
+    op_id = primeiro_op_id(registros)
+
+    if not registros:
+        flash("Nenhum lançamento de mão de obra encontrado.")
+        return redirect(url_for("consultar_op"))
+
+    if edicao_bloqueada_por_status(registros):
+        flash("Esta OP está encerrada. Exclusão de mão de obra bloqueada.")
+        return redirect(url_for("consultar_op", op_id=op_id))
+
+    placeholders = ",".join(["?"] * len(ids))
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q(f"""
+    DELETE FROM apontamentos_mao_obra
+    WHERE id IN ({placeholders})
+    """), tuple(ids))
+
+    conn.commit()
+    conn.close()
+
+    flash("Lançamentos de mão de obra excluídos com sucesso.")
+    return redirect(url_for("consultar_op", op_id=op_id))
+
+
+@app.route("/paradas/lote/editar", methods=["GET", "POST"])
+@perfil_permitido("producao")
+def editar_paradas_lote():
+    ids = ids_do_request("ids")
+
+    if not ids:
+        flash("Selecione pelo menos um lançamento de parada.")
+        return redirect(url_for("consultar_op"))
+
+    registros = obter_registros_por_ids("apontamentos_paradas", ids)
+
+    if not registros:
+        flash("Nenhum lançamento de parada encontrado.")
+        return redirect(url_for("consultar_op"))
+
+    op_id = primeiro_op_id(registros)
+
+    if edicao_bloqueada_por_status(registros):
+        flash("Esta OP está encerrada. Edição de parada bloqueada.")
+        return redirect(url_for("consultar_op", op_id=op_id))
+
+    if request.method == "POST" and request.form.get("acao") == "salvar":
+        data = request.form["data"]
+        setor = request.form["setor"]
+        motivo = request.form["motivo"]
+        horas_paradas = float(request.form.get("horas_paradas") or 0)
+        observacoes = request.form.get("observacoes", "")
+
+        placeholders = ",".join(["?"] * len(ids))
+
+        conn = conectar()
+        cursor = conn.cursor()
+
+        cursor.execute(q(f"""
+        UPDATE apontamentos_paradas
+        SET data = ?,
+            setor = ?,
+            motivo = ?,
+            horas_paradas = ?,
+            observacoes = ?
+        WHERE id IN ({placeholders})
+        """), (data, setor, motivo, horas_paradas, observacoes, *ids))
+
+        conn.commit()
+        conn.close()
+
+        flash("Lançamentos de parada atualizados com sucesso.")
+        return redirect(url_for("consultar_op", op_id=op_id))
+
+    lista_motivos_parada = [
+        "Falta de matéria prima",
+        "Falta de insumos",
+        "Falta de mão de obra",
+        "Quebra de equipamento",
+        "Manutenção corretiva",
+        "Manutenção preventiva",
+        "Falta de energia",
+        "Ajuste operacional",
+        "Limpeza / higienização",
+        "Outro"
+    ]
+
+    return render_template(
+        "editar_paradas_lote.html",
+        registros=registros,
+        ids=ids,
+        setores=setores_padrao(),
+        lista_motivos_parada=lista_motivos_parada
+    )
+
+
+@app.route("/paradas/lote/excluir", methods=["POST"])
+@perfil_permitido("producao")
+def excluir_paradas_lote():
+    ids = ids_do_request("ids")
+
+    if not ids:
+        flash("Selecione pelo menos um lançamento de parada para excluir.")
+        return redirect(url_for("consultar_op"))
+
+    registros = obter_registros_por_ids("apontamentos_paradas", ids)
+    op_id = primeiro_op_id(registros)
+
+    if not registros:
+        flash("Nenhum lançamento de parada encontrado.")
+        return redirect(url_for("consultar_op"))
+
+    if edicao_bloqueada_por_status(registros):
+        flash("Esta OP está encerrada. Exclusão de parada bloqueada.")
+        return redirect(url_for("consultar_op", op_id=op_id))
+
+    placeholders = ",".join(["?"] * len(ids))
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q(f"""
+    DELETE FROM apontamentos_paradas
+    WHERE id IN ({placeholders})
+    """), tuple(ids))
+
+    conn.commit()
+    conn.close()
+
+    flash("Lançamentos de parada excluídos com sucesso.")
+    return redirect(url_for("consultar_op", op_id=op_id))
+
+
 @app.route("/op/<int:op_id>/excluir", methods=["POST"])
 @perfil_permitido("admin")
 def excluir_op(op_id):

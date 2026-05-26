@@ -300,56 +300,60 @@
 
     {% if mao_obra %}
 
-        {% for item in mao_obra %}
+        <form method="POST" class="form-lista-operacional">
 
-        <div class="history-item">
+            <input type="hidden" name="op_id" value="{{ op.id }}">
 
-            <p>
-                <strong>Data:</strong>
-                {{ item.data }}
-            </p>
+            <div class="lista-operacional">
 
-            <p>
-                <strong>Colaborador:</strong>
-                {{ item.colaborador }}
-            </p>
+                {% for item in mao_obra %}
 
-            <p>
-                <strong>Função:</strong>
-                {{ item.funcao }}
-            </p>
+                <label class="item-selecionavel">
+                    <input
+                        type="checkbox"
+                        name="ids"
+                        value="{{ item.id }}"
+                    >
 
-            <p>
-                <strong>Setor:</strong>
-                {{ item.setor }}
-            </p>
+                    <span class="item-link-operacional">
+                        {{ item.colaborador }}
+                    </span>
 
-            <p>
-                <strong>Turno:</strong>
-                {{ item.turno }}
-            </p>
+                    <span class="item-detalhe-operacional">
+                        {{ item.setor }} | {{ item.funcao }} | {{ item.turno or 'Sem turno' }}
+                    </span>
+                </label>
 
-            <p>
-                <strong>Observações:</strong>
-                {{ item.observacoes }}
-            </p>
+                {% endfor %}
+
+            </div>
 
             {% if op.status != "Encerrada" or session.get("perfil") == "admin" %}
                 {% if session.get("perfil") == "admin" or session.get("perfil") == "producao" %}
-                    <p>
-                        <a
-                            href="{{ url_for('editar_mao_obra', mao_obra_id=item.id) }}"
-                            class="botao-editar"
+
+                    <div class="acoes-lote">
+                        <button
+                            type="submit"
+                            formaction="{{ url_for('editar_mao_obra_lote') }}"
+                            class="botao-lote-editar"
                         >
-                            Editar mão de obra
-                        </a>
-                    </p>
+                            Editar selecionados
+                        </button>
+
+                        <button
+                            type="submit"
+                            formaction="{{ url_for('excluir_mao_obra_lote') }}"
+                            class="botao-lote-excluir"
+                            onclick="return confirm('Deseja realmente excluir os lançamentos de mão de obra selecionados?')"
+                        >
+                            Excluir selecionados
+                        </button>
+                    </div>
+
                 {% endif %}
             {% endif %}
 
-        </div>
-
-        {% endfor %}
+        </form>
 
     {% else %}
 
@@ -369,61 +373,66 @@
 
     {% if paradas %}
 
-        {% for item in paradas %}
+        <form method="POST" class="form-lista-operacional">
 
-        <div class="history-item">
+            <input type="hidden" name="op_id" value="{{ op.id }}">
 
-            <p>
-                <strong>Data:</strong>
-                {{ item.data }}
-            </p>
+            <div class="lista-operacional">
 
-            <p>
-                <strong>Setor:</strong>
-                {{ item.setor }}
-            </p>
+                {% for item in paradas %}
 
-            <p>
-                <strong>Motivo:</strong>
-                {{ item.motivo }}
-            </p>
+                <label class="item-selecionavel">
+                    <input
+                        type="checkbox"
+                        name="ids"
+                        value="{{ item.id }}"
+                    >
 
-            <p>
-                <strong>Hora Início:</strong>
-                {{ item.hora_inicio }}
-            </p>
+                    <span class="item-link-operacional">
+                        {{ item.motivo }}
+                    </span>
 
-            <p>
-                <strong>Hora Fim:</strong>
-                {{ item.hora_fim }}
-            </p>
+                    <span class="item-detalhe-operacional">
+                        {{ item.data }} | {{ item.setor }} | {{ item.horas_paradas }} h
+                    </span>
 
-            <p>
-                <strong>Horas Paradas:</strong>
-                {{ item.horas_paradas }}
-            </p>
+                    {% if item.observacoes %}
+                    <span class="item-detalhe-operacional">
+                        Obs.: {{ item.observacoes }}
+                    </span>
+                    {% endif %}
+                </label>
 
-            <p>
-                <strong>Observações:</strong>
-                {{ item.observacoes }}
-            </p>
+                {% endfor %}
+
+            </div>
 
             {% if op.status != "Encerrada" or session.get("perfil") == "admin" %}
                 {% if session.get("perfil") == "admin" or session.get("perfil") == "producao" %}
-                    <p>
-                        <a
-                            href="{{ url_for('editar_parada', parada_id=item.id) }}"
-                            class="botao-editar"
+
+                    <div class="acoes-lote">
+                        <button
+                            type="submit"
+                            formaction="{{ url_for('editar_paradas_lote') }}"
+                            class="botao-lote-editar"
                         >
-                            Editar parada
-                        </a>
-                    </p>
+                            Editar selecionadas
+                        </button>
+
+                        <button
+                            type="submit"
+                            formaction="{{ url_for('excluir_paradas_lote') }}"
+                            class="botao-lote-excluir"
+                            onclick="return confirm('Deseja realmente excluir as paradas selecionadas?')"
+                        >
+                            Excluir selecionadas
+                        </button>
+                    </div>
+
                 {% endif %}
             {% endif %}
 
-        </div>
-
-        {% endfor %}
+        </form>
 
     {% else %}
 
