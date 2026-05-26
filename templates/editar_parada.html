@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+
+<div class="card">
+    <h2>Editar Parada Operacional</h2>
+    <p class="obs">
+        Ajuste os dados do apontamento de parada selecionado. Se a OP estiver encerrada, apenas o administrador poderá editar.
+    </p>
+</div>
+
+<div class="card ficha">
+    <h3>Dados da Parada</h3>
+
+    <form method="POST">
+        <div class="form-grid">
+
+            <div>
+                <label>Data</label>
+                <input
+                    type="date"
+                    name="data"
+                    value="{{ apontamento.data }}"
+                    required
+                >
+            </div>
+
+            <div>
+                <label>Setor</label>
+                <select name="setor" required>
+                    {% for setor in setores %}
+                    <option
+                        value="{{ setor }}"
+                        {% if apontamento.setor == setor %}selected{% endif %}
+                    >
+                        {{ setor }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div>
+                <label>Motivo</label>
+                <select name="motivo" required>
+                    {% for motivo in lista_motivos_parada %}
+                    <option
+                        value="{{ motivo }}"
+                        {% if apontamento.motivo == motivo %}selected{% endif %}
+                    >
+                        {{ motivo }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div>
+                <label>Quantidade de horas paradas</label>
+                <input
+                    type="number"
+                    step="0.01"
+                    name="horas_paradas"
+                    value="{{ apontamento.horas_paradas }}"
+                    required
+                >
+            </div>
+
+            <div>
+                <label>Observações</label>
+                <input
+                    type="text"
+                    name="observacoes"
+                    value="{{ apontamento.observacoes }}"
+                >
+            </div>
+
+        </div>
+
+        <button type="submit">Salvar Alterações</button>
+
+        <a
+            href="{{ url_for('consultar_op', op_id=apontamento.op_id) }}"
+            class="botao-impressao"
+        >
+            Voltar
+        </a>
+    </form>
+</div>
+
+{% endblock %}

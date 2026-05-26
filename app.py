@@ -1279,6 +1279,88 @@ def editar_mao_obra(mao_obra_id):
     )
 
 
+@app.route("/parada/<int:parada_id>/editar", methods=["GET", "POST"])
+@perfil_permitido("producao")
+def editar_parada(parada_id):
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q("""
+    SELECT
+        p.*,
+        o.status as op_status
+    FROM apontamentos_paradas p
+    JOIN ordens_producao o ON o.id = p.op_id
+    WHERE p.id = ?
+    """), (parada_id,))
+
+    apontamento = cursor.fetchone()
+
+    if not apontamento:
+        conn.close()
+        flash("Apontamento de parada não encontrado.")
+        return redirect(url_for("consultar_op"))
+
+    if apontamento["op_status"] == "Encerrada" and session.get("perfil") != "admin":
+        op_id = apontamento["op_id"]
+        conn.close()
+        flash("Esta OP está encerrada. Edição de parada bloqueada.")
+        return redirect(url_for("consultar_op", op_id=op_id))
+
+    if request.method == "POST":
+        data = request.form["data"]
+        setor = request.form["setor"]
+        motivo = request.form["motivo"]
+        horas_paradas = float(request.form.get("horas_paradas") or 0)
+        observacoes = request.form.get("observacoes", "")
+
+        cursor.execute(q("""
+        UPDATE apontamentos_paradas
+        SET data = ?,
+            setor = ?,
+            motivo = ?,
+            horas_paradas = ?,
+            observacoes = ?
+        WHERE id = ?
+        """), (
+            data,
+            setor,
+            motivo,
+            horas_paradas,
+            observacoes,
+            parada_id
+        ))
+
+        conn.commit()
+        op_id = apontamento["op_id"]
+        conn.close()
+
+        flash("Apontamento de parada atualizado com sucesso.")
+        return redirect(url_for("consultar_op", op_id=op_id))
+
+    conn.close()
+
+    lista_motivos_parada = [
+        "Falta de matéria prima",
+        "Falta de insumos",
+        "Falta de mão de obra",
+        "Quebra de equipamento",
+        "Manutenção corretiva",
+        "Manutenção preventiva",
+        "Falta de energia",
+        "Ajuste operacional",
+        "Limpeza / higienização",
+        "Outro"
+    ]
+
+    return render_template(
+        "editar_parada.html",
+        apontamento=apontamento,
+        setores=setores_padrao(),
+        lista_motivos_parada=lista_motivos_parada
+    )
+
+
 @app.route("/op/<int:op_id>/excluir", methods=["POST"])
 @perfil_permitido("admin")
 def excluir_op(op_id):
