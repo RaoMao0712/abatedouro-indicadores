@@ -1164,6 +1164,101 @@ def editar_op(op_id):
     return render_template("editar_op.html", op=op)
 
 
+@app.route("/mao-obra/<int:mao_obra_id>/editar", methods=["GET", "POST"])
+@perfil_permitido("producao")
+def editar_mao_obra(mao_obra_id):
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q("""
+    SELECT
+        m.*,
+        o.status as op_status
+    FROM apontamentos_mao_obra m
+    JOIN ordens_producao o ON o.id = m.op_id
+    WHERE m.id = ?
+    """), (mao_obra_id,))
+
+    apontamento = cursor.fetchone()
+
+    if not apontamento:
+        conn.close()
+        flash("Apontamento de mão de obra não encontrado.")
+        return redirect(url_for("consultar_op"))
+
+    if apontamento["op_status"] == "Encerrada" and session.get("perfil") != "admin":
+        op_id = apontamento["op_id"]
+        conn.close()
+        flash("Esta OP está encerrada. Edição de mão de obra bloqueada.")
+        return redirect(url_for("consultar_op", op_id=op_id))
+
+    if request.method == "POST":
+        colaborador = request.form["colaborador"]
+        funcao = request.form["funcao"]
+        setor = request.form["setor"]
+        turno = request.form.get("turno", "")
+        observacoes = request.form.get("observacoes", "")
+
+        cursor.execute(q("""
+        UPDATE apontamentos_mao_obra
+        SET colaborador = ?,
+            funcao = ?,
+            setor = ?,
+            turno = ?,
+            observacoes = ?
+        WHERE id = ?
+        """), (
+            colaborador,
+            funcao,
+            setor,
+            turno,
+            observacoes,
+            mao_obra_id
+        ))
+
+        conn.commit()
+        op_id = apontamento["op_id"]
+        conn.close()
+
+        flash("Apontamento de mão de obra atualizado com sucesso.")
+        return redirect(url_for("consultar_op", op_id=op_id))
+
+    conn.close()
+
+    lista_funcoes = [
+        "Lavar gaiolas",
+        "Pendura",
+        "Sangria",
+        "Depenadeira",
+        "Transpasse",
+        "Retirada do papo",
+        "Retirada da cloaca",
+        "Corte abdominal",
+        "Eventração",
+        "Retirada da moela",
+        "Abertura da moela",
+        "Retirada do coração",
+        "Retirada do pulmão",
+        "Retirada da cabeça/Revisão final",
+        "Limpeza de miudos",
+        "Corte",
+        "Organização da bandeja",
+        "Ensaque da bandeja",
+        "Selagem",
+        "Pesagem",
+        "Embalagem secundária",
+        "Rotulagem",
+        "Outra"
+    ]
+
+    return render_template(
+        "editar_mao_obra.html",
+        apontamento=apontamento,
+        setores=setores_padrao(),
+        lista_funcoes=lista_funcoes
+    )
+
+
 @app.route("/op/<int:op_id>/excluir", methods=["POST"])
 @perfil_permitido("admin")
 def excluir_op(op_id):

@@ -334,6 +334,19 @@
                 {{ item.observacoes }}
             </p>
 
+            {% if op.status != "Encerrada" or session.get("perfil") == "admin" %}
+                {% if session.get("perfil") == "admin" or session.get("perfil") == "producao" %}
+                    <p>
+                        <a
+                            href="{{ url_for('editar_mao_obra', mao_obra_id=item.id) }}"
+                            class="botao-editar"
+                        >
+                            Editar mão de obra
+                        </a>
+                    </p>
+                {% endif %}
+            {% endif %}
+
         </div>
 
         {% endfor %}

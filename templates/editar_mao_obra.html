@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+
+<div class="card">
+    <h2>Editar Mão de Obra</h2>
+    <p class="obs">
+        Ajuste o colaborador, função ou setor do apontamento. Esta edição só fica liberada enquanto a OP estiver aberta, exceto para administrador.
+    </p>
+</div>
+
+<div class="card ficha">
+    <form method="POST">
+        <div class="form-grid">
+
+            <div>
+                <label>Data</label>
+                <input type="date" value="{{ apontamento.data }}" disabled>
+            </div>
+
+            <div>
+                <label>OP</label>
+                <input type="text" value="OP {{ apontamento.op_id }}" disabled>
+            </div>
+
+            <div>
+                <label>Colaborador</label>
+                <input
+                    type="text"
+                    name="colaborador"
+                    value="{{ apontamento.colaborador }}"
+                    required
+                >
+            </div>
+
+            <div>
+                <label>Função</label>
+                <select name="funcao" required>
+                    {% for funcao in lista_funcoes %}
+                    <option
+                        value="{{ funcao }}"
+                        {% if apontamento.funcao == funcao %}selected{% endif %}
+                    >
+                        {{ funcao }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div>
+                <label>Setor</label>
+                <select name="setor" required>
+                    {% for setor in setores %}
+                    <option
+                        value="{{ setor }}"
+                        {% if apontamento.setor == setor %}selected{% endif %}
+                    >
+                        {{ setor }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div>
+                <label>Turno</label>
+                <input
+                    type="text"
+                    name="turno"
+                    value="{{ apontamento.turno or '' }}"
+                >
+            </div>
+
+            <div>
+                <label>Observações</label>
+                <input
+                    type="text"
+                    name="observacoes"
+                    value="{{ apontamento.observacoes or '' }}"
+                >
+            </div>
+
+        </div>
+
+        <button type="submit">Salvar Alterações</button>
+
+        <a
+            href="{{ url_for('consultar_op', op_id=apontamento.op_id) }}"
+            class="botao-impressao"
+        >
+            Voltar para OP
+        </a>
+    </form>
+</div>
+
+{% endblock %}
