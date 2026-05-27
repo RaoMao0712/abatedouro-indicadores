@@ -1,1 +1,38 @@
-{% extends 'base.html' %}
+{% extends "base.html" %}
+
+{% block conteudo %}
+
+<div class="grid-dashboard">
+
+    <div class="card">
+        <h2>Cadastrar Fornecedor</h2>
+
+        <form method="POST">
+            <div class="form-grid">
+                <div>
+                    <label>Nome do fornecedor</label>
+                    <input type="text" name="nome" required>
+                </div>
+            </div>
+
+            <button type="submit">Cadastrar Fornecedor</button>
+        </form>
+    </div>
+
+    <div class="card">
+        <h2>Fornecedores cadastrados</h2>
+
+        {% if fornecedores %}
+            {% for fornecedor in fornecedores %}
+            <div class="history-item">
+                <p><strong>{{ fornecedor.nome }}</strong></p>
+            </div>
+            {% endfor %}
+        {% else %}
+            <p class="obs">Nenhum fornecedor cadastrado ainda.</p>
+        {% endif %}
+    </div>
+
+</div>
+
+{% endblock %}
