@@ -5,7 +5,13 @@
 <div class="card">
     <h2>Editar descartes selecionados</h2>
 
+    <p class="obs">
+        As alterações abaixo serão aplicadas a todos os descartes selecionados.
+    </p>
+
     <form method="POST">
+
+        <input type="hidden" name="acao" value="salvar">
 
         {% for id in ids %}
         <input type="hidden" name="ids" value="{{ id }}">
@@ -25,7 +31,11 @@
 
             <div>
                 <label>Unidade</label>
-                <input type="text" name="unidade" required>
+                <select name="unidade" required>
+                    <option value="aves">aves</option>
+                    <option value="kg">kg</option>
+                    <option value="unidade">unidade</option>
+                </select>
             </div>
 
             <div>

@@ -1669,7 +1669,7 @@ def editar_descartes_lote():
         flash("Esta OP está encerrada. Edição de descartes bloqueada.")
         return redirect(url_for("consultar_op", op_id=op_id))
 
-    if request.method == "POST":
+    if request.method == "POST" and request.form.get("acao") == "salvar":
         categoria = request.form["categoria"]
         motivo = request.form["motivo"]
         unidade = request.form["unidade"]
@@ -1694,6 +1694,12 @@ def editar_descartes_lote():
 
         flash("Descartes atualizados com sucesso.")
         return redirect(url_for("consultar_op", op_id=op_id))
+
+    return render_template(
+        "editar_descartes_lote.html",
+        registros=registros,
+        ids=ids
+    )
 
 
 @app.route("/descartes/lote/excluir", methods=["POST"])
