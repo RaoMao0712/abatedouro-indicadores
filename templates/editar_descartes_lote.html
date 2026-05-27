@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+
+<div class="card">
+    <h2>Editar descartes selecionados</h2>
+
+    <form method="POST">
+
+        {% for id in ids %}
+        <input type="hidden" name="ids" value="{{ id }}">
+        {% endfor %}
+
+        <div class="form-grid">
+
+            <div>
+                <label>Categoria</label>
+                <input type="text" name="categoria" required>
+            </div>
+
+            <div>
+                <label>Motivo</label>
+                <input type="text" name="motivo" required>
+            </div>
+
+            <div>
+                <label>Unidade</label>
+                <input type="text" name="unidade" required>
+            </div>
+
+            <div>
+                <label>Observações</label>
+                <input type="text" name="observacoes">
+            </div>
+
+        </div>
+
+        <button type="submit">
+            Salvar alterações
+        </button>
+
+    </form>
+</div>
+
+{% endblock %}

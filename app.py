@@ -1646,6 +1646,94 @@ def excluir_paradas_lote():
     return redirect(url_for("consultar_op", op_id=op_id))
 
 
+
+
+@app.route("/descartes/lote/editar", methods=["GET", "POST"])
+@perfil_permitido("qualidade")
+def editar_descartes_lote():
+    ids = ids_do_request("ids")
+
+    if not ids:
+        flash("Selecione pelo menos um descarte.")
+        return redirect(url_for("consultar_op"))
+
+    registros = obter_registros_por_ids("apontamentos_descartes", ids)
+
+    if not registros:
+        flash("Nenhum descarte encontrado.")
+        return redirect(url_for("consultar_op"))
+
+    op_id = primeiro_op_id(registros)
+
+    if edicao_bloqueada_por_status(registros):
+        flash("Esta OP está encerrada. Edição de descartes bloqueada.")
+        return redirect(url_for("consultar_op", op_id=op_id))
+
+    if request.method == "POST":
+        categoria = request.form["categoria"]
+        motivo = request.form["motivo"]
+        unidade = request.form["unidade"]
+        observacoes = request.form.get("observacoes", "")
+
+        placeholders = ",".join(["?"] * len(ids))
+
+        conn = conectar()
+        cursor = conn.cursor()
+
+        cursor.execute(q(f"""
+        UPDATE apontamentos_descartes
+        SET categoria = ?,
+            motivo = ?,
+            unidade = ?,
+            observacoes = ?
+        WHERE id IN ({placeholders})
+        """), (categoria, motivo, unidade, observacoes, *ids))
+
+        conn.commit()
+        conn.close()
+
+        flash("Descartes atualizados com sucesso.")
+        return redirect(url_for("consultar_op", op_id=op_id))
+
+
+@app.route("/descartes/lote/excluir", methods=["POST"])
+@perfil_permitido("qualidade")
+def excluir_descartes_lote():
+    ids = ids_do_request("ids")
+
+    if not ids:
+        flash("Selecione pelo menos um descarte.")
+        return redirect(url_for("consultar_op"))
+
+    registros = obter_registros_por_ids("apontamentos_descartes", ids)
+
+    if not registros:
+        flash("Nenhum descarte encontrado.")
+        return redirect(url_for("consultar_op"))
+
+    op_id = primeiro_op_id(registros)
+
+    if edicao_bloqueada_por_status(registros):
+        flash("Esta OP está encerrada. Exclusão de descartes bloqueada.")
+        return redirect(url_for("consultar_op", op_id=op_id))
+
+    placeholders = ",".join(["?"] * len(ids))
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q(f"""
+    DELETE FROM apontamentos_descartes
+    WHERE id IN ({placeholders})
+    """), tuple(ids))
+
+    conn.commit()
+    conn.close()
+
+    flash("Descartes excluídos com sucesso.")
+    return redirect(url_for("consultar_op", op_id=op_id))
+
+
 @app.route("/op/<int:op_id>/excluir", methods=["POST"])
 @perfil_permitido("admin")
 def excluir_op(op_id):

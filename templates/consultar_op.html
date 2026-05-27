@@ -452,44 +452,59 @@
 
     {% if descartes %}
 
-        {% for item in descartes %}
+        <form method="POST" class="form-lista-operacional">
 
-        <div class="history-item">
+            <input type="hidden" name="op_id" value="{{ op.id }}">
 
-            <p>
-                <strong>Data:</strong>
-                {{ item.data }}
-            </p>
+            <div class="lista-operacional">
 
-            <p>
-                <strong>Setor:</strong>
-                {{ item.setor }}
-            </p>
+                {% for item in descartes %}
 
-            <p>
-                <strong>Categoria:</strong>
-                {{ item.categoria }}
-            </p>
+                <label class="item-selecionavel">
+                    <input type="checkbox" name="ids" value="{{ item.id }}">
 
-            <p>
-                <strong>Motivo:</strong>
-                {{ item.motivo }}
-            </p>
+                    <span class="item-link-operacional">
+                        {{ item.motivo }}
+                    </span>
 
-            <p>
-                <strong>Quantidade:</strong>
-                {{ item.quantidade }}
-                {{ item.unidade }}
-            </p>
+                    <span class="item-detalhe-operacional">
+                        {{ item.data }} | {{ item.setor }} | {{ item.categoria }}
+                    </span>
 
-            <p>
-                <strong>Observações:</strong>
-                {{ item.observacoes }}
-            </p>
+                    <span class="item-detalhe-operacional">
+                        {{ item.quantidade }} {{ item.unidade }}
+                    </span>
+                </label>
 
-        </div>
+                {% endfor %}
 
-        {% endfor %}
+            </div>
+
+            {% if op.status != "Encerrada" or session.get("perfil") == "admin" %}
+                {% if session.get("perfil") == "admin" or session.get("perfil") == "qualidade" %}
+
+                    <div class="acoes-lote">
+                        <button
+                            type="submit"
+                            formaction="{{ url_for('editar_descartes_lote') }}"
+                            class="botao-lote-editar"
+                        >
+                            Editar selecionados
+                        </button>
+
+                        <button
+                            type="submit"
+                            formaction="{{ url_for('excluir_descartes_lote') }}"
+                            class="botao-lote-excluir"
+                        >
+                            Excluir selecionados
+                        </button>
+                    </div>
+
+                {% endif %}
+            {% endif %}
+
+        </form>
 
     {% else %}
 
