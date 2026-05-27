@@ -15,8 +15,30 @@
             </div>
 
             <div>
+                <label>SKU / Processo produtivo</label>
+                <select name="sku" required>
+                    <option value="Galinha Inteira" {% if op.sku == "Galinha Inteira" %}selected{% endif %}>
+                        Galinha Inteira
+                    </option>
+                    <option value="Galinha Cortada" {% if op.sku == "Galinha Cortada" or not op.sku %}selected{% endif %}>
+                        Galinha Cortada
+                    </option>
+                </select>
+            </div>
+
+            <div>
                 <label>Fornecedor</label>
-                <input type="text" name="fornecedor" value="{{ op.fornecedor }}" required>
+                <select name="fornecedor" required>
+                    <option value="">Selecione</option>
+                    {% for fornecedor in fornecedores %}
+                    <option
+                        value="{{ fornecedor.nome }}"
+                        {% if fornecedor.nome == op.fornecedor %}selected{% endif %}
+                    >
+                        {{ fornecedor.nome }}
+                    </option>
+                    {% endfor %}
+                </select>
             </div>
 
             <div>

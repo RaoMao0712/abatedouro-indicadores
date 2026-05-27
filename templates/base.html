@@ -49,63 +49,45 @@
 
             {% if perfil == "admin" or perfil == "pcp" %}
 
-                <a href="{{ url_for('dashboard') }}">
-                    Dashboard
-                </a>
+                <a href="{{ url_for('dashboard') }}">Dashboard</a>
 
-                <a href="{{ url_for('ordem_producao') }}">
-                    OP
-                </a>
+                <a href="{{ url_for('ordem_producao') }}">OP</a>
 
-                <a href="{{ url_for('relatorio') }}">
-                    Relatório
-                </a>
+                <a href="{{ url_for('fornecedores') }}">Fornecedores</a>
+
+                <a href="{{ url_for('relatorio') }}">Relatório</a>
 
             {% endif %}
 
             {% if perfil == "admin" or perfil == "producao" %}
 
-                <a href="{{ url_for('apontamento_producao') }}">
-                    Produção
-                </a>
+                <a href="{{ url_for('apontamento_producao') }}">Produção</a>
 
-                <a href="{{ url_for('apontamento_mao_obra') }}">
-                    Mão de Obra
-                </a>
+                <a href="{{ url_for('apontamento_mao_obra') }}">Mão de Obra</a>
 
-                <a href="{{ url_for('apontamento_paradas') }}">
-                    Paradas
-                </a>
+                <a href="{{ url_for('apontamento_paradas') }}">Paradas</a>
 
             {% endif %}
 
             {% if perfil == "admin" or perfil == "qualidade" %}
 
-                <a href="{{ url_for('apontamento_descartes') }}">
-                    Descartes
-                </a>
+                <a href="{{ url_for('apontamento_descartes') }}">Descartes</a>
 
             {% endif %}
 
             {% if perfil == "admin" %}
 
-                <a href="{{ url_for('cadastrar_usuario') }}">
-                    Usuários
-                </a>
+                <a href="{{ url_for('cadastrar_usuario') }}">Usuários</a>
 
             {% endif %}
 
             {% if perfil == "admin" or perfil == "pcp" or perfil == "producao" or perfil == "qualidade" %}
 
-                <a href="{{ url_for('consultar_op') }}">
-                    Consultar OP
-                </a>
+                <a href="{{ url_for('consultar_op') }}">Consultar OP</a>
 
             {% endif %}
 
-            <a href="{{ url_for('sair') }}">
-                Sair
-            </a>
+            <a href="{{ url_for('sair') }}">Sair</a>
 
         </nav>
 

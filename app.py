@@ -62,6 +62,14 @@ def criar_banco():
         )
         """)
 
+
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS fornecedores (
+            id SERIAL PRIMARY KEY,
+            nome TEXT UNIQUE NOT NULL
+        )
+        """)
+
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS ordens_producao (
             id SERIAL PRIMARY KEY,
@@ -74,7 +82,8 @@ def criar_banco():
             peso_vivo REAL NOT NULL,
             peso_medio REAL NOT NULL,
             observacoes TEXT,
-            status TEXT DEFAULT 'Aberta'
+            status TEXT DEFAULT 'Aberta',
+            sku TEXT DEFAULT 'Galinha Cortada'
         )
         """)
 
@@ -163,6 +172,9 @@ def criar_banco():
         tentar_alter_table(cursor, conn, "ALTER TABLE ordens_producao ADD COLUMN status TEXT DEFAULT 'Aberta'")
         conn = conectar()
         cursor = conn.cursor()
+        tentar_alter_table(cursor, conn, "ALTER TABLE ordens_producao ADD COLUMN sku TEXT DEFAULT 'Galinha Cortada'")
+        conn = conectar()
+        cursor = conn.cursor()
         tentar_alter_table(cursor, conn, "ALTER TABLE apontamentos_paradas ADD COLUMN evento_id TEXT")
         conn = conectar()
         cursor = conn.cursor()
@@ -178,6 +190,14 @@ def criar_banco():
         )
         """)
 
+
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS fornecedores (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nome TEXT UNIQUE NOT NULL
+        )
+        """)
+
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS ordens_producao (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -190,7 +210,8 @@ def criar_banco():
             peso_vivo REAL NOT NULL,
             peso_medio REAL NOT NULL,
             observacoes TEXT,
-            status TEXT DEFAULT 'Aberta'
+            status TEXT DEFAULT 'Aberta',
+            sku TEXT DEFAULT 'Galinha Cortada'
         )
         """)
 
@@ -280,6 +301,11 @@ def criar_banco():
 
         try:
             cursor.execute("ALTER TABLE ordens_producao ADD COLUMN status TEXT DEFAULT 'Aberta'")
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            cursor.execute("ALTER TABLE ordens_producao ADD COLUMN sku TEXT DEFAULT 'Galinha Cortada'")
         except sqlite3.OperationalError:
             pass
 
@@ -390,6 +416,23 @@ def setores_padrao():
         "Embalagem",
         "Expedição"
     ]
+
+
+
+def buscar_fornecedores():
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+    SELECT *
+    FROM fornecedores
+    ORDER BY nome
+    """)
+
+    fornecedores = cursor.fetchall()
+    conn.close()
+
+    return fornecedores
 
 
 def buscar_ordens():
@@ -989,6 +1032,48 @@ def dashboard():
         produtividade_setores_hora=produtividade_setores_hora
     )
 
+
+@app.route("/fornecedores", methods=["GET", "POST"])
+@perfil_permitido("pcp")
+def fornecedores():
+    criar_banco()
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    if request.method == "POST":
+        nome = request.form["nome"].strip()
+
+        if nome:
+            try:
+                cursor.execute(q("""
+                INSERT INTO fornecedores (nome)
+                VALUES (?)
+                """), (nome,))
+
+                conn.commit()
+                flash("Fornecedor cadastrado com sucesso.")
+            except Exception:
+                conn.rollback()
+                flash("Este fornecedor já está cadastrado.")
+
+        return redirect(url_for("fornecedores"))
+
+    cursor.execute("""
+    SELECT *
+    FROM fornecedores
+    ORDER BY nome
+    """)
+
+    fornecedores = cursor.fetchall()
+    conn.close()
+
+    return render_template(
+        "fornecedores.html",
+        fornecedores=fornecedores
+    )
+
+
 @app.route("/ordem-producao", methods=["GET", "POST"])
 @perfil_permitido("pcp")
 def ordem_producao():
@@ -996,6 +1081,7 @@ def ordem_producao():
 
     if request.method == "POST":
         data = request.form["data"]
+        sku = request.form.get("sku", "Galinha Cortada")
         fornecedor = request.form["fornecedor"]
         gta = request.form["gta"]
         nota_fiscal = request.form["nota_fiscal"]
@@ -1011,12 +1097,12 @@ def ordem_producao():
 
         cursor.execute(q("""
         INSERT INTO ordens_producao (
-            data, fornecedor, gta, nota_fiscal, quantidade_aves,
+            data, sku, fornecedor, gta, nota_fiscal, quantidade_aves,
             mortes_antes_pendura, peso_vivo, peso_medio, observacoes, status
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """), (
-            data, fornecedor, gta, nota_fiscal, quantidade_aves,
+            data, sku, fornecedor, gta, nota_fiscal, quantidade_aves,
             mortes_antes_pendura, peso_vivo, peso_medio, observacoes, "Aberta"
         ))
 
@@ -1028,11 +1114,13 @@ def ordem_producao():
 
     hoje = datetime.now().strftime("%Y-%m-%d")
     ordens = buscar_ordens()[:10]
+    fornecedores = buscar_fornecedores()
 
     return render_template(
         "ordem_producao.html",
         hoje=hoje,
-        ordens=ordens
+        ordens=ordens,
+        fornecedores=fornecedores
     )
 
 
@@ -1154,6 +1242,7 @@ def editar_op(op_id):
 
     if request.method == "POST":
         data = request.form["data"]
+        sku = request.form.get("sku", "Galinha Cortada")
         fornecedor = request.form["fornecedor"]
         gta = request.form["gta"]
         nota_fiscal = request.form["nota_fiscal"]
@@ -1165,12 +1254,12 @@ def editar_op(op_id):
 
         cursor.execute(q("""
         UPDATE ordens_producao
-        SET data = ?, fornecedor = ?, gta = ?, nota_fiscal = ?,
+        SET data = ?, sku = ?, fornecedor = ?, gta = ?, nota_fiscal = ?,
             quantidade_aves = ?, mortes_antes_pendura = ?, peso_vivo = ?,
             peso_medio = ?, observacoes = ?
         WHERE id = ?
         """), (
-            data, fornecedor, gta, nota_fiscal, quantidade_aves,
+            data, sku, fornecedor, gta, nota_fiscal, quantidade_aves,
             mortes_antes_pendura, peso_vivo, peso_medio, observacoes, op_id
         ))
 
@@ -1180,8 +1269,14 @@ def editar_op(op_id):
         flash("OP atualizada com sucesso.")
         return redirect(url_for("consultar_op", op_id=op_id))
 
+    fornecedores = buscar_fornecedores()
+
     conn.close()
-    return render_template("editar_op.html", op=op)
+    return render_template(
+        "editar_op.html",
+        op=op,
+        fornecedores=fornecedores
+    )
 
 
 @app.route("/mao-obra/<int:mao_obra_id>/editar", methods=["GET", "POST"])

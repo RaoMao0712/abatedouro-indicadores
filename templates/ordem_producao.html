@@ -14,8 +14,26 @@
                 </div>
 
                 <div>
+                    <label>SKU / Processo produtivo</label>
+                    <select name="sku" required>
+                        <option value="Galinha Inteira">Galinha Inteira</option>
+                        <option value="Galinha Cortada" selected>Galinha Cortada</option>
+                    </select>
+                </div>
+
+                <div>
                     <label>Fornecedor</label>
-                    <input type="text" name="fornecedor" required>
+                    <select name="fornecedor" required>
+                        <option value="">Selecione</option>
+                        {% for fornecedor in fornecedores %}
+                        <option value="{{ fornecedor.nome }}">
+                            {{ fornecedor.nome }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                    {% if not fornecedores %}
+                        <p class="obs">Cadastre fornecedores antes de abrir uma OP.</p>
+                    {% endif %}
                 </div>
 
                 <div>
@@ -59,6 +77,7 @@
             <div class="history-item">
                 <p><strong>OP:</strong> #{{ op.id }}</p>
                 <p><strong>Data:</strong> {{ op.data }}</p>
+                <p><strong>SKU / Processo:</strong> {{ op.sku or "Galinha Cortada" }}</p>
                 <p><strong>Fornecedor:</strong> {{ op.fornecedor }}</p>
                 <p><strong>GTA:</strong> {{ op.gta or "-" }}</p>
                 <p><strong>NF:</strong> {{ op.nota_fiscal or "-" }}</p>
