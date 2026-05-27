@@ -62,7 +62,6 @@ def criar_banco():
         )
         """)
 
-
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS fornecedores (
             id SERIAL PRIMARY KEY,
@@ -189,7 +188,6 @@ def criar_banco():
             perfil TEXT DEFAULT 'admin'
         )
         """)
-
 
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS fornecedores (
@@ -418,8 +416,32 @@ def setores_padrao():
     ]
 
 
+def criar_tabela_fornecedores():
+    conn = conectar()
+    cursor = conn.cursor()
+
+    if DATABASE_URL:
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS fornecedores (
+            id SERIAL PRIMARY KEY,
+            nome TEXT UNIQUE NOT NULL
+        )
+        """)
+    else:
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS fornecedores (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nome TEXT UNIQUE NOT NULL
+        )
+        """)
+
+    conn.commit()
+    conn.close()
+
 
 def buscar_fornecedores():
+    criar_tabela_fornecedores()
+
     conn = conectar()
     cursor = conn.cursor()
 
@@ -1032,32 +1054,11 @@ def dashboard():
         produtividade_setores_hora=produtividade_setores_hora
     )
 
-def criar_tabela_fornecedores():
-    conn = conectar()
-    cursor = conn.cursor()
-
-    if DATABASE_URL:
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS fornecedores (
-            id SERIAL PRIMARY KEY,
-            nome TEXT UNIQUE NOT NULL
-        )
-        """)
-    else:
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS fornecedores (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            nome TEXT UNIQUE NOT NULL
-        )
-        """)
-
-    conn.commit()
-    conn.close()
-
 @app.route("/fornecedores", methods=["GET", "POST"])
 @perfil_permitido("pcp")
 def fornecedores():
     criar_banco()
+    criar_tabela_fornecedores()
 
     conn = conectar()
     cursor = conn.cursor()
@@ -1078,6 +1079,7 @@ def fornecedores():
                 conn.rollback()
                 flash("Este fornecedor já está cadastrado.")
 
+        conn.close()
         return redirect(url_for("fornecedores"))
 
     cursor.execute("""
@@ -2073,6 +2075,5 @@ def relatorio():
 
 if __name__ == "__main__":
     criar_banco()
-    criar_tabela_fornecedores()
     port = int(os.getenv("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=True)
