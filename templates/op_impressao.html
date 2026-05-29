@@ -327,3 +327,78 @@
 
 </body>
 </html>
+
+<hr>
+
+<h2>Coleta de Dados do Processo</h2>
+
+<table border="1" width="100%" cellspacing="0" cellpadding="5">
+    <tr>
+        <th>Etapa</th>
+        <th>Hora Início</th>
+        <th>Hora Fim</th>
+        <th>Descartes</th>
+        <th>Paradas</th>
+        <th>Observações</th>
+    </tr>
+
+    <tr>
+        <td>Recepção e Pendura</td>
+        <td>________</td>
+        <td>________</td>
+        <td>________</td>
+        <td>________</td>
+        <td>______________________</td>
+    </tr>
+
+    <tr>
+        <td>Escalda e Depenagem</td>
+        <td>________</td>
+        <td>________</td>
+        <td>________</td>
+        <td>________</td>
+        <td>______________________</td>
+    </tr>
+
+    <tr>
+        <td>Evisceração</td>
+        <td>________</td>
+        <td>________</td>
+        <td>________</td>
+        <td>________</td>
+        <td>______________________</td>
+    </tr>
+
+    {% if op.sku == "Galinha Cortada" %}
+    <tr>
+        <td>Corte</td>
+        <td>________</td>
+        <td>________</td>
+        <td>________</td>
+        <td>________</td>
+        <td>______________________</td>
+    </tr>
+    {% endif %}
+
+    <tr>
+        <td>Embalagem</td>
+        <td>________</td>
+        <td>________</td>
+        <td>________</td>
+        <td>________</td>
+        <td>______________________</td>
+    </tr>
+
+</table>
+
+<br>
+
+<h3>Resumo Final</h3>
+
+<p>Produção Total (kg): ____________________________________</p>
+
+<p>Responsável Produção: __________________________________</p>
+
+<p>Responsável PCP: _______________________________________</p>
+
+<p>Data de Encerramento: __________________________________</p>
