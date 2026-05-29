@@ -2,6 +2,16 @@
 
 {% block conteudo %}
 
+{% if sku_filtro == "Todos" %}
+<div class="card aviso-sku-dashboard">
+    <p class="obs">
+        Você está visualizando todos os SKUs. Indicadores em kg e rendimento podem ficar distorcidos quando Galinha Inteira e Galinha Cortada aparecem juntos. Para análise de rendimento, filtre por Galinha Cortada.
+    </p>
+</div>
+{% endif %}
+
+
+
 <div class="card">
     <h2>Dashboard Operacional</h2>
 
@@ -31,6 +41,15 @@
                     <option value="Todas" {% if status_filtro == "Todas" %}selected{% endif %}>
                         Todas
                     </option>
+                </select>
+            </div>
+
+            <div>
+                <label>SKU / Processo</label>
+                <select name="sku">
+                    <option value="Todos" {% if sku_filtro == "Todos" %}selected{% endif %}>Todos</option>
+                    <option value="Galinha Cortada" {% if sku_filtro == "Galinha Cortada" %}selected{% endif %}>Galinha Cortada</option>
+                    <option value="Galinha Inteira" {% if sku_filtro == "Galinha Inteira" %}selected{% endif %}>Galinha Inteira</option>
                 </select>
             </div>
         </div>
@@ -174,7 +193,7 @@
 
 </div>
 
-<div class="card tabela-produtividade">
+<div class="card">
     <h2>Produtividade por setor produtivo</h2>
 
     {% if produtividade_setores_hora %}

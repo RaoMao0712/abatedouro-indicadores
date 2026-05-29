@@ -1074,6 +1074,7 @@ def dashboard():
     data_inicio = request.args.get("data_inicio") or primeiro_dia_mes
     data_fim = request.args.get("data_fim") or hoje
     status_filtro = request.args.get("status") or "Encerrada"
+    sku_filtro = request.args.get("sku") or "Todos"
 
     jornada_padrao = 8.8
     setores_produtivos = [
@@ -1095,6 +1096,19 @@ def dashboard():
     else:
         status_filtro = "Todas"
 
+    sku_condicao_op = ""
+    sku_condicao_alias = ""
+    parametros_sku = ()
+
+    if sku_filtro in ["Galinha Cortada", "Galinha Inteira"]:
+        sku_condicao_op = " AND COALESCE(sku, 'Galinha Cortada') = ?"
+        sku_condicao_alias = " AND COALESCE(o.sku, 'Galinha Cortada') = ?"
+        parametros_sku = (sku_filtro,)
+    else:
+        sku_filtro = "Todos"
+
+    parametros_filtros = parametros_status + parametros_sku
+
     conn = conectar()
     cursor = conn.cursor()
 
@@ -1108,7 +1122,8 @@ def dashboard():
     FROM ordens_producao
     WHERE data BETWEEN ? AND ?
     {status_condicao_op}
-    """), (data_inicio, data_fim) + parametros_status)
+    {sku_condicao_op}
+    """), (data_inicio, data_fim) + parametros_filtros)
 
     ordens_periodo = cursor.fetchall()
 
@@ -1128,7 +1143,8 @@ def dashboard():
     WHERE o.data BETWEEN ? AND ?
       AND LOWER(d.unidade) IN ('aves', 'ave', 'unidade', 'unidades')
       {status_condicao_alias}
-    """), (data_inicio, data_fim) + parametros_status)
+      {sku_condicao_alias}
+    """), (data_inicio, data_fim) + parametros_filtros)
 
     descartes_aves = cursor.fetchone()["descartes_aves"] or 0
 
@@ -1139,7 +1155,8 @@ def dashboard():
     WHERE o.data BETWEEN ? AND ?
       AND LOWER(d.unidade) = 'kg'
       {status_condicao_alias}
-    """), (data_inicio, data_fim) + parametros_status)
+      {sku_condicao_alias}
+    """), (data_inicio, data_fim) + parametros_filtros)
 
     descartes_kg = cursor.fetchone()["descartes_kg"] or 0
 
@@ -1150,7 +1167,8 @@ def dashboard():
     WHERE o.data BETWEEN ? AND ?
       AND LOWER(p.unidade) = 'kg'
       {status_condicao_alias}
-    """), (data_inicio, data_fim) + parametros_status)
+      {sku_condicao_alias}
+    """), (data_inicio, data_fim) + parametros_filtros)
 
     kg_produzidos = cursor.fetchone()["kg"] or 0
 
@@ -1220,7 +1238,8 @@ def dashboard():
     WHERE o.data BETWEEN ? AND ?
       AND p.setor <> 'Expedição'
       {status_condicao_alias}
-    """), (data_inicio, data_fim) + parametros_status)
+      {sku_condicao_alias}
+    """), (data_inicio, data_fim) + parametros_filtros)
 
     paradas_produtivas = cursor.fetchall()
 
@@ -1273,7 +1292,8 @@ def dashboard():
     WHERE o.data BETWEEN ? AND ?
       AND m.setor <> 'Expedição'
       {status_condicao_alias}
-    """), (data_inicio, data_fim) + parametros_status)
+      {sku_condicao_alias}
+    """), (data_inicio, data_fim) + parametros_filtros)
 
     mao_obra_periodo = cursor.fetchall()
 
@@ -1376,6 +1396,9 @@ def dashboard():
         data_inicio=data_inicio,
         data_fim=data_fim,
         status_filtro=status_filtro,
+        sku_filtro=sku_filtro,
+        mostrar_indicadores_kg=(sku_filtro == "Galinha Cortada"),
+        mostrar_indicadores_unidade=(sku_filtro == "Galinha Inteira"),
         aves_recebidas=round(aves_recebidas, 2),
         aves_abatidas=round(aves_abatidas, 2),
         viabilidade=round(viabilidade, 2),
