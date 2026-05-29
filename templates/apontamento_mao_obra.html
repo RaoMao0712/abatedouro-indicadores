@@ -43,6 +43,55 @@
 </div>
 
 <div class="card ficha">
+    <h3>Copiar equipe de outra OP</h3>
+
+    <p class="obs">
+        Use esta opção para copiar a mão de obra de uma OP anterior para uma OP aberta.
+        Os lançamentos atuais da OP destino serão substituídos.
+    </p>
+
+    <form
+        method="POST"
+        onsubmit="return confirm('Atenção: esta ação vai substituir os lançamentos de mão de obra existentes na OP destino. Deseja continuar?')"
+    >
+        <input type="hidden" name="tipo_apontamento" value="copiar_mao_obra">
+
+        <div class="form-grid">
+            <div>
+                <label>Copiar da OP</label>
+                <select name="origem_op_id" required>
+                    <option value="">Selecione</option>
+                    {% for op in ordens_origem %}
+                    <option value="{{ op.id }}">
+                        OP {{ op.id }} | {{ op.data }} | {{ op.fornecedor }} | {{ op.status }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div>
+                <label>Aplicar na OP aberta</label>
+                <select name="destino_op_id" required>
+                    <option value="">Selecione</option>
+                    {% for op in ordens %}
+                    <option value="{{ op.id }}">
+                        OP {{ op.id }} | {{ op.data }} | {{ op.fornecedor }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div>
+                <label>Data dos lançamentos copiados</label>
+                <input type="date" name="data_destino" value="{{ hoje }}" required>
+            </div>
+        </div>
+
+        <button type="submit">Copiar Equipe</button>
+    </form>
+</div>
+
+<div class="card ficha">
     <h3>Mão de Obra</h3>
 
     <form method="POST">

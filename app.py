@@ -596,6 +596,59 @@ def salvar_apontamento_mao_obra(form):
     conn.close()
 
 
+
+def copiar_mao_obra_de_op(origem_op_id, destino_op_id, data_destino):
+    origem_op_id = int(origem_op_id)
+    destino_op_id = int(destino_op_id)
+
+    if origem_op_id == destino_op_id:
+        raise ValueError("A OP de origem não pode ser a mesma OP de destino.")
+
+    validar_op_aberta(destino_op_id)
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q("""
+    SELECT *
+    FROM apontamentos_mao_obra
+    WHERE op_id = ?
+    ORDER BY id ASC
+    """), (origem_op_id,))
+
+    registros_origem = cursor.fetchall()
+
+    if not registros_origem:
+        conn.close()
+        raise ValueError("A OP de origem não possui lançamentos de mão de obra para copiar.")
+
+    cursor.execute(q("""
+    DELETE FROM apontamentos_mao_obra
+    WHERE op_id = ?
+    """), (destino_op_id,))
+
+    for item in registros_origem:
+        cursor.execute(q("""
+        INSERT INTO apontamentos_mao_obra (
+            op_id, data, colaborador, funcao, setor, turno, observacoes
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        """), (
+            destino_op_id,
+            data_destino,
+            item["colaborador"],
+            item["funcao"],
+            item["setor"],
+            item["turno"],
+            item["observacoes"]
+        ))
+
+    conn.commit()
+    conn.close()
+
+    return len(registros_origem)
+
+
+
 def salvar_apontamento_parada(form):
     op_id = int(form["op_id"])
     validar_op_aberta(op_id)
@@ -1199,16 +1252,38 @@ def apontamento_mao_obra():
     criar_banco()
 
     if request.method == "POST":
+        tipo = request.form.get("tipo_apontamento")
+
         try:
-            salvar_apontamento_mao_obra(request.form)
-            flash("Apontamento de mão de obra salvo.")
+            if tipo == "copiar_mao_obra":
+                origem_op_id = request.form["origem_op_id"]
+                destino_op_id = request.form["destino_op_id"]
+                data_destino = request.form["data_destino"]
+
+                total = copiar_mao_obra_de_op(
+                    origem_op_id,
+                    destino_op_id,
+                    data_destino
+                )
+
+                flash(f"Equipe copiada com sucesso. {total} colaboradores foram lançados na OP destino.")
+
+            else:
+                salvar_apontamento_mao_obra(request.form)
+                flash("Apontamento de mão de obra salvo.")
+
         except ValueError as erro:
             flash(str(erro))
 
         return redirect(url_for("apontamento_mao_obra"))
 
-    return render_template("apontamento_mao_obra.html", **contexto_apontamento())
+    contexto = contexto_apontamento()
+    contexto["ordens_origem"] = buscar_ordens()
 
+    return render_template(
+        "apontamento_mao_obra.html",
+        **contexto
+    )
 
 @app.route("/apontamento-paradas", methods=["GET", "POST"])
 @perfil_permitido("producao")

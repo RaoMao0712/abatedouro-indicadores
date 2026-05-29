@@ -284,35 +284,49 @@ button:hover {
     display: flex;
     gap: 10px;
     flex-wrap: wrap;
+    align-items: center;
     margin-top: 15px;
 }
 
+.acoes-op-topo form {
+    margin: 0;
+}
+
 .botao-editar,
-.botao-impressao {
-    background: #2563eb;
-    color: white;
-    text-decoration: none;
-    padding: 10px 14px;
+.botao-impressao,
+.botao-excluir {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 120px;
+    height: 42px;
+    padding: 0 14px;
     border-radius: 10px;
     font-weight: bold;
+    font-size: 14px;
+    text-decoration: none;
+    line-height: 1;
+    margin-top: 0;
+    border: none;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.botao-editar {
+    background: #2563eb;
+    color: white;
 }
 
 .botao-impressao {
     background: #ea580c;
+    color: white;
 }
 
 .botao-excluir {
     background: #dc2626 !important;
-    width: auto;
-    margin-top: 0;
-    padding: 10px 14px;
-    border: none;
-    border-radius: 10px;
     color: white;
-    font-weight: bold;
-    cursor: pointer;
+    width: auto;
 }
-
 /* LOGO */
 
 .logo-topo {
