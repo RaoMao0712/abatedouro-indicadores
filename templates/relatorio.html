@@ -20,7 +20,10 @@
             <div>
                 <label>Fornecedor</label>
                 <select name="fornecedor">
-                    <option value="Todos" {% if fornecedor_filtro == "Todos" %}selected{% endif %}>Todos</option>
+                    <option value="Todos" {% if fornecedor_filtro == "Todos" %}selected{% endif %}>
+                        Todos
+                    </option>
+
                     {% for fornecedor in fornecedores %}
                     <option value="{{ fornecedor.nome }}" {% if fornecedor_filtro == fornecedor.nome %}selected{% endif %}>
                         {{ fornecedor.nome }}
@@ -32,9 +35,14 @@
             <div>
                 <label>SKU / Processo</label>
                 <select name="sku">
-                    <option value="Todos" {% if sku_filtro == "Todos" %}selected{% endif %}>Todos</option>
+                    <option value="Todos" {% if sku_filtro == "Todos" %}selected{% endif %}>
+                        Todos
+                    </option>
+
                     {% for sku in skus %}
-                    <option value="{{ sku }}" {% if sku_filtro == sku %}selected{% endif %}>{{ sku }}</option>
+                    <option value="{{ sku }}" {% if sku_filtro == sku %}selected{% endif %}>
+                        {{ sku }}
+                    </option>
                     {% endfor %}
                 </select>
             </div>
@@ -42,9 +50,17 @@
             <div>
                 <label>Status da OP</label>
                 <select name="status">
-                    <option value="Encerrada" {% if status_filtro == "Encerrada" %}selected{% endif %}>Encerradas</option>
-                    <option value="Aberta" {% if status_filtro == "Aberta" %}selected{% endif %}>Abertas</option>
-                    <option value="Todas" {% if status_filtro == "Todas" %}selected{% endif %}>Todas</option>
+                    <option value="Encerrada" {% if status_filtro == "Encerrada" %}selected{% endif %}>
+                        Encerradas
+                    </option>
+
+                    <option value="Aberta" {% if status_filtro == "Aberta" %}selected{% endif %}>
+                        Abertas
+                    </option>
+
+                    <option value="Todas" {% if status_filtro == "Todas" %}selected{% endif %}>
+                        Todas
+                    </option>
                 </select>
             </div>
         </div>
@@ -52,48 +68,250 @@
         <button type="submit">Gerar Relatório</button>
     </form>
 
-    <p class="obs">Por padrão, abre do dia 01 do mês atual até hoje, considerando apenas OPs encerradas.</p>
+    <p class="obs">
+        Por padrão, o relatório abre do dia 01 do mês atual até hoje, considerando apenas OPs encerradas.
+    </p>
 </div>
 
 <div class="cards-resumo">
-    <div class="card resumo"><h3>OPs</h3><p>{{ total_ops }}</p><span>ordens no período</span></div>
-    <div class="card resumo"><h3>Aves recebidas</h3><p>{{ aves_recebidas }}</p><span>GTA informada</span></div>
-    <div class="card resumo"><h3>Viabilidade</h3><p>{{ viabilidade_percentual }}%</p><span>{{ viabilidade }} aves viáveis</span></div>
+
+    <div class="card resumo">
+        <h3>OPs</h3>
+        <p>{{ total_ops }}</p>
+        <span>ordens no período</span>
+    </div>
+
+    <div class="card resumo">
+        <h3>Aves recebidas</h3>
+        <p>{{ aves_recebidas }}</p>
+        <span>GTA informada</span>
+    </div>
+
+    <div class="card resumo">
+        <h3>Viabilidade</h3>
+        <p>{{ viabilidade_percentual }}%</p>
+        <span>{{ viabilidade }} aves viáveis</span>
+    </div>
+
 </div>
 
 <div class="cards-resumo">
-    <div class="card resumo"><h3>Produção</h3><p>{{ kg_produzidos }}</p><span>kg produzidos</span></div>
-    <div class="card resumo"><h3>Rendimento</h3><p>{{ rendimento }}%</p><span>kg produzido / peso vivo</span></div>
-    <div class="card resumo"><h3>Produtividade HH</h3><p>{{ produtividade_hh }}</p><span>aves viáveis por HH</span></div>
+
+    <div class="card resumo">
+        <h3>Produção</h3>
+        <p>{{ kg_produzidos }}</p>
+        <span>kg produzidos</span>
+    </div>
+
+    <div class="card resumo">
+        <h3>Rendimento</h3>
+        <p>{{ rendimento }}%</p>
+        <span>kg produzido / peso vivo</span>
+    </div>
+
+    <div class="card resumo">
+        <h3>Produtividade HH</h3>
+        <p>{{ produtividade_hh }}</p>
+        <span>aves viáveis por HH</span>
+    </div>
+
 </div>
 
 <div class="grid-dashboard">
+
     <div class="card">
         <h2>Resumo operacional</h2>
-        <div class="linha-info"><strong>Aves abatidas</strong><span>{{ aves_abatidas }}</span></div>
-        <div class="linha-info"><strong>Mortes antes da pendura</strong><span>{{ mortes_antes_pendura }}</span></div>
-        <div class="linha-info"><strong>Descartes / condenações em aves</strong><span>{{ descartes_aves }}</span></div>
-        <div class="linha-info"><strong>Total não aproveitado em aves</strong><span>{{ total_problemas_aves }}</span></div>
-        <div class="linha-info"><strong>Perdas em kg</strong><span>{{ descartes_kg }}</span></div>
+
+        <div class="linha-info">
+            <strong>Aves abatidas</strong>
+            <span>{{ aves_abatidas }}</span>
+        </div>
+
+        <div class="linha-info">
+            <strong>Mortes antes da pendura</strong>
+            <span>{{ mortes_antes_pendura }}</span>
+        </div>
+
+        <div class="linha-info">
+            <strong>Descartes / condenações em aves</strong>
+            <span>{{ descartes_aves }}</span>
+        </div>
+
+        <div class="linha-info">
+            <strong>Total não aproveitado em aves</strong>
+            <span>{{ total_problemas_aves }}</span>
+        </div>
+
+        <div class="linha-info">
+            <strong>Perdas em kg</strong>
+            <span>{{ descartes_kg }}</span>
+        </div>
     </div>
 
     <div class="card">
         <h2>Tempo e produtividade</h2>
-        <div class="linha-info"><strong>Dias com OP</strong><span>{{ dias_periodo }}</span></div>
-        <div class="linha-info"><strong>Horas programadas</strong><span>{{ horas_programadas }}</span></div>
-        <div class="linha-info"><strong>Horas perdidas</strong><span>{{ horas_perdidas_total }} ({{ percentual_jornada_perdida }}%)</span></div>
-        <div class="linha-info"><strong>Horas úteis</strong><span>{{ horas_uteis_total }}</span></div>
-        <div class="linha-info"><strong>HH total</strong><span>{{ hh_total }}</span></div>
-        <div class="linha-info"><strong>Aves por hora fábrica</strong><span>{{ aves_hora_fabrica }}</span></div>
+
+        <div class="linha-info">
+            <strong>Horas programadas</strong>
+            <span>{{ horas_programadas }}</span>
+        </div>
+
+        <div class="linha-info">
+            <strong>Horas perdidas</strong>
+            <span>{{ horas_perdidas_total }} ({{ percentual_jornada_perdida }}%)</span>
+        </div>
+
+        <div class="linha-info">
+            <strong>Horas úteis</strong>
+            <span>{{ horas_uteis_total }}</span>
+        </div>
+
+        <div class="linha-info">
+            <strong>HH total</strong>
+            <span>{{ hh_total }}</span>
+        </div>
+
+        <div class="linha-info">
+            <strong>Aves por hora fábrica</strong>
+            <span>{{ aves_hora_fabrica }}</span>
+        </div>
+    </div>
+
+</div>
+
+<div class="card">
+    <h2>Relatório de Mão de Obra</h2>
+
+    <div class="cards-resumo">
+        <div class="card resumo">
+            <h3>Colaboradores</h3>
+            <p>{{ total_colaboradores_distintos }}</p>
+            <span>distintos no período</span>
+        </div>
+
+        <div class="card resumo">
+            <h3>HH Total</h3>
+            <p>{{ hh_total }}</p>
+            <span>homem-hora produtivo</span>
+        </div>
+
+        <div class="card resumo">
+            <h3>Kg / HH</h3>
+            <p>{{ kg_por_hh }}</p>
+            <span>kg produzidos por HH</span>
+        </div>
     </div>
 </div>
 
 <div class="grid-dashboard">
+
+    <div class="card tabela-produtividade">
+        <h2>Mão de obra por setor</h2>
+
+        {% if mao_obra_por_setor %}
+            <div class="tabela-responsiva">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Setor</th>
+                            <th>Colab.</th>
+                            <th>Registros</th>
+                            <th>HH</th>
+                            <th>% HH</th>
+                        </tr>
+                    </thead>
+
+                    <tbody>
+                        {% for item in mao_obra_por_setor %}
+                        <tr>
+                            <td>{{ item.setor }}</td>
+                            <td>{{ item.colaboradores }}</td>
+                            <td>{{ item.registros }}</td>
+                            <td>{{ item.hh }}</td>
+                            <td>{{ item.percentual_hh }}%</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <p class="obs">Nenhum lançamento de mão de obra no período selecionado.</p>
+        {% endif %}
+    </div>
+
+    <div class="card tabela-produtividade">
+        <h2>Mão de obra por função</h2>
+
+        {% if mao_obra_por_funcao %}
+            <div class="tabela-responsiva">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Função</th>
+                            <th>Colab.</th>
+                            <th>Registros</th>
+                        </tr>
+                    </thead>
+
+                    <tbody>
+                        {% for item in mao_obra_por_funcao %}
+                        <tr>
+                            <td>{{ item.funcao }}</td>
+                            <td>{{ item.colaboradores }}</td>
+                            <td>{{ item.registros }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <p class="obs">Nenhuma função lançada no período selecionado.</p>
+        {% endif %}
+    </div>
+
+</div>
+
+<div class="card tabela-produtividade">
+    <h2>Colaboradores mais utilizados</h2>
+
+    {% if colaboradores_mais_utilizados %}
+        <div class="tabela-responsiva">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Colaborador</th>
+                        <th>OPs</th>
+                        <th>Registros</th>
+                    </tr>
+                </thead>
+
+                <tbody>
+                    {% for item in colaboradores_mais_utilizados %}
+                    <tr>
+                        <td>{{ item.colaborador }}</td>
+                        <td>{{ item.ops }}</td>
+                        <td>{{ item.registros }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% else %}
+        <p class="obs">Nenhum colaborador lançado no período selecionado.</p>
+    {% endif %}
+</div>
+
+<div class="grid-dashboard">
+
     <div class="card">
         <h2>Descartes por setor</h2>
+
         {% if descartes_por_setor %}
             {% for item in descartes_por_setor %}
-            <div class="linha-info"><strong>{{ item.setor }}</strong><span>{{ "%.2f"|format(item.quantidade or 0) }} aves</span></div>
+            <div class="linha-info">
+                <strong>{{ item.setor }}</strong>
+                <span>{{ "%.2f"|format(item.quantidade or 0) }} aves</span>
+            </div>
             {% endfor %}
         {% else %}
             <p class="obs">Nenhum descarte em aves no período selecionado.</p>
@@ -102,32 +320,57 @@
 
     <div class="card">
         <h2>Paradas por motivo</h2>
+
         {% if paradas_por_motivo %}
             {% for item in paradas_por_motivo %}
-            <div class="linha-info"><strong>{{ item.motivo }}</strong><span>{{ "%.2f"|format(item.horas or 0) }} h</span></div>
+            <div class="linha-info">
+                <strong>{{ item.motivo }}</strong>
+                <span>{{ "%.2f"|format(item.horas or 0) }} h</span>
+            </div>
             {% endfor %}
         {% else %}
             <p class="obs">Nenhuma parada registrada no período selecionado.</p>
         {% endif %}
     </div>
+
 </div>
 
 <div class="card tabela-produtividade">
     <h2>Detalhamento por OP</h2>
+
     {% if linhas_op %}
         <div class="tabela-responsiva">
             <table>
                 <thead>
                     <tr>
-                        <th>OP</th><th>Data</th><th>Fornecedor</th><th>SKU</th><th>Status</th>
-                        <th>Aves</th><th>Mortes</th><th>Descartes</th><th>Kg prod.</th><th>Rend.</th><th>Viab.</th>
+                        <th>OP</th>
+                        <th>Data</th>
+                        <th>Fornecedor</th>
+                        <th>SKU</th>
+                        <th>Status</th>
+                        <th>Aves</th>
+                        <th>Mortes</th>
+                        <th>Descartes</th>
+                        <th>Kg prod.</th>
+                        <th>Rend.</th>
+                        <th>Viab.</th>
                     </tr>
                 </thead>
+
                 <tbody>
                     {% for item in linhas_op %}
                     <tr>
-                        <td>{{ item.id }}</td><td>{{ item.data }}</td><td>{{ item.fornecedor }}</td><td>{{ item.sku }}</td><td>{{ item.status }}</td>
-                        <td>{{ item.aves_recebidas }}</td><td>{{ item.mortes }}</td><td>{{ item.descartes }}</td><td>{{ item.kg_produzidos }}</td><td>{{ item.rendimento }}%</td><td>{{ item.viabilidade_percentual }}%</td>
+                        <td>{{ item.id }}</td>
+                        <td>{{ item.data }}</td>
+                        <td>{{ item.fornecedor }}</td>
+                        <td>{{ item.sku }}</td>
+                        <td>{{ item.status }}</td>
+                        <td>{{ item.aves_recebidas }}</td>
+                        <td>{{ item.mortes }}</td>
+                        <td>{{ item.descartes }}</td>
+                        <td>{{ item.kg_produzidos }}</td>
+                        <td>{{ item.rendimento }}%</td>
+                        <td>{{ item.viabilidade_percentual }}%</td>
                     </tr>
                     {% endfor %}
                 </tbody>

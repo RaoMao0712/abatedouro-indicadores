@@ -1102,6 +1102,11 @@ def dashboard():
         hh_total=round(hh_total, 2),
         produtividade_hh=round(produtividade_hh, 2),
         aves_hora_fabrica=round(aves_hora_fabrica, 2),
+        kg_por_hh=round(kg_por_hh, 2),
+        total_colaboradores_distintos=total_colaboradores_distintos,
+        mao_obra_por_setor=mao_obra_por_setor,
+        mao_obra_por_funcao=mao_obra_por_funcao,
+        colaboradores_mais_utilizados=colaboradores_mais_utilizados,
         descartes_por_setor=descartes_por_setor,
         produtividade_setores=produtividade_setores,
         produtividade_setores_hora=produtividade_setores_hora
@@ -1540,6 +1545,7 @@ def editar_parada(parada_id):
         "Quebra de equipamento",
         "Manutenção corretiva",
         "Manutenção preventiva",
+        "Setup / Troca de Produto",
         "Falta de energia",
         "Ajuste operacional",
         "Limpeza / higienização",
@@ -1787,6 +1793,7 @@ def editar_paradas_lote():
         "Quebra de equipamento",
         "Manutenção corretiva",
         "Manutenção preventiva",
+        "Setup / Troca de Produto",
         "Falta de energia",
         "Ajuste operacional",
         "Limpeza / higienização",
@@ -2334,6 +2341,117 @@ def relatorio():
             "rendimento": round((kg_op / peso_op * 100) if peso_op > 0 else 0, 2),
             "viabilidade_percentual": round((viabilidade_op / aves_op * 100) if aves_op > 0 else 0, 2)
         })
+
+
+    # ================================
+    # RELATÓRIO DE MÃO DE OBRA
+    # ================================
+
+    colaboradores_distintos = set()
+    registros_por_setor = {}
+    colaboradores_por_setor_distintos = {}
+    registros_por_funcao = {}
+    colaboradores_por_funcao_distintos = {}
+    registros_por_colaborador = {}
+    ops_por_colaborador = {}
+
+    for item in mao_obra:
+        nome_original = (item["colaborador"] or "").strip()
+        nome = nome_original.lower()
+        setor = item["setor"] or "Não informado"
+
+        if not nome:
+            continue
+
+        colaboradores_distintos.add(nome)
+
+        registros_por_setor[setor] = registros_por_setor.get(setor, 0) + 1
+        colaboradores_por_setor_distintos.setdefault(setor, set()).add(nome)
+
+        registros_por_colaborador[nome_original] = registros_por_colaborador.get(nome_original, 0) + 1
+
+    cursor.execute(q(f"""
+    SELECT
+        m.colaborador,
+        m.funcao,
+        m.setor,
+        m.op_id
+    FROM apontamentos_mao_obra m
+    JOIN ordens_producao o ON o.id = m.op_id
+    WHERE {where_alias}
+      AND m.setor <> 'Expedição'
+    """), tuple(params_alias))
+
+    mao_obra_detalhada = cursor.fetchall()
+
+    for item in mao_obra_detalhada:
+        nome_original = (item["colaborador"] or "").strip()
+        nome = nome_original.lower()
+        funcao = item["funcao"] or "Não informada"
+
+        if not nome:
+            continue
+
+        registros_por_funcao[funcao] = registros_por_funcao.get(funcao, 0) + 1
+        colaboradores_por_funcao_distintos.setdefault(funcao, set()).add(nome)
+        ops_por_colaborador.setdefault(nome_original, set()).add(item["op_id"])
+
+    mao_obra_por_setor = []
+
+    for setor in setores_produtivos:
+        hh_setor = 0
+
+        for (data_op, setor_base), colaboradores in colaboradores_por_data_setor.items():
+            if setor_base != setor:
+                continue
+
+            horas_perdidas = horas_perdidas_por_data_setor.get((data_op, setor_base), 0)
+            horas_uteis = max(0, jornada_padrao - horas_perdidas)
+            hh_setor += len(colaboradores) * horas_uteis
+
+        percentual_hh = (hh_setor / hh_total * 100) if hh_total > 0 else 0
+
+        mao_obra_por_setor.append({
+            "setor": setor,
+            "registros": registros_por_setor.get(setor, 0),
+            "colaboradores": len(colaboradores_por_setor_distintos.get(setor, set())),
+            "hh": round(hh_setor, 2),
+            "percentual_hh": round(percentual_hh, 2)
+        })
+
+    mao_obra_por_funcao = []
+
+    for funcao, registros in registros_por_funcao.items():
+        mao_obra_por_funcao.append({
+            "funcao": funcao,
+            "registros": registros,
+            "colaboradores": len(colaboradores_por_funcao_distintos.get(funcao, set()))
+        })
+
+    mao_obra_por_funcao = sorted(
+        mao_obra_por_funcao,
+        key=lambda item: item["registros"],
+        reverse=True
+    )
+
+    colaboradores_mais_utilizados = []
+
+    for colaborador, registros in registros_por_colaborador.items():
+        colaboradores_mais_utilizados.append({
+            "colaborador": colaborador,
+            "registros": registros,
+            "ops": len(ops_por_colaborador.get(colaborador, set()))
+        })
+
+    colaboradores_mais_utilizados = sorted(
+        colaboradores_mais_utilizados,
+        key=lambda item: item["registros"],
+        reverse=True
+    )
+
+    kg_por_hh = (kg_produzidos / hh_total) if hh_total > 0 else 0
+    total_colaboradores_distintos = len(colaboradores_distintos)
+
 
     conn.close()
 
