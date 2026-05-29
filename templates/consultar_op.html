@@ -62,8 +62,33 @@
                 <form
                     method="POST"
                     action="{{ url_for('encerrar_op', op_id=op.id) }}"
-                    onsubmit="return confirm('Deseja realmente encerrar esta OP? Após o encerramento, novos apontamentos serão bloqueados.')"
+                    onsubmit="return confirm('Deseja realmente encerrar esta OP? A produção será gerada automaticamente e novos apontamentos serão bloqueados.')"
+                    class="form-encerramento-op"
                 >
+
+                    <div class="form-grid">
+                        <div>
+                            <label>Hora inicial</label>
+                            <input type="time" name="hora_inicio" required>
+                        </div>
+
+                        <div>
+                            <label>Hora final</label>
+                            <input type="time" name="hora_fim" required>
+                        </div>
+
+                        <div>
+                            <label>Unidades produzidas</label>
+                            <input type="number" step="1" name="unidades_produzidas" required>
+                        </div>
+
+                        {% if op.sku == "Galinha Cortada" or not op.sku %}
+                        <div>
+                            <label>Kg produzidos</label>
+                            <input type="number" step="0.01" name="kg_produzidos" required>
+                        </div>
+                        {% endif %}
+                    </div>
 
                     <button
                         type="submit"

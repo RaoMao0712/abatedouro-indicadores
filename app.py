@@ -720,6 +720,117 @@ def salvar_apontamento_descarte(form):
     conn.close()
 
 
+
+def gerar_producao_automatica_setores(op, data_lancamento, hora_inicio, hora_fim, unidades_produzidas, kg_produzidos=None):
+    setores_por_sku = {
+        "Galinha Inteira": [
+            "Recepção e Pendura",
+            "Escalda e Depenagem",
+            "Evisceração",
+            "Embalagem"
+        ],
+        "Galinha Cortada": [
+            "Recepção e Pendura",
+            "Escalda e Depenagem",
+            "Evisceração",
+            "Corte",
+            "Embalagem"
+        ]
+    }
+
+    sku = op["sku"] or "Galinha Cortada"
+    setores = setores_por_sku.get(sku, setores_por_sku["Galinha Cortada"])
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q("""
+    DELETE FROM apontamentos_producao
+    WHERE op_id = ?
+    """), (op["id"],))
+
+    cursor.execute(q("""
+    SELECT setor, COALESCE(SUM(quantidade), 0) as total
+    FROM apontamentos_descartes
+    WHERE op_id = ?
+      AND LOWER(unidade) IN ('aves', 'ave', 'unidade', 'unidades')
+    GROUP BY setor
+    """), (op["id"],))
+
+    descartes = cursor.fetchall()
+    descartes_por_setor = {
+        item["setor"]: float(item["total"] or 0)
+        for item in descartes
+    }
+
+    entrada_setor = float((op["quantidade_aves"] or 0) - (op["mortes_antes_pendura"] or 0))
+
+    for setor in setores:
+        quantidade_setor = max(0, entrada_setor)
+
+        cursor.execute(q("""
+        INSERT INTO apontamentos_producao (
+            op_id, data, setor, quantidade, unidade, observacoes
+        ) VALUES (?, ?, ?, ?, ?, ?)
+        """), (
+            op["id"],
+            data_lancamento,
+            setor,
+            quantidade_setor,
+            "unidades",
+            f"Gerado automaticamente no encerramento da OP | Início: {hora_inicio} | Fim: {hora_fim}"
+        ))
+
+        entrada_setor = quantidade_setor - descartes_por_setor.get(setor, 0)
+
+    cursor.execute(q("""
+    INSERT INTO apontamentos_producao (
+        op_id, data, setor, quantidade, unidade, observacoes
+    ) VALUES (?, ?, ?, ?, ?, ?)
+    """), (
+        op["id"],
+        data_lancamento,
+        "Expedição",
+        float(unidades_produzidas),
+        "unidades",
+        f"Produção final informada no encerramento da OP | Início: {hora_inicio} | Fim: {hora_fim}"
+    ))
+
+    if sku == "Galinha Cortada" and kg_produzidos is not None:
+        cursor.execute(q("""
+        INSERT INTO apontamentos_producao (
+            op_id, data, setor, quantidade, unidade, observacoes
+        ) VALUES (?, ?, ?, ?, ?, ?)
+        """), (
+            op["id"],
+            data_lancamento,
+            "Expedição",
+            float(kg_produzidos),
+            "kg",
+            f"Kg final produzido informado no encerramento da OP | Início: {hora_inicio} | Fim: {hora_fim}"
+        ))
+
+    conn.commit()
+    conn.close()
+
+
+def buscar_op_por_id(op_id):
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q("""
+    SELECT *
+    FROM ordens_producao
+    WHERE id = ?
+    """), (op_id,))
+
+    op = cursor.fetchone()
+    conn.close()
+
+    return op
+
+
+
 def contexto_apontamento():
     return {
         "hoje": datetime.now().strftime("%Y-%m-%d"),
@@ -1962,19 +2073,54 @@ def excluir_op(op_id):
 @app.route("/op/<int:op_id>/encerrar", methods=["POST"])
 @perfil_permitido("pcp")
 def encerrar_op(op_id):
-    conn = conectar()
-    cursor = conn.cursor()
+    op = buscar_op_por_id(op_id)
 
-    cursor.execute(q("""
-    UPDATE ordens_producao
-    SET status = ?
-    WHERE id = ?
-    """), ("Encerrada", op_id))
+    if not op:
+        flash("OP não encontrada.")
+        return redirect(url_for("consultar_op"))
 
-    conn.commit()
-    conn.close()
+    if op["status"] == "Encerrada":
+        flash("Esta OP já está encerrada.")
+        return redirect(url_for("consultar_op", op_id=op_id))
 
-    flash("OP encerrada com sucesso.")
+    try:
+        hora_inicio = request.form["hora_inicio"]
+        hora_fim = request.form["hora_fim"]
+        unidades_produzidas = float(request.form["unidades_produzidas"])
+        kg_produzidos_raw = request.form.get("kg_produzidos", "")
+
+        kg_produzidos = None
+        if (op["sku"] or "Galinha Cortada") == "Galinha Cortada":
+            if not kg_produzidos_raw:
+                raise ValueError("Informe o kg produzido para Galinha Cortada.")
+            kg_produzidos = float(kg_produzidos_raw)
+
+        gerar_producao_automatica_setores(
+            op=op,
+            data_lancamento=op["data"],
+            hora_inicio=hora_inicio,
+            hora_fim=hora_fim,
+            unidades_produzidas=unidades_produzidas,
+            kg_produzidos=kg_produzidos
+        )
+
+        conn = conectar()
+        cursor = conn.cursor()
+
+        cursor.execute(q("""
+        UPDATE ordens_producao
+        SET status = ?
+        WHERE id = ?
+        """), ("Encerrada", op_id))
+
+        conn.commit()
+        conn.close()
+
+        flash("OP encerrada com sucesso. A produção foi gerada automaticamente.")
+
+    except ValueError as erro:
+        flash(str(erro))
+
     return redirect(url_for("consultar_op", op_id=op_id))
 
 
