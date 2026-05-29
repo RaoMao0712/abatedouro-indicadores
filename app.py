@@ -1558,6 +1558,7 @@ def apontamento_paradas():
 
 
 
+
 @app.route("/tempos-setor", methods=["GET", "POST"])
 @perfil_permitido("producao")
 def tempos_setor():
@@ -1598,7 +1599,6 @@ def tempos_setor():
         tempos_por_setor=tempos_por_setor,
         normalizar_chave_setor=normalizar_chave_setor
     )
-
 
 
 @app.route("/apontamento-descartes", methods=["GET", "POST"])
@@ -2245,7 +2245,8 @@ def excluir_op(op_id):
         "apontamentos_producao",
         "apontamentos_mao_obra",
         "apontamentos_paradas",
-        "apontamentos_descartes"
+        "apontamentos_descartes",
+        "apontamentos_tempos_setor"
     ]:
         cursor.execute(q(f"DELETE FROM {tabela} WHERE op_id = ?"), (op_id,))
 
