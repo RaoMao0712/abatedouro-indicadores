@@ -84,9 +84,23 @@
 
 <button onclick="window.print()">Imprimir</button>
 
-<div class="cabecalho">
+<<div class="cabecalho">
+
+    <img
+        src="{{ url_for('static', filename='imagens/logo.png') }}"
+        alt="São Pedro"
+        style="
+            height: 70px;
+            margin-bottom: 10px;
+        "
+    >
+
     <h1>Ordem de Produção - Coleta de Dados</h1>
-    <p>Ficha para acompanhamento manual do processo produtivo.</p>
+
+    <p>
+        Ficha para acompanhamento manual do processo produtivo.
+    </p>
+
 </div>
 
 <div class="box">
