@@ -721,7 +721,7 @@ def salvar_apontamento_descarte(form):
 
 
 
-def gerar_producao_automatica_setores(op, data_lancamento, hora_inicio, hora_fim, unidades_produzidas, kg_produzidos=None):
+def gerar_producao_automatica_setores(op, data_lancamento, hora_inicio, hora_fim, unidades_produzidas, kg_produzidos=None, descontar_almoco=False):
     setores_por_sku = {
         "Galinha Inteira": [
             "Recepção e Pendura",
@@ -740,6 +740,8 @@ def gerar_producao_automatica_setores(op, data_lancamento, hora_inicio, hora_fim
 
     sku = op["sku"] or "Galinha Cortada"
     setores = setores_por_sku.get(sku, setores_por_sku["Galinha Cortada"])
+
+    texto_almoco = "Sim" if descontar_almoco else "Não"
 
     conn = conectar()
     cursor = conn.cursor()
@@ -778,7 +780,7 @@ def gerar_producao_automatica_setores(op, data_lancamento, hora_inicio, hora_fim
             setor,
             quantidade_setor,
             "unidades",
-            f"Gerado automaticamente no encerramento da OP | Início: {hora_inicio} | Fim: {hora_fim}"
+            f"Gerado automaticamente no encerramento da OP | Início: {hora_inicio} | Fim: {hora_fim} | Descontar almoço 1h12: {texto_almoco}"
         ))
 
         entrada_setor = quantidade_setor - descartes_por_setor.get(setor, 0)
@@ -793,7 +795,7 @@ def gerar_producao_automatica_setores(op, data_lancamento, hora_inicio, hora_fim
         "Expedição",
         float(unidades_produzidas),
         "unidades",
-        f"Produção final informada no encerramento da OP | Início: {hora_inicio} | Fim: {hora_fim}"
+        f"Produção final informada no encerramento da OP | Início: {hora_inicio} | Fim: {hora_fim} | Descontar almoço 1h12: {texto_almoco}"
     ))
 
     if sku == "Galinha Cortada" and kg_produzidos is not None:
@@ -807,7 +809,7 @@ def gerar_producao_automatica_setores(op, data_lancamento, hora_inicio, hora_fim
             "Expedição",
             float(kg_produzidos),
             "kg",
-            f"Kg final produzido informado no encerramento da OP | Início: {hora_inicio} | Fim: {hora_fim}"
+            f"Kg final produzido informado no encerramento da OP | Início: {hora_inicio} | Fim: {hora_fim} | Descontar almoço 1h12: {texto_almoco}"
         ))
 
     conn.commit()
@@ -2088,6 +2090,7 @@ def encerrar_op(op_id):
         hora_fim = request.form["hora_fim"]
         unidades_produzidas = float(request.form["unidades_produzidas"])
         kg_produzidos_raw = request.form.get("kg_produzidos", "")
+        descontar_almoco = request.form.get("descontar_almoco") == "sim"
 
         kg_produzidos = None
         if (op["sku"] or "Galinha Cortada") == "Galinha Cortada":
@@ -2101,7 +2104,8 @@ def encerrar_op(op_id):
             hora_inicio=hora_inicio,
             hora_fim=hora_fim,
             unidades_produzidas=unidades_produzidas,
-            kg_produzidos=kg_produzidos
+            kg_produzidos=kg_produzidos,
+            descontar_almoco=descontar_almoco
         )
 
         conn = conectar()
