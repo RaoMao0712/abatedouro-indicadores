@@ -2,403 +2,214 @@
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <title>Impressão da OP</title>
+    <title>OP {{ op.id }}</title>
 
     <style>
         body {
-            font-family: Arial, Helvetica, sans-serif;
-            color: #1f2933;
-            margin: 30px;
+            font-family: Arial, sans-serif;
+            font-size: 12px;
+            color: #111;
         }
 
-        .topo-impressao {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            border-bottom: 3px solid #f97316;
-            padding-bottom: 14px;
-            margin-bottom: 24px;
+        h1, h2, h3 {
+            margin-bottom: 6px;
         }
 
-        .topo-impressao img {
-            height: 48px;
-            width: auto;
+        .cabecalho {
+            border-bottom: 2px solid #111;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
         }
 
-        h1 {
-            margin: 0;
-            color: #1f3b4d;
-            font-size: 24px;
-        }
-
-        h2 {
-            margin-top: 28px;
-            color: #1f3b4d;
-            border-bottom: 1px solid #d1d5db;
-            padding-bottom: 6px;
-            font-size: 18px;
-        }
-
-        .subtitulo {
-            margin: 2px 0 0;
-            color: #64748b;
-            font-size: 13px;
-        }
-
-        .grid {
+        .grid-info {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 8px 24px;
-            margin-bottom: 18px;
+            gap: 6px 20px;
+            margin-bottom: 14px;
         }
 
-        .linha {
-            border-bottom: 1px solid #e5e7eb;
-            padding: 6px 0;
-            font-size: 14px;
-        }
-
-        .linha strong {
-            color: #374151;
-        }
-
-        .cards {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 12px;
-            margin: 18px 0;
-        }
-
-        .card {
-            border: 1px solid #d1d5db;
-            border-left: 5px solid #f97316;
-            padding: 12px;
-            border-radius: 8px;
-        }
-
-        .card h3 {
-            margin: 0 0 8px;
-            font-size: 14px;
-            color: #374151;
-        }
-
-        .card p {
-            margin: 0;
-            font-size: 22px;
-            font-weight: bold;
-            color: #f97316;
+        .box {
+            border: 1px solid #111;
+            padding: 8px;
+            margin-bottom: 12px;
         }
 
         table {
             width: 100%;
             border-collapse: collapse;
-            margin-top: 10px;
-            font-size: 13px;
+            margin-top: 8px;
         }
 
         th, td {
-            border: 1px solid #d1d5db;
-            padding: 7px;
+            border: 1px solid #111;
+            padding: 6px;
             text-align: left;
+            vertical-align: top;
         }
 
         th {
-            background: #f3f4f6;
-            color: #374151;
+            background: #f1f1f1;
         }
 
-        .vazio {
-            color: #64748b;
-            font-size: 13px;
-            padding: 8px 0;
+        .campo {
+            height: 28px;
         }
 
-        .botao-imprimir {
-            margin-bottom: 20px;
-            padding: 10px 16px;
-            background: #f97316;
-            color: white;
-            border: none;
-            border-radius: 8px;
-            font-weight: bold;
-            cursor: pointer;
+        .obs {
+            height: 42px;
+        }
+
+        .assinaturas {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 40px;
+            margin-top: 30px;
+        }
+
+        .linha-assinatura {
+            border-top: 1px solid #111;
+            text-align: center;
+            padding-top: 5px;
         }
 
         @media print {
-            .botao-imprimir {
+            button {
                 display: none;
-            }
-
-            body {
-                margin: 15mm;
             }
         }
     </style>
 </head>
+
 <body>
 
-<button class="botao-imprimir" onclick="window.print()">Imprimir</button>
+<button onclick="window.print()">Imprimir</button>
 
-<div class="topo-impressao">
-    <img src="{{ url_for('static', filename='imagens/logo.png') }}" alt="São Pedro">
+<div class="cabecalho">
+    <h1>Ordem de Produção - Coleta de Dados</h1>
+    <p>Ficha para acompanhamento manual do processo produtivo.</p>
+</div>
+
+<div class="box">
+    <h2>Dados da OP</h2>
+
+    <div class="grid-info">
+        <div><strong>OP:</strong> {{ op.id }}</div>
+        <div><strong>Data:</strong> {{ op.data }}</div>
+
+        <div><strong>SKU / Processo:</strong> {{ op.sku or "Galinha Cortada" }}</div>
+        <div><strong>Fornecedor:</strong> {{ op.fornecedor }}</div>
+
+        <div><strong>GTA:</strong> {{ op.gta or "-" }}</div>
+        <div><strong>NF:</strong> {{ op.nota_fiscal or "-" }}</div>
+
+        <div><strong>Aves recebidas:</strong> {{ op.quantidade_aves }}</div>
+        <div><strong>Mortes antes da pendura:</strong> {{ op.mortes_antes_pendura }}</div>
+
+        <div><strong>Peso vivo:</strong> {{ "%.2f"|format(op.peso_vivo) }} kg</div>
+        <div><strong>Peso médio:</strong> {{ "%.3f"|format(op.peso_medio) }} kg</div>
+    </div>
 
     <div>
-        <h1>Ordem de Produção #{{ op.id }}</h1>
-        <p class="subtitulo">Indicadores do Abatedouro</p>
+        <strong>Observações da OP:</strong> {{ op.observacoes or "-" }}
     </div>
 </div>
 
-<h2>Dados da OP</h2>
+<div class="box">
+    <h2>Fluxo do Processo Produtivo</h2>
 
-<div class="grid">
-    <div class="linha"><strong>Data:</strong> {{ op.data }}</div>
-    <div class="linha"><strong>Fornecedor:</strong> {{ op.fornecedor }}</div>
-    <div class="linha"><strong>GTA:</strong> {{ op.gta }}</div>
-    <div class="linha"><strong>Nota Fiscal:</strong> {{ op.nota_fiscal }}</div>
-    <div class="linha"><strong>Aves recebidas:</strong> {{ op.quantidade_aves }}</div>
-    <div class="linha"><strong>Mortes antes da pendura:</strong> {{ op.mortes_antes_pendura }}</div>
-    <div class="linha"><strong>Peso vivo:</strong> {{ "%.2f"|format(op.peso_vivo) }} kg</div>
-    <div class="linha"><strong>Peso médio:</strong> {{ "%.2f"|format(op.peso_medio) }} kg</div>
-    <div class="linha"><strong>Status:</strong> {{ op.status }}</div>
-    <div class="linha"><strong>Observações:</strong> {{ op.observacoes }}</div>
+    <table>
+        <thead>
+            <tr>
+                <th>Etapa do Processo</th>
+                <th>Hora Início</th>
+                <th>Hora Final</th>
+                <th>Descartes / Condenações</th>
+                <th>Paradas</th>
+                <th>Observações</th>
+            </tr>
+        </thead>
+
+        <tbody>
+            <tr>
+                <td>Recepção e Pendura</td>
+                <td class="campo"></td>
+                <td class="campo"></td>
+                <td class="campo"></td>
+                <td class="campo"></td>
+                <td class="obs"></td>
+            </tr>
+
+            <tr>
+                <td>Escalda e Depenagem</td>
+                <td class="campo"></td>
+                <td class="campo"></td>
+                <td class="campo"></td>
+                <td class="campo"></td>
+                <td class="obs"></td>
+            </tr>
+
+            <tr>
+                <td>Evisceração</td>
+                <td class="campo"></td>
+                <td class="campo"></td>
+                <td class="campo"></td>
+                <td class="campo"></td>
+                <td class="obs"></td>
+            </tr>
+
+            {% if op.sku == "Galinha Cortada" %}
+            <tr>
+                <td>Corte</td>
+                <td class="campo"></td>
+                <td class="campo"></td>
+                <td class="campo"></td>
+                <td class="campo"></td>
+                <td class="obs"></td>
+            </tr>
+            {% endif %}
+
+            <tr>
+                <td>Embalagem</td>
+                <td class="campo"></td>
+                <td class="campo"></td>
+                <td class="campo"></td>
+                <td class="campo"></td>
+                <td class="obs"></td>
+            </tr>
+        </tbody>
+    </table>
 </div>
 
-{% if resumo %}
-<h2>Resumo Consolidado</h2>
+<div class="box">
+    <h2>Resumo Manual da Produção</h2>
 
-<div class="cards">
-    <div class="card">
-        <h3>Aves abatidas</h3>
-        <p>{{ resumo.aves_abatidas }}</p>
+    <table>
+        <tr>
+            <th>Produção total em kg</th>
+            <td class="campo"></td>
+        </tr>
+
+        <tr>
+            <th>Quantidade final produzida</th>
+            <td class="campo"></td>
+        </tr>
+
+        <tr>
+            <th>Observações gerais</th>
+            <td class="obs"></td>
+        </tr>
+    </table>
+</div>
+
+<div class="assinaturas">
+    <div class="linha-assinatura">
+        Responsável pela Produção
     </div>
 
-    <div class="card">
-        <h3>Produção</h3>
-        <p>{{ "%.2f"|format(resumo.kg_produzidos) }} kg</p>
-    </div>
-
-    <div class="card">
-        <h3>Viabilidade</h3>
-        <p>{{ "%.2f"|format(resumo.viabilidade_percentual) }}%</p>
-    </div>
-
-    <div class="card">
-        <h3>Rendimento</h3>
-        <p>{{ "%.2f"|format(resumo.rendimento) }}%</p>
-    </div>
-
-    <div class="card">
-        <h3>Descartes aves</h3>
-        <p>{{ "%.2f"|format(resumo.descartes_aves) }}</p>
-    </div>
-
-    <div class="card">
-        <h3>Descartes kg</h3>
-        <p>{{ "%.2f"|format(resumo.descartes_kg) }}</p>
+    <div class="linha-assinatura">
+        Responsável pelo Lançamento no Sistema
     </div>
 </div>
-{% endif %}
-
-<h2>Produção</h2>
-
-{% if producoes %}
-<table>
-    <thead>
-        <tr>
-            <th>Data</th>
-            <th>Setor</th>
-            <th>Quantidade</th>
-            <th>Unidade</th>
-            <th>Observações</th>
-        </tr>
-    </thead>
-    <tbody>
-        {% for item in producoes %}
-        <tr>
-            <td>{{ item.data }}</td>
-            <td>{{ item.setor }}</td>
-            <td>{{ item.quantidade }}</td>
-            <td>{{ item.unidade }}</td>
-            <td>{{ item.observacoes }}</td>
-        </tr>
-        {% endfor %}
-    </tbody>
-</table>
-{% else %}
-<p class="vazio">Nenhum apontamento de produção.</p>
-{% endif %}
-
-<h2>Mão de Obra</h2>
-
-{% if mao_obra %}
-<table>
-    <thead>
-        <tr>
-            <th>Data</th>
-            <th>Colaborador</th>
-            <th>Função</th>
-            <th>Setor</th>
-            <th>Turno</th>
-            <th>Observações</th>
-        </tr>
-    </thead>
-    <tbody>
-        {% for item in mao_obra %}
-        <tr>
-            <td>{{ item.data }}</td>
-            <td>{{ item.colaborador }}</td>
-            <td>{{ item.funcao }}</td>
-            <td>{{ item.setor }}</td>
-            <td>{{ item.turno }}</td>
-            <td>{{ item.observacoes }}</td>
-        </tr>
-        {% endfor %}
-    </tbody>
-</table>
-{% else %}
-<p class="vazio">Nenhum apontamento de mão de obra.</p>
-{% endif %}
-
-<h2>Paradas Operacionais</h2>
-
-{% if paradas %}
-<table>
-    <thead>
-        <tr>
-            <th>Data</th>
-            <th>Setor</th>
-            <th>Motivo</th>
-            <th>Início</th>
-            <th>Fim</th>
-            <th>Horas paradas</th>
-            <th>Observações</th>
-        </tr>
-    </thead>
-    <tbody>
-        {% for item in paradas %}
-        <tr>
-            <td>{{ item.data }}</td>
-            <td>{{ item.setor }}</td>
-            <td>{{ item.motivo }}</td>
-            <td>{{ item.hora_inicio }}</td>
-            <td>{{ item.hora_fim }}</td>
-            <td>{{ item.horas_paradas }}</td>
-            <td>{{ item.observacoes }}</td>
-        </tr>
-        {% endfor %}
-    </tbody>
-</table>
-{% else %}
-<p class="vazio">Nenhuma parada operacional.</p>
-{% endif %}
-
-<h2>Descartes / Condenações</h2>
-
-{% if descartes %}
-<table>
-    <thead>
-        <tr>
-            <th>Data</th>
-            <th>Setor</th>
-            <th>Categoria</th>
-            <th>Motivo</th>
-            <th>Quantidade</th>
-            <th>Unidade</th>
-            <th>Observações</th>
-        </tr>
-    </thead>
-    <tbody>
-        {% for item in descartes %}
-        <tr>
-            <td>{{ item.data }}</td>
-            <td>{{ item.setor }}</td>
-            <td>{{ item.categoria }}</td>
-            <td>{{ item.motivo }}</td>
-            <td>{{ item.quantidade }}</td>
-            <td>{{ item.unidade }}</td>
-            <td>{{ item.observacoes }}</td>
-        </tr>
-        {% endfor %}
-    </tbody>
-</table>
-{% else %}
-<p class="vazio">Nenhum descarte ou condenação registrado.</p>
-{% endif %}
 
 </body>
 </html>
-
-<hr>
-
-<h2>Coleta de Dados do Processo</h2>
-
-<table border="1" width="100%" cellspacing="0" cellpadding="5">
-    <tr>
-        <th>Etapa</th>
-        <th>Hora Início</th>
-        <th>Hora Fim</th>
-        <th>Descartes</th>
-        <th>Paradas</th>
-        <th>Observações</th>
-    </tr>
-
-    <tr>
-        <td>Recepção e Pendura</td>
-        <td>________</td>
-        <td>________</td>
-        <td>________</td>
-        <td>________</td>
-        <td>______________________</td>
-    </tr>
-
-    <tr>
-        <td>Escalda e Depenagem</td>
-        <td>________</td>
-        <td>________</td>
-        <td>________</td>
-        <td>________</td>
-        <td>______________________</td>
-    </tr>
-
-    <tr>
-        <td>Evisceração</td>
-        <td>________</td>
-        <td>________</td>
-        <td>________</td>
-        <td>________</td>
-        <td>______________________</td>
-    </tr>
-
-    {% if op.sku == "Galinha Cortada" %}
-    <tr>
-        <td>Corte</td>
-        <td>________</td>
-        <td>________</td>
-        <td>________</td>
-        <td>________</td>
-        <td>______________________</td>
-    </tr>
-    {% endif %}
-
-    <tr>
-        <td>Embalagem</td>
-        <td>________</td>
-        <td>________</td>
-        <td>________</td>
-        <td>________</td>
-        <td>______________________</td>
-    </tr>
-
-</table>
-
-<br>
-
-<h3>Resumo Final</h3>
-
-<p>Produção Total (kg): ____________________________________</p>
-
-<p>Responsável Produção: __________________________________</p>
-
-<p>Responsável PCP: _______________________________________</p>
-
-<p>Data de Encerramento: __________________________________</p>
