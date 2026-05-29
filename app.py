@@ -1102,11 +1102,6 @@ def dashboard():
         hh_total=round(hh_total, 2),
         produtividade_hh=round(produtividade_hh, 2),
         aves_hora_fabrica=round(aves_hora_fabrica, 2),
-        kg_por_hh=round(kg_por_hh, 2),
-        total_colaboradores_distintos=total_colaboradores_distintos,
-        mao_obra_por_setor=mao_obra_por_setor,
-        mao_obra_por_funcao=mao_obra_por_funcao,
-        colaboradores_mais_utilizados=colaboradores_mais_utilizados,
         descartes_por_setor=descartes_por_setor,
         produtividade_setores=produtividade_setores,
         produtividade_setores_hora=produtividade_setores_hora
