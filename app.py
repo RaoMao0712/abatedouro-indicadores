@@ -2126,26 +2126,251 @@ def cadastrar_usuario():
 @app.route("/relatorio")
 @perfil_permitido("pcp")
 def relatorio():
+    criar_banco()
+
+    agora = datetime.now()
+    hoje = agora.strftime("%Y-%m-%d")
+    primeiro_dia_mes = agora.replace(day=1).strftime("%Y-%m-%d")
+
+    data_inicio = request.args.get("data_inicio") or primeiro_dia_mes
+    data_fim = request.args.get("data_fim") or hoje
+    fornecedor_filtro = request.args.get("fornecedor") or "Todos"
+    sku_filtro = request.args.get("sku") or "Todos"
+    status_filtro = request.args.get("status") or "Encerrada"
+
+    jornada_padrao = 8.8
+    setores_produtivos = ["Recepção e Pendura", "Escalda e Depenagem", "Evisceração", "Corte", "Embalagem"]
+
+    cond_op = ["data BETWEEN ? AND ?"]
+    params_op = [data_inicio, data_fim]
+    cond_alias = ["o.data BETWEEN ? AND ?"]
+    params_alias = [data_inicio, data_fim]
+
+    if fornecedor_filtro != "Todos":
+        cond_op.append("fornecedor = ?")
+        params_op.append(fornecedor_filtro)
+        cond_alias.append("o.fornecedor = ?")
+        params_alias.append(fornecedor_filtro)
+
+    if sku_filtro != "Todos":
+        cond_op.append("COALESCE(sku, 'Galinha Cortada') = ?")
+        params_op.append(sku_filtro)
+        cond_alias.append("COALESCE(o.sku, 'Galinha Cortada') = ?")
+        params_alias.append(sku_filtro)
+
+    if status_filtro != "Todas":
+        cond_op.append("COALESCE(status, 'Aberta') = ?")
+        params_op.append(status_filtro)
+        cond_alias.append("COALESCE(o.status, 'Aberta') = ?")
+        params_alias.append(status_filtro)
+
+    where_op = " AND ".join(cond_op)
+    where_alias = " AND ".join(cond_alias)
+
     conn = conectar()
     cursor = conn.cursor()
 
-    cursor.execute("""
-    SELECT
-        setor,
-        COUNT(*) as registros,
-        SUM(quantidade) as total_produzido
-    FROM apontamentos_producao
-    GROUP BY setor
-    ORDER BY setor
-    """)
+    cursor.execute(q(f"""
+    SELECT *
+    FROM ordens_producao
+    WHERE {where_op}
+    ORDER BY data ASC, id ASC
+    """), tuple(params_op))
+    ordens_periodo = cursor.fetchall()
 
-    dados_setores = cursor.fetchall()
+    datas_periodo = sorted({op["data"] for op in ordens_periodo})
+    dias_periodo = len(datas_periodo)
+    horas_programadas = jornada_padrao * dias_periodo
+
+    aves_recebidas = sum(op["quantidade_aves"] or 0 for op in ordens_periodo)
+    mortes_antes_pendura = sum(op["mortes_antes_pendura"] or 0 for op in ordens_periodo)
+    peso_entrada = sum(op["peso_vivo"] or 0 for op in ordens_periodo)
+    aves_abatidas = aves_recebidas - mortes_antes_pendura
+
+    cursor.execute(q(f"""
+    SELECT COALESCE(SUM(p.quantidade), 0) as total
+    FROM apontamentos_producao p
+    JOIN ordens_producao o ON o.id = p.op_id
+    WHERE {where_alias}
+      AND LOWER(p.unidade) = 'kg'
+    """), tuple(params_alias))
+    kg_produzidos = cursor.fetchone()["total"] or 0
+
+    cursor.execute(q(f"""
+    SELECT COALESCE(SUM(d.quantidade), 0) as total
+    FROM apontamentos_descartes d
+    JOIN ordens_producao o ON o.id = d.op_id
+    WHERE {where_alias}
+      AND LOWER(d.unidade) IN ('aves', 'ave', 'unidade', 'unidades')
+    """), tuple(params_alias))
+    descartes_aves = cursor.fetchone()["total"] or 0
+
+    cursor.execute(q(f"""
+    SELECT COALESCE(SUM(d.quantidade), 0) as total
+    FROM apontamentos_descartes d
+    JOIN ordens_producao o ON o.id = d.op_id
+    WHERE {where_alias}
+      AND LOWER(d.unidade) = 'kg'
+    """), tuple(params_alias))
+    descartes_kg = cursor.fetchone()["total"] or 0
+
+    total_problemas_aves = mortes_antes_pendura + descartes_aves
+    viabilidade = aves_recebidas - total_problemas_aves
+    viabilidade_percentual = (viabilidade / aves_recebidas * 100) if aves_recebidas > 0 else 0
+    rendimento = (kg_produzidos / peso_entrada * 100) if peso_entrada > 0 else 0
+
+    cursor.execute(q(f"""
+    SELECT p.evento_id, p.op_id, o.data as data_op, p.data as data_apontamento,
+           p.setor, p.motivo, p.horas_paradas, p.observacoes
+    FROM apontamentos_paradas p
+    JOIN ordens_producao o ON o.id = p.op_id
+    WHERE {where_alias}
+      AND p.setor <> 'Expedição'
+    """), tuple(params_alias))
+    paradas = cursor.fetchall()
+
+    eventos_parada_unicos = {}
+    horas_perdidas_por_data_setor = {}
+    for parada in paradas:
+        horas = float(parada["horas_paradas"] or 0)
+        data_base = parada["data_op"] or parada["data_apontamento"]
+        setor = parada["setor"]
+        chave_data_setor = (data_base, setor)
+        horas_perdidas_por_data_setor[chave_data_setor] = horas_perdidas_por_data_setor.get(chave_data_setor, 0) + horas
+        chave_evento = parada["evento_id"] or (parada["op_id"], data_base, parada["motivo"], round(horas, 4), parada["observacoes"] or "")
+        eventos_parada_unicos[chave_evento] = horas
+
+    horas_perdidas_total = sum(eventos_parada_unicos.values())
+    horas_uteis_total = max(0, horas_programadas - horas_perdidas_total)
+    percentual_jornada_perdida = (horas_perdidas_total / horas_programadas * 100) if horas_programadas > 0 else 0
+
+    cursor.execute(q(f"""
+    SELECT o.data as data_op, m.setor, m.colaborador
+    FROM apontamentos_mao_obra m
+    JOIN ordens_producao o ON o.id = m.op_id
+    WHERE {where_alias}
+      AND m.setor <> 'Expedição'
+    """), tuple(params_alias))
+    mao_obra = cursor.fetchall()
+
+    colaboradores_por_data_setor = {}
+    for item in mao_obra:
+        setor = item["setor"]
+        if setor not in setores_produtivos:
+            continue
+        nome = (item["colaborador"] or "").strip().lower()
+        if nome:
+            colaboradores_por_data_setor.setdefault((item["data_op"], setor), set()).add(nome)
+
+    hh_total = 0
+    for (data_op, setor), colaboradores in colaboradores_por_data_setor.items():
+        horas_perdidas = horas_perdidas_por_data_setor.get((data_op, setor), 0)
+        hh_total += len(colaboradores) * max(0, jornada_padrao - horas_perdidas)
+
+    produtividade_hh = (viabilidade / hh_total) if hh_total > 0 else 0
+    aves_hora_fabrica = (viabilidade / horas_uteis_total) if horas_uteis_total > 0 else 0
+
+    cursor.execute(q(f"""
+    SELECT d.setor, COALESCE(SUM(d.quantidade), 0) as quantidade
+    FROM apontamentos_descartes d
+    JOIN ordens_producao o ON o.id = d.op_id
+    WHERE {where_alias}
+      AND LOWER(d.unidade) IN ('aves', 'ave', 'unidade', 'unidades')
+    GROUP BY d.setor
+    ORDER BY quantidade DESC
+    """), tuple(params_alias))
+    descartes_por_setor = cursor.fetchall()
+
+    cursor.execute(q(f"""
+    SELECT p.motivo, COALESCE(SUM(p.horas_paradas), 0) as horas
+    FROM apontamentos_paradas p
+    JOIN ordens_producao o ON o.id = p.op_id
+    WHERE {where_alias}
+      AND p.setor <> 'Expedição'
+    GROUP BY p.motivo
+    ORDER BY horas DESC
+    """), tuple(params_alias))
+    paradas_por_motivo = cursor.fetchall()
+
+    linhas_op = []
+    for op in ordens_periodo:
+        op_id = op["id"]
+        cursor.execute(q("""
+        SELECT COALESCE(SUM(quantidade), 0) as total
+        FROM apontamentos_producao
+        WHERE op_id = ? AND LOWER(unidade) = 'kg'
+        """), (op_id,))
+        kg_op = cursor.fetchone()["total"] or 0
+
+        cursor.execute(q("""
+        SELECT COALESCE(SUM(quantidade), 0) as total
+        FROM apontamentos_descartes
+        WHERE op_id = ? AND LOWER(unidade) IN ('aves', 'ave', 'unidade', 'unidades')
+        """), (op_id,))
+        descartes_op = cursor.fetchone()["total"] or 0
+
+        cursor.execute(q("""
+        SELECT COALESCE(SUM(quantidade), 0) as total
+        FROM apontamentos_descartes
+        WHERE op_id = ? AND LOWER(unidade) = 'kg'
+        """), (op_id,))
+        perdas_kg_op = cursor.fetchone()["total"] or 0
+
+        aves_op = op["quantidade_aves"] or 0
+        mortes_op = op["mortes_antes_pendura"] or 0
+        peso_op = op["peso_vivo"] or 0
+        viabilidade_op = aves_op - mortes_op - descartes_op
+        linhas_op.append({
+            "id": op["id"],
+            "data": op["data"],
+            "fornecedor": op["fornecedor"],
+            "sku": op["sku"] or "Galinha Cortada",
+            "status": op["status"] or "Aberta",
+            "aves_recebidas": round(aves_op, 2),
+            "mortes": round(mortes_op, 2),
+            "descartes": round(descartes_op, 2),
+            "perdas_kg": round(perdas_kg_op, 2),
+            "kg_produzidos": round(kg_op, 2),
+            "rendimento": round((kg_op / peso_op * 100) if peso_op > 0 else 0, 2),
+            "viabilidade_percentual": round((viabilidade_op / aves_op * 100) if aves_op > 0 else 0, 2)
+        })
+
     conn.close()
 
     return render_template(
         "relatorio.html",
-        dados_setores=dados_setores
+        data_inicio=data_inicio,
+        data_fim=data_fim,
+        fornecedor_filtro=fornecedor_filtro,
+        sku_filtro=sku_filtro,
+        status_filtro=status_filtro,
+        fornecedores=buscar_fornecedores(),
+        skus=["Galinha Inteira", "Galinha Cortada"],
+        total_ops=len(ordens_periodo),
+        dias_periodo=dias_periodo,
+        aves_recebidas=round(aves_recebidas, 2),
+        aves_abatidas=round(aves_abatidas, 2),
+        mortes_antes_pendura=round(mortes_antes_pendura, 2),
+        descartes_aves=round(descartes_aves, 2),
+        descartes_kg=round(descartes_kg, 2),
+        total_problemas_aves=round(total_problemas_aves, 2),
+        viabilidade=round(viabilidade, 2),
+        viabilidade_percentual=round(viabilidade_percentual, 2),
+        peso_entrada=round(peso_entrada, 2),
+        kg_produzidos=round(kg_produzidos, 2),
+        rendimento=round(rendimento, 2),
+        horas_programadas=round(horas_programadas, 2),
+        horas_perdidas_total=round(horas_perdidas_total, 2),
+        percentual_jornada_perdida=round(percentual_jornada_perdida, 2),
+        horas_uteis_total=round(horas_uteis_total, 2),
+        hh_total=round(hh_total, 2),
+        produtividade_hh=round(produtividade_hh, 2),
+        aves_hora_fabrica=round(aves_hora_fabrica, 2),
+        descartes_por_setor=descartes_por_setor,
+        paradas_por_motivo=paradas_por_motivo,
+        linhas_op=linhas_op
     )
+
 
 
 if __name__ == "__main__":
