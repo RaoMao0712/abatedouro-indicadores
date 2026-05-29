@@ -442,6 +442,43 @@ def setores_padrao():
     ]
 
 
+
+def criar_tabela_tempos_setor():
+    conn = conectar()
+    cursor = conn.cursor()
+
+    if DATABASE_URL:
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS apontamentos_tempos_setor (
+            id SERIAL PRIMARY KEY,
+            op_id INTEGER NOT NULL,
+            data TEXT NOT NULL,
+            setor TEXT NOT NULL,
+            hora_inicio TEXT NOT NULL,
+            hora_fim TEXT NOT NULL,
+            observacoes TEXT,
+            criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
+    else:
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS apontamentos_tempos_setor (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            op_id INTEGER NOT NULL,
+            data TEXT NOT NULL,
+            setor TEXT NOT NULL,
+            hora_inicio TEXT NOT NULL,
+            hora_fim TEXT NOT NULL,
+            observacoes TEXT,
+            criado_em TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
+
+    conn.commit()
+    conn.close()
+
+
+
 def criar_tabela_fornecedores():
     conn = conectar()
     cursor = conn.cursor()
@@ -890,6 +927,7 @@ def setores_por_sku(sku):
 
 
 def salvar_tempos_setor(form):
+    criar_tabela_tempos_setor()
     op_id = int(form["op_id"])
     validar_op_aberta(op_id)
 
@@ -942,6 +980,7 @@ def salvar_tempos_setor(form):
 
 
 def buscar_tempos_setor_por_op(op_id):
+    criar_tabela_tempos_setor()
     conn = conectar()
     cursor = conn.cursor()
 
@@ -1563,6 +1602,7 @@ def apontamento_paradas():
 @perfil_permitido("producao")
 def tempos_setor():
     criar_banco()
+    criar_tabela_tempos_setor()
 
     if request.method == "POST":
         try:
@@ -2338,6 +2378,7 @@ def reabrir_op(op_id):
 @perfil_permitido("pcp", "qualidade", "producao")
 def consultar_op():
     criar_banco()
+    criar_tabela_tempos_setor()
 
     op_id = request.args.get("op_id")
     ordens = buscar_ordens()
