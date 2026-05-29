@@ -84,22 +84,35 @@
 
 <button onclick="window.print()">Imprimir</button>
 
-<<div class="cabecalho">
+<div class="cabecalho">
 
-    <img
-        src="{{ url_for('static', filename='imagens/logo.png') }}"
-        alt="São Pedro"
-        style="
-            height: 70px;
-            margin-bottom: 10px;
-        "
-    >
+    <table width="100%">
+        <tr>
 
-    <h1>Ordem de Produção - Coleta de Dados</h1>
+            <td width="120">
+                <img
+                    src="{{ url_for('static', filename='imagens/logo.png') }}"
+                    alt="São Pedro"
+                    style="height: 80px;"
+                >
+            </td>
 
-    <p>
-        Ficha para acompanhamento manual do processo produtivo.
-    </p>
+            <td>
+                <h1 style="margin:0;">
+                    Ordem de Produção
+                </h1>
+
+                <h3 style="margin:0;">
+                    Ficha de Coleta de Dados Operacionais
+                </h3>
+
+                <p style="margin-top:5px;">
+                    Galinha Regional São Pedro
+                </p>
+            </td>
+
+        </tr>
+    </table>
 
 </div>
 
