@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+
+<div class="card">
+    <h2>Tempos dos Setores</h2>
+
+    <form method="GET" action="{{ url_for('tempos_setor') }}">
+        <div class="form-grid">
+            <div>
+                <label>Selecione a OP aberta</label>
+                <select name="op_id" required>
+                    <option value="">Selecione</option>
+
+                    {% for item in ordens %}
+                    <option
+                        value="{{ item.id }}"
+                        {% if op and item.id == op.id %}selected{% endif %}
+                    >
+                        OP {{ item.id }} | {{ item.data }} | {{ item.fornecedor }} | {{ item.sku or "Galinha Cortada" }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+
+        <button type="submit">Carregar OP</button>
+    </form>
+
+    <p class="obs">
+        Registre o horário real de início e fim de cada setor na OP.
+        A quantidade produzida continuará sendo calculada automaticamente a partir dos descartes.
+    </p>
+</div>
+
+{% if op %}
+
+<div class="card ficha">
+    <h3>OP {{ op.id }} | {{ op.fornecedor }} | {{ op.sku or "Galinha Cortada" }}</h3>
+
+    <form method="POST">
+        <input type="hidden" name="op_id" value="{{ op.id }}">
+
+        <div class="tabela-responsiva">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Setor</th>
+                        <th>Hora inicial</th>
+                        <th>Hora final</th>
+                    </tr>
+                </thead>
+
+                <tbody>
+                    {% for setor in setores_op %}
+                    {% set chave = normalizar_chave_setor(setor) %}
+                    {% set tempo = tempos_por_setor.get(setor) %}
+
+                    <tr>
+                        <td>{{ setor }}</td>
+
+                        <td>
+                            <input
+                                type="time"
+                                name="hora_inicio_{{ chave }}"
+                                value="{{ tempo.hora_inicio if tempo else '' }}"
+                                required
+                            >
+                        </td>
+
+                        <td>
+                            <input
+                                type="time"
+                                name="hora_fim_{{ chave }}"
+                                value="{{ tempo.hora_fim if tempo else '' }}"
+                                required
+                            >
+                        </td>
+                    </tr>
+
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <label>Observações</label>
+        <input type="text" name="observacoes">
+
+        <button type="submit">Salvar Tempos dos Setores</button>
+    </form>
+</div>
+
+{% endif %}
+
+{% endblock %}

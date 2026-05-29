@@ -403,6 +403,65 @@
 
 </div>
 
+
+<!-- TEMPOS DOS SETORES -->
+
+<div class="card">
+
+    <h2>Tempos dos Setores</h2>
+
+    {% if tempos_setor %}
+
+        {% for item in tempos_setor %}
+
+        <div class="history-item">
+
+            <p>
+                <strong>Setor:</strong>
+                {{ item.setor }}
+            </p>
+
+            <p>
+                <strong>Início:</strong>
+                {{ item.hora_inicio }}
+                |
+                <strong>Fim:</strong>
+                {{ item.hora_fim }}
+            </p>
+
+            {% if item.observacoes %}
+            <p>
+                <strong>Observações:</strong>
+                {{ item.observacoes }}
+            </p>
+            {% endif %}
+
+        </div>
+
+        {% endfor %}
+
+    {% else %}
+
+        <p class="obs">
+            Nenhum tempo de setor registrado para esta OP.
+        </p>
+
+    {% endif %}
+
+    {% if op.status != "Encerrada" or session.get("perfil") == "admin" %}
+        {% if session.get("perfil") == "admin" or session.get("perfil") == "producao" %}
+            <a
+                href="{{ url_for('tempos_setor', op_id=op.id) }}"
+                class="botao-editar"
+            >
+                Lançar / Editar Tempos
+            </a>
+        {% endif %}
+    {% endif %}
+
+</div>
+
+
 <!-- PARADAS -->
 
 <div class="card">

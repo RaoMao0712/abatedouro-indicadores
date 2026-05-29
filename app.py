@@ -165,6 +165,19 @@ def criar_banco():
         )
         """)
 
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS apontamentos_tempos_setor (
+            id SERIAL PRIMARY KEY,
+            op_id INTEGER NOT NULL,
+            data TEXT NOT NULL,
+            setor TEXT NOT NULL,
+            hora_inicio TEXT NOT NULL,
+            hora_fim TEXT NOT NULL,
+            observacoes TEXT,
+            criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
+
         tentar_alter_table(cursor, conn, "ALTER TABLE usuarios ADD COLUMN perfil TEXT DEFAULT 'admin'")
         conn = conectar()
         cursor = conn.cursor()
@@ -287,6 +300,19 @@ def criar_banco():
             motivo TEXT NOT NULL,
             quantidade REAL NOT NULL,
             unidade TEXT NOT NULL,
+            observacoes TEXT,
+            criado_em TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
+
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS apontamentos_tempos_setor (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            op_id INTEGER NOT NULL,
+            data TEXT NOT NULL,
+            setor TEXT NOT NULL,
+            hora_inicio TEXT NOT NULL,
+            hora_fim TEXT NOT NULL,
             observacoes TEXT,
             criado_em TEXT DEFAULT CURRENT_TIMESTAMP
         )
@@ -814,6 +840,122 @@ def gerar_producao_automatica_setores(op, data_lancamento, hora_inicio, hora_fim
 
     conn.commit()
     conn.close()
+
+
+def buscar_op_por_id(op_id):
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q("""
+    SELECT *
+    FROM ordens_producao
+    WHERE id = ?
+    """), (op_id,))
+
+    op = cursor.fetchone()
+    conn.close()
+
+    return op
+
+
+
+
+def normalizar_chave_setor(setor):
+    return (
+        setor
+        .replace(" ", "_")
+        .replace("/", "_")
+        .replace("ç", "c")
+        .replace("ã", "a")
+        .replace("é", "e")
+    )
+
+
+def setores_por_sku(sku):
+    if sku == "Galinha Inteira":
+        return [
+            "Recepção e Pendura",
+            "Escalda e Depenagem",
+            "Evisceração",
+            "Embalagem"
+        ]
+
+    return [
+        "Recepção e Pendura",
+        "Escalda e Depenagem",
+        "Evisceração",
+        "Corte",
+        "Embalagem"
+    ]
+
+
+def salvar_tempos_setor(form):
+    op_id = int(form["op_id"])
+    validar_op_aberta(op_id)
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q("""
+    SELECT *
+    FROM ordens_producao
+    WHERE id = ?
+    """), (op_id,))
+
+    op = cursor.fetchone()
+
+    if not op:
+        conn.close()
+        raise ValueError("OP não encontrada.")
+
+    setores = setores_por_sku(op["sku"] or "Galinha Cortada")
+
+    cursor.execute(q("""
+    DELETE FROM apontamentos_tempos_setor
+    WHERE op_id = ?
+    """), (op_id,))
+
+    for setor in setores:
+        chave = normalizar_chave_setor(setor)
+        hora_inicio = form.get(f"hora_inicio_{chave}")
+        hora_fim = form.get(f"hora_fim_{chave}")
+
+        if not hora_inicio or not hora_fim:
+            conn.close()
+            raise ValueError(f"Informe hora inicial e final para o setor {setor}.")
+
+        cursor.execute(q("""
+        INSERT INTO apontamentos_tempos_setor (
+            op_id, data, setor, hora_inicio, hora_fim, observacoes
+        ) VALUES (?, ?, ?, ?, ?, ?)
+        """), (
+            op_id,
+            op["data"],
+            setor,
+            hora_inicio,
+            hora_fim,
+            form.get("observacoes", "")
+        ))
+
+    conn.commit()
+    conn.close()
+
+
+def buscar_tempos_setor_por_op(op_id):
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q("""
+    SELECT *
+    FROM apontamentos_tempos_setor
+    WHERE op_id = ?
+    ORDER BY id ASC
+    """), (op_id,))
+
+    tempos = cursor.fetchall()
+    conn.close()
+
+    return tempos
 
 
 def buscar_op_por_id(op_id):
@@ -1413,6 +1555,50 @@ def apontamento_paradas():
         return redirect(url_for("apontamento_paradas"))
 
     return render_template("apontamento_paradas.html", **contexto_apontamento())
+
+
+
+@app.route("/tempos-setor", methods=["GET", "POST"])
+@perfil_permitido("producao")
+def tempos_setor():
+    criar_banco()
+
+    if request.method == "POST":
+        try:
+            salvar_tempos_setor(request.form)
+            flash("Tempos dos setores salvos com sucesso.")
+        except ValueError as erro:
+            flash(str(erro))
+
+        return redirect(url_for("tempos_setor", op_id=request.form.get("op_id")))
+
+    op_id = request.args.get("op_id")
+    op = None
+    tempos_salvos = []
+    setores_op = []
+
+    if op_id:
+        op = buscar_op_por_id(op_id)
+
+        if op:
+            setores_op = setores_por_sku(op["sku"] or "Galinha Cortada")
+            tempos_salvos = buscar_tempos_setor_por_op(op_id)
+
+    tempos_por_setor = {
+        item["setor"]: item
+        for item in tempos_salvos
+    }
+
+    return render_template(
+        "tempos_setor.html",
+        hoje=datetime.now().strftime("%Y-%m-%d"),
+        ordens=buscar_ordens_abertas(),
+        op=op,
+        setores_op=setores_op,
+        tempos_por_setor=tempos_por_setor,
+        normalizar_chave_setor=normalizar_chave_setor
+    )
+
 
 
 @app.route("/apontamento-descartes", methods=["GET", "POST"])
@@ -2160,6 +2346,7 @@ def consultar_op():
     mao_obra = []
     paradas = []
     descartes = []
+    tempos_setor = []
     resumo = None
 
     if op_id:
@@ -2181,6 +2368,9 @@ def consultar_op():
         cursor.execute(q("SELECT * FROM apontamentos_descartes WHERE op_id = ? ORDER BY id ASC"), (op_id,))
         descartes = cursor.fetchall()
 
+        cursor.execute(q("SELECT * FROM apontamentos_tempos_setor WHERE op_id = ? ORDER BY id ASC"), (op_id,))
+        tempos_setor = cursor.fetchall()
+
         if op:
             resumo = calcular_resumo_op(op, producoes, descartes)
 
@@ -2194,6 +2384,7 @@ def consultar_op():
         mao_obra=mao_obra,
         paradas=paradas,
         descartes=descartes,
+        tempos_setor=tempos_setor,
         resumo=resumo
     )
 
