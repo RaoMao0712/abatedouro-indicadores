@@ -138,6 +138,13 @@
                 {% if item.observacoes %}
                 <p><strong>Observações:</strong> {{ item.observacoes }}</p>
                 {% endif %}
+
+                <a
+                    href="{{ url_for('editar_custo_mensal', custo_id=item.id) }}"
+                    class="botao-editar"
+                >
+                    Editar
+                </a>
             </div>
             {% endfor %}
         {% else %}
