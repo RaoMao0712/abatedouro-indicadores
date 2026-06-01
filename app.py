@@ -479,6 +479,193 @@ def criar_tabela_tempos_setor():
 
 
 
+
+
+def criar_tabelas_custos():
+    conn = conectar()
+    cursor = conn.cursor()
+
+    if DATABASE_URL:
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS parametros_custos (
+            id SERIAL PRIMARY KEY,
+            sku TEXT UNIQUE NOT NULL,
+            custo_ave REAL DEFAULT 0,
+            unidade_custo_ave TEXT DEFAULT '',
+            custo_embalagem REAL DEFAULT 0,
+            unidade_custo_embalagem TEXT DEFAULT '',
+            atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
+
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS custos_mensais (
+            id SERIAL PRIMARY KEY,
+            competencia TEXT NOT NULL,
+            categoria TEXT NOT NULL,
+            valor REAL NOT NULL,
+            observacoes TEXT,
+            criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
+    else:
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS parametros_custos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sku TEXT UNIQUE NOT NULL,
+            custo_ave REAL DEFAULT 0,
+            unidade_custo_ave TEXT DEFAULT '',
+            custo_embalagem REAL DEFAULT 0,
+            unidade_custo_embalagem TEXT DEFAULT '',
+            atualizado_em TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
+
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS custos_mensais (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            competencia TEXT NOT NULL,
+            categoria TEXT NOT NULL,
+            valor REAL NOT NULL,
+            observacoes TEXT,
+            criado_em TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
+
+    conn.commit()
+
+    parametros_padrao = [
+        ("Galinha Cortada", 0, "R$/kg vivo", 0, "R$/kg produzido"),
+        ("Galinha Inteira", 0, "R$/ave", 0, "R$/unidade")
+    ]
+
+    for item in parametros_padrao:
+        try:
+            cursor.execute(q("""
+            INSERT INTO parametros_custos (
+                sku,
+                custo_ave,
+                unidade_custo_ave,
+                custo_embalagem,
+                unidade_custo_embalagem
+            ) VALUES (?, ?, ?, ?, ?)
+            """), item)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+
+    conn.close()
+
+
+def buscar_parametros_custos():
+    criar_tabelas_custos()
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+    SELECT *
+    FROM parametros_custos
+    ORDER BY sku
+    """)
+
+    parametros = cursor.fetchall()
+    conn.close()
+
+    return parametros
+
+
+def buscar_custos_mensais():
+    criar_tabelas_custos()
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+    SELECT *
+    FROM custos_mensais
+    ORDER BY competencia DESC, categoria ASC
+    """)
+
+    custos = cursor.fetchall()
+    conn.close()
+
+    return custos
+
+
+def chave_sku_custo(sku):
+    return (
+        sku.lower()
+        .replace(" ", "_")
+        .replace("ã", "a")
+    )
+
+
+def salvar_parametros_custos(form):
+    criar_tabelas_custos()
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    skus = ["Galinha Cortada", "Galinha Inteira"]
+
+    for sku in skus:
+        chave = chave_sku_custo(sku)
+
+        custo_ave = float(form.get(f"custo_ave_{chave}") or 0)
+        custo_embalagem = float(form.get(f"custo_embalagem_{chave}") or 0)
+
+        if sku == "Galinha Cortada":
+            unidade_custo_ave = "R$/kg vivo"
+            unidade_custo_embalagem = "R$/kg produzido"
+        else:
+            unidade_custo_ave = "R$/ave"
+            unidade_custo_embalagem = "R$/unidade"
+
+        cursor.execute(q("""
+        UPDATE parametros_custos
+        SET custo_ave = ?,
+            unidade_custo_ave = ?,
+            custo_embalagem = ?,
+            unidade_custo_embalagem = ?
+        WHERE sku = ?
+        """), (
+            custo_ave,
+            unidade_custo_ave,
+            custo_embalagem,
+            unidade_custo_embalagem,
+            sku
+        ))
+
+    conn.commit()
+    conn.close()
+
+
+def salvar_custo_mensal(form):
+    criar_tabelas_custos()
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q("""
+    INSERT INTO custos_mensais (
+        competencia,
+        categoria,
+        valor,
+        observacoes
+    ) VALUES (?, ?, ?, ?)
+    """), (
+        form["competencia"],
+        form["categoria"],
+        float(form["valor"]),
+        form.get("observacoes", "")
+    ))
+
+    conn.commit()
+    conn.close()
+
+
+
 def criar_tabela_fornecedores():
     conn = conectar()
     cursor = conn.cursor()
@@ -1423,6 +1610,52 @@ def dashboard():
         produtividade_setores=produtividade_setores,
         produtividade_setores_hora=produtividade_setores_hora
     )
+
+
+
+@app.route("/custos", methods=["GET", "POST"])
+@perfil_permitido("pcp")
+def custos():
+    criar_banco()
+    criar_tabelas_custos()
+
+    if request.method == "POST":
+        acao = request.form.get("acao")
+
+        try:
+            if acao == "salvar_parametros":
+                salvar_parametros_custos(request.form)
+                flash("Parâmetros de CMV atualizados com sucesso.")
+
+            elif acao == "salvar_custo_mensal":
+                salvar_custo_mensal(request.form)
+                flash("Custo mensal cadastrado com sucesso.")
+
+        except ValueError:
+            flash("Verifique os valores informados. Use apenas números nos campos de custo.")
+
+        return redirect(url_for("custos"))
+
+    categorias_custos = [
+        "Mão de obra",
+        "Energia",
+        "Lenha",
+        "Combustível",
+        "Água",
+        "Manutenção",
+        "Outros"
+    ]
+
+    competencia_atual = datetime.now().strftime("%Y-%m")
+
+    return render_template(
+        "custos.html",
+        parametros=buscar_parametros_custos(),
+        custos_mensais=buscar_custos_mensais(),
+        categorias_custos=categorias_custos,
+        competencia_atual=competencia_atual
+    )
+
 
 @app.route("/fornecedores", methods=["GET", "POST"])
 @perfil_permitido("pcp")

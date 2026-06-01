@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+
+<div class="card">
+    <h2>Custos</h2>
+
+    <p class="obs">
+        Cadastre aqui os parâmetros de CMV e os custos mensais da operação.
+        Nesta primeira etapa, os dados ficam registrados para posterior integração ao Dashboard Econômico.
+    </p>
+</div>
+
+<div class="card">
+    <h2>Parâmetros de CMV</h2>
+
+    <form method="POST">
+        <input type="hidden" name="acao" value="salvar_parametros">
+
+        <div class="tabela-responsiva">
+            <table>
+                <thead>
+                    <tr>
+                        <th>SKU</th>
+                        <th>Custo da ave</th>
+                        <th>Unidade</th>
+                        <th>Custo da embalagem</th>
+                        <th>Unidade</th>
+                    </tr>
+                </thead>
+
+                <tbody>
+                    {% for item in parametros %}
+                    {% set chave = item.sku.lower().replace(" ", "_").replace("ã", "a") %}
+
+                    <tr>
+                        <td>{{ item.sku }}</td>
+
+                        <td>
+                            <input
+                                type="number"
+                                step="0.01"
+                                name="custo_ave_{{ chave }}"
+                                value="{{ item.custo_ave or 0 }}"
+                                required
+                            >
+                        </td>
+
+                        <td>{{ item.unidade_custo_ave }}</td>
+
+                        <td>
+                            <input
+                                type="number"
+                                step="0.01"
+                                name="custo_embalagem_{{ chave }}"
+                                value="{{ item.custo_embalagem or 0 }}"
+                                required
+                            >
+                        </td>
+
+                        <td>{{ item.unidade_custo_embalagem }}</td>
+                    </tr>
+
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <button type="submit">Salvar Parâmetros</button>
+    </form>
+
+    <p class="obs">
+        Galinha Cortada: ave viva em R$/kg vivo e embalagem em R$/kg produzido.
+        Galinha Inteira: ave viva em R$/ave e embalagem em R$/unidade.
+    </p>
+</div>
+
+<div class="grid-dashboard">
+
+    <div class="card">
+        <h2>Novo Custo Mensal</h2>
+
+        <form method="POST">
+            <input type="hidden" name="acao" value="salvar_custo_mensal">
+
+            <div class="form-grid">
+                <div>
+                    <label>Competência</label>
+                    <input
+                        type="month"
+                        name="competencia"
+                        value="{{ competencia_atual }}"
+                        required
+                    >
+                </div>
+
+                <div>
+                    <label>Categoria</label>
+                    <select name="categoria" required>
+                        {% for categoria in categorias_custos %}
+                        <option value="{{ categoria }}">
+                            {{ categoria }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div>
+                    <label>Valor (R$)</label>
+                    <input
+                        type="number"
+                        step="0.01"
+                        name="valor"
+                        required
+                    >
+                </div>
+
+                <div>
+                    <label>Observações</label>
+                    <input type="text" name="observacoes">
+                </div>
+            </div>
+
+            <button type="submit">Salvar Custo Mensal</button>
+        </form>
+    </div>
+
+    <div class="card">
+        <h2>Custos Mensais Lançados</h2>
+
+        {% if custos_mensais %}
+            {% for item in custos_mensais %}
+            <div class="history-item">
+                <p><strong>Competência:</strong> {{ item.competencia }}</p>
+                <p><strong>Categoria:</strong> {{ item.categoria }}</p>
+                <p><strong>Valor:</strong> R$ {{ "%.2f"|format(item.valor or 0) }}</p>
+
+                {% if item.observacoes %}
+                <p><strong>Observações:</strong> {{ item.observacoes }}</p>
+                {% endif %}
+            </div>
+            {% endfor %}
+        {% else %}
+            <p class="obs">Nenhum custo mensal cadastrado ainda.</p>
+        {% endif %}
+    </div>
+
+</div>
+
+{% endblock %}
