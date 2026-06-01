@@ -666,6 +666,96 @@ def salvar_custo_mensal(form):
 
 
 
+
+
+def criar_tabela_vendas():
+    conn = conectar()
+    cursor = conn.cursor()
+
+    if DATABASE_URL:
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS vendas_diarias (
+            id SERIAL PRIMARY KEY,
+            data TEXT NOT NULL,
+            sku TEXT NOT NULL,
+            quantidade REAL NOT NULL,
+            unidade TEXT NOT NULL,
+            receita REAL NOT NULL,
+            observacoes TEXT,
+            criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
+    else:
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS vendas_diarias (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            data TEXT NOT NULL,
+            sku TEXT NOT NULL,
+            quantidade REAL NOT NULL,
+            unidade TEXT NOT NULL,
+            receita REAL NOT NULL,
+            observacoes TEXT,
+            criado_em TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
+
+    conn.commit()
+    conn.close()
+
+
+def salvar_venda_diaria(form):
+    criar_tabela_vendas()
+
+    sku = form["sku"]
+    quantidade = float(form["quantidade"])
+    receita = float(form["receita"])
+
+    if quantidade <= 0:
+        raise ValueError("A quantidade vendida deve ser maior que zero.")
+
+    if receita < 0:
+        raise ValueError("A receita não pode ser negativa.")
+
+    unidade = "kg" if sku == "Galinha Cortada" else "unidades"
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q("""
+    INSERT INTO vendas_diarias (
+        data, sku, quantidade, unidade, receita, observacoes
+    ) VALUES (?, ?, ?, ?, ?, ?)
+    """), (
+        form["data"],
+        sku,
+        quantidade,
+        unidade,
+        receita,
+        form.get("observacoes", "")
+    ))
+
+    conn.commit()
+    conn.close()
+
+
+def buscar_vendas_diarias():
+    criar_tabela_vendas()
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+    SELECT *
+    FROM vendas_diarias
+    ORDER BY data DESC, id DESC
+    """)
+
+    vendas = cursor.fetchall()
+    conn.close()
+
+    return vendas
+
+
 def criar_tabela_fornecedores():
     conn = conectar()
     cursor = conn.cursor()
@@ -1654,6 +1744,32 @@ def custos():
         custos_mensais=buscar_custos_mensais(),
         categorias_custos=categorias_custos,
         competencia_atual=competencia_atual
+    )
+
+
+
+
+@app.route("/vendas", methods=["GET", "POST"])
+@perfil_permitido("pcp")
+def vendas():
+    criar_banco()
+    criar_tabela_vendas()
+
+    if request.method == "POST":
+        try:
+            salvar_venda_diaria(request.form)
+            flash("Venda diária cadastrada com sucesso.")
+        except ValueError as erro:
+            flash(str(erro))
+
+        return redirect(url_for("vendas"))
+
+    hoje = datetime.now().strftime("%Y-%m-%d")
+
+    return render_template(
+        "vendas.html",
+        hoje=hoje,
+        vendas_diarias=buscar_vendas_diarias()
     )
 
 

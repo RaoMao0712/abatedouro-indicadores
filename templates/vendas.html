@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+
+<div class="card">
+    <h2>Vendas Diárias</h2>
+
+    <p class="obs">
+        Registre a receita consolidada do dia por SKU. Não é necessário lançar NF por NF.
+    </p>
+</div>
+
+<div class="grid-dashboard">
+
+    <div class="card">
+        <h2>Nova Venda</h2>
+
+        <form method="POST">
+            <div class="form-grid">
+                <div>
+                    <label>Data da venda</label>
+                    <input type="date" name="data" value="{{ hoje }}" required>
+                </div>
+
+                <div>
+                    <label>SKU</label>
+                    <select name="sku" required>
+                        <option value="Galinha Cortada">Galinha Cortada</option>
+                        <option value="Galinha Inteira">Galinha Inteira</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label>Quantidade vendida</label>
+                    <input type="number" step="0.01" name="quantidade" required>
+                </div>
+
+                <div>
+                    <label>Receita total (R$)</label>
+                    <input type="number" step="0.01" name="receita" required>
+                </div>
+
+                <div>
+                    <label>Observações</label>
+                    <input type="text" name="observacoes">
+                </div>
+            </div>
+
+            <button type="submit">Salvar Venda</button>
+        </form>
+
+        <p class="obs">
+            Para Galinha Cortada, a quantidade será interpretada como kg.
+            Para Galinha Inteira, a quantidade será interpretada como unidades.
+        </p>
+    </div>
+
+    <div class="card">
+        <h2>Últimas Vendas</h2>
+
+        {% if vendas_diarias %}
+            {% for item in vendas_diarias %}
+            {% set preco_medio = (item.receita / item.quantidade) if item.quantidade else 0 %}
+
+            <div class="history-item">
+                <p><strong>Data:</strong> {{ item.data }}</p>
+                <p><strong>SKU:</strong> {{ item.sku }}</p>
+                <p><strong>Quantidade:</strong> {{ "%.2f"|format(item.quantidade or 0) }} {{ item.unidade }}</p>
+                <p><strong>Receita:</strong> R$ {{ "%.2f"|format(item.receita or 0) }}</p>
+                <p><strong>Preço médio:</strong> R$ {{ "%.2f"|format(preco_medio) }} / {{ item.unidade }}</p>
+
+                {% if item.observacoes %}
+                <p><strong>Observações:</strong> {{ item.observacoes }}</p>
+                {% endif %}
+            </div>
+            {% endfor %}
+        {% else %}
+            <p class="obs">Nenhuma venda diária cadastrada ainda.</p>
+        {% endif %}
+    </div>
+
+</div>
+
+{% endblock %}
