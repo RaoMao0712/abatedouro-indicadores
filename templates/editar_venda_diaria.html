@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+
+<div class="card">
+    <h2>Editar Venda Diária</h2>
+
+    <form method="POST">
+        <div class="form-grid">
+            <div>
+                <label>Data da venda</label>
+                <input
+                    type="date"
+                    name="data"
+                    value="{{ venda.data }}"
+                    required
+                >
+            </div>
+
+            <div>
+                <label>SKU</label>
+                <select name="sku" required>
+                    <option
+                        value="Galinha Cortada"
+                        {% if venda.sku == "Galinha Cortada" %}selected{% endif %}
+                    >
+                        Galinha Cortada
+                    </option>
+
+                    <option
+                        value="Galinha Inteira"
+                        {% if venda.sku == "Galinha Inteira" %}selected{% endif %}
+                    >
+                        Galinha Inteira
+                    </option>
+                </select>
+            </div>
+
+            <div>
+                <label>Quantidade vendida</label>
+                <input
+                    type="number"
+                    step="0.01"
+                    name="quantidade"
+                    value="{{ venda.quantidade }}"
+                    required
+                >
+            </div>
+
+            <div>
+                <label>Receita total (R$)</label>
+                <input
+                    type="number"
+                    step="0.01"
+                    name="receita"
+                    value="{{ venda.receita }}"
+                    required
+                >
+            </div>
+
+            <div>
+                <label>Observações</label>
+                <input
+                    type="text"
+                    name="observacoes"
+                    value="{{ venda.observacoes or '' }}"
+                >
+            </div>
+        </div>
+
+        <button type="submit">Salvar Alterações</button>
+
+        <a href="{{ url_for('vendas') }}" class="botao-editar">
+            Voltar
+        </a>
+    </form>
+
+    <p class="obs">
+        Para Galinha Cortada, a quantidade será interpretada como kg.
+        Para Galinha Inteira, a quantidade será interpretada como unidades.
+    </p>
+</div>
+
+{% endblock %}
