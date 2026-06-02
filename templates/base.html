@@ -17,9 +17,9 @@
 
 <body>
 
-<div class="app-shell">
+<div class="app-shell layout-sidebar">
 
-    <header class="topo">
+    <header class="topo topo-compacto">
 
         <div class="brand">
 
@@ -42,69 +42,68 @@
 
         </div>
 
-        {% if session.get("usuario_id") %}
+    </header>
 
-        {% set perfil = session.get("perfil", "admin") %}
+    {% if session.get("usuario_id") %}
 
-        <nav class="menu">
+    {% set perfil = session.get("perfil", "admin") %}
+
+    <aside class="sidebar-menu">
+
+        <div class="sidebar-section">
+            <span class="sidebar-title">Gestão</span>
 
             {% if perfil == "admin" or perfil == "pcp" %}
-
                 <a href="{{ url_for('dashboard') }}">Dashboard</a>
-
-                <a href="{{ url_for('ordem_producao') }}">OP</a>
-
-                <a href="{{ url_for('fornecedores') }}">Fornecedores</a>
-
                 <a href="{{ url_for('custos') }}">Custos</a>
-
                 <a href="{{ url_for('vendas') }}">Vendas</a>
-
                 <a href="{{ url_for('relatorio') }}">Relatório</a>
-
                 <a href="{{ url_for('relatorio_custos') }}">Evolução Custos</a>
+            {% endif %}
+        </div>
 
+        <div class="sidebar-section">
+            <span class="sidebar-title">Produção</span>
+
+            {% if perfil == "admin" or perfil == "pcp" %}
+                <a href="{{ url_for('ordem_producao') }}">OP</a>
             {% endif %}
 
             {% if perfil == "admin" or perfil == "producao" %}
-
                 <a href="{{ url_for('apontamento_producao') }}">Produção</a>
-
                 <a href="{{ url_for('apontamento_mao_obra') }}">Mão de Obra</a>
-
                 <a href="{{ url_for('apontamento_paradas') }}">Paradas</a>
-                
                 <a href="{{ url_for('tempos_setor') }}">Tempos</a>
-
             {% endif %}
 
             {% if perfil == "admin" or perfil == "qualidade" %}
-
                 <a href="{{ url_for('apontamento_descartes') }}">Descartes</a>
-
-            {% endif %}
-
-            {% if perfil == "admin" %}
-
-                <a href="{{ url_for('cadastrar_usuario') }}">Usuários</a>
-
             {% endif %}
 
             {% if perfil == "admin" or perfil == "pcp" or perfil == "producao" or perfil == "qualidade" %}
-
                 <a href="{{ url_for('consultar_op') }}">Consultar OP</a>
+            {% endif %}
+        </div>
 
+        <div class="sidebar-section">
+            <span class="sidebar-title">Administração</span>
+
+            {% if perfil == "admin" or perfil == "pcp" %}
+                <a href="{{ url_for('fornecedores') }}">Fornecedores</a>
             {% endif %}
 
-            <a href="{{ url_for('sair') }}">Sair</a>
+            {% if perfil == "admin" %}
+                <a href="{{ url_for('cadastrar_usuario') }}">Usuários</a>
+            {% endif %}
 
-        </nav>
+            <a href="{{ url_for('sair') }}" class="sidebar-sair">Sair</a>
+        </div>
 
-        {% endif %}
+    </aside>
 
-    </header>
+    {% endif %}
 
-    <main class="container">
+    <main class="container container-com-sidebar">
 
         {% with mensagens = get_flashed_messages() %}
 
