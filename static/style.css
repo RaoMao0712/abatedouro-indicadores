@@ -1056,3 +1056,127 @@ button:hover {
         padding: 0;
     }
 }
+
+
+/* DASHBOARD: HERO COM FILTROS INCORPORADOS */
+
+.hero-dashboard-com-filtros {
+    grid-template-columns: 0.85fr 1.65fr;
+    gap: 18px;
+    align-items: center;
+    padding: 14px 18px;
+    margin-bottom: 14px;
+    border-radius: 20px;
+}
+
+.hero-dashboard-com-filtros h2 {
+    font-size: 22px;
+    margin: 3px 0 8px;
+}
+
+.hero-dashboard-titulo {
+    min-width: 260px;
+}
+
+.hero-resumo-inline {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 13px;
+    color: #e2e8f0;
+    font-weight: 700;
+}
+
+.hero-resumo-inline strong {
+    color: #fdba74;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    margin-right: 4px;
+}
+
+.hero-filtros-form {
+    background: rgba(255,255,255,0.10);
+    border: 1px solid rgba(255,255,255,0.16);
+    border-radius: 16px;
+    padding: 12px;
+    backdrop-filter: blur(10px);
+}
+
+.hero-filtros-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr 1fr 110px;
+    gap: 10px;
+    align-items: end;
+}
+
+.hero-filtros-form label {
+    color: #fdba74;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    margin: 0 0 4px;
+}
+
+.hero-filtros-form input,
+.hero-filtros-form select {
+    height: 40px;
+    border-radius: 11px;
+    padding: 8px 10px;
+    font-size: 13px;
+    border: 1px solid rgba(255,255,255,0.20);
+    background: rgba(255,255,255,0.96);
+}
+
+.botao-hero-filtro {
+    height: 40px;
+    margin-top: 0;
+    padding: 0 12px;
+    border-radius: 11px;
+    font-size: 13px;
+    box-shadow: 0 4px 12px rgba(249,115,22,0.20);
+}
+
+.alerta-hero {
+    margin: 8px 0 0;
+    color: #fed7aa;
+    font-size: 12px;
+    line-height: 1.25;
+    text-align: left;
+}
+
+.container-com-sidebar .hero-dashboard-com-filtros {
+    max-width: 100%;
+}
+
+@media (max-width: 1300px) {
+    .hero-dashboard-com-filtros {
+        grid-template-columns: 1fr;
+    }
+
+    .hero-filtros-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .hero-filtros-grid > div:last-child {
+        grid-column: span 2;
+    }
+}
+
+@media (max-width: 720px) {
+    .hero-dashboard-com-filtros {
+        padding: 14px;
+    }
+
+    .hero-filtros-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .hero-filtros-grid > div:last-child {
+        grid-column: span 1;
+    }
+
+    .botao-hero-filtro {
+        width: 100%;
+    }
+}

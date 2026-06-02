@@ -2,43 +2,20 @@
 
 {% block conteudo %}
 
-<section class="hero-dashboard">
-    <div>
+<section class="hero-dashboard hero-dashboard-com-filtros">
+    <div class="hero-dashboard-titulo">
         <span class="eyebrow">Painel Executivo</span>
         <h2>Centro de Controle Industrial</h2>
-        <p>Visão consolidada de produção, rendimento, produtividade, perdas e gargalos operacionais.</p>
-    </div>
 
-    <div class="hero-meta hero-meta-resumo">
-        <div>
-            <span>
-                <strong>Período:</strong>
-                {{ data_inicio }} a {{ data_fim }}
-            </span>
-
-            <span>
-                <strong>Status:</strong>
-                {{ status_filtro }}
-            </span>
-
-            <span>
-                <strong>SKU:</strong>
-                {{ sku_filtro }}
-            </span>
-        </div>
-    </div>
-</section>
-
-<div class="card filtro-executivo">
-    <div class="section-title-row">
-        <div>
-            <span class="eyebrow">Filtros</span>
-            <h2>Parâmetros da Análise</h2>
+        <div class="hero-resumo-inline">
+            <span><strong>Período:</strong> {{ data_inicio }} a {{ data_fim }}</span>
+            <span><strong>Status:</strong> {{ status_filtro }}</span>
+            <span><strong>SKU:</strong> {{ sku_filtro }}</span>
         </div>
     </div>
 
-    <form method="GET" action="{{ url_for('dashboard') }}">
-        <div class="form-grid-4">
+    <form method="GET" action="{{ url_for('dashboard') }}" class="hero-filtros-form">
+        <div class="hero-filtros-grid">
             <div>
                 <label>Data inicial</label>
                 <input type="date" name="data_inicio" value="{{ data_inicio }}">
@@ -50,7 +27,7 @@
             </div>
 
             <div>
-                <label>Status da OP</label>
+                <label>Status</label>
                 <select name="status">
                     <option value="Encerrada" {% if status_filtro == "Encerrada" %}selected{% endif %}>Encerradas</option>
                     <option value="Aberta" {% if status_filtro == "Aberta" %}selected{% endif %}>Abertas</option>
@@ -59,25 +36,26 @@
             </div>
 
             <div>
-                <label>SKU / Processo</label>
+                <label>SKU</label>
                 <select name="sku">
                     <option value="Todos" {% if sku_filtro == "Todos" %}selected{% endif %}>Todos</option>
                     <option value="Galinha Cortada" {% if sku_filtro == "Galinha Cortada" %}selected{% endif %}>Galinha Cortada</option>
                     <option value="Galinha Inteira" {% if sku_filtro == "Galinha Inteira" %}selected{% endif %}>Galinha Inteira</option>
                 </select>
             </div>
+
+            <div>
+                <button type="submit" class="botao-hero-filtro">Aplicar</button>
+            </div>
         </div>
 
-        <button type="submit" class="botao-filtrar-executivo">Aplicar filtros</button>
+        {% if sku_filtro == "Todos" %}
+        <p class="alerta-hero">
+            Atenção: indicadores em kg e rendimento podem ficar distorcidos com SKUs misturados. Para rendimento, filtre por Galinha Cortada.
+        </p>
+        {% endif %}
     </form>
-
-    {% if sku_filtro == "Todos" %}
-    <p class="obs alerta-suave">
-        Atenção: indicadores em kg e rendimento podem ficar distorcidos quando Galinha Inteira e Galinha Cortada aparecem juntos.
-        Para análise de rendimento, filtre por Galinha Cortada.
-    </p>
-    {% endif %}
-</div>
+</section>
 
 <div class="section-title">
     <span class="eyebrow">Produção</span>
