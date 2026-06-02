@@ -2,21 +2,39 @@
 
 {% block conteudo %}
 
-{% if sku_filtro == "Todos" %}
-<div class="card aviso-sku-dashboard">
-    <p class="obs">
-        Você está visualizando todos os SKUs. Indicadores em kg e rendimento podem ficar distorcidos quando Galinha Inteira e Galinha Cortada aparecem juntos. Para análise de rendimento, filtre por Galinha Cortada.
-    </p>
-</div>
-{% endif %}
+<section class="hero-dashboard">
+    <div>
+        <span class="eyebrow">Painel Executivo</span>
+        <h2>Centro de Controle Industrial</h2>
+        <p>Visão consolidada de produção, rendimento, produtividade, perdas e gargalos operacionais.</p>
+    </div>
 
+    <div class="hero-meta">
+        <div>
+            <strong>Período</strong>
+            <span>{{ data_inicio }} a {{ data_fim }}</span>
+        </div>
+        <div>
+            <strong>Status</strong>
+            <span>{{ status_filtro }}</span>
+        </div>
+        <div>
+            <strong>SKU</strong>
+            <span>{{ sku_filtro }}</span>
+        </div>
+    </div>
+</section>
 
-
-<div class="card">
-    <h2>Dashboard Operacional</h2>
+<div class="card filtro-executivo">
+    <div class="section-title-row">
+        <div>
+            <span class="eyebrow">Filtros</span>
+            <h2>Parâmetros da Análise</h2>
+        </div>
+    </div>
 
     <form method="GET" action="{{ url_for('dashboard') }}">
-        <div class="form-grid">
+        <div class="form-grid-4">
             <div>
                 <label>Data inicial</label>
                 <input type="date" name="data_inicio" value="{{ data_inicio }}">
@@ -30,17 +48,9 @@
             <div>
                 <label>Status da OP</label>
                 <select name="status">
-                    <option value="Encerrada" {% if status_filtro == "Encerrada" %}selected{% endif %}>
-                        Encerradas
-                    </option>
-
-                    <option value="Aberta" {% if status_filtro == "Aberta" %}selected{% endif %}>
-                        Abertas
-                    </option>
-
-                    <option value="Todas" {% if status_filtro == "Todas" %}selected{% endif %}>
-                        Todas
-                    </option>
+                    <option value="Encerrada" {% if status_filtro == "Encerrada" %}selected{% endif %}>Encerradas</option>
+                    <option value="Aberta" {% if status_filtro == "Aberta" %}selected{% endif %}>Abertas</option>
+                    <option value="Todas" {% if status_filtro == "Todas" %}selected{% endif %}>Todas</option>
                 </select>
             </div>
 
@@ -54,130 +64,144 @@
             </div>
         </div>
 
-        <button type="submit">Filtrar</button>
+        <button type="submit" class="botao-filtrar-executivo">Aplicar filtros</button>
     </form>
 
-    <p class="obs">
-        Por padrão, o dashboard abre do dia 01 do mês atual até hoje, considerando apenas OPs encerradas.
+    {% if sku_filtro == "Todos" %}
+    <p class="obs alerta-suave">
+        Atenção: indicadores em kg e rendimento podem ficar distorcidos quando Galinha Inteira e Galinha Cortada aparecem juntos.
+        Para análise de rendimento, filtre por Galinha Cortada.
     </p>
+    {% endif %}
 </div>
 
-<div class="cards-resumo">
-
-    <div class="card resumo">
-        <h3>Aves recebidas</h3>
-        <p>{{ aves_recebidas }}</p>
-        <span>Quantidade informada na GTA</span>
-    </div>
-
-    <div class="card resumo">
-        <h3>Aves abatidas</h3>
-        <p>{{ aves_abatidas }}</p>
-        <span>GTA - mortes antes da pendura</span>
-    </div>
-
-    <div class="card resumo">
-        <h3>Viabilidade</h3>
-        <p>{{ viabilidade_percentual }}%</p>
-        <span>{{ viabilidade }} aves viáveis</span>
-    </div>
-
+<div class="section-title">
+    <span class="eyebrow">Produção</span>
+    <h2>Resumo Operacional</h2>
 </div>
 
-<div class="cards-resumo">
-
-    <div class="card resumo">
-        <h3>Peso de entrada</h3>
-        <p>{{ peso_entrada }}</p>
-        <span>kg peso vivo</span>
+<div class="cards-executivos">
+    <div class="card kpi-card">
+        <span class="kpi-label">Aves recebidas</span>
+        <strong>{{ aves_recebidas }}</strong>
+        <small>Quantidade informada na GTA</small>
     </div>
 
-    <div class="card resumo">
-        <h3>Produção</h3>
-        <p>{{ kg_produzidos }}</p>
-        <span>kg produzidos</span>
+    <div class="card kpi-card">
+        <span class="kpi-label">Aves abatidas</span>
+        <strong>{{ aves_abatidas }}</strong>
+        <small>GTA - mortes antes da pendura</small>
     </div>
 
-    <div class="card resumo">
-        <h3>Rendimento</h3>
-        <p>{{ rendimento }}%</p>
-        <span>kg produzidos / peso vivo</span>
+    <div class="card kpi-card destaque">
+        <span class="kpi-label">Viabilidade</span>
+        <strong>{{ viabilidade_percentual }}%</strong>
+        <small>{{ viabilidade }} aves viáveis</small>
     </div>
 
+    <div class="card kpi-card">
+        <span class="kpi-label">Dias avaliados</span>
+        <strong>{{ dias_periodo }}</strong>
+        <small>Jornada padrão: {{ jornada_padrao }} h/dia</small>
+    </div>
 </div>
 
-<div class="cards-resumo">
-
-    <div class="card resumo">
-        <h3>Horas perdidas</h3>
-        <p>{{ horas_perdidas_total }}</p>
-        <span>{{ percentual_jornada_perdida }}% da jornada programada</span>
-    </div>
-
-    <div class="card resumo">
-        <h3>Horas úteis</h3>
-        <p>{{ horas_uteis_total }}</p>
-        <span>{{ horas_programadas }} h programadas no período</span>
-    </div>
-
-    <div class="card resumo">
-        <h3>Produtividade HH</h3>
-        <p>{{ produtividade_hh }}</p>
-        <span>aves viáveis / homem-hora útil</span>
-    </div>
-
+<div class="section-title">
+    <span class="eyebrow">Rendimento</span>
+    <h2>Eficiência de Conversão</h2>
 </div>
 
-<div class="cards-resumo">
-
-    <div class="card resumo">
-        <h3>Aves por hora</h3>
-        <p>{{ aves_hora_fabrica }}</p>
-        <span>aves viáveis / hora útil da fábrica</span>
+<div class="cards-executivos">
+    <div class="card kpi-card">
+        <span class="kpi-label">Peso de entrada</span>
+        <strong>{{ peso_entrada }}</strong>
+        <small>kg de peso vivo</small>
     </div>
 
-    <div class="card resumo">
-        <h3>Homem-hora útil</h3>
-        <p>{{ hh_total }}</p>
-        <span>somatório dos setores produtivos</span>
+    <div class="card kpi-card">
+        <span class="kpi-label">Produção líquida</span>
+        <strong>{{ kg_produzidos }}</strong>
+        <small>kg produzidos</small>
     </div>
 
-    <div class="card resumo">
-        <h3>Dias considerados</h3>
-        <p>{{ dias_periodo }}</p>
-        <span>jornada padrão: {{ jornada_padrao }} h/dia</span>
+    <div class="card kpi-card destaque">
+        <span class="kpi-label">Rendimento</span>
+        <strong>{{ rendimento }}%</strong>
+        <small>kg produzidos / peso vivo</small>
     </div>
 
+    <div class="card kpi-card">
+        <span class="kpi-label">Perdas em kg</span>
+        <strong>{{ total_perdas }}</strong>
+        <small>Perdas apontadas no período</small>
+    </div>
+</div>
+
+<div class="section-title">
+    <span class="eyebrow">Eficiência</span>
+    <h2>Tempo, Paradas e Produtividade</h2>
+</div>
+
+<div class="cards-executivos">
+    <div class="card kpi-card alerta">
+        <span class="kpi-label">Horas perdidas</span>
+        <strong>{{ horas_perdidas_total }}</strong>
+        <small>{{ percentual_jornada_perdida }}% da jornada programada</small>
+    </div>
+
+    <div class="card kpi-card">
+        <span class="kpi-label">Horas úteis</span>
+        <strong>{{ horas_uteis_total }}</strong>
+        <small>{{ horas_programadas }} h programadas</small>
+    </div>
+
+    <div class="card kpi-card destaque">
+        <span class="kpi-label">Produtividade HH</span>
+        <strong>{{ produtividade_hh }}</strong>
+        <small>aves viáveis / homem-hora útil</small>
+    </div>
+
+    <div class="card kpi-card">
+        <span class="kpi-label">Aves por hora</span>
+        <strong>{{ aves_hora_fabrica }}</strong>
+        <small>aves viáveis / hora útil da fábrica</small>
+    </div>
 </div>
 
 <div class="grid-dashboard">
-
-    <div class="card">
-        <h2>Descartes e perdas</h2>
+    <div class="card painel-analitico">
+        <div class="section-title-row">
+            <div>
+                <span class="eyebrow">Perdas</span>
+                <h2>Descartes e Condenações</h2>
+            </div>
+        </div>
 
         <div class="linha-info">
             <strong>Mortes antes da pendura</strong>
             <span>{{ mortes_antes_pendura }}</span>
         </div>
-
         <div class="linha-info">
             <strong>Descartes / condenações em aves</strong>
             <span>{{ total_condenacoes }}</span>
         </div>
-
         <div class="linha-info">
             <strong>Total não aproveitado em aves</strong>
             <span>{{ total_problemas_aves }}</span>
         </div>
-
         <div class="linha-info">
             <strong>Perdas em kg</strong>
             <span>{{ total_perdas }}</span>
         </div>
     </div>
 
-    <div class="card">
-        <h2>Produção lançada por setor</h2>
+    <div class="card painel-analitico">
+        <div class="section-title-row">
+            <div>
+                <span class="eyebrow">Setores</span>
+                <h2>Produção Lançada</h2>
+            </div>
+        </div>
 
         {% if produtividade_setores %}
             {% for item in produtividade_setores %}
@@ -190,14 +214,18 @@
             <p class="obs">Nenhum apontamento de produção no período/status selecionado.</p>
         {% endif %}
     </div>
-
 </div>
 
 <div class="card">
-    <h2>Produtividade por setor produtivo</h2>
+    <div class="section-title-row">
+        <div>
+            <span class="eyebrow">Gargalos</span>
+            <h2>Produtividade por Setor Produtivo</h2>
+        </div>
+    </div>
 
     {% if produtividade_setores_hora %}
-        <div class="tabela-responsiva">
+        <div class="tabela-responsiva tabela-executiva">
             <table>
                 <thead>
                     <tr>
@@ -216,7 +244,7 @@
                 <tbody>
                     {% for item in produtividade_setores_hora %}
                     <tr>
-                        <td>{{ item.setor }}</td>
+                        <td><strong>{{ item.setor }}</strong></td>
                         <td>{{ "%.2f"|format(item.entrada) }}</td>
                         <td>{{ "%.2f"|format(item.descartes) }}</td>
                         <td>{{ "%.2f"|format(item.saida_liquida) }}</td>
@@ -235,33 +263,29 @@
         <p class="obs">Nenhum dado produtivo no período/status selecionado.</p>
     {% endif %}
 
-    <p class="obs">
-        A Expedição não entra neste cálculo, pois ocorre em outro fluxo operacional após o congelamento.
-    </p>
+    <p class="obs">A Expedição não entra neste cálculo, pois ocorre em outro fluxo operacional após o congelamento.</p>
 </div>
 
 <div class="card">
-    <h2>% de Descarte / Condenação por setor</h2>
+    <div class="section-title-row">
+        <div>
+            <span class="eyebrow">Qualidade</span>
+            <h2>% de Descarte / Condenação por Setor</h2>
+        </div>
+    </div>
 
     {% if descartes_por_setor %}
         {% for item in descartes_por_setor %}
-            <div class="linha-info">
+            <div class="linha-info barra-indicador">
                 <strong>{{ item.setor }}</strong>
-                <span>
-                    {{ "%.2f"|format(item.percentual) }}%
-                    — {{ "%.2f"|format(item.quantidade) }} aves
-                </span>
+                <span>{{ "%.2f"|format(item.percentual) }}% — {{ "%.2f"|format(item.quantidade) }} aves</span>
             </div>
         {% endfor %}
     {% else %}
-        <p class="obs">
-            Nenhum descarte ou condenação em aves no período/status selecionado.
-        </p>
+        <p class="obs">Nenhum descarte ou condenação em aves no período/status selecionado.</p>
     {% endif %}
 
-    <p class="obs">
-        O setor Transporte considera as mortes antes da pendura registradas na abertura da OP.
-    </p>
+    <p class="obs">O setor Transporte considera as mortes antes da pendura registradas na abertura da OP.</p>
 </div>
 
 {% endblock %}
