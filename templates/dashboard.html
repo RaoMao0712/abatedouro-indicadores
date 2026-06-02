@@ -162,6 +162,12 @@
     </div>
 
     <div class="card kpi-card">
+        <span class="kpi-label">Mão de obra direta</span>
+        <strong>{{ mao_obra_direta_media }}</strong>
+        <small>média de colaboradores produtivos por OP</small>
+    </div>
+
+    <div class="card kpi-card">
         <span class="kpi-label">Aves por hora</span>
         <strong>{{ aves_hora_fabrica }}</strong>
         <small>aves viáveis / hora útil da fábrica</small>
@@ -235,7 +241,7 @@
                         <th>Saída líquida</th>
                         <th>Horas perdidas</th>
                         <th>Horas úteis</th>
-                        <th>Colab.</th>
+                        <th>Colab. médio</th>
                         <th>HH útil</th>
                         <th>Aves/hora</th>
                         <th>Prod. HH</th>
@@ -263,7 +269,10 @@
         <p class="obs">Nenhum dado produtivo no período/status selecionado.</p>
     {% endif %}
 
-    <p class="obs">A Expedição não entra neste cálculo, pois ocorre em outro fluxo operacional após o congelamento.</p>
+    <p class="obs">
+        A coluna Colab. médio representa a média de colaboradores por OP em cada setor.
+        A Expedição não entra neste cálculo, pois ocorre em outro fluxo operacional após o congelamento.
+    </p>
 </div>
 
 <div class="card">

@@ -1591,6 +1591,7 @@ def dashboard():
 
     cursor.execute(q(f"""
     SELECT
+        o.id as op_id,
         o.data as data_op,
         m.setor,
         m.colaborador
@@ -1604,7 +1605,7 @@ def dashboard():
 
     mao_obra_periodo = cursor.fetchall()
 
-    colaboradores_por_data_setor = {}
+    colaboradores_por_op_setor = {}
 
     for item in mao_obra_periodo:
         setor = item["setor"]
@@ -1612,26 +1613,52 @@ def dashboard():
         if setor not in setores_produtivos:
             continue
 
-        chave = (item["data_op"], setor)
+        op_id = item["op_id"]
         nome = (item["colaborador"] or "").strip().lower()
 
         if not nome:
             continue
 
-        colaboradores_por_data_setor.setdefault(chave, set()).add(nome)
+        chave = (op_id, setor)
+        colaboradores_por_op_setor.setdefault(chave, set()).add(nome)
 
     hh_total = 0
     hh_por_setor = {setor: 0 for setor in setores_produtivos}
-    colaboradores_por_setor = {setor: set() for setor in setores_produtivos}
+    colaboradores_medio_por_setor = {setor: 0 for setor in setores_produtivos}
+    contagens_por_setor = {setor: [] for setor in setores_produtivos}
+    mao_obra_direta_por_op = {}
 
-    for (data_op, setor), colaboradores in colaboradores_por_data_setor.items():
+    data_por_op = {
+        op["id"]: op["data"]
+        for op in ordens_periodo
+    }
+
+    for (op_id, setor), colaboradores in colaboradores_por_op_setor.items():
+        data_op = data_por_op.get(op_id)
         horas_perdidas_setor_dia = horas_perdidas_por_data_setor.get((data_op, setor), 0)
         horas_uteis_setor_dia = max(0, jornada_padrao - horas_perdidas_setor_dia)
-        hh = len(colaboradores) * horas_uteis_setor_dia
+        quantidade_colaboradores = len(colaboradores)
+
+        hh = quantidade_colaboradores * horas_uteis_setor_dia
 
         hh_por_setor[setor] += hh
         hh_total += hh
-        colaboradores_por_setor[setor].update(colaboradores)
+
+        contagens_por_setor[setor].append(quantidade_colaboradores)
+        mao_obra_direta_por_op[op_id] = mao_obra_direta_por_op.get(op_id, 0) + quantidade_colaboradores
+
+    for setor in setores_produtivos:
+        contagens = contagens_por_setor.get(setor, [])
+
+        if contagens:
+            colaboradores_medio_por_setor[setor] = sum(contagens) / len(contagens)
+
+    mao_obra_direta_media = 0
+
+    if mao_obra_direta_por_op:
+        mao_obra_direta_media = (
+            sum(mao_obra_direta_por_op.values()) / len(mao_obra_direta_por_op)
+        )
 
     viabilidade = aves_recebidas - mortes_antes_pendura - descartes_aves
     viabilidade_percentual = 0
@@ -1688,7 +1715,7 @@ def dashboard():
             "saida_liquida": round(saida_liquida, 2),
             "horas_perdidas": round(horas_perdidas_setor, 2),
             "horas_uteis": round(horas_uteis_setor, 2),
-            "colaboradores": len(colaboradores_por_setor.get(setor, set())),
+            "colaboradores": round(colaboradores_medio_por_setor.get(setor, 0), 2),
             "hh": round(hh_setor, 2),
             "aves_hora": round(aves_hora_setor, 2),
             "produtividade_hh": round(produtividade_hh_setor, 2)
@@ -1724,6 +1751,7 @@ def dashboard():
         percentual_jornada_perdida=round(percentual_jornada_perdida, 2),
         horas_uteis_total=round(horas_uteis_total, 2),
         hh_total=round(hh_total, 2),
+        mao_obra_direta_media=round(mao_obra_direta_media, 2),
         produtividade_hh=round(produtividade_hh, 2),
         aves_hora_fabrica=round(aves_hora_fabrica, 2),
         descartes_por_setor=descartes_por_setor,
