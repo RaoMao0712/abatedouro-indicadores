@@ -756,6 +756,36 @@ def buscar_vendas_diarias():
     return vendas
 
 
+
+def buscar_custo_mensal_por_id(custo_id):
+    criar_tabelas_custos()
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute(q("""
+    SELECT *
+    FROM custos_mensais
+    WHERE id = ?
+    """), (custo_id,))
+    custo = cursor.fetchone()
+    conn.close()
+    return custo
+
+
+def buscar_venda_diaria_por_id(venda_id):
+    criar_tabela_vendas()
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute(q("""
+    SELECT *
+    FROM vendas_diarias
+    WHERE id = ?
+    """), (venda_id,))
+    venda = cursor.fetchone()
+    conn.close()
+    return venda
+
+
+
 def criar_tabela_fornecedores():
     conn = conectar()
     cursor = conn.cursor()
@@ -1771,6 +1801,164 @@ def vendas():
         hoje=hoje,
         vendas_diarias=buscar_vendas_diarias()
     )
+
+
+
+@app.route("/custos/mensal/<int:custo_id>/editar", methods=["GET", "POST"])
+@perfil_permitido("pcp")
+def editar_custo_mensal(custo_id):
+    criar_banco()
+    criar_tabelas_custos()
+
+    custo = buscar_custo_mensal_por_id(custo_id)
+
+    if not custo:
+        flash("Custo mensal não encontrado.")
+        return redirect(url_for("custos"))
+
+    categorias_custos = [
+        "Mão de obra",
+        "Energia",
+        "Lenha",
+        "Combustível",
+        "Água",
+        "Manutenção",
+        "Outros"
+    ]
+
+    if request.method == "POST":
+        try:
+            conn = conectar()
+            cursor = conn.cursor()
+            cursor.execute(q("""
+            UPDATE custos_mensais
+            SET competencia = ?,
+                categoria = ?,
+                valor = ?,
+                observacoes = ?
+            WHERE id = ?
+            """), (
+                request.form["competencia"],
+                request.form["categoria"],
+                float(request.form["valor"]),
+                request.form.get("observacoes", ""),
+                custo_id
+            ))
+            conn.commit()
+            conn.close()
+            flash("Custo mensal atualizado com sucesso.")
+            return redirect(url_for("custos"))
+        except ValueError:
+            flash("Verifique o valor informado. Use apenas números no campo de valor.")
+
+    return render_template(
+        "editar_custo_mensal.html",
+        custo=custo,
+        categorias_custos=categorias_custos
+    )
+
+
+@app.route("/custos/mensal/<int:custo_id>/excluir", methods=["POST"])
+@perfil_permitido("pcp")
+def excluir_custo_mensal(custo_id):
+    criar_banco()
+    criar_tabelas_custos()
+
+    if not buscar_custo_mensal_por_id(custo_id):
+        flash("Custo mensal não encontrado.")
+        return redirect(url_for("custos"))
+
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute(q("""
+    DELETE FROM custos_mensais
+    WHERE id = ?
+    """), (custo_id,))
+    conn.commit()
+    conn.close()
+
+    flash("Custo mensal excluído com sucesso.")
+    return redirect(url_for("custos"))
+
+
+@app.route("/vendas/<int:venda_id>/editar", methods=["GET", "POST"])
+@perfil_permitido("pcp")
+def editar_venda_diaria(venda_id):
+    criar_banco()
+    criar_tabela_vendas()
+
+    venda = buscar_venda_diaria_por_id(venda_id)
+
+    if not venda:
+        flash("Venda diária não encontrada.")
+        return redirect(url_for("vendas"))
+
+    if request.method == "POST":
+        try:
+            sku = request.form["sku"]
+            quantidade = float(request.form["quantidade"])
+            receita = float(request.form["receita"])
+
+            if quantidade <= 0:
+                raise ValueError("A quantidade vendida deve ser maior que zero.")
+
+            if receita < 0:
+                raise ValueError("A receita não pode ser negativa.")
+
+            unidade = "kg" if sku == "Galinha Cortada" else "unidades"
+
+            conn = conectar()
+            cursor = conn.cursor()
+            cursor.execute(q("""
+            UPDATE vendas_diarias
+            SET data = ?,
+                sku = ?,
+                quantidade = ?,
+                unidade = ?,
+                receita = ?,
+                observacoes = ?
+            WHERE id = ?
+            """), (
+                request.form["data"],
+                sku,
+                quantidade,
+                unidade,
+                receita,
+                request.form.get("observacoes", ""),
+                venda_id
+            ))
+            conn.commit()
+            conn.close()
+
+            flash("Venda diária atualizada com sucesso.")
+            return redirect(url_for("vendas"))
+        except ValueError as erro:
+            flash(str(erro))
+
+    return render_template("editar_venda_diaria.html", venda=venda)
+
+
+@app.route("/vendas/<int:venda_id>/excluir", methods=["POST"])
+@perfil_permitido("pcp")
+def excluir_venda_diaria(venda_id):
+    criar_banco()
+    criar_tabela_vendas()
+
+    if not buscar_venda_diaria_por_id(venda_id):
+        flash("Venda diária não encontrada.")
+        return redirect(url_for("vendas"))
+
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute(q("""
+    DELETE FROM vendas_diarias
+    WHERE id = ?
+    """), (venda_id,))
+    conn.commit()
+    conn.close()
+
+    flash("Venda diária excluída com sucesso.")
+    return redirect(url_for("vendas"))
 
 
 @app.route("/fornecedores", methods=["GET", "POST"])
