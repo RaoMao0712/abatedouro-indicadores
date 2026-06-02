@@ -752,3 +752,87 @@ button:hover {
         max-width: 100%;
     }
 }
+
+
+/* RELATÓRIOS GERENCIAIS */
+
+.relatorio-hero {
+    margin-bottom: 18px;
+}
+
+.relatorio-filtros {
+    padding-top: 18px;
+    padding-bottom: 18px;
+}
+
+.relatorio-kpis {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.relatorio-kpis .kpi-card {
+    min-height: 135px;
+}
+
+.relatorio-kpis .kpi-card strong {
+    font-size: 25px;
+    line-height: 1.15;
+}
+
+.grafico-relatorio {
+    height: 360px;
+    width: 100%;
+    position: relative;
+}
+
+.relatorio-a4 {
+    min-height: 450px;
+}
+
+.relatorio-resumo-final {
+    margin-top: 0;
+}
+
+@media (max-width: 1050px) {
+    .relatorio-kpis {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .grafico-relatorio {
+        height: 320px;
+    }
+}
+
+@media (max-width: 720px) {
+    .relatorio-kpis {
+        grid-template-columns: 1fr;
+    }
+
+    .grafico-relatorio {
+        height: 300px;
+    }
+}
+
+@media print {
+    .relatorio-filtros,
+    .menu {
+        display: none !important;
+    }
+
+    .relatorio-kpis {
+        grid-template-columns: repeat(4, 1fr) !important;
+    }
+
+    .relatorio-a4 {
+        min-height: auto;
+        page-break-inside: avoid;
+    }
+
+    .grafico-relatorio {
+        height: 330px;
+    }
+
+    .relatorio-resumo-final {
+        grid-template-columns: 1fr 1fr !important;
+        page-break-inside: avoid;
+    }
+}

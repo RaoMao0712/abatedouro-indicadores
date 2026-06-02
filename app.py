@@ -786,6 +786,181 @@ def buscar_venda_diaria_por_id(venda_id):
 
 
 
+
+
+def normalizar_competencia(competencia):
+    if not competencia:
+        return ""
+
+    competencia = str(competencia).strip()
+
+    if len(competencia) >= 7:
+        return competencia[:7]
+
+    return competencia
+
+
+def listar_competencias_periodo(competencia_inicio, competencia_fim):
+    inicio = datetime.strptime(competencia_inicio + "-01", "%Y-%m-%d")
+    fim = datetime.strptime(competencia_fim + "-01", "%Y-%m-%d")
+
+    competencias = []
+    atual = inicio
+
+    while atual <= fim:
+        competencias.append(atual.strftime("%Y-%m"))
+
+        if atual.month == 12:
+            atual = atual.replace(year=atual.year + 1, month=1)
+        else:
+            atual = atual.replace(month=atual.month + 1)
+
+    return competencias
+
+
+def buscar_dados_relatorio_custos(competencia_inicio, competencia_fim):
+    criar_tabelas_custos()
+
+    competencias = listar_competencias_periodo(
+        competencia_inicio,
+        competencia_fim
+    )
+
+    categorias_padrao = [
+        "Mão de obra",
+        "Energia",
+        "Lenha",
+        "Combustível",
+        "Água",
+        "Manutenção",
+        "Outros"
+    ]
+
+    dados_por_categoria = {
+        categoria: {competencia: 0 for competencia in competencias}
+        for categoria in categorias_padrao
+    }
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q("""
+    SELECT
+        competencia,
+        categoria,
+        COALESCE(SUM(valor), 0) as total
+    FROM custos_mensais
+    WHERE competencia BETWEEN ? AND ?
+    GROUP BY competencia, categoria
+    ORDER BY competencia, categoria
+    """), (
+        competencia_inicio,
+        competencia_fim
+    ))
+
+    registros = cursor.fetchall()
+    conn.close()
+
+    for item in registros:
+        competencia = normalizar_competencia(item["competencia"])
+        categoria = item["categoria"]
+
+        if categoria not in dados_por_categoria:
+            dados_por_categoria[categoria] = {
+                comp: 0 for comp in competencias
+            }
+
+        if competencia in dados_por_categoria[categoria]:
+            dados_por_categoria[categoria][competencia] = float(item["total"] or 0)
+
+    totais_por_categoria = {
+        categoria: sum(valores.values())
+        for categoria, valores in dados_por_categoria.items()
+    }
+
+    totais_por_competencia = {
+        competencia: sum(
+            dados_por_categoria[categoria].get(competencia, 0)
+            for categoria in dados_por_categoria
+        )
+        for competencia in competencias
+    }
+
+    custo_total = sum(totais_por_categoria.values())
+    media_mensal = custo_total / len(competencias) if competencias else 0
+
+    maior_categoria = "Sem dados"
+    valor_maior_categoria = 0
+
+    if totais_por_categoria:
+        maior_categoria = max(
+            totais_por_categoria,
+            key=lambda categoria: totais_por_categoria[categoria]
+        )
+        valor_maior_categoria = totais_por_categoria.get(maior_categoria, 0)
+
+        if valor_maior_categoria == 0:
+            maior_categoria = "Sem dados"
+
+    maior_crescimento_categoria = "Sem dados"
+    maior_crescimento_valor = 0
+
+    for categoria, valores in dados_por_categoria.items():
+        lista_valores = [valores.get(comp, 0) for comp in competencias]
+
+        if len(lista_valores) < 2:
+            continue
+
+        crescimento = lista_valores[-1] - lista_valores[0]
+
+        if crescimento > maior_crescimento_valor:
+            maior_crescimento_valor = crescimento
+            maior_crescimento_categoria = categoria
+
+    datasets = []
+
+    for categoria, valores in dados_por_categoria.items():
+        datasets.append({
+            "label": categoria,
+            "data": [
+                round(valores.get(competencia, 0), 2)
+                for competencia in competencias
+            ]
+        })
+
+    resumo_categorias = []
+
+    for categoria, total in sorted(
+        totais_por_categoria.items(),
+        key=lambda item: item[1],
+        reverse=True
+    ):
+        percentual = 0
+
+        if custo_total > 0:
+            percentual = (total / custo_total) * 100
+
+        resumo_categorias.append({
+            "categoria": categoria,
+            "total": round(total, 2),
+            "percentual": round(percentual, 2)
+        })
+
+    return {
+        "competencias": competencias,
+        "datasets": datasets,
+        "custo_total": round(custo_total, 2),
+        "media_mensal": round(media_mensal, 2),
+        "maior_categoria": maior_categoria,
+        "valor_maior_categoria": round(valor_maior_categoria, 2),
+        "maior_crescimento_categoria": maior_crescimento_categoria,
+        "maior_crescimento_valor": round(maior_crescimento_valor, 2),
+        "totais_por_competencia": totais_por_competencia,
+        "resumo_categorias": resumo_categorias
+    }
+
+
+
 def criar_tabela_fornecedores():
     conn = conectar()
     cursor = conn.cursor()
@@ -1757,6 +1932,60 @@ def dashboard():
         descartes_por_setor=descartes_por_setor,
         produtividade_setores=produtividade_setores,
         produtividade_setores_hora=produtividade_setores_hora
+    )
+
+
+
+
+
+@app.route("/relatorio-custos")
+@perfil_permitido("pcp")
+def relatorio_custos():
+    criar_banco()
+    criar_tabelas_custos()
+
+    agora = datetime.now()
+    competencia_fim = request.args.get("competencia_fim") or agora.strftime("%Y-%m")
+
+    seis_meses_atras = agora
+
+    for _ in range(5):
+        if seis_meses_atras.month == 1:
+            seis_meses_atras = seis_meses_atras.replace(
+                year=seis_meses_atras.year - 1,
+                month=12
+            )
+        else:
+            seis_meses_atras = seis_meses_atras.replace(
+                month=seis_meses_atras.month - 1
+            )
+
+    competencia_inicio = (
+        request.args.get("competencia_inicio")
+        or seis_meses_atras.strftime("%Y-%m")
+    )
+
+    if competencia_inicio > competencia_fim:
+        competencia_inicio, competencia_fim = competencia_fim, competencia_inicio
+
+    dados = buscar_dados_relatorio_custos(
+        competencia_inicio,
+        competencia_fim
+    )
+
+    return render_template(
+        "relatorio_custos.html",
+        competencia_inicio=competencia_inicio,
+        competencia_fim=competencia_fim,
+        competencias=dados["competencias"],
+        datasets=dados["datasets"],
+        custo_total=dados["custo_total"],
+        media_mensal=dados["media_mensal"],
+        maior_categoria=dados["maior_categoria"],
+        valor_maior_categoria=dados["valor_maior_categoria"],
+        maior_crescimento_categoria=dados["maior_crescimento_categoria"],
+        maior_crescimento_valor=dados["maior_crescimento_valor"],
+        resumo_categorias=dados["resumo_categorias"]
     )
 
 

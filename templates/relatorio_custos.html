@@ -1,0 +1,251 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+
+<section class="hero-dashboard relatorio-hero">
+    <div>
+        <span class="eyebrow">Relatório Gerencial</span>
+        <h2>Evolução dos Custos</h2>
+        <p>
+            Acompanhamento mensal dos grupos de despesa da operação.
+            Relatório pensado para leitura em tela única ou impressão em A4.
+        </p>
+    </div>
+
+    <div class="hero-meta">
+        <div>
+            <strong>Competência inicial</strong>
+            <span>{{ competencia_inicio }}</span>
+        </div>
+
+        <div>
+            <strong>Competência final</strong>
+            <span>{{ competencia_fim }}</span>
+        </div>
+
+        <div>
+            <strong>Visão</strong>
+            <span>Mensal por categoria</span>
+        </div>
+    </div>
+</section>
+
+<div class="card filtro-executivo relatorio-filtros">
+    <div class="section-title-row">
+        <div>
+            <span class="eyebrow">Filtros</span>
+            <h2>Período da Análise</h2>
+        </div>
+    </div>
+
+    <form method="GET" action="{{ url_for('relatorio_custos') }}">
+        <div class="form-grid-3">
+            <div>
+                <label>Competência inicial</label>
+                <input
+                    type="month"
+                    name="competencia_inicio"
+                    value="{{ competencia_inicio }}"
+                    required
+                >
+            </div>
+
+            <div>
+                <label>Competência final</label>
+                <input
+                    type="month"
+                    name="competencia_fim"
+                    value="{{ competencia_fim }}"
+                    required
+                >
+            </div>
+
+            <div>
+                <button type="submit" class="botao-filtrar-executivo">
+                    Aplicar filtros
+                </button>
+            </div>
+        </div>
+    </form>
+</div>
+
+<div class="cards-executivos relatorio-kpis">
+
+    <div class="card kpi-card">
+        <span class="kpi-label">Custo total</span>
+        <strong>R$ {{ "%.2f"|format(custo_total or 0) }}</strong>
+        <small>Total lançado no período</small>
+    </div>
+
+    <div class="card kpi-card destaque">
+        <span class="kpi-label">Maior categoria</span>
+        <strong>{{ maior_categoria }}</strong>
+        <small>R$ {{ "%.2f"|format(valor_maior_categoria or 0) }}</small>
+    </div>
+
+    <div class="card kpi-card">
+        <span class="kpi-label">Média mensal</span>
+        <strong>R$ {{ "%.2f"|format(media_mensal or 0) }}</strong>
+        <small>Média das competências filtradas</small>
+    </div>
+
+    <div class="card kpi-card alerta">
+        <span class="kpi-label">Maior crescimento</span>
+        <strong>{{ maior_crescimento_categoria }}</strong>
+        <small>R$ {{ "%.2f"|format(maior_crescimento_valor or 0) }}</small>
+    </div>
+
+</div>
+
+<div class="card relatorio-a4">
+    <div class="section-title-row">
+        <div>
+            <span class="eyebrow">Gráfico</span>
+            <h2>Evolução mensal por grupo de despesa</h2>
+        </div>
+    </div>
+
+    <div class="grafico-relatorio">
+        <canvas id="graficoCustos"></canvas>
+    </div>
+</div>
+
+<div class="grid-dashboard relatorio-resumo-final">
+
+    <div class="card painel-analitico">
+        <div class="section-title-row">
+            <div>
+                <span class="eyebrow">Resumo</span>
+                <h2>Participação por Categoria</h2>
+            </div>
+        </div>
+
+        {% if resumo_categorias %}
+            {% for item in resumo_categorias %}
+                <div class="linha-info">
+                    <strong>{{ item.categoria }}</strong>
+                    <span>
+                        R$ {{ "%.2f"|format(item.total or 0) }}
+                        — {{ "%.2f"|format(item.percentual or 0) }}%
+                    </span>
+                </div>
+            {% endfor %}
+        {% else %}
+            <p class="obs">Nenhum custo lançado no período.</p>
+        {% endif %}
+    </div>
+
+    <div class="card painel-analitico">
+        <div class="section-title-row">
+            <div>
+                <span class="eyebrow">Leitura Executiva</span>
+                <h2>Conclusão do Período</h2>
+            </div>
+        </div>
+
+        <div class="linha-info">
+            <strong>Principal grupo de despesa</strong>
+            <span>{{ maior_categoria }}</span>
+        </div>
+
+        <div class="linha-info">
+            <strong>Custo total analisado</strong>
+            <span>R$ {{ "%.2f"|format(custo_total or 0) }}</span>
+        </div>
+
+        <div class="linha-info">
+            <strong>Média mensal</strong>
+            <span>R$ {{ "%.2f"|format(media_mensal or 0) }}</span>
+        </div>
+
+        <p class="obs">
+            A análise considera os custos mensais lançados por competência.
+        </p>
+    </div>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<script>
+    const labelsCustos = {{ competencias|tojson }};
+    const datasetsCustos = {{ datasets|tojson }};
+
+    const palette = [
+        "#f97316",
+        "#1f3b4d",
+        "#2563eb",
+        "#16a34a",
+        "#dc2626",
+        "#9333ea",
+        "#64748b",
+        "#eab308"
+    ];
+
+    const datasetsFormatados = datasetsCustos.map((item, index) => ({
+        label: item.label,
+        data: item.data,
+        borderColor: palette[index % palette.length],
+        backgroundColor: palette[index % palette.length],
+        tension: 0.32,
+        borderWidth: 3,
+        pointRadius: 4,
+        pointHoverRadius: 6
+    }));
+
+    const contextoCustos = document
+        .getElementById("graficoCustos")
+        .getContext("2d");
+
+    new Chart(contextoCustos, {
+        type: "line",
+        data: {
+            labels: labelsCustos,
+            datasets: datasetsFormatados
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: {
+                mode: "index",
+                intersect: false
+            },
+            plugins: {
+                legend: {
+                    position: "bottom",
+                    labels: {
+                        usePointStyle: true,
+                        boxWidth: 8,
+                        font: {
+                            size: 12,
+                            weight: "bold"
+                        }
+                    }
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            const valor = context.raw || 0;
+                            return context.dataset.label + ": R$ " + valor.toLocaleString("pt-BR", {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2
+                            });
+                        }
+                    }
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        callback: function(value) {
+                            return "R$ " + value.toLocaleString("pt-BR");
+                        }
+                    }
+                }
+            }
+        }
+    });
+</script>
+
+{% endblock %}
