@@ -485,9 +485,9 @@ button:hover {
 .hero-dashboard {
     background: linear-gradient(135deg, rgba(31,59,77,0.98), rgba(15,23,42,0.96));
     color: white;
-    border-radius: 26px;
-    padding: 30px;
-    margin-bottom: 22px;
+    border-radius: 22px;
+    padding: 18px 24px;
+    margin-bottom: 14px;
     box-shadow: 0 18px 40px rgba(15,23,42,0.22);
     display: grid;
     grid-template-columns: 1.4fr 1fr;
@@ -496,8 +496,8 @@ button:hover {
 }
 
 .hero-dashboard h2 {
-    margin: 4px 0 8px;
-    font-size: 34px;
+    margin: 2px 0 4px;
+    font-size: 26px;
     line-height: 1.1;
     letter-spacing: -0.8px;
 }
@@ -505,7 +505,7 @@ button:hover {
 .hero-dashboard p {
     margin: 0;
     color: #dbeafe;
-    font-size: 15px;
+    font-size: 13px;
     max-width: 650px;
 }
 
@@ -834,5 +834,43 @@ button:hover {
     .relatorio-resumo-final {
         grid-template-columns: 1fr 1fr !important;
         page-break-inside: avoid;
+    }
+}
+
+
+/* DASHBOARD COMPACTO */
+
+.hero-meta-resumo {
+    display: flex;
+    align-items: center;
+}
+
+.hero-meta-resumo div {
+    width: 100%;
+    padding: 14px 18px;
+}
+
+.hero-meta-resumo span {
+    display: block;
+    font-size: 14px;
+    margin-bottom: 6px;
+}
+
+.hero-meta-resumo span:last-child {
+    margin-bottom: 0;
+}
+
+.hero-meta-resumo strong {
+    display: inline;
+    color: #fdba74;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-right: 4px;
+}
+
+@media (max-width: 720px) {
+    .hero-dashboard {
+        padding: 18px;
     }
 }

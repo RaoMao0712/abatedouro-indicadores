@@ -9,18 +9,22 @@
         <p>Visão consolidada de produção, rendimento, produtividade, perdas e gargalos operacionais.</p>
     </div>
 
-    <div class="hero-meta">
+    <div class="hero-meta hero-meta-resumo">
         <div>
-            <strong>Período</strong>
-            <span>{{ data_inicio }} a {{ data_fim }}</span>
-        </div>
-        <div>
-            <strong>Status</strong>
-            <span>{{ status_filtro }}</span>
-        </div>
-        <div>
-            <strong>SKU</strong>
-            <span>{{ sku_filtro }}</span>
+            <span>
+                <strong>Período:</strong>
+                {{ data_inicio }} a {{ data_fim }}
+            </span>
+
+            <span>
+                <strong>Status:</strong>
+                {{ status_filtro }}
+            </span>
+
+            <span>
+                <strong>SKU:</strong>
+                {{ sku_filtro }}
+            </span>
         </div>
     </div>
 </section>
