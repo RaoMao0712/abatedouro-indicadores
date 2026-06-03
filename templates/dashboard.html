@@ -75,10 +75,22 @@
         <small>GTA - mortes antes da pendura</small>
     </div>
 
-    <div class="card kpi-card destaque">
+    <div class="card kpi-card destaque kpi-meta-card">
         <span class="kpi-label">Viabilidade</span>
-        <strong>{{ viabilidade_percentual }}%</strong>
-        <small>{{ viabilidade }} aves viáveis</small>
+
+        <div class="kpi-meta-layout">
+            <div>
+                <strong>{{ viabilidade_percentual }}%</strong>
+                <small>{{ viabilidade }} aves viáveis</small>
+                <small class="meta-texto">Meta: {{ meta_viabilidade }}%</small>
+            </div>
+
+            <div class="kpi-variacao {% if variacao_viabilidade >= 0 %}positiva{% else %}negativa{% endif %}">
+                <span>{% if variacao_viabilidade >= 0 %}▲{% else %}▼{% endif %}</span>
+                <strong>{{ "%.2f"|format(variacao_viabilidade|abs) }}%</strong>
+                <small>vs meta</small>
+            </div>
+        </div>
     </div>
 
     <div class="card kpi-card">
@@ -106,16 +118,28 @@
         <small>kg produzidos</small>
     </div>
 
-    <div class="card kpi-card destaque">
+    <div class="card kpi-card destaque kpi-meta-card">
         <span class="kpi-label">Rendimento</span>
-        <strong>{{ rendimento }}%</strong>
-        <small>kg produzidos / peso vivo</small>
+
+        <div class="kpi-meta-layout">
+            <div>
+                <strong>{{ rendimento }}%</strong>
+                <small>kg produzidos / peso vivo</small>
+                <small class="meta-texto">Meta: {{ meta_rendimento }}%</small>
+            </div>
+
+            <div class="kpi-variacao {% if variacao_rendimento >= 0 %}positiva{% else %}negativa{% endif %}">
+                <span>{% if variacao_rendimento >= 0 %}▲{% else %}▼{% endif %}</span>
+                <strong>{{ "%.2f"|format(variacao_rendimento|abs) }}%</strong>
+                <small>vs meta</small>
+            </div>
+        </div>
     </div>
 
     <div class="card kpi-card">
-        <span class="kpi-label">Perdas em kg</span>
-        <strong>{{ total_perdas }}</strong>
-        <small>Perdas apontadas no período</small>
+        <span class="kpi-label">Unidades produzidas</span>
+        <strong>{{ unidades_produzidas }}</strong>
+        <small>bandejas enviadas para a câmara fria</small>
     </div>
 </div>
 

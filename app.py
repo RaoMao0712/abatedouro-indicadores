@@ -1654,6 +1654,19 @@ def dashboard():
 
     kg_produzidos = cursor.fetchone()["kg"] or 0
 
+    cursor.execute(q(f"""
+    SELECT COALESCE(SUM(p.quantidade), 0) as unidades
+    FROM apontamentos_producao p
+    JOIN ordens_producao o ON o.id = p.op_id
+    WHERE o.data BETWEEN ? AND ?
+      AND p.setor = 'Expedição'
+      AND LOWER(p.unidade) IN ('unidades', 'unidade', 'aves', 'ave')
+      {status_condicao_alias}
+      {sku_condicao_alias}
+    """), (data_inicio, data_fim) + parametros_filtros)
+
+    unidades_produzidas = cursor.fetchone()["unidades"] or 0
+
     total_problemas_aves = mortes_antes_pendura + descartes_aves
 
     cursor.execute(q(f"""
@@ -1845,6 +1858,12 @@ def dashboard():
     if peso_entrada > 0:
         rendimento = (kg_produzidos / peso_entrada) * 100
 
+    meta_viabilidade = 99.5
+    meta_rendimento = 63.0
+
+    variacao_viabilidade = viabilidade_percentual - meta_viabilidade
+    variacao_rendimento = rendimento - meta_rendimento
+
     produtividade_hh = 0
     if hh_total > 0:
         produtividade_hh = viabilidade / hh_total
@@ -1914,7 +1933,12 @@ def dashboard():
         viabilidade_percentual=round(viabilidade_percentual, 2),
         peso_entrada=round(peso_entrada, 2),
         kg_produzidos=round(kg_produzidos, 2),
+        unidades_produzidas=round(unidades_produzidas, 2),
         rendimento=round(rendimento, 2),
+        meta_viabilidade=round(meta_viabilidade, 2),
+        meta_rendimento=round(meta_rendimento, 2),
+        variacao_viabilidade=round(variacao_viabilidade, 2),
+        variacao_rendimento=round(variacao_rendimento, 2),
         mortes_antes_pendura=round(mortes_antes_pendura, 2),
         total_condenacoes=round(descartes_aves, 2),
         total_perdas=round(descartes_kg, 2),

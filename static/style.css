@@ -1304,3 +1304,97 @@ button:hover {
         grid-template-columns: 1fr;
     }
 }
+
+
+/* KPIs COM META E VARIAÇÃO */
+
+.kpi-meta-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 12px;
+    align-items: center;
+}
+
+.meta-texto {
+    display: block;
+    color: #1f3b4d !important;
+    font-weight: 800;
+    margin-top: 4px;
+}
+
+.kpi-variacao {
+    min-width: 72px;
+    text-align: center;
+    border-radius: 16px;
+    padding: 8px 9px;
+    border: 1px solid transparent;
+}
+
+.kpi-variacao span {
+    display: block;
+    font-size: 22px;
+    line-height: 1;
+    font-weight: 900;
+    margin-bottom: 2px;
+}
+
+.kpi-variacao strong {
+    display: block;
+    font-size: 18px !important;
+    line-height: 1.05;
+    letter-spacing: -0.3px;
+    margin: 0 0 2px !important;
+}
+
+.kpi-variacao small {
+    display: block;
+    font-size: 10px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.kpi-variacao.positiva {
+    background: rgba(37, 99, 235, 0.10);
+    border-color: rgba(37, 99, 235, 0.22);
+    color: #2563eb;
+}
+
+.kpi-variacao.positiva strong,
+.kpi-variacao.positiva small {
+    color: #2563eb !important;
+}
+
+.kpi-variacao.negativa {
+    background: rgba(220, 38, 38, 0.10);
+    border-color: rgba(220, 38, 38, 0.22);
+    color: #dc2626;
+}
+
+.kpi-variacao.negativa strong,
+.kpi-variacao.negativa small {
+    color: #dc2626 !important;
+}
+
+@media (max-width: 1300px) {
+    .kpi-meta-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .kpi-variacao {
+        display: inline-grid;
+        grid-template-columns: auto auto;
+        align-items: center;
+        justify-content: start;
+        gap: 4px 7px;
+        text-align: left;
+        min-width: 0;
+        width: fit-content;
+        padding: 6px 8px;
+    }
+
+    .kpi-variacao span {
+        grid-row: span 2;
+        margin-bottom: 0;
+    }
+}
