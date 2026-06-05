@@ -829,6 +829,17 @@ def buscar_dados_relatorio_custos(competencia_inicio, competencia_fim):
 
     categorias_padrao = [
         "Mão de obra",
+        "Contratos com clientes",
+        "Insumos para produção",
+        "Consultoria e resp tec",
+        "Marketing",
+        "Cursos e treinamentos",
+        "EPI's",
+        "Manutenção Predial",
+        "Manutenção de Equipamentos",
+        "Material de Limpeza",
+        "Material de Escritorio",
+        "Insumos para a produção",
         "Energia",
         "Lenha",
         "Combustível",
