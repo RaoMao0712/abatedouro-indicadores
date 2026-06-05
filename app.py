@@ -17,6 +17,34 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 DB_NAME = "abatedouro.db"
 
 
+CATEGORIAS_CUSTOS = [
+    "Mão de obra",
+    "Energia",
+    "Água",
+    "Lenha",
+    "Combustível",
+
+    "Manutenção de Equipamentos",
+    "Manutenção Predial",
+
+    "Material de Limpeza",
+    "Material de Escritório",
+
+    "EPIs",
+
+    "Marketing",
+    "Cursos e Treinamentos",
+
+    "Consultoria e Responsabilidade Técnica",
+
+    "Contratos com Clientes",
+
+    "Insumos para Produção",
+
+    "Outros"
+]
+
+
 def q(sql):
     if DATABASE_URL:
         return sql.replace("?", "%s")
@@ -827,26 +855,7 @@ def buscar_dados_relatorio_custos(competencia_inicio, competencia_fim):
         competencia_fim
     )
 
-    categorias_padrao = [
-        "Mão de obra",
-        "Contratos com clientes",
-        "Insumos para produção",
-        "Consultoria e resp tec",
-        "Marketing",
-        "Cursos e treinamentos",
-        "EPI's",
-        "Manutenção Predial",
-        "Manutenção de Equipamentos",
-        "Material de Limpeza",
-        "Material de Escritorio",
-        "Insumos para a produção",
-        "Energia",
-        "Lenha",
-        "Combustível",
-        "Água",
-        "Manutenção",
-        "Outros"
-    ]
+    categorias_padrao = CATEGORIAS_CUSTOS
 
     dados_por_categoria = {
         categoria: {competencia: 0 for competencia in competencias}
@@ -1076,7 +1085,7 @@ def buscar_dados_dre_gerencial(competencia):
     custos_raw = cursor.fetchall()
     conn.close()
 
-    categorias = ["Mão de obra", "Energia", "Lenha", "Combustível", "Água", "Manutenção", "Outros"]
+    categorias = CATEGORIAS_CUSTOS
     custos = {categoria: 0 for categoria in categorias}
     for item in custos_raw:
         custos[item["categoria"]] = custos.get(item["categoria"], 0) + float(item["total"] or 0)
@@ -2213,15 +2222,7 @@ def custos():
 
         return redirect(url_for("custos"))
 
-    categorias_custos = [
-        "Mão de obra",
-        "Energia",
-        "Lenha",
-        "Combustível",
-        "Água",
-        "Manutenção",
-        "Outros"
-    ]
+    categorias_custos = CATEGORIAS_CUSTOS
 
     competencia_atual = datetime.now().strftime("%Y-%m")
 
@@ -2273,15 +2274,7 @@ def editar_custo_mensal(custo_id):
         flash("Custo mensal não encontrado.")
         return redirect(url_for("custos"))
 
-    categorias_custos = [
-        "Mão de obra",
-        "Energia",
-        "Lenha",
-        "Combustível",
-        "Água",
-        "Manutenção",
-        "Outros"
-    ]
+    categorias_custos = CATEGORIAS_CUSTOS
 
     if request.method == "POST":
         try:
