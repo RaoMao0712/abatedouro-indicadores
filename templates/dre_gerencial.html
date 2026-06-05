@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+
+<section class="hero-dashboard dre-hero">
+    <div>
+        <span class="eyebrow">Relatório Gerencial</span>
+        <h2>DRE Gerencial Industrial</h2>
+
+        <div class="hero-resumo-inline">
+            <span><strong>Competência:</strong> {{ competencia }}</span>
+            <span><strong>Modelo:</strong> Receita, CMV, custos operacionais e resultado</span>
+        </div>
+    </div>
+
+    <form method="GET" action="{{ url_for('dre_gerencial') }}" class="dre-filtro-form">
+        <div>
+            <label>Competência</label>
+            <input type="month" name="competencia" value="{{ competencia }}" required>
+        </div>
+
+        <button type="submit" class="botao-hero-filtro">Gerar DRE</button>
+    </form>
+</section>
+
+<div class="cards-executivos dre-kpis">
+
+    <div class="card kpi-card">
+        <span class="kpi-label">Receita bruta</span>
+        <strong>R$ {{ "%.2f"|format(receita_bruta or 0) }}</strong>
+        <small>Venda de galinhas no período</small>
+    </div>
+
+    <div class="card kpi-card">
+        <span class="kpi-label">CMV</span>
+        <strong>R$ {{ "%.2f"|format(cmv_total or 0) }}</strong>
+        <small>{{ "%.2f"|format(cmv_percentual or 0) }}% da receita</small>
+    </div>
+
+    <div class="card kpi-card destaque">
+        <span class="kpi-label">Margem bruta</span>
+        <strong>R$ {{ "%.2f"|format(margem_bruta or 0) }}</strong>
+        <small>{{ "%.2f"|format(margem_bruta_percentual or 0) }}% da receita</small>
+    </div>
+
+    <div class="card kpi-card {% if resultado_operacional >= 0 %}resultado-positivo{% else %}resultado-negativo{% endif %}">
+        <span class="kpi-label">Resultado operacional</span>
+        <strong>R$ {{ "%.2f"|format(resultado_operacional or 0) }}</strong>
+        <small>{{ "%.2f"|format(margem_operacional_percentual or 0) }}% de margem operacional</small>
+    </div>
+
+</div>
+
+<div class="card dre-a4">
+    <div class="section-title-row">
+        <div>
+            <span class="eyebrow">DRE</span>
+            <h2>Demonstrativo do Resultado — {{ competencia }}</h2>
+        </div>
+    </div>
+
+    <div class="dre-tabela">
+        <div class="dre-linha dre-receita">
+            <strong>Receita Bruta</strong>
+            <span>R$ {{ "%.2f"|format(receita_bruta or 0) }}</span>
+        </div>
+
+        {% for item in vendas_por_sku %}
+        <div class="dre-linha dre-subitem">
+            <strong>Venda — {{ item.sku }}</strong>
+            <span>R$ {{ "%.2f"|format(item.receita or 0) }}</span>
+        </div>
+        {% endfor %}
+
+        <div class="dre-linha">
+            <strong>(-) CMV</strong>
+            <span>R$ {{ "%.2f"|format(cmv_total or 0) }}</span>
+        </div>
+
+        {% for item in cmv_por_sku %}
+        <div class="dre-linha dre-subitem">
+            <strong>CMV — {{ item.sku }}</strong>
+            <span>R$ {{ "%.2f"|format(item.cmv or 0) }}</span>
+        </div>
+        {% endfor %}
+
+        <div class="dre-linha dre-total">
+            <strong>= Margem Bruta</strong>
+            <span>
+                R$ {{ "%.2f"|format(margem_bruta or 0) }}
+                <small>{{ "%.2f"|format(margem_bruta_percentual or 0) }}%</small>
+            </span>
+        </div>
+
+        <div class="dre-grupo">
+            <span>Custos Operacionais</span>
+        </div>
+
+        {% for item in linhas_custos %}
+        <div class="dre-linha">
+            <strong>(-) {{ item.categoria }}</strong>
+            <span>
+                R$ {{ "%.2f"|format(item.valor or 0) }}
+                <small>{{ "%.2f"|format(item.percentual or 0) }}%</small>
+            </span>
+        </div>
+        {% endfor %}
+
+        <div class="dre-linha dre-total">
+            <strong>Total de Custos Operacionais</strong>
+            <span>
+                R$ {{ "%.2f"|format(custos_operacionais_total or 0) }}
+                <small>{{ "%.2f"|format(custos_operacionais_percentual or 0) }}%</small>
+            </span>
+        </div>
+
+        <div class="dre-linha dre-resultado {% if resultado_operacional >= 0 %}positivo{% else %}negativo{% endif %}">
+            <strong>= Resultado Operacional</strong>
+            <span>
+                R$ {{ "%.2f"|format(resultado_operacional or 0) }}
+                <small>{{ "%.2f"|format(margem_operacional_percentual or 0) }}%</small>
+            </span>
+        </div>
+    </div>
+
+    <div class="dre-leitura">
+        <strong>Leitura executiva:</strong>
+        {% if resultado_operacional >= 0 %}
+            A operação apresentou resultado operacional positivo na competência analisada.
+        {% else %}
+            A operação apresentou resultado operacional negativo na competência analisada.
+        {% endif %}
+        A DRE considera a receita de venda das galinhas, o CMV parametrizado e os custos mensais lançados no FrigoDatta.
+    </div>
+</div>
+
+{% endblock %}

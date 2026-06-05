@@ -2,6 +2,7 @@ from flask import Flask, render_template, request, redirect, url_for, session, f
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
 from datetime import datetime
+import calendar
 from urllib.parse import urlparse
 import os
 import uuid
@@ -957,6 +958,140 @@ def buscar_dados_relatorio_custos(competencia_inicio, competencia_fim):
         "maior_crescimento_valor": round(maior_crescimento_valor, 2),
         "totais_por_competencia": totais_por_competencia,
         "resumo_categorias": resumo_categorias
+    }
+
+
+
+
+def buscar_dados_dre_gerencial(competencia):
+    criar_tabelas_custos()
+    criar_tabela_vendas()
+
+    ano, mes = competencia.split("-")
+    ultimo_dia = calendar.monthrange(int(ano), int(mes))[1]
+    data_inicio = f"{competencia}-01"
+    data_fim = f"{competencia}-{ultimo_dia:02d}"
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q("""
+    SELECT sku, COALESCE(SUM(receita), 0) as receita, COALESCE(SUM(quantidade), 0) as quantidade
+    FROM vendas_diarias
+    WHERE data BETWEEN ? AND ?
+    GROUP BY sku
+    ORDER BY sku
+    """), (data_inicio, data_fim))
+    vendas_raw = cursor.fetchall()
+
+    vendas_por_sku = []
+    receita_bruta = 0
+    for item in vendas_raw:
+        receita = float(item["receita"] or 0)
+        receita_bruta += receita
+        vendas_por_sku.append({
+            "sku": item["sku"],
+            "receita": round(receita, 2),
+            "quantidade": round(float(item["quantidade"] or 0), 2)
+        })
+
+    cursor.execute("SELECT * FROM parametros_custos")
+    parametros = {item["sku"]: item for item in cursor.fetchall()}
+
+    cursor.execute(q("""
+    SELECT COALESCE(sku, 'Galinha Cortada') as sku,
+           COALESCE(SUM(quantidade_aves), 0) as aves_recebidas,
+           COALESCE(SUM(peso_vivo), 0) as peso_vivo
+    FROM ordens_producao
+    WHERE data BETWEEN ? AND ?
+      AND COALESCE(status, 'Aberta') = 'Encerrada'
+    GROUP BY COALESCE(sku, 'Galinha Cortada')
+    """), (data_inicio, data_fim))
+    producao = {}
+    for item in cursor.fetchall():
+        producao[item["sku"]] = {
+            "aves_recebidas": float(item["aves_recebidas"] or 0),
+            "peso_vivo": float(item["peso_vivo"] or 0),
+            "kg_produzidos": 0,
+            "unidades_produzidas": 0
+        }
+
+    cursor.execute(q("""
+    SELECT COALESCE(o.sku, 'Galinha Cortada') as sku,
+           LOWER(p.unidade) as unidade,
+           COALESCE(SUM(p.quantidade), 0) as quantidade
+    FROM apontamentos_producao p
+    JOIN ordens_producao o ON o.id = p.op_id
+    WHERE o.data BETWEEN ? AND ?
+      AND COALESCE(o.status, 'Aberta') = 'Encerrada'
+      AND p.setor = 'Expedição'
+    GROUP BY COALESCE(o.sku, 'Galinha Cortada'), LOWER(p.unidade)
+    """), (data_inicio, data_fim))
+
+    for item in cursor.fetchall():
+        sku = item["sku"]
+        if sku not in producao:
+            producao[sku] = {"aves_recebidas": 0, "peso_vivo": 0, "kg_produzidos": 0, "unidades_produzidas": 0}
+        unidade = item["unidade"]
+        quantidade = float(item["quantidade"] or 0)
+        if unidade == "kg":
+            producao[sku]["kg_produzidos"] += quantidade
+        if unidade in ["unidades", "unidade", "aves", "ave"]:
+            producao[sku]["unidades_produzidas"] += quantidade
+
+    cmv_por_sku = []
+    cmv_total = 0
+    for sku, prod in producao.items():
+        param = parametros.get(sku)
+        custo_ave = float(param["custo_ave"] or 0) if param else 0
+        custo_embalagem = float(param["custo_embalagem"] or 0) if param else 0
+        if sku == "Galinha Cortada":
+            materia_prima = prod["peso_vivo"] * custo_ave
+            embalagem = prod["kg_produzidos"] * custo_embalagem
+        else:
+            materia_prima = prod["aves_recebidas"] * custo_ave
+            embalagem = prod["unidades_produzidas"] * custo_embalagem
+        cmv = materia_prima + embalagem
+        cmv_total += cmv
+        cmv_por_sku.append({"sku": sku, "materia_prima": round(materia_prima, 2), "embalagem": round(embalagem, 2), "cmv": round(cmv, 2)})
+
+    cursor.execute(q("""
+    SELECT categoria, COALESCE(SUM(valor), 0) as total
+    FROM custos_mensais
+    WHERE competencia = ?
+    GROUP BY categoria
+    ORDER BY categoria
+    """), (competencia,))
+    custos_raw = cursor.fetchall()
+    conn.close()
+
+    categorias = ["Mão de obra", "Energia", "Lenha", "Combustível", "Água", "Manutenção", "Outros"]
+    custos = {categoria: 0 for categoria in categorias}
+    for item in custos_raw:
+        custos[item["categoria"]] = custos.get(item["categoria"], 0) + float(item["total"] or 0)
+
+    custos_operacionais_total = sum(custos.values())
+    margem_bruta = receita_bruta - cmv_total
+    resultado_operacional = margem_bruta - custos_operacionais_total
+
+    def perc(valor):
+        return (valor / receita_bruta * 100) if receita_bruta > 0 else 0
+
+    linhas_custos = [{"categoria": cat, "valor": round(val, 2), "percentual": round(perc(val), 2)} for cat, val in custos.items()]
+
+    return {
+        "receita_bruta": round(receita_bruta, 2),
+        "vendas_por_sku": vendas_por_sku,
+        "cmv_total": round(cmv_total, 2),
+        "cmv_percentual": round(perc(cmv_total), 2),
+        "cmv_por_sku": cmv_por_sku,
+        "margem_bruta": round(margem_bruta, 2),
+        "margem_bruta_percentual": round(perc(margem_bruta), 2),
+        "custos_operacionais_total": round(custos_operacionais_total, 2),
+        "custos_operacionais_percentual": round(perc(custos_operacionais_total), 2),
+        "linhas_custos": linhas_custos,
+        "resultado_operacional": round(resultado_operacional, 2),
+        "margem_operacional_percentual": round(perc(resultado_operacional), 2)
     }
 
 
@@ -1959,6 +2094,36 @@ def dashboard():
     )
 
 
+
+
+
+
+@app.route("/dre-gerencial")
+@perfil_permitido("pcp")
+def dre_gerencial():
+    criar_banco()
+    criar_tabelas_custos()
+    criar_tabela_vendas()
+
+    competencia = request.args.get("competencia") or datetime.now().strftime("%Y-%m")
+    dados = buscar_dados_dre_gerencial(competencia)
+
+    return render_template(
+        "dre_gerencial.html",
+        competencia=competencia,
+        receita_bruta=dados["receita_bruta"],
+        vendas_por_sku=dados["vendas_por_sku"],
+        cmv_total=dados["cmv_total"],
+        cmv_percentual=dados["cmv_percentual"],
+        cmv_por_sku=dados["cmv_por_sku"],
+        margem_bruta=dados["margem_bruta"],
+        margem_bruta_percentual=dados["margem_bruta_percentual"],
+        custos_operacionais_total=dados["custos_operacionais_total"],
+        custos_operacionais_percentual=dados["custos_operacionais_percentual"],
+        linhas_custos=dados["linhas_custos"],
+        resultado_operacional=dados["resultado_operacional"],
+        margem_operacional_percentual=dados["margem_operacional_percentual"]
+    )
 
 
 
