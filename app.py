@@ -996,108 +996,138 @@ def buscar_dados_dre_gerencial(competencia):
     cursor = conn.cursor()
 
     cursor.execute(q("""
-    SELECT sku, COALESCE(SUM(receita), 0) as receita, COALESCE(SUM(quantidade), 0) as quantidade
+    SELECT
+        sku,
+        COALESCE(SUM(receita), 0) as receita,
+        COALESCE(SUM(quantidade), 0) as quantidade
     FROM vendas_diarias
     WHERE data BETWEEN ? AND ?
     GROUP BY sku
     ORDER BY sku
     """), (data_inicio, data_fim))
+
     vendas_raw = cursor.fetchall()
 
     vendas_por_sku = []
+    vendas_por_sku_dict = {}
     receita_bruta = 0
+
     for item in vendas_raw:
+        sku = item["sku"]
         receita = float(item["receita"] or 0)
+        quantidade = float(item["quantidade"] or 0)
+
         receita_bruta += receita
+
         vendas_por_sku.append({
-            "sku": item["sku"],
+            "sku": sku,
             "receita": round(receita, 2),
-            "quantidade": round(float(item["quantidade"] or 0), 2)
+            "quantidade": round(quantidade, 2)
         })
 
-    cursor.execute("SELECT * FROM parametros_custos")
-    parametros = {item["sku"]: item for item in cursor.fetchall()}
-
-    cursor.execute(q("""
-    SELECT COALESCE(sku, 'Galinha Cortada') as sku,
-           COALESCE(SUM(quantidade_aves), 0) as aves_recebidas,
-           COALESCE(SUM(peso_vivo), 0) as peso_vivo
-    FROM ordens_producao
-    WHERE data BETWEEN ? AND ?
-      AND COALESCE(status, 'Aberta') = 'Encerrada'
-    GROUP BY COALESCE(sku, 'Galinha Cortada')
-    """), (data_inicio, data_fim))
-    producao = {}
-    for item in cursor.fetchall():
-        producao[item["sku"]] = {
-            "aves_recebidas": float(item["aves_recebidas"] or 0),
-            "peso_vivo": float(item["peso_vivo"] or 0),
-            "kg_produzidos": 0,
-            "unidades_produzidas": 0
+        vendas_por_sku_dict[sku] = {
+            "receita": receita,
+            "quantidade": quantidade
         }
 
-    cursor.execute(q("""
-    SELECT COALESCE(o.sku, 'Galinha Cortada') as sku,
-           LOWER(p.unidade) as unidade,
-           COALESCE(SUM(p.quantidade), 0) as quantidade
-    FROM apontamentos_producao p
-    JOIN ordens_producao o ON o.id = p.op_id
-    WHERE o.data BETWEEN ? AND ?
-      AND COALESCE(o.status, 'Aberta') = 'Encerrada'
-      AND p.setor = 'Expedição'
-    GROUP BY COALESCE(o.sku, 'Galinha Cortada'), LOWER(p.unidade)
-    """), (data_inicio, data_fim))
+    cursor.execute("SELECT * FROM parametros_custos")
 
-    for item in cursor.fetchall():
-        sku = item["sku"]
-        if sku not in producao:
-            producao[sku] = {"aves_recebidas": 0, "peso_vivo": 0, "kg_produzidos": 0, "unidades_produzidas": 0}
-        unidade = item["unidade"]
-        quantidade = float(item["quantidade"] or 0)
-        if unidade == "kg":
-            producao[sku]["kg_produzidos"] += quantidade
-        if unidade in ["unidades", "unidade", "aves", "ave"]:
-            producao[sku]["unidades_produzidas"] += quantidade
+    parametros = {
+        item["sku"]: item
+        for item in cursor.fetchall()
+    }
+
+    # Correção conceitual:
+    # O CMV da DRE acompanha o volume vendido, não o volume produzido.
+    rendimento_meta_cmv = 0.63
 
     cmv_por_sku = []
     cmv_total = 0
-    for sku, prod in producao.items():
-        param = parametros.get(sku)
-        custo_ave = float(param["custo_ave"] or 0) if param else 0
-        custo_embalagem = float(param["custo_embalagem"] or 0) if param else 0
+
+    for sku, venda in vendas_por_sku_dict.items():
+        parametros_sku = parametros.get(sku)
+
+        custo_ave = 0
+        custo_embalagem = 0
+
+        if parametros_sku:
+            custo_ave = float(parametros_sku["custo_ave"] or 0)
+            custo_embalagem = float(parametros_sku["custo_embalagem"] or 0)
+
+        quantidade_vendida = float(venda["quantidade"] or 0)
+
         if sku == "Galinha Cortada":
-            materia_prima = prod["peso_vivo"] * custo_ave
-            embalagem = prod["kg_produzidos"] * custo_embalagem
+            # custo_ave está em R$/kg vivo.
+            # Para transformar em custo por kg vendido, divide pelo rendimento-meta.
+            custo_materia_prima_unitario = 0
+
+            if rendimento_meta_cmv > 0:
+                custo_materia_prima_unitario = custo_ave / rendimento_meta_cmv
+
+            custo_materia_prima = quantidade_vendida * custo_materia_prima_unitario
+            custo_embalagens = quantidade_vendida * custo_embalagem
+
         else:
-            materia_prima = prod["aves_recebidas"] * custo_ave
-            embalagem = prod["unidades_produzidas"] * custo_embalagem
-        cmv = materia_prima + embalagem
-        cmv_total += cmv
-        cmv_por_sku.append({"sku": sku, "materia_prima": round(materia_prima, 2), "embalagem": round(embalagem, 2), "cmv": round(cmv, 2)})
+            # Galinha Inteira: custo_ave em R$/ave e embalagem em R$/unidade.
+            custo_materia_prima_unitario = custo_ave
+            custo_materia_prima = quantidade_vendida * custo_materia_prima_unitario
+            custo_embalagens = quantidade_vendida * custo_embalagem
+
+        cmv_sku = custo_materia_prima + custo_embalagens
+        cmv_total += cmv_sku
+
+        cmv_por_sku.append({
+            "sku": sku,
+            "quantidade_vendida": round(quantidade_vendida, 2),
+            "custo_materia_prima_unitario": round(custo_materia_prima_unitario, 4),
+            "custo_embalagem_unitario": round(custo_embalagem, 4),
+            "materia_prima": round(custo_materia_prima, 2),
+            "embalagem": round(custo_embalagens, 2),
+            "cmv": round(cmv_sku, 2)
+        })
 
     cursor.execute(q("""
-    SELECT categoria, COALESCE(SUM(valor), 0) as total
+    SELECT
+        categoria,
+        COALESCE(SUM(valor), 0) as total
     FROM custos_mensais
     WHERE competencia = ?
     GROUP BY categoria
     ORDER BY categoria
     """), (competencia,))
+
     custos_raw = cursor.fetchall()
     conn.close()
 
     categorias = CATEGORIAS_CUSTOS
-    custos = {categoria: 0 for categoria in categorias}
+    custos = {
+        categoria: 0
+        for categoria in categorias
+    }
+
     for item in custos_raw:
-        custos[item["categoria"]] = custos.get(item["categoria"], 0) + float(item["total"] or 0)
+        categoria = item["categoria"]
+        valor = float(item["total"] or 0)
+        custos[categoria] = custos.get(categoria, 0) + valor
 
     custos_operacionais_total = sum(custos.values())
     margem_bruta = receita_bruta - cmv_total
     resultado_operacional = margem_bruta - custos_operacionais_total
 
     def perc(valor):
-        return (valor / receita_bruta * 100) if receita_bruta > 0 else 0
+        if receita_bruta > 0:
+            return (valor / receita_bruta) * 100
 
-    linhas_custos = [{"categoria": cat, "valor": round(val, 2), "percentual": round(perc(val), 2)} for cat, val in custos.items()]
+        return 0
+
+    linhas_custos = [
+        {
+            "categoria": categoria,
+            "valor": round(valor, 2),
+            "percentual": round(perc(valor), 2)
+        }
+        for categoria, valor in custos.items()
+    ]
 
     return {
         "receita_bruta": round(receita_bruta, 2),
@@ -1113,7 +1143,6 @@ def buscar_dados_dre_gerencial(competencia):
         "resultado_operacional": round(resultado_operacional, 2),
         "margem_operacional_percentual": round(perc(resultado_operacional), 2)
     }
-
 
 
 def criar_tabela_fornecedores():
