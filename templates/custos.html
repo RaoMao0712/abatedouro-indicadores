@@ -2,83 +2,72 @@
 
 {% block conteudo %}
 
-<div class="card">
-    <h2>Custos</h2>
+<section class="hero-dashboard hero-custos">
+    <div class="hero-dashboard-titulo">
+        <span class="eyebrow">Custos</span>
+        <h2>Parâmetros de CMV e Custos Mensais</h2>
 
-    <p class="obs">
-        Cadastre aqui os parâmetros de CMV e os custos mensais da operação.
-        Nesta primeira etapa, os dados ficam registrados para posterior integração ao Dashboard Econômico.
-    </p>
-</div>
+        <div class="hero-resumo-inline">
+            <span><strong>Objetivo:</strong> parametrizar CMV e registrar custos da operação</span>
+            <span><strong>Aplicação:</strong> DRE, Dashboard Econômico e relatórios gerenciais</span>
+        </div>
+    </div>
 
-<div class="card">
-    <h2>Parâmetros de CMV</h2>
-
-    <form method="POST">
+    <form method="POST" class="hero-cmv-form">
         <input type="hidden" name="acao" value="salvar_parametros">
 
-        <div class="tabela-responsiva">
-            <table>
-                <thead>
-                    <tr>
-                        <th>SKU</th>
-                        <th>Custo da ave</th>
-                        <th>Unidade</th>
-                        <th>Custo da embalagem</th>
-                        <th>Unidade</th>
-                    </tr>
-                </thead>
+        <div class="cmv-grid">
+            {% for item in parametros %}
+            {% set chave = item.sku.lower().replace(" ", "_").replace("ã", "a") %}
 
-                <tbody>
-                    {% for item in parametros %}
-                    {% set chave = item.sku.lower().replace(" ", "_").replace("ã", "a") %}
+            <div class="cmv-item">
+                <strong>{{ item.sku }}</strong>
 
-                    <tr>
-                        <td>{{ item.sku }}</td>
+                <div>
+                    <label>Custo da ave</label>
+                    <input
+                        type="number"
+                        step="0.01"
+                        name="custo_ave_{{ chave }}"
+                        value="{{ item.custo_ave or 0 }}"
+                        required
+                    >
+                    <small>{{ item.unidade_custo_ave }}</small>
+                </div>
 
-                        <td>
-                            <input
-                                type="number"
-                                step="0.01"
-                                name="custo_ave_{{ chave }}"
-                                value="{{ item.custo_ave or 0 }}"
-                                required
-                            >
-                        </td>
+                <div>
+                    <label>Embalagem</label>
+                    <input
+                        type="number"
+                        step="0.01"
+                        name="custo_embalagem_{{ chave }}"
+                        value="{{ item.custo_embalagem or 0 }}"
+                        required
+                    >
+                    <small>{{ item.unidade_custo_embalagem }}</small>
+                </div>
+            </div>
 
-                        <td>{{ item.unidade_custo_ave }}</td>
+            {% endfor %}
 
-                        <td>
-                            <input
-                                type="number"
-                                step="0.01"
-                                name="custo_embalagem_{{ chave }}"
-                                value="{{ item.custo_embalagem or 0 }}"
-                                required
-                            >
-                        </td>
-
-                        <td>{{ item.unidade_custo_embalagem }}</td>
-                    </tr>
-
-                    {% endfor %}
-                </tbody>
-            </table>
+            <div class="cmv-botao">
+                <button type="submit" class="botao-hero-filtro">
+                    Salvar CMV
+                </button>
+            </div>
         </div>
-
-        <button type="submit">Salvar Parâmetros</button>
     </form>
+</section>
 
-    <p class="obs">
-        Galinha Cortada: ave viva em R$/kg vivo e embalagem em R$/kg produzido.
-        Galinha Inteira: ave viva em R$/ave e embalagem em R$/unidade.
-    </p>
-</div>
+<div class="grid-dashboard custos-grid-principal">
 
-<div class="grid-dashboard">
-
-    <div class="card">
-        <h2>Novo Custo Mensal</h2>
+    <div class="card custos-card-form">
+        <div class="section-title-row">
+            <div>
+                <span class="eyebrow">Lançamento</span>
+                <h2>Novo Custo Mensal</h2>
+            </div>
+        </div>
 
         <form method="POST">
             <input type="hidden" name="acao" value="salvar_custo_mensal">
@@ -125,28 +114,40 @@
         </form>
     </div>
 
-    <div class="card">
-        <h2>Custos Mensais Lançados</h2>
+    <div class="card custos-card-lista">
+        <div class="section-title-row">
+            <div>
+                <span class="eyebrow">Histórico</span>
+                <h2>Custos Mensais Lançados</h2>
+            </div>
+        </div>
 
         {% if custos_mensais %}
-            {% for item in custos_mensais %}
-            <div class="history-item">
-                <p><strong>Competência:</strong> {{ item.competencia }}</p>
-                <p><strong>Categoria:</strong> {{ item.categoria }}</p>
-                <p><strong>Valor:</strong> R$ {{ "%.2f"|format(item.valor or 0) }}</p>
+            <div class="custos-lista-compacta">
+                {% for item in custos_mensais %}
+                <div class="history-item custo-item-compacto">
+                    <div>
+                        <strong>{{ item.competencia }}</strong>
+                        <span>{{ item.categoria }}</span>
+                    </div>
 
-                {% if item.observacoes %}
-                <p><strong>Observações:</strong> {{ item.observacoes }}</p>
-                {% endif %}
+                    <div>
+                        <strong>R$ {{ "%.2f"|format(item.valor or 0) }}</strong>
 
-                <a
-                    href="{{ url_for('editar_custo_mensal', custo_id=item.id) }}"
-                    class="botao-editar"
-                >
-                    Editar
-                </a>
+                        {% if item.observacoes %}
+                        <small>{{ item.observacoes }}</small>
+                        {% endif %}
+                    </div>
+
+                    <a
+                        href="{{ url_for('editar_custo_mensal', custo_id=item.id) }}"
+                        class="botao-editar"
+                    >
+                        Editar
+                    </a>
+                </div>
+                {% endfor %}
             </div>
-            {% endfor %}
         {% else %}
             <p class="obs">Nenhum custo mensal cadastrado ainda.</p>
         {% endif %}
