@@ -1611,178 +1611,89 @@ button:hover {
 }
 
 
-/* TELA DE CUSTOS COMPACTA */
+/* EXPORTAÇÃO E IMPRESSÃO DA DRE */
 
-.hero-custos {
-    grid-template-columns: 0.75fr 1.75fr;
-    gap: 18px;
-    align-items: center;
-    padding: 14px 18px;
-    margin-bottom: 14px;
-}
-
-.hero-custos h2 {
-    font-size: 22px;
-    margin: 3px 0 8px;
-}
-
-.hero-cmv-form {
-    background: rgba(255,255,255,0.10);
-    border: 1px solid rgba(255,255,255,0.16);
-    border-radius: 16px;
-    padding: 12px;
-    backdrop-filter: blur(10px);
-}
-
-.cmv-grid {
+.dre-acoes-topo {
     display: grid;
-    grid-template-columns: 1fr 1fr auto;
     gap: 10px;
-    align-items: stretch;
 }
 
-.cmv-item {
+.dre-botoes-exportacao {
     display: grid;
-    grid-template-columns: 130px 1fr 1fr;
-    gap: 8px;
-    align-items: end;
-    background: rgba(255,255,255,0.08);
-    border: 1px solid rgba(255,255,255,0.12);
-    border-radius: 14px;
-    padding: 10px;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
 }
 
-.cmv-item > strong {
-    color: white;
-    font-size: 13px;
-    align-self: center;
-}
-
-.cmv-item label {
-    color: #fdba74;
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.4px;
-    margin: 0 0 4px;
-}
-
-.cmv-item input {
-    height: 36px;
-    border-radius: 11px;
-    padding: 8px 10px;
-    font-size: 13px;
-    border: 1px solid rgba(255,255,255,0.20);
-    background: rgba(255,255,255,0.96);
-}
-
-.cmv-item small {
-    display: block;
-    color: #e2e8f0;
-    font-size: 11px;
-    margin-top: 3px;
-}
-
-.cmv-botao {
-    display: flex;
-    align-items: end;
-}
-
-.cmv-botao button {
-    min-width: 120px;
-}
-
-.custos-grid-principal {
-    grid-template-columns: 0.95fr 1.05fr;
-}
-
-.custos-card-form,
-.custos-card-lista {
-    min-height: 0;
-}
-
-.custos-card-form .section-title-row,
-.custos-card-lista .section-title-row {
-    margin-top: 0;
-}
-
-.custos-card-form h2,
-.custos-card-lista h2 {
-    font-size: 21px;
-}
-
-.custos-card-form button {
-    margin-top: 16px;
-}
-
-.custos-lista-compacta {
-    max-height: 520px;
-    overflow-y: auto;
-    padding-right: 4px;
-}
-
-.custo-item-compacto {
-    display: grid;
-    grid-template-columns: 1fr 1fr auto;
-    gap: 12px;
+.botao-dre-exportar,
+.botao-dre-imprimir {
+    display: inline-flex;
     align-items: center;
-    padding: 12px;
-    margin-bottom: 10px;
-}
-
-.custo-item-compacto strong {
-    display: block;
-    color: #1f3b4d;
-}
-
-.custo-item-compacto span,
-.custo-item-compacto small {
-    display: block;
-    color: #64748b;
+    justify-content: center;
+    height: 38px;
+    padding: 0 12px;
+    border-radius: 11px;
+    border: 1px solid rgba(255,255,255,0.16);
+    background: rgba(255,255,255,0.10);
+    color: white;
+    text-decoration: none;
     font-size: 13px;
-    margin-top: 2px;
+    font-weight: 800;
+    cursor: pointer;
+    margin: 0;
+    box-shadow: none;
 }
 
-.custo-item-compacto .botao-editar {
-    min-width: 80px;
-    height: 36px;
-    font-size: 13px;
-}
-
-@media (max-width: 1300px) {
-    .hero-custos {
-        grid-template-columns: 1fr;
-    }
-
-    .cmv-grid {
-        grid-template-columns: 1fr;
-    }
-
-    .cmv-botao button {
-        width: 100%;
-    }
-}
-
-@media (max-width: 1050px) {
-    .custos-grid-principal {
-        grid-template-columns: 1fr;
-    }
-
-    .cmv-item {
-        grid-template-columns: 1fr;
-    }
-
-    .custos-lista-compacta {
-        max-height: none;
-    }
+.botao-dre-exportar:hover,
+.botao-dre-imprimir:hover {
+    background: #f97316;
 }
 
 @media print {
-    .hero-custos {
-        display: none;
+    body {
+        background: white !important;
     }
 
-    .custos-lista-compacta {
-        max-height: none;
-        overflow: visible;
+    .dre-acoes-topo,
+    .dre-hero,
+    .sidebar-menu,
+    .topo-compacto,
+    .dre-kpis {
+        display: none !important;
+    }
+
+    .container-com-sidebar,
+    .container {
+        width: 100% !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+
+    .dre-a4 {
+        display: block !important;
+        max-width: 100% !important;
+        width: 100% !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        box-shadow: none !important;
+        border: none !important;
+        page-break-inside: avoid;
+    }
+
+    .dre-a4 .section-title-row {
+        margin-top: 0 !important;
+    }
+
+    .dre-linha {
+        padding: 9px 12px !important;
+    }
+
+    .dre-leitura {
+        margin-top: 10px !important;
+        padding: 10px 12px !important;
+    }
+
+    @page {
+        size: A4 portrait;
+        margin: 12mm;
     }
 }

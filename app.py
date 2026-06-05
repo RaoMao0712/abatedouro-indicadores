@@ -1,14 +1,18 @@
-from flask import Flask, render_template, request, redirect, url_for, session, flash
+from flask import Flask, render_template, request, redirect, url_for, session, flash, send_file
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
 from datetime import datetime
 import calendar
+from io import BytesIO
 from urllib.parse import urlparse
 import os
 import uuid
 import sqlite3
 import psycopg2
 import psycopg2.extras
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "segredo")
@@ -1145,6 +1149,194 @@ def buscar_dados_dre_gerencial(competencia):
     }
 
 
+
+def gerar_excel_dre_gerencial(competencia, dados):
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "DRE Gerencial"
+
+    azul = "1F3B4D"
+    laranja = "F97316"
+    cinza = "F8FAFC"
+    branco = "FFFFFF"
+    azul_resultado = "2563EB"
+    vermelho = "DC2626"
+
+    fill_topo = PatternFill("solid", fgColor=azul)
+    fill_laranja = PatternFill("solid", fgColor=laranja)
+    fill_cinza = PatternFill("solid", fgColor=cinza)
+    fill_resultado = PatternFill(
+        "solid",
+        fgColor=azul_resultado if dados["resultado_operacional"] >= 0 else vermelho
+    )
+
+    fonte_titulo = Font(color=branco, bold=True, size=16)
+    fonte_subtitulo = Font(color=branco, bold=True, size=11)
+    fonte_header = Font(color=branco, bold=True)
+    fonte_negrito = Font(bold=True, color=azul)
+    fonte_resultado = Font(color=branco, bold=True, size=13)
+
+    borda = Border(
+        left=Side(style="thin", color="E2E8F0"),
+        right=Side(style="thin", color="E2E8F0"),
+        top=Side(style="thin", color="E2E8F0"),
+        bottom=Side(style="thin", color="E2E8F0")
+    )
+
+    ws.merge_cells("A1:D1")
+    ws["A1"] = "FRIGODATTA — DRE Gerencial Industrial"
+    ws["A1"].fill = fill_topo
+    ws["A1"].font = fonte_titulo
+    ws["A1"].alignment = Alignment(horizontal="center")
+
+    ws.merge_cells("A2:D2")
+    ws["A2"] = f"Competência: {competencia}"
+    ws["A2"].fill = fill_topo
+    ws["A2"].font = fonte_subtitulo
+    ws["A2"].alignment = Alignment(horizontal="center")
+
+    linha = 4
+
+    ws[f"A{linha}"] = "Indicador"
+    ws[f"B{linha}"] = "Valor"
+    ws[f"C{linha}"] = "% Receita"
+    ws[f"D{linha}"] = "Observação"
+
+    for col in range(1, 5):
+        celula = ws.cell(row=linha, column=col)
+        celula.fill = fill_laranja
+        celula.font = fonte_header
+        celula.alignment = Alignment(horizontal="center")
+        celula.border = borda
+
+    kpis = [
+        ("Receita Bruta", dados["receita_bruta"], 100 if dados["receita_bruta"] > 0 else 0, "Venda de galinhas"),
+        ("CMV", dados["cmv_total"], dados["cmv_percentual"], "Custo das vendas"),
+        ("Margem Bruta", dados["margem_bruta"], dados["margem_bruta_percentual"], "Receita - CMV"),
+        ("Custos Operacionais", dados["custos_operacionais_total"], dados["custos_operacionais_percentual"], "Custos mensais"),
+        ("Resultado Operacional", dados["resultado_operacional"], dados["margem_operacional_percentual"], "Margem Bruta - Custos")
+    ]
+
+    for item in kpis:
+        linha += 1
+        ws[f"A{linha}"] = item[0]
+        ws[f"B{linha}"] = item[1]
+        ws[f"C{linha}"] = item[2] / 100
+        ws[f"D{linha}"] = item[3]
+
+        for col in range(1, 5):
+            celula = ws.cell(row=linha, column=col)
+            celula.border = borda
+            celula.fill = fill_cinza
+            if col == 1:
+                celula.font = fonte_negrito
+
+        ws[f"B{linha}"].number_format = 'R$ #,##0.00'
+        ws[f"C{linha}"].number_format = '0.00%'
+
+    linha += 3
+    ws.merge_cells(start_row=linha, start_column=1, end_row=linha, end_column=4)
+    ws.cell(row=linha, column=1).value = "DRE"
+    ws.cell(row=linha, column=1).fill = fill_topo
+    ws.cell(row=linha, column=1).font = fonte_header
+    ws.cell(row=linha, column=1).alignment = Alignment(horizontal="center")
+
+    linhas_dre = []
+
+    linhas_dre.append(("Receita Bruta", dados["receita_bruta"], "receita"))
+
+    for venda in dados["vendas_por_sku"]:
+        linhas_dre.append((f"  Venda — {venda['sku']}", venda["receita"], "subitem"))
+
+    linhas_dre.append(("(-) CMV", dados["cmv_total"], "normal"))
+
+    for cmv in dados["cmv_por_sku"]:
+        linhas_dre.append((f"  CMV — {cmv['sku']}", cmv["cmv"], "subitem"))
+
+    linhas_dre.append(("= Margem Bruta", dados["margem_bruta"], "total"))
+    linhas_dre.append(("Custos Operacionais", None, "grupo"))
+
+    for custo in dados["linhas_custos"]:
+        linhas_dre.append((f"(-) {custo['categoria']}", custo["valor"], "normal"))
+
+    linhas_dre.append(("Total de Custos Operacionais", dados["custos_operacionais_total"], "total"))
+    linhas_dre.append(("= Resultado Operacional", dados["resultado_operacional"], "resultado"))
+
+    for descricao, valor, tipo in linhas_dre:
+        linha += 1
+
+        ws[f"A{linha}"] = descricao
+
+        if valor is not None:
+            ws[f"B{linha}"] = valor
+            ws[f"B{linha}"].number_format = 'R$ #,##0.00'
+
+        ws.merge_cells(start_row=linha, start_column=2, end_row=linha, end_column=4)
+
+        for col in range(1, 5):
+            celula = ws.cell(row=linha, column=col)
+            celula.border = borda
+
+        if tipo == "grupo":
+            for col in range(1, 5):
+                ws.cell(row=linha, column=col).fill = fill_topo
+                ws.cell(row=linha, column=col).font = fonte_header
+        elif tipo == "resultado":
+            for col in range(1, 5):
+                ws.cell(row=linha, column=col).fill = fill_resultado
+                ws.cell(row=linha, column=col).font = fonte_resultado
+        elif tipo == "total":
+            for col in range(1, 5):
+                ws.cell(row=linha, column=col).fill = fill_cinza
+                ws.cell(row=linha, column=col).font = fonte_negrito
+        elif tipo == "subitem":
+            ws[f"A{linha}"].font = Font(color="64748B")
+            ws[f"B{linha}"].font = Font(color="64748B")
+        else:
+            ws[f"A{linha}"].font = fonte_negrito
+
+    linha += 3
+    ws.merge_cells(start_row=linha, start_column=1, end_row=linha, end_column=4)
+    ws.cell(row=linha, column=1).value = (
+        "Leitura executiva: "
+        + ("A operação apresentou resultado operacional positivo." if dados["resultado_operacional"] >= 0 else "A operação apresentou resultado operacional negativo.")
+    )
+    ws.cell(row=linha, column=1).alignment = Alignment(wrap_text=True)
+    ws.cell(row=linha, column=1).fill = PatternFill("solid", fgColor="FFF7ED")
+
+    larguras = {
+        "A": 38,
+        "B": 18,
+        "C": 14,
+        "D": 32
+    }
+
+    for coluna, largura in larguras.items():
+        ws.column_dimensions[coluna].width = largura
+
+    for row in ws.iter_rows():
+        for cell in row:
+            cell.alignment = Alignment(
+                vertical="center",
+                horizontal="right" if cell.column >= 2 else "left",
+                wrap_text=True
+            )
+
+    ws.page_setup.orientation = "portrait"
+    ws.page_setup.paperSize = ws.PAPERSIZE_A4
+    ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToHeight = 1
+    ws.sheet_properties.pageSetUpPr.fitToPage = True
+    ws.freeze_panes = "A4"
+
+    arquivo = BytesIO()
+    wb.save(arquivo)
+    arquivo.seek(0)
+
+    return arquivo
+
+
+
 def criar_tabela_fornecedores():
     conn = conectar()
     cursor = conn.cursor()
@@ -2144,6 +2336,30 @@ def dashboard():
 
 
 
+
+
+
+
+
+@app.route("/dre-gerencial/exportar-excel")
+@perfil_permitido("pcp")
+def exportar_dre_gerencial_excel():
+    criar_banco()
+    criar_tabelas_custos()
+    criar_tabela_vendas()
+
+    competencia = request.args.get("competencia") or datetime.now().strftime("%Y-%m")
+    dados = buscar_dados_dre_gerencial(competencia)
+    arquivo = gerar_excel_dre_gerencial(competencia, dados)
+
+    nome_arquivo = f"DRE_Gerencial_{competencia}.xlsx"
+
+    return send_file(
+        arquivo,
+        as_attachment=True,
+        download_name=nome_arquivo,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
 
 
 

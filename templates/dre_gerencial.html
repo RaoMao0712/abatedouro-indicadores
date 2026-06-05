@@ -13,14 +13,33 @@
         </div>
     </div>
 
-    <form method="GET" action="{{ url_for('dre_gerencial') }}" class="dre-filtro-form">
-        <div>
-            <label>Competência</label>
-            <input type="month" name="competencia" value="{{ competencia }}" required>
-        </div>
+    <div class="dre-acoes-topo">
+        <form method="GET" action="{{ url_for('dre_gerencial') }}" class="dre-filtro-form">
+            <div>
+                <label>Competência</label>
+                <input type="month" name="competencia" value="{{ competencia }}" required>
+            </div>
 
-        <button type="submit" class="botao-hero-filtro">Gerar DRE</button>
-    </form>
+            <button type="submit" class="botao-hero-filtro">Gerar DRE</button>
+        </form>
+
+        <div class="dre-botoes-exportacao">
+            <a
+                href="{{ url_for('exportar_dre_gerencial_excel', competencia=competencia) }}"
+                class="botao-dre-exportar"
+            >
+                Exportar Excel
+            </a>
+
+            <button
+                type="button"
+                class="botao-dre-imprimir"
+                onclick="window.print()"
+            >
+                Imprimir
+            </button>
+        </div>
+    </div>
 </section>
 
 <div class="cards-executivos dre-kpis">
