@@ -1148,62 +1148,6 @@ def buscar_dados_dre_gerencial(competencia):
         "margem_operacional_percentual": round(perc(resultado_operacional), 2)
     }
 
-
-
-
-
-def buscar_detalhe_custo_dre(competencia, categoria):
-    criar_tabelas_custos()
-
-    conn = conectar()
-    cursor = conn.cursor()
-
-    cursor.execute(q("""
-    SELECT
-        id,
-        competencia,
-        categoria,
-        valor,
-        observacoes,
-        criado_em
-    FROM custos_mensais
-    WHERE competencia = ?
-      AND categoria = ?
-    ORDER BY id ASC
-    """), (
-        competencia,
-        categoria
-    ))
-
-    registros = cursor.fetchall()
-    conn.close()
-
-    total = 0
-    linhas = []
-
-    for item in registros:
-        valor = float(item["valor"] or 0)
-        total += valor
-
-        linhas.append({
-            "id": item["id"],
-            "competencia": item["competencia"],
-            "categoria": item["categoria"],
-            "valor": round(valor, 2),
-            "observacoes": item["observacoes"] or "",
-            "criado_em": item["criado_em"]
-        })
-
-    return {
-        "competencia": competencia,
-        "categoria": categoria,
-        "total": round(total, 2),
-        "linhas": linhas,
-        "quantidade_lancamentos": len(linhas)
-    }
-
-
-
 def gerar_excel_dre_gerencial(competencia, dados):
     wb = Workbook()
     ws = wb.active
@@ -2414,32 +2358,6 @@ def exportar_dre_gerencial_excel():
         download_name=nome_arquivo,
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
-
-
-
-
-
-@app.route("/dre-detalhe-custo")
-@perfil_permitido("pcp")
-def dre_detalhe_custo():
-    competencia = request.args.get("competencia") or datetime.now().strftime("%Y-%m")
-    categoria = request.args.get("categoria") or ""
-
-    if not categoria:
-        flash("Categoria de custo não informada.")
-        return redirect(url_for("dre_gerencial", competencia=competencia))
-
-    dados = buscar_detalhe_custo_dre(competencia, categoria)
-
-    return render_template(
-        "dre_detalhe_custo.html",
-        competencia=competencia,
-        categoria=categoria,
-        total=dados["total"],
-        linhas=dados["linhas"],
-        quantidade_lancamentos=dados["quantidade_lancamentos"]
-    )
-
 
 @app.route("/dre-gerencial")
 @perfil_permitido("pcp")
