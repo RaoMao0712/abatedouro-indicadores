@@ -1699,67 +1699,76 @@ button:hover {
 }
 
 
-/* DRE EXECUTIVA - FRIGODATTA */
+/* DRE - LINHAS CLICÁVEIS E DETALHAMENTO */
 
-.dre-hero-executiva { padding: 12px 16px; margin-bottom: 12px; grid-template-columns: 1fr auto; }
-.dre-hero-executiva h2 { font-size: 22px; margin: 3px 0 7px; }
-.dre-acoes-compactas { display: flex; align-items: end; gap: 10px; flex-wrap: wrap; }
-.dre-filtro-compacto { display: grid; grid-template-columns: 160px 76px; gap: 8px; align-items: end; background: rgba(255,255,255,0.10); border: 1px solid rgba(255,255,255,0.16); border-radius: 14px; padding: 10px; }
-.dre-filtro-compacto label { color: #fdba74; font-size: 10px; text-transform: uppercase; letter-spacing: 0.4px; margin: 0 0 4px; }
-.dre-filtro-compacto input { height: 36px; border-radius: 10px; padding: 7px 9px; font-size: 13px; }
-.dre-botoes-exportacao { display: flex; gap: 8px; }
-.botao-dre-exportar, .botao-dre-imprimir { display: inline-flex; align-items: center; justify-content: center; height: 38px; min-width: 86px; padding: 0 12px; border-radius: 11px; font-size: 13px; font-weight: 900; text-decoration: none; color: white; border: none; margin: 0; cursor: pointer; }
-.botao-dre-exportar { background: #2563eb; }
-.botao-dre-imprimir { background: #f97316; box-shadow: none; width: auto; }
-.dre-executiva-layout { display: grid; grid-template-columns: minmax(0, 1.6fr) 320px; gap: 16px; align-items: stretch; }
-.dre-extrato-card, .dre-detalhe-card, .dre-mini-kpi { margin-bottom: 16px; }
-.dre-cabecalho-extrato { display: flex; justify-content: space-between; gap: 14px; align-items: flex-start; margin-bottom: 12px; }
-.dre-cabecalho-extrato h2 { border-left: none; padding-left: 0; margin: 6px 0 0; font-size: 22px; letter-spacing: -0.4px; }
-.dre-status { border-radius: 999px; padding: 7px 11px; font-size: 12px; font-weight: 900; white-space: nowrap; }
-.dre-status.positivo { color: #2563eb; background: rgba(37,99,235,0.10); border: 1px solid rgba(37,99,235,0.22); }
-.dre-status.negativo { color: #dc2626; background: rgba(220,38,38,0.10); border: 1px solid rgba(220,38,38,0.22); }
-.dre-extrato { border: 1px solid #e2e8f0; border-radius: 16px; overflow: hidden; background: #fff; }
-.dre-extrato-linha { display: grid; grid-template-columns: minmax(0, 1fr) 210px; gap: 18px; align-items: center; padding: 10px 14px; border-bottom: 1px solid #e5e7eb; }
-.dre-extrato-linha:last-child { border-bottom: none; }
-.dre-extrato-linha strong { display: block; color: #1f3b4d; font-size: 14px; letter-spacing: -0.1px; }
-.dre-extrato-linha small { display: block; color: #64748b; font-size: 11px; margin-top: 2px; }
-.dre-extrato-linha > span { text-align: right; color: #1f3b4d; font-size: 15px; font-weight: 900; white-space: nowrap; }
-.dre-extrato-linha.receita { background: #f8fafc; }
-.dre-extrato-linha.receita > span { color: #2563eb; }
-.dre-extrato-linha.saida > span { color: #dc2626; }
-.dre-extrato-linha.total { background: #fff7ed; }
-.dre-extrato-linha.total strong, .dre-extrato-linha.total > span { color: #f97316; }
-.dre-extrato-linha.resultado { padding: 14px; }
-.dre-extrato-linha.resultado strong, .dre-extrato-linha.resultado small, .dre-extrato-linha.resultado > span { color: white; }
-.dre-extrato-linha.resultado.positivo { background: linear-gradient(135deg, #2563eb, #1d4ed8); }
-.dre-extrato-linha.resultado.negativo { background: linear-gradient(135deg, #dc2626, #b91c1c); }
-.dre-extrato-linha.resultado > span { font-size: 19px; }
-.dre-extrato-linha.subitem { padding: 7px 14px 7px 28px; background: #ffffff; }
-.dre-extrato-linha.subitem strong, .dre-extrato-linha.subitem > span { color: #64748b; font-size: 12px; }
-.dre-painel-indicadores { display: grid; grid-template-columns: 1fr; gap: 12px; }
-.dre-mini-kpi { padding: 16px; min-height: auto; }
-.dre-mini-kpi span { display: block; color: #64748b; font-size: 11px; font-weight: 900; letter-spacing: 0.6px; text-transform: uppercase; margin-bottom: 8px; }
-.dre-mini-kpi strong { display: block; color: #1f3b4d; font-size: 23px; line-height: 1.05; letter-spacing: -0.7px; margin-bottom: 5px; }
-.dre-mini-kpi small { color: #64748b; font-size: 12px; }
-.dre-mini-kpi.destaque strong { color: #f97316; }
-.dre-mini-kpi.resultado-positivo { background: linear-gradient(180deg, #ffffff 0%, #eff6ff 100%); border-left: 6px solid #2563eb; }
-.dre-mini-kpi.resultado-negativo { background: linear-gradient(180deg, #ffffff 0%, #fef2f2 100%); border-left: 6px solid #dc2626; }
-.dre-detalhes-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-.dre-detalhe-card .section-title-row { margin-top: 0; }
-.dre-detalhe-card .section-title-row h2 { font-size: 20px; }
-.dre-tabela-executiva { border: 1px solid #e2e8f0; border-radius: 14px; overflow: hidden; }
-.dre-tabela-header, .dre-tabela-row { display: grid; grid-template-columns: minmax(0, 1fr) 135px 90px; gap: 10px; align-items: center; }
-.dre-cmv-header, .dre-cmv-row { grid-template-columns: minmax(0, 1fr) 120px 105px 120px; }
-.dre-tabela-header { background: #f8fafc; color: #334155; font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.5px; padding: 9px 12px; border-bottom: 1px solid #e2e8f0; }
-.dre-tabela-row { padding: 9px 12px; border-bottom: 1px solid #e5e7eb; font-size: 13px; }
-.dre-tabela-row:last-child { border-bottom: none; }
-.dre-tabela-row span { color: #1f3b4d; font-weight: 800; }
-.dre-tabela-row strong { color: #1f3b4d; text-align: right; white-space: nowrap; }
-.dre-tabela-row small { color: #64748b; text-align: right; font-weight: 800; }
-.dre-obs { margin: 12px 0 0; text-align: left; }
-.dre-leitura-executiva { margin-top: 0; padding: 14px 16px; background: #fff7ed; border-color: #fed7aa; color: #7c2d12; font-size: 13px; line-height: 1.45; }
-.dre-leitura-executiva strong { color: #9a3412; }
-@media (max-width: 1250px) { .dre-executiva-layout, .dre-detalhes-grid { grid-template-columns: 1fr; } .dre-painel-indicadores { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
-@media (max-width: 850px) { .dre-hero-executiva { grid-template-columns: 1fr; } .dre-acoes-compactas, .dre-botoes-exportacao { width: 100%; } .dre-filtro-compacto { grid-template-columns: 1fr; width: 100%; } .dre-painel-indicadores { grid-template-columns: 1fr 1fr; } .dre-extrato-linha, .dre-tabela-header, .dre-tabela-row, .dre-cmv-header, .dre-cmv-row { grid-template-columns: 1fr; } .dre-extrato-linha > span, .dre-tabela-row strong, .dre-tabela-row small { text-align: left; } }
-@media (max-width: 520px) { .dre-painel-indicadores { grid-template-columns: 1fr; } }
-@media print { .dre-executiva-layout { grid-template-columns: 1fr; } .dre-painel-indicadores { grid-template-columns: repeat(4, 1fr); } .dre-detalhes-grid { grid-template-columns: 1fr 1fr; } .dre-botoes-exportacao, .dre-filtro-compacto button, .sidebar-menu { display: none !important; } }
+.dre-linha-clicavel {
+    text-decoration: none;
+    color: inherit;
+    cursor: pointer;
+    transition: 0.18s ease;
+}
+
+.dre-tabela-row.dre-linha-clicavel:hover,
+.dre-linha.dre-linha-clicavel:hover {
+    background: #fff7ed;
+    transform: translateX(2px);
+}
+
+.dre-tabela-row.dre-linha-clicavel::after {
+    content: "Ver detalhes";
+    justify-self: end;
+    color: #f97316;
+    font-size: 11px;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0.35px;
+}
+
+.dre-tabela-executiva .dre-tabela-row.dre-linha-clicavel {
+    grid-template-columns: minmax(0, 1fr) 135px 90px 95px;
+}
+
+.dre-detalhe-layout {
+    grid-template-columns: minmax(0, 1fr) 300px;
+}
+
+.dre-tabela-detalhe-custo {
+    margin-top: 8px;
+}
+
+.dre-detalhe-header,
+.dre-detalhe-row {
+    grid-template-columns: minmax(0, 1fr) 150px 100px;
+}
+
+.dre-detalhe-row span {
+    font-weight: 700;
+    color: #334155;
+}
+
+.dre-detalhe-total {
+    background: #fff7ed;
+}
+
+.dre-detalhe-total span,
+.dre-detalhe-total strong,
+.dre-detalhe-total small {
+    color: #f97316;
+    font-weight: 900;
+}
+
+@media (max-width: 850px) {
+    .dre-tabela-executiva .dre-tabela-row.dre-linha-clicavel,
+    .dre-detalhe-header,
+    .dre-detalhe-row {
+        grid-template-columns: 1fr;
+    }
+
+    .dre-tabela-row.dre-linha-clicavel::after {
+        justify-self: start;
+    }
+
+    .dre-detalhe-layout {
+        grid-template-columns: 1fr;
+    }
+}
