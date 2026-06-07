@@ -45,6 +45,10 @@ CATEGORIAS_CUSTOS = [
 
     "Insumos para Produção",
 
+    "Impostos e Taxas",
+
+    "Despesas Financeiras"
+
     "Outros"
 ]
 
