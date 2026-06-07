@@ -1763,3 +1763,173 @@ button:hover {
 @media (max-width: 850px) { .dre-hero-executiva { grid-template-columns: 1fr; } .dre-acoes-compactas, .dre-botoes-exportacao { width: 100%; } .dre-filtro-compacto { grid-template-columns: 1fr; width: 100%; } .dre-painel-indicadores { grid-template-columns: 1fr 1fr; } .dre-extrato-linha, .dre-tabela-header, .dre-tabela-row, .dre-cmv-header, .dre-cmv-row { grid-template-columns: 1fr; } .dre-extrato-linha > span, .dre-tabela-row strong, .dre-tabela-row small { text-align: left; } }
 @media (max-width: 520px) { .dre-painel-indicadores { grid-template-columns: 1fr; } }
 @media print { .dre-executiva-layout { grid-template-columns: 1fr; } .dre-painel-indicadores { grid-template-columns: repeat(4, 1fr); } .dre-detalhes-grid { grid-template-columns: 1fr 1fr; } .dre-botoes-exportacao, .dre-filtro-compacto button, .sidebar-menu { display: none !important; } }
+
+
+/* MÓDULO FINANCEIRO */
+
+.financeiro-filtro-form {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(120px, 1fr)) 90px;
+    gap: 8px;
+    align-items: end;
+    background: rgba(255,255,255,0.10);
+    border: 1px solid rgba(255,255,255,0.16);
+    border-radius: 14px;
+    padding: 10px;
+}
+
+.financeiro-filtro-form label {
+    color: #fdba74;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    margin: 0 0 4px;
+}
+
+.financeiro-filtro-form input,
+.financeiro-filtro-form select {
+    height: 36px;
+    border-radius: 10px;
+    padding: 7px 9px;
+    font-size: 13px;
+}
+
+.financeiro-kpis .kpi-card strong {
+    font-size: 26px;
+}
+
+.financeiro-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.35fr) 0.85fr;
+    gap: 16px;
+    align-items: start;
+}
+
+.financeiro-form-card,
+.financeiro-fluxo-card {
+    margin-bottom: 16px;
+}
+
+.financeiro-fluxo-lista {
+    display: grid;
+    gap: 8px;
+}
+
+.financeiro-fluxo-item {
+    display: grid;
+    grid-template-columns: 1fr 105px 105px 115px;
+    gap: 8px;
+    align-items: center;
+    border: 1px solid #e2e8f0;
+    border-left: 5px solid #f97316;
+    border-radius: 12px;
+    padding: 10px;
+    background: #f8fafc;
+    font-size: 13px;
+}
+
+.financeiro-fluxo-item strong {
+    color: #1f3b4d;
+}
+
+.financeiro-fluxo-item span {
+    text-align: right;
+    font-weight: 800;
+}
+
+.entrada,
+.saldo-positivo {
+    color: #2563eb;
+}
+
+.saida,
+.saldo-negativo {
+    color: #dc2626;
+}
+
+.badge-financeiro {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    padding: 5px 9px;
+    font-size: 11px;
+    font-weight: 900;
+    text-transform: uppercase;
+}
+
+.badge-financeiro.entrada {
+    background: rgba(37,99,235,0.10);
+    color: #2563eb;
+    border: 1px solid rgba(37,99,235,0.22);
+}
+
+.badge-financeiro.saida {
+    background: rgba(220,38,38,0.10);
+    color: #dc2626;
+    border: 1px solid rgba(220,38,38,0.22);
+}
+
+.financeiro-tabela td small {
+    display: block;
+    color: #64748b;
+    font-size: 11px;
+    margin-top: 3px;
+}
+
+.financeiro-acoes {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+
+.financeiro-acoes a,
+.financeiro-acoes button {
+    width: auto;
+    height: 30px;
+    margin: 0;
+    padding: 0 9px;
+    border-radius: 8px;
+    font-size: 11px;
+    font-weight: 900;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.financeiro-acoes a {
+    background: #2563eb;
+    color: white;
+}
+
+.financeiro-acoes button {
+    background: #dc2626;
+    color: white;
+    box-shadow: none;
+}
+
+.financeiro-acoes form {
+    margin: 0;
+}
+
+@media (max-width: 1250px) {
+    .financeiro-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .financeiro-filtro-form {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 720px) {
+    .financeiro-filtro-form,
+    .financeiro-fluxo-item {
+        grid-template-columns: 1fr;
+    }
+
+    .financeiro-fluxo-item span {
+        text-align: left;
+    }
+}

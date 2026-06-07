@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+
+<section class="hero-dashboard dre-hero dre-hero-executiva">
+    <div>
+        <span class="eyebrow">Financeiro</span>
+        <h2>Editar Movimentação</h2>
+
+        <div class="hero-resumo-inline">
+            <span><strong>ID:</strong> {{ movimentacao.id }}</span>
+            <span><strong>Status:</strong> {{ movimentacao.status }}</span>
+        </div>
+    </div>
+
+    <div class="dre-acoes-topo dre-acoes-compactas">
+        <a href="{{ url_for('financeiro') }}" class="botao-dre-exportar">Voltar</a>
+    </div>
+</section>
+
+<div class="card">
+    <form method="POST">
+        <div class="form-grid">
+            <div>
+                <label>Tipo</label>
+                <select name="tipo" required>
+                    <option value="Entrada" {% if movimentacao.tipo == "Entrada" %}selected{% endif %}>Entrada</option>
+                    <option value="Saída" {% if movimentacao.tipo == "Saída" %}selected{% endif %}>Saída</option>
+                </select>
+            </div>
+
+            <div>
+                <label>Status</label>
+                <select name="status" required>
+                    {% for status in status_opcoes %}
+                    <option value="{{ status }}" {% if movimentacao.status == status %}selected{% endif %}>{{ status }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div>
+                <label>Data de vencimento</label>
+                <input type="date" name="data_vencimento" value="{{ movimentacao.data_vencimento }}" required>
+            </div>
+
+            <div>
+                <label>Data de realização</label>
+                <input type="date" name="data_realizacao" value="{{ movimentacao.data_realizacao }}">
+            </div>
+
+            <div>
+                <label>Categoria</label>
+                <select name="categoria" required>
+                    <optgroup label="Entradas">
+                        {% for categoria in categorias_entrada %}
+                        <option value="{{ categoria }}" {% if movimentacao.categoria == categoria %}selected{% endif %}>{{ categoria }}</option>
+                        {% endfor %}
+                    </optgroup>
+
+                    <optgroup label="Saídas">
+                        {% for categoria in categorias_saida %}
+                        <option value="{{ categoria }}" {% if movimentacao.categoria == categoria %}selected{% endif %}>{{ categoria }}</option>
+                        {% endfor %}
+                    </optgroup>
+                </select>
+            </div>
+
+            <div>
+                <label>Forma</label>
+                <select name="forma_pagamento">
+                    {% for forma in formas_pagamento %}
+                    <option value="{{ forma }}" {% if movimentacao.forma_pagamento == forma %}selected{% endif %}>{{ forma }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div>
+                <label>Valor</label>
+                <input type="number" step="0.01" min="0" name="valor" value="{{ movimentacao.valor }}" required>
+            </div>
+        </div>
+
+        <label>Descrição</label>
+        <input type="text" name="descricao" value="{{ movimentacao.descricao }}" required>
+
+        <label>Observações</label>
+        <textarea name="observacoes" rows="3">{{ movimentacao.observacoes }}</textarea>
+
+        <button type="submit">Salvar alterações</button>
+    </form>
+</div>
+
+{% endblock %}

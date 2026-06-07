@@ -1335,6 +1335,359 @@ def gerar_excel_dre_gerencial(competencia, dados):
 
 
 
+
+
+# ============================================================
+# MÓDULO FINANCEIRO - MOVIMENTAÇÃO DE CAIXA
+# ============================================================
+
+CATEGORIAS_FINANCEIRAS_ENTRADA = [
+    "Venda de produtos",
+    "Recebimento de cliente",
+    "Aporte",
+    "Empréstimo recebido",
+    "Outras entradas"
+]
+
+CATEGORIAS_FINANCEIRAS_SAIDA = [
+    "Fornecedor",
+    "Mão de obra",
+    "Energia",
+    "Água",
+    "Lenha",
+    "Combustível",
+    "Manutenção",
+    "Embalagens",
+    "Impostos",
+    "Marketing",
+    "Serviços terceiros",
+    "Empréstimos e financiamentos",
+    "Outras saídas"
+]
+
+FORMAS_PAGAMENTO_FINANCEIRO = [
+    "Pix",
+    "Dinheiro",
+    "Boleto",
+    "Cartão",
+    "Transferência",
+    "Cheque",
+    "Outro"
+]
+
+STATUS_FINANCEIRO = [
+    "Pendente",
+    "Realizado",
+    "Atrasado",
+    "Cancelado"
+]
+
+
+def criar_tabela_movimentacoes_financeiras():
+    conn = conectar()
+    cursor = conn.cursor()
+
+    if DATABASE_URL:
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS movimentacoes_financeiras (
+            id SERIAL PRIMARY KEY,
+            data_vencimento TEXT NOT NULL,
+            data_realizacao TEXT,
+            tipo TEXT NOT NULL,
+            categoria TEXT NOT NULL,
+            descricao TEXT NOT NULL,
+            valor REAL NOT NULL,
+            forma_pagamento TEXT,
+            status TEXT DEFAULT 'Pendente',
+            parcelas INTEGER DEFAULT 1,
+            parcela_atual INTEGER DEFAULT 1,
+            observacoes TEXT,
+            criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
+    else:
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS movimentacoes_financeiras (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            data_vencimento TEXT NOT NULL,
+            data_realizacao TEXT,
+            tipo TEXT NOT NULL,
+            categoria TEXT NOT NULL,
+            descricao TEXT NOT NULL,
+            valor REAL NOT NULL,
+            forma_pagamento TEXT,
+            status TEXT DEFAULT 'Pendente',
+            parcelas INTEGER DEFAULT 1,
+            parcela_atual INTEGER DEFAULT 1,
+            observacoes TEXT,
+            criado_em TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
+
+    conn.commit()
+    conn.close()
+
+
+def adicionar_meses(data_base, meses):
+    ano = data_base.year
+    mes = data_base.month + meses
+
+    while mes > 12:
+        mes -= 12
+        ano += 1
+
+    while mes < 1:
+        mes += 12
+        ano -= 1
+
+    ultimo_dia = calendar.monthrange(ano, mes)[1]
+    dia = min(data_base.day, ultimo_dia)
+
+    return data_base.replace(year=ano, month=mes, day=dia)
+
+
+def salvar_movimentacao_financeira(form):
+    criar_tabela_movimentacoes_financeiras()
+
+    tipo = form.get("tipo", "").strip()
+    categoria = form.get("categoria", "").strip()
+    descricao = form.get("descricao", "").strip()
+    data_vencimento = form.get("data_vencimento", "")
+    data_realizacao = form.get("data_realizacao", "")
+    forma_pagamento = form.get("forma_pagamento", "")
+    status = form.get("status", "Pendente")
+    observacoes = form.get("observacoes", "")
+    valor_total = float(form.get("valor") or 0)
+    parcelas = int(form.get("parcelas") or 1)
+
+    if tipo not in ["Entrada", "Saída"]:
+        raise ValueError("Tipo de movimentação inválido.")
+
+    if not descricao:
+        raise ValueError("Informe uma descrição para a movimentação.")
+
+    if valor_total <= 0:
+        raise ValueError("O valor deve ser maior que zero.")
+
+    if parcelas <= 0:
+        parcelas = 1
+
+    data_base = datetime.strptime(data_vencimento, "%Y-%m-%d")
+    valor_parcela = round(valor_total / parcelas, 2)
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    for parcela in range(1, parcelas + 1):
+        vencimento_parcela = adicionar_meses(data_base, parcela - 1).strftime("%Y-%m-%d")
+
+        descricao_parcela = descricao
+
+        if parcelas > 1:
+            descricao_parcela = f"{descricao} ({parcela}/{parcelas})"
+
+        cursor.execute(q("""
+        INSERT INTO movimentacoes_financeiras (
+            data_vencimento,
+            data_realizacao,
+            tipo,
+            categoria,
+            descricao,
+            valor,
+            forma_pagamento,
+            status,
+            parcelas,
+            parcela_atual,
+            observacoes
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """), (
+            vencimento_parcela,
+            data_realizacao if status == "Realizado" else "",
+            tipo,
+            categoria,
+            descricao_parcela,
+            valor_parcela,
+            forma_pagamento,
+            status,
+            parcelas,
+            parcela,
+            observacoes
+        ))
+
+    conn.commit()
+    conn.close()
+
+
+def buscar_movimentacao_financeira_por_id(movimentacao_id):
+    criar_tabela_movimentacoes_financeiras()
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q("""
+    SELECT *
+    FROM movimentacoes_financeiras
+    WHERE id = ?
+    """), (movimentacao_id,))
+
+    movimentacao = cursor.fetchone()
+    conn.close()
+
+    return movimentacao
+
+
+def atualizar_movimentacao_financeira(movimentacao_id, form):
+    criar_tabela_movimentacoes_financeiras()
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q("""
+    UPDATE movimentacoes_financeiras
+    SET data_vencimento = ?,
+        data_realizacao = ?,
+        tipo = ?,
+        categoria = ?,
+        descricao = ?,
+        valor = ?,
+        forma_pagamento = ?,
+        status = ?,
+        observacoes = ?
+    WHERE id = ?
+    """), (
+        form.get("data_vencimento", ""),
+        form.get("data_realizacao", ""),
+        form.get("tipo", ""),
+        form.get("categoria", ""),
+        form.get("descricao", ""),
+        float(form.get("valor") or 0),
+        form.get("forma_pagamento", ""),
+        form.get("status", ""),
+        form.get("observacoes", ""),
+        movimentacao_id
+    ))
+
+    conn.commit()
+    conn.close()
+
+
+def excluir_movimentacao_financeira(movimentacao_id):
+    criar_tabela_movimentacoes_financeiras()
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q("""
+    DELETE FROM movimentacoes_financeiras
+    WHERE id = ?
+    """), (movimentacao_id,))
+
+    conn.commit()
+    conn.close()
+
+
+def buscar_movimentacoes_financeiras(data_inicio, data_fim, tipo_filtro, status_filtro):
+    criar_tabela_movimentacoes_financeiras()
+
+    condicoes = ["data_vencimento BETWEEN ? AND ?"]
+    parametros = [data_inicio, data_fim]
+
+    if tipo_filtro in ["Entrada", "Saída"]:
+        condicoes.append("tipo = ?")
+        parametros.append(tipo_filtro)
+
+    if status_filtro in STATUS_FINANCEIRO:
+        condicoes.append("status = ?")
+        parametros.append(status_filtro)
+
+    where_sql = " AND ".join(condicoes)
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q(f"""
+    SELECT *
+    FROM movimentacoes_financeiras
+    WHERE {where_sql}
+    ORDER BY data_vencimento ASC, id ASC
+    """), tuple(parametros))
+
+    movimentacoes = cursor.fetchall()
+    conn.close()
+
+    return movimentacoes
+
+
+def calcular_resumo_financeiro(movimentacoes):
+    entradas_previstas = 0
+    saidas_previstas = 0
+    entradas_realizadas = 0
+    saidas_realizadas = 0
+
+    for item in movimentacoes:
+        valor = float(item["valor"] or 0)
+        tipo = item["tipo"]
+        status = item["status"]
+
+        if tipo == "Entrada":
+            entradas_previstas += valor
+
+            if status == "Realizado":
+                entradas_realizadas += valor
+
+        elif tipo == "Saída":
+            saidas_previstas += valor
+
+            if status == "Realizado":
+                saidas_realizadas += valor
+
+    saldo_previsto = entradas_previstas - saidas_previstas
+    saldo_realizado = entradas_realizadas - saidas_realizadas
+
+    return {
+        "entradas_previstas": round(entradas_previstas, 2),
+        "saidas_previstas": round(saidas_previstas, 2),
+        "saldo_previsto": round(saldo_previsto, 2),
+        "entradas_realizadas": round(entradas_realizadas, 2),
+        "saidas_realizadas": round(saidas_realizadas, 2),
+        "saldo_realizado": round(saldo_realizado, 2)
+    }
+
+
+def agrupar_fluxo_por_dia(movimentacoes):
+    fluxo = {}
+
+    for item in movimentacoes:
+        data = item["data_vencimento"]
+        valor = float(item["valor"] or 0)
+
+        if data not in fluxo:
+            fluxo[data] = {
+                "data": data,
+                "entradas": 0,
+                "saidas": 0,
+                "saldo": 0
+            }
+
+        if item["tipo"] == "Entrada":
+            fluxo[data]["entradas"] += valor
+        else:
+            fluxo[data]["saidas"] += valor
+
+        fluxo[data]["saldo"] = fluxo[data]["entradas"] - fluxo[data]["saidas"]
+
+    return [
+        {
+            "data": item["data"],
+            "entradas": round(item["entradas"], 2),
+            "saidas": round(item["saidas"], 2),
+            "saldo": round(item["saldo"], 2)
+        }
+        for item in fluxo.values()
+    ]
+
+
+
 def criar_tabela_fornecedores():
     conn = conectar()
     cursor = conn.cursor()
@@ -2650,6 +3003,92 @@ def excluir_venda_diaria(venda_id):
 
     flash("Venda diária excluída com sucesso.")
     return redirect(url_for("vendas"))
+
+
+
+
+@app.route("/financeiro", methods=["GET", "POST"])
+@perfil_permitido("pcp")
+def financeiro():
+    criar_tabela_movimentacoes_financeiras()
+
+    agora = datetime.now()
+    hoje = agora.strftime("%Y-%m-%d")
+    primeiro_dia_mes = agora.replace(day=1).strftime("%Y-%m-%d")
+
+    data_inicio = request.args.get("data_inicio") or primeiro_dia_mes
+    data_fim = request.args.get("data_fim") or hoje
+    tipo_filtro = request.args.get("tipo") or "Todos"
+    status_filtro = request.args.get("status") or "Todos"
+
+    if request.method == "POST":
+        try:
+            salvar_movimentacao_financeira(request.form)
+            flash("Movimentação financeira lançada com sucesso.")
+            return redirect(url_for("financeiro"))
+        except Exception as erro:
+            flash(f"Erro ao salvar movimentação: {erro}")
+
+    movimentacoes = buscar_movimentacoes_financeiras(
+        data_inicio,
+        data_fim,
+        tipo_filtro,
+        status_filtro
+    )
+
+    resumo = calcular_resumo_financeiro(movimentacoes)
+    fluxo_diario = agrupar_fluxo_por_dia(movimentacoes)
+
+    return render_template(
+        "financeiro.html",
+        hoje=hoje,
+        data_inicio=data_inicio,
+        data_fim=data_fim,
+        tipo_filtro=tipo_filtro,
+        status_filtro=status_filtro,
+        movimentacoes=movimentacoes,
+        resumo=resumo,
+        fluxo_diario=fluxo_diario,
+        categorias_entrada=CATEGORIAS_FINANCEIRAS_ENTRADA,
+        categorias_saida=CATEGORIAS_FINANCEIRAS_SAIDA,
+        formas_pagamento=FORMAS_PAGAMENTO_FINANCEIRO,
+        status_opcoes=STATUS_FINANCEIRO
+    )
+
+
+@app.route("/financeiro/editar/<int:movimentacao_id>", methods=["GET", "POST"])
+@perfil_permitido("pcp")
+def editar_movimentacao_financeira(movimentacao_id):
+    movimentacao = buscar_movimentacao_financeira_por_id(movimentacao_id)
+
+    if not movimentacao:
+        flash("Movimentação financeira não encontrada.")
+        return redirect(url_for("financeiro"))
+
+    if request.method == "POST":
+        try:
+            atualizar_movimentacao_financeira(movimentacao_id, request.form)
+            flash("Movimentação financeira atualizada com sucesso.")
+            return redirect(url_for("financeiro"))
+        except Exception as erro:
+            flash(f"Erro ao atualizar movimentação: {erro}")
+
+    return render_template(
+        "financeiro_editar.html",
+        movimentacao=movimentacao,
+        categorias_entrada=CATEGORIAS_FINANCEIRAS_ENTRADA,
+        categorias_saida=CATEGORIAS_FINANCEIRAS_SAIDA,
+        formas_pagamento=FORMAS_PAGAMENTO_FINANCEIRO,
+        status_opcoes=STATUS_FINANCEIRO
+    )
+
+
+@app.route("/financeiro/excluir/<int:movimentacao_id>", methods=["POST"])
+@perfil_permitido("pcp")
+def excluir_movimentacao_financeira_rota(movimentacao_id):
+    excluir_movimentacao_financeira(movimentacao_id)
+    flash("Movimentação financeira excluída com sucesso.")
+    return redirect(url_for("financeiro"))
 
 
 @app.route("/fornecedores", methods=["GET", "POST"])
