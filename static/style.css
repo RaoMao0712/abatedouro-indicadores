@@ -1933,3 +1933,89 @@ button:hover {
         text-align: left;
     }
 }
+
+
+/* FINANCEIRO - FILTROS DENTRO DO HERO */
+
+.financeiro-hero-compacto {
+    grid-template-columns: minmax(260px, 0.72fr) minmax(560px, 1.28fr);
+    gap: 14px;
+    align-items: center;
+    padding: 12px 16px;
+    margin-bottom: 12px;
+}
+
+.financeiro-hero-compacto h2 {
+    font-size: 22px;
+    margin: 3px 0 7px;
+}
+
+.financeiro-hero-titulo {
+    min-width: 0;
+}
+
+.financeiro-hero-compacto .hero-resumo-inline {
+    gap: 3px;
+    font-size: 12px;
+}
+
+.financeiro-filtro-hero {
+    display: grid;
+    grid-template-columns: 1fr 1fr 0.82fr 0.82fr 84px;
+    gap: 8px;
+    align-items: end;
+    background: rgba(255,255,255,0.10);
+    border: 1px solid rgba(255,255,255,0.16);
+    border-radius: 14px;
+    padding: 10px;
+    backdrop-filter: blur(10px);
+}
+
+.financeiro-filtro-hero label {
+    color: #fdba74;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    margin: 0 0 4px;
+}
+
+.financeiro-filtro-hero input,
+.financeiro-filtro-hero select {
+    height: 36px;
+    border-radius: 10px;
+    padding: 7px 9px;
+    font-size: 12px;
+}
+
+.financeiro-filtro-hero .botao-hero-filtro {
+    height: 36px;
+    padding: 0 10px;
+    margin: 0;
+    border-radius: 10px;
+    font-size: 12px;
+    box-shadow: 0 4px 12px rgba(249,115,22,0.20);
+}
+
+@media (max-width: 1250px) {
+    .financeiro-hero-compacto {
+        grid-template-columns: 1fr;
+    }
+
+    .financeiro-filtro-hero {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .financeiro-filtro-hero .botao-hero-filtro {
+        width: 100%;
+    }
+}
+
+@media (max-width: 720px) {
+    .financeiro-filtro-hero {
+        grid-template-columns: 1fr;
+    }
+
+    .financeiro-hero-compacto {
+        padding: 14px;
+    }
+}

@@ -2,18 +2,18 @@
 
 {% block conteudo %}
 
-<section class="hero-dashboard dre-hero dre-hero-executiva">
-    <div>
+<section class="hero-dashboard dre-hero dre-hero-executiva financeiro-hero-compacto">
+    <div class="financeiro-hero-titulo">
         <span class="eyebrow">Financeiro</span>
         <h2>Movimentação Financeira</h2>
 
         <div class="hero-resumo-inline">
             <span><strong>Período:</strong> {{ data_inicio }} a {{ data_fim }}</span>
-            <span><strong>Visão:</strong> caixa previsto, realizado, entradas e saídas</span>
+            <span><strong>Visão:</strong> previsto, realizado, entradas e saídas</span>
         </div>
     </div>
 
-    <form method="GET" action="{{ url_for('financeiro') }}" class="financeiro-filtro-form">
+    <form method="GET" action="{{ url_for('financeiro') }}" class="financeiro-filtro-form financeiro-filtro-hero">
         <div>
             <label>Data inicial</label>
             <input type="date" name="data_inicio" value="{{ data_inicio }}">
