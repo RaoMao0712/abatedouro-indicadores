@@ -1375,12 +1375,90 @@ FORMAS_PAGAMENTO_FINANCEIRO = [
     "Outro"
 ]
 
+# Status que o usuário escolhe no lançamento.
+# "Em atraso" não deve ser escolhido manualmente; o sistema calcula pela data de vencimento.
 STATUS_FINANCEIRO = [
     "Pendente",
     "Realizado",
-    "Atrasado",
     "Cancelado"
 ]
+
+# Opções usadas nos filtros e na leitura gerencial da tela.
+STATUS_FINANCEIRO_FILTRO = [
+    "Todos",
+    "A vencer",
+    "Em atraso",
+    "Realizado",
+    "Cancelado"
+]
+
+
+def calcular_status_financeiro_visual(item, data_referencia=None):
+    """
+    Calcula o status visual/gerencial sem alterar o status gravado no banco.
+
+    Regra:
+    - Cancelado permanece Cancelado;
+    - Realizado vira Liquidado;
+    - Pendente com vencimento anterior à data de referência vira Em atraso;
+    - Pendente com vencimento igual ou posterior vira A vencer.
+
+    Observação de segurança:
+    Se existir algum registro antigo com status "Atrasado", ele será exibido como "Em atraso"
+    para manter compatibilidade com dados já lançados.
+    """
+    if data_referencia is None:
+        data_referencia = datetime.now().date()
+
+    status = (item.get("status") if hasattr(item, "get") else item["status"]) or "Pendente"
+    data_vencimento = (item.get("data_vencimento") if hasattr(item, "get") else item["data_vencimento"]) or ""
+
+    if status == "Cancelado":
+        return "Cancelado"
+
+    if status == "Realizado":
+        return "Liquidado"
+
+    if status == "Atrasado":
+        return "Em atraso"
+
+    try:
+        vencimento = datetime.strptime(data_vencimento, "%Y-%m-%d").date()
+    except Exception:
+        return "A vencer"
+
+    if vencimento < data_referencia:
+        return "Em atraso"
+
+    return "A vencer"
+
+
+def preparar_movimentacoes_financeiras_para_tela(movimentacoes, status_filtro="Todos"):
+    """
+    Converte as linhas retornadas do banco em dicionários e adiciona campos calculados.
+    Isso evita alterar a estrutura do banco e protege a lógica já existente.
+    """
+    hoje_data = datetime.now().date()
+    resultado = []
+
+    for item in movimentacoes:
+        item_dict = dict(item)
+        status_visual = calcular_status_financeiro_visual(item_dict, hoje_data)
+        item_dict["status_original"] = item_dict.get("status", "Pendente")
+        item_dict["status_visual"] = status_visual
+
+        # Classe CSS simples para futura estilização do badge, sem obrigar mudança no template.
+        item_dict["status_classe"] = (
+            status_visual.lower()
+            .replace(" ", "-")
+            .replace("ç", "c")
+            .replace("ã", "a")
+        )
+
+        if status_filtro == "Todos" or status_visual == status_filtro:
+            resultado.append(item_dict)
+
+    return resultado
 
 
 def criar_tabela_movimentacoes_financeiras():
@@ -1655,9 +1733,14 @@ def buscar_movimentacoes_financeiras(data_inicio, data_fim, tipo_filtro, status_
         condicoes.append("tipo = ?")
         parametros.append(tipo_filtro)
 
-    if status_filtro in STATUS_FINANCEIRO:
+    # O filtro por status visual é aplicado depois da consulta, porque "A vencer" e
+    # "Em atraso" são calculados pela data de vencimento, não gravados no banco.
+    if status_filtro == "Realizado":
         condicoes.append("status = ?")
-        parametros.append(status_filtro)
+        parametros.append("Realizado")
+    elif status_filtro == "Cancelado":
+        condicoes.append("status = ?")
+        parametros.append("Cancelado")
 
     where_sql = " AND ".join(condicoes)
 
@@ -1674,7 +1757,7 @@ def buscar_movimentacoes_financeiras(data_inicio, data_fim, tipo_filtro, status_
     movimentacoes = cursor.fetchall()
     conn.close()
 
-    return movimentacoes
+    return preparar_movimentacoes_financeiras_para_tela(movimentacoes, status_filtro)
 
 
 def calcular_resumo_financeiro(movimentacoes):
@@ -1686,7 +1769,11 @@ def calcular_resumo_financeiro(movimentacoes):
     for item in movimentacoes:
         valor = float(item["valor"] or 0)
         tipo = item["tipo"]
-        status = item["status"]
+        status = item.get("status_original", item.get("status", "Pendente")) if hasattr(item, "get") else item["status"]
+
+        # Cancelados não entram no previsto nem no realizado.
+        if status == "Cancelado":
+            continue
 
         if tipo == "Entrada":
             entradas_previstas += valor
@@ -1727,6 +1814,12 @@ def agrupar_fluxo_por_dia(movimentacoes):
                 "saidas": 0,
                 "saldo": 0
             }
+
+        status = item.get("status_original", item.get("status", "Pendente")) if hasattr(item, "get") else item["status"]
+
+        # Fluxo diário ignora documentos cancelados.
+        if status == "Cancelado":
+            continue
 
         if item["tipo"] == "Entrada":
             fluxo[data]["entradas"] += valor
@@ -3111,7 +3204,7 @@ def financeiro():
         categorias_entrada=CATEGORIAS_FINANCEIRAS_ENTRADA,
         categorias_saida=CATEGORIAS_FINANCEIRAS_SAIDA,
         formas_pagamento=FORMAS_PAGAMENTO_FINANCEIRO,
-        status_opcoes=STATUS_FINANCEIRO
+        status_opcoes=STATUS_FINANCEIRO_FILTRO
     )
 
 
