@@ -47,7 +47,8 @@ CATEGORIAS_CUSTOS = [
 
     "Impostos e Taxas",
 
-    "Despesas Financeiras"
+    "Despesas Financeiras",
+
 
     "Outros"
 ]
