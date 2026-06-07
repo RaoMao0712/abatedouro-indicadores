@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+
+<section class="hero-dashboard dre-hero dre-hero-executiva">
+    <div>
+        <span class="eyebrow">Detalhamento da DRE</span>
+        <h2>{{ categoria }}</h2>
+
+        <div class="hero-resumo-inline">
+            <span><strong>Competência:</strong> {{ competencia }}</span>
+            <span><strong>Lançamentos:</strong> {{ quantidade_lancamentos }}</span>
+        </div>
+    </div>
+
+    <div class="dre-acoes-topo dre-acoes-compactas">
+        <a
+            href="{{ url_for('dre_gerencial', competencia=competencia) }}"
+            class="botao-dre-exportar"
+        >
+            Voltar à DRE
+        </a>
+    </div>
+</section>
+
+<div class="dre-executiva-layout dre-detalhe-layout">
+
+    <section class="card dre-extrato-card">
+
+        <div class="dre-cabecalho-extrato">
+            <div>
+                <span class="eyebrow">Composição do Número</span>
+                <h2>{{ categoria }}</h2>
+            </div>
+
+            <div class="dre-status positivo">
+                Total: R$ {{ "%.2f"|format(total or 0) }}
+            </div>
+        </div>
+
+        <div class="dre-tabela-executiva dre-tabela-detalhe-custo">
+            <div class="dre-tabela-header dre-detalhe-header">
+                <span>Descrição / Observação</span>
+                <span>Valor</span>
+                <span>Registro</span>
+            </div>
+
+            {% if linhas %}
+                {% for item in linhas %}
+                <div class="dre-tabela-row dre-detalhe-row">
+                    <span>
+                        {% if item.observacoes %}
+                            {{ item.observacoes }}
+                        {% else %}
+                            Lançamento sem observação
+                        {% endif %}
+                    </span>
+
+                    <strong>R$ {{ "%.2f"|format(item.valor or 0) }}</strong>
+
+                    <small>#{{ item.id }}</small>
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="dre-tabela-row dre-detalhe-row">
+                    <span>Nenhum lançamento encontrado para esta categoria.</span>
+                    <strong>R$ 0,00</strong>
+                    <small>-</small>
+                </div>
+            {% endif %}
+
+            <div class="dre-tabela-row dre-detalhe-row dre-detalhe-total">
+                <span>Total consolidado</span>
+                <strong>R$ {{ "%.2f"|format(total or 0) }}</strong>
+                <small>{{ quantidade_lancamentos }} lançamento(s)</small>
+            </div>
+        </div>
+
+    </section>
+
+    <aside class="dre-painel-indicadores">
+
+        <div class="card dre-mini-kpi destaque">
+            <span>Total da categoria</span>
+            <strong>R$ {{ "%.2f"|format(total or 0) }}</strong>
+            <small>{{ categoria }}</small>
+        </div>
+
+        <div class="card dre-mini-kpi">
+            <span>Competência</span>
+            <strong>{{ competencia }}</strong>
+            <small>Período contábil analisado</small>
+        </div>
+
+        <div class="card dre-mini-kpi">
+            <span>Lançamentos</span>
+            <strong>{{ quantidade_lancamentos }}</strong>
+            <small>Registros que compõem o total</small>
+        </div>
+
+    </aside>
+
+</div>
+
+<div class="card dre-leitura-executiva">
+    <strong>Leitura executiva:</strong>
+    Este detalhamento mostra todos os lançamentos mensais que compõem a linha
+    <strong>{{ categoria }}</strong> na DRE da competência <strong>{{ competencia }}</strong>.
+</div>
+
+{% endblock %}
