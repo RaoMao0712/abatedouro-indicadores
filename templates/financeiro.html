@@ -105,8 +105,8 @@
                 </div>
 
                 <div>
-                    <label>Data de vencimento</label>
-                    <input type="date" name="data_vencimento" value="{{ hoje }}" required>
+                    <label>Data do documento</label>
+                    <input type="date" name="data_documento" value="{{ hoje }}" required onchange="atualizarResumoParcelas()">
                 </div>
 
                 <div>
@@ -141,14 +141,41 @@
                 </div>
 
                 <div>
-                    <label>Valor total</label>
-                    <input type="number" step="0.01" min="0" name="valor" required>
+                    <label>Valor total do documento</label>
+                    <input type="number" step="0.01" min="0" name="valor" id="valor_documento" required oninput="atualizarResumoParcelas()">
+                </div>
+            </div>
+
+            <div class="parcelas-manuais-card">
+                <div class="section-title-row">
+                    <div>
+                        <span class="eyebrow">Vencimentos</span>
+                        <h2>Parcelas do Documento</h2>
+                    </div>
+                    <button type="button" class="botao-secundario-financeiro" onclick="adicionarParcela()">+ Parcela</button>
                 </div>
 
-                <div>
-                    <label>Parcelas</label>
-                    <input type="number" min="1" name="parcelas" value="1" required>
+                <div class="parcelas-manuais-header">
+                    <span>Vencimento</span>
+                    <span>Valor</span>
+                    <span></span>
                 </div>
+
+                <div id="parcelas_container">
+                    <div class="parcela-manual-row">
+                        <input type="date" name="parcela_vencimento[]" value="{{ hoje }}" required onchange="atualizarResumoParcelas()">
+                        <input type="number" step="0.01" min="0" name="parcela_valor[]" placeholder="0,00" required oninput="atualizarResumoParcelas()">
+                        <button type="button" class="botao-remover-parcela" onclick="removerParcela(this)">Remover</button>
+                    </div>
+                </div>
+
+                <div class="resumo-parcelas">
+                    <div><strong>Total das parcelas</strong><span id="total_parcelas">R$ 0,00</span></div>
+                    <div><strong>Diferença</strong><span id="diferenca_parcelas">R$ 0,00</span></div>
+                    <div><strong>Prazo médio</strong><span id="prazo_medio">0 dias</span></div>
+                </div>
+
+                <p class="obs">A soma das parcelas precisa bater com o valor total do documento. O prazo médio é ponderado pelo valor de cada parcela.</p>
             </div>
 
             <label>Descrição</label>
@@ -209,6 +236,8 @@
                     <th>Valor</th>
                     <th>Status</th>
                     <th>Forma</th>
+                    <th>Parcela</th>
+                    <th>Prazo médio</th>
                     <th>Ações</th>
                 </tr>
             </thead>
@@ -232,6 +261,8 @@
                     <td>R$ {{ "%.2f"|format(item.valor or 0) }}</td>
                     <td>{{ item.status }}</td>
                     <td>{{ item.forma_pagamento }}</td>
+                    <td>{{ item.parcela_atual }}/{{ item.parcelas }}</td>
+                    <td>{{ item.prazo_medio_dias or 0 }} dias</td>
                     <td>
                         <div class="financeiro-acoes">
                             <a href="{{ url_for('editar_movimentacao_financeira', movimentacao_id=item.id) }}">Editar</a>
@@ -250,5 +281,47 @@
         <p class="obs">Nenhuma movimentação encontrada.</p>
     {% endif %}
 </div>
+
+
+<script>
+function formatarMoeda(valor) {
+    return valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+function adicionarParcela() {
+    const container = document.getElementById("parcelas_container");
+    const novaLinha = container.querySelector(".parcela-manual-row").cloneNode(true);
+    novaLinha.querySelectorAll("input").forEach((input) => { if (input.type === "number") input.value = ""; });
+    container.appendChild(novaLinha);
+    atualizarResumoParcelas();
+}
+function removerParcela(botao) {
+    const container = document.getElementById("parcelas_container");
+    if (container.querySelectorAll(".parcela-manual-row").length > 1) botao.closest(".parcela-manual-row").remove();
+    atualizarResumoParcelas();
+}
+function atualizarResumoParcelas() {
+    const valorDocumento = parseFloat(document.getElementById("valor_documento")?.value || 0);
+    const dataDocumentoInput = document.querySelector("input[name='data_documento']");
+    const dataDocumento = dataDocumentoInput && dataDocumentoInput.value ? new Date(dataDocumentoInput.value + "T00:00:00") : null;
+    let totalParcelas = 0;
+    let prazoPonderado = 0;
+    document.querySelectorAll(".parcela-manual-row").forEach((linha) => {
+        const vencimento = linha.querySelector("input[name='parcela_vencimento[]']").value;
+        const valor = parseFloat(linha.querySelector("input[name='parcela_valor[]']").value || 0);
+        totalParcelas += valor;
+        if (dataDocumento && vencimento && valor > 0) {
+            const dataVencimento = new Date(vencimento + "T00:00:00");
+            const dias = Math.round((dataVencimento - dataDocumento) / (1000 * 60 * 60 * 24));
+            prazoPonderado += valor * dias;
+        }
+    });
+    const diferenca = totalParcelas - valorDocumento;
+    const prazoMedio = valorDocumento > 0 ? prazoPonderado / valorDocumento : 0;
+    document.getElementById("total_parcelas").textContent = formatarMoeda(totalParcelas);
+    document.getElementById("diferenca_parcelas").textContent = formatarMoeda(diferenca);
+    document.getElementById("prazo_medio").textContent = prazoMedio.toFixed(1) + " dias";
+}
+document.addEventListener("DOMContentLoaded", atualizarResumoParcelas);
+</script>
 
 {% endblock %}

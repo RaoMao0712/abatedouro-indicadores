@@ -1,7 +1,7 @@
 from flask import Flask, render_template, request, redirect, url_for, session, flash, send_file
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
-from datetime import datetime
+from datetime import datetime, timedelta
 import calendar
 from io import BytesIO
 from urllib.parse import urlparse
@@ -1401,6 +1401,11 @@ def criar_tabela_movimentacoes_financeiras():
             status TEXT DEFAULT 'Pendente',
             parcelas INTEGER DEFAULT 1,
             parcela_atual INTEGER DEFAULT 1,
+            intervalo_dias INTEGER DEFAULT 30,
+            documento_id TEXT,
+            data_documento TEXT,
+            valor_documento REAL DEFAULT 0,
+            prazo_medio_dias REAL DEFAULT 0,
             observacoes TEXT,
             criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
@@ -1419,10 +1424,21 @@ def criar_tabela_movimentacoes_financeiras():
             status TEXT DEFAULT 'Pendente',
             parcelas INTEGER DEFAULT 1,
             parcela_atual INTEGER DEFAULT 1,
+            intervalo_dias INTEGER DEFAULT 30,
+            documento_id TEXT,
+            data_documento TEXT,
+            valor_documento REAL DEFAULT 0,
+            prazo_medio_dias REAL DEFAULT 0,
             observacoes TEXT,
             criado_em TEXT DEFAULT CURRENT_TIMESTAMP
         )
         """)
+
+    tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN intervalo_dias INTEGER DEFAULT 30")
+    tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN documento_id TEXT")
+    tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN data_documento TEXT")
+    tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN valor_documento REAL DEFAULT 0")
+    tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN prazo_medio_dias REAL DEFAULT 0")
 
     conn.commit()
     conn.close()
@@ -1452,13 +1468,15 @@ def salvar_movimentacao_financeira(form):
     tipo = form.get("tipo", "").strip()
     categoria = form.get("categoria", "").strip()
     descricao = form.get("descricao", "").strip()
-    data_vencimento = form.get("data_vencimento", "")
+    data_documento = form.get("data_documento") or datetime.now().strftime("%Y-%m-%d")
     data_realizacao = form.get("data_realizacao", "")
     forma_pagamento = form.get("forma_pagamento", "")
     status = form.get("status", "Pendente")
     observacoes = form.get("observacoes", "")
-    valor_total = float(form.get("valor") or 0)
-    parcelas = int(form.get("parcelas") or 1)
+    valor_documento = float(form.get("valor") or 0)
+
+    vencimentos = form.getlist("parcela_vencimento[]")
+    valores = form.getlist("parcela_valor[]")
 
     if tipo not in ["Entrada", "Saída"]:
         raise ValueError("Tipo de movimentação inválido.")
@@ -1466,25 +1484,54 @@ def salvar_movimentacao_financeira(form):
     if not descricao:
         raise ValueError("Informe uma descrição para a movimentação.")
 
-    if valor_total <= 0:
-        raise ValueError("O valor deve ser maior que zero.")
+    if valor_documento <= 0:
+        raise ValueError("O valor total do documento deve ser maior que zero.")
 
-    if parcelas <= 0:
-        parcelas = 1
+    parcelas_validas = []
 
-    data_base = datetime.strptime(data_vencimento, "%Y-%m-%d")
-    valor_parcela = round(valor_total / parcelas, 2)
+    for vencimento, valor in zip(vencimentos, valores):
+        vencimento = (vencimento or "").strip()
+        valor = float(valor or 0)
+
+        if vencimento and valor > 0:
+            parcelas_validas.append({
+                "vencimento": vencimento,
+                "valor": round(valor, 2)
+            })
+
+    if not parcelas_validas:
+        parcelas_validas.append({
+            "vencimento": data_documento,
+            "valor": round(valor_documento, 2)
+        })
+
+    soma_parcelas = round(sum(item["valor"] for item in parcelas_validas), 2)
+
+    if abs(soma_parcelas - round(valor_documento, 2)) > 0.02:
+        raise ValueError(
+            f"A soma das parcelas (R$ {soma_parcelas:.2f}) precisa bater com o valor total do documento (R$ {valor_documento:.2f})."
+        )
+
+    data_base = datetime.strptime(data_documento, "%Y-%m-%d")
+    prazo_ponderado = 0
+
+    for item in parcelas_validas:
+        data_vencimento = datetime.strptime(item["vencimento"], "%Y-%m-%d")
+        dias = (data_vencimento - data_base).days
+        prazo_ponderado += item["valor"] * dias
+
+    prazo_medio_dias = prazo_ponderado / valor_documento if valor_documento > 0 else 0
+    documento_id = uuid.uuid4().hex
+    total_parcelas = len(parcelas_validas)
 
     conn = conectar()
     cursor = conn.cursor()
 
-    for parcela in range(1, parcelas + 1):
-        vencimento_parcela = adicionar_meses(data_base, parcela - 1).strftime("%Y-%m-%d")
-
+    for indice, parcela in enumerate(parcelas_validas, start=1):
         descricao_parcela = descricao
 
-        if parcelas > 1:
-            descricao_parcela = f"{descricao} ({parcela}/{parcelas})"
+        if total_parcelas > 1:
+            descricao_parcela = f"{descricao} ({indice}/{total_parcelas})"
 
         cursor.execute(q("""
         INSERT INTO movimentacoes_financeiras (
@@ -1498,19 +1545,29 @@ def salvar_movimentacao_financeira(form):
             status,
             parcelas,
             parcela_atual,
+            intervalo_dias,
+            documento_id,
+            data_documento,
+            valor_documento,
+            prazo_medio_dias,
             observacoes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """), (
-            vencimento_parcela,
+            parcela["vencimento"],
             data_realizacao if status == "Realizado" else "",
             tipo,
             categoria,
             descricao_parcela,
-            valor_parcela,
+            parcela["valor"],
             forma_pagamento,
             status,
-            parcelas,
-            parcela,
+            total_parcelas,
+            indice,
+            0,
+            documento_id,
+            data_documento,
+            valor_documento,
+            round(prazo_medio_dias, 2),
             observacoes
         ))
 
@@ -1552,6 +1609,7 @@ def atualizar_movimentacao_financeira(movimentacao_id, form):
         valor = ?,
         forma_pagamento = ?,
         status = ?,
+        intervalo_dias = ?,
         observacoes = ?
     WHERE id = ?
     """), (
@@ -1563,6 +1621,7 @@ def atualizar_movimentacao_financeira(movimentacao_id, form):
         float(form.get("valor") or 0),
         form.get("forma_pagamento", ""),
         form.get("status", ""),
+        int(form.get("intervalo_dias") or 30),
         form.get("observacoes", ""),
         movimentacao_id
     ))

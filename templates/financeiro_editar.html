@@ -78,6 +78,18 @@
                 <label>Valor</label>
                 <input type="number" step="0.01" min="0" name="valor" value="{{ movimentacao.valor }}" required>
             </div>
+
+            <div>
+                <label>Prazo médio do documento</label>
+                <input
+                    type="number"
+                    min="1"
+                    name="intervalo_dias"
+                    value="{{ movimentacao.intervalo_dias or 30 }}"
+                    required
+                >
+                <small class="campo-ajuda">Campo informativo da negociação original.</small>
+            </div>
         </div>
 
         <label>Descrição</label>
