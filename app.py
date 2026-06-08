@@ -4024,6 +4024,53 @@ def dashboard():
     )
 
     cursor.execute(q(f"""
+    SELECT d.motivo, COALESCE(SUM(d.quantidade), 0) as quantidade
+    FROM apontamentos_descartes d
+    JOIN ordens_producao o ON o.id = d.op_id
+    WHERE o.data BETWEEN ? AND ?
+      AND LOWER(d.unidade) IN ('aves', 'ave', 'unidade', 'unidades')
+      {status_condicao_alias}
+      {sku_condicao_alias}
+    GROUP BY d.motivo
+    ORDER BY quantidade DESC
+    """), (data_inicio, data_fim) + parametros_filtros)
+
+    descartes_por_motivo_raw = cursor.fetchall()
+    descartes_por_motivo = []
+
+    if mortes_antes_pendura > 0:
+        percentual_morte_gaiola = 0
+
+        if total_problemas_aves > 0:
+            percentual_morte_gaiola = (mortes_antes_pendura / total_problemas_aves) * 100
+
+        descartes_por_motivo.append({
+            "motivo": "Morte na gaiola / antes da pendura",
+            "quantidade": round(mortes_antes_pendura, 2),
+            "percentual": round(percentual_morte_gaiola, 2)
+        })
+
+    for item in descartes_por_motivo_raw:
+        motivo = item["motivo"] or "Não informado"
+        quantidade = item["quantidade"] or 0
+        percentual = 0
+
+        if total_problemas_aves > 0:
+            percentual = (quantidade / total_problemas_aves) * 100
+
+        descartes_por_motivo.append({
+            "motivo": motivo,
+            "quantidade": round(quantidade, 2),
+            "percentual": round(percentual, 2)
+        })
+
+    descartes_por_motivo = sorted(
+        descartes_por_motivo,
+        key=lambda item: item["quantidade"],
+        reverse=True
+    )
+
+    cursor.execute(q(f"""
     SELECT
         p.id,
         p.evento_id,
@@ -4259,6 +4306,7 @@ def dashboard():
         mao_obra_direta_media=round(mao_obra_direta_media, 2),
         produtividade_hh=round(produtividade_hh, 2),
         aves_hora_fabrica=round(aves_hora_fabrica, 2),
+        descartes_por_motivo=descartes_por_motivo,
         descartes_por_setor=descartes_por_setor,
         produtividade_setores=produtividade_setores,
         produtividade_setores_hora=produtividade_setores_hora

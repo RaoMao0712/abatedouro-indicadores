@@ -298,14 +298,14 @@
     <div class="section-title-row">
         <div>
             <span class="eyebrow">Qualidade</span>
-            <h2>% de Descarte / Condenação por Setor</h2>
+            <h2>% de Descarte / Condenação por Motivo</h2>
         </div>
     </div>
 
-    {% if descartes_por_setor %}
-        {% for item in descartes_por_setor %}
+    {% if descartes_por_motivo %}
+        {% for item in descartes_por_motivo %}
             <div class="linha-info barra-indicador">
-                <strong>{{ item.setor }}</strong>
+                <strong>{{ item.motivo }}</strong>
                 <span>{{ "%.2f"|format(item.percentual) }}% — {{ "%.2f"|format(item.quantidade) }} aves</span>
             </div>
         {% endfor %}
@@ -313,7 +313,23 @@
         <p class="obs">Nenhum descarte ou condenação em aves no período/status selecionado.</p>
     {% endif %}
 
-    <p class="obs">O setor Transporte considera as mortes antes da pendura registradas na abertura da OP.</p>
+    <p class="obs">Leitura principal por motivo. Mortes antes da pendura entram como “Morte na gaiola / antes da pendura”.</p>
+
+    <div style="margin-top: 22px;">
+        <span class="eyebrow">Mapa de origem</span>
+        <h3 style="margin-top: 6px;">Consolidado por Setor</h3>
+
+        {% if descartes_por_setor %}
+            {% for item in descartes_por_setor %}
+                <div class="linha-info barra-indicador">
+                    <strong>{{ item.setor }}</strong>
+                    <span>{{ "%.2f"|format(item.percentual) }}% — {{ "%.2f"|format(item.quantidade) }} aves</span>
+                </div>
+            {% endfor %}
+        {% else %}
+            <p class="obs">Nenhum setor com descarte ou condenação em aves no período/status selecionado.</p>
+        {% endif %}
+    </div>
 </div>
 
 {% endblock %}
