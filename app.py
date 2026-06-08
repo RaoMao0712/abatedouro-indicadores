@@ -1520,6 +1520,276 @@ def atualizar_insumo_almoxarifado(insumo_id, form):
     conn.close()
 
 
+
+def criar_tabelas_estoque_almoxarifado():
+    criar_tabelas_almoxarifado()
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    if DATABASE_URL:
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS almoxarifado_lotes (
+            id SERIAL PRIMARY KEY,
+            insumo_id INTEGER NOT NULL,
+            data_entrada TEXT NOT NULL,
+            lote TEXT,
+            fornecedor TEXT,
+            numero_nf TEXT,
+            quantidade_inicial REAL NOT NULL,
+            quantidade_atual REAL NOT NULL,
+            valor_unitario REAL NOT NULL,
+            valor_total REAL NOT NULL,
+            status TEXT DEFAULT 'Aberto',
+            criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
+
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS almoxarifado_movimentacoes (
+            id SERIAL PRIMARY KEY,
+            data_movimentacao TEXT NOT NULL,
+            tipo TEXT NOT NULL,
+            insumo_id INTEGER NOT NULL,
+            lote_id INTEGER,
+            quantidade REAL NOT NULL,
+            valor_unitario REAL DEFAULT 0,
+            valor_total REAL DEFAULT 0,
+            fornecedor TEXT,
+            numero_nf TEXT,
+            lote TEXT,
+            origem TEXT DEFAULT 'Manual',
+            op_id INTEGER,
+            observacoes TEXT,
+            criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
+    else:
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS almoxarifado_lotes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            insumo_id INTEGER NOT NULL,
+            data_entrada TEXT NOT NULL,
+            lote TEXT,
+            fornecedor TEXT,
+            numero_nf TEXT,
+            quantidade_inicial REAL NOT NULL,
+            quantidade_atual REAL NOT NULL,
+            valor_unitario REAL NOT NULL,
+            valor_total REAL NOT NULL,
+            status TEXT DEFAULT 'Aberto',
+            criado_em TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
+
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS almoxarifado_movimentacoes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            data_movimentacao TEXT NOT NULL,
+            tipo TEXT NOT NULL,
+            insumo_id INTEGER NOT NULL,
+            lote_id INTEGER,
+            quantidade REAL NOT NULL,
+            valor_unitario REAL DEFAULT 0,
+            valor_total REAL DEFAULT 0,
+            fornecedor TEXT,
+            numero_nf TEXT,
+            lote TEXT,
+            origem TEXT DEFAULT 'Manual',
+            op_id INTEGER,
+            observacoes TEXT,
+            criado_em TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
+
+    conn.commit()
+    conn.close()
+
+
+def salvar_entrada_estoque_almoxarifado(form):
+    criar_tabelas_estoque_almoxarifado()
+
+    insumo_id = int(form.get("insumo_id") or 0)
+    data_entrada = form.get("data_entrada", "").strip()
+    quantidade = float(form.get("quantidade") or 0)
+    valor_unitario = float(form.get("valor_unitario") or 0)
+    fornecedor = form.get("fornecedor", "").strip()
+    numero_nf = form.get("numero_nf", "").strip()
+    lote = form.get("lote", "").strip()
+    observacoes = form.get("observacoes", "").strip()
+
+    if not buscar_insumo_almoxarifado_por_id(insumo_id):
+        raise ValueError("Selecione um insumo válido.")
+
+    if not data_entrada:
+        raise ValueError("Informe a data de entrada.")
+
+    if quantidade <= 0:
+        raise ValueError("A quantidade precisa ser maior que zero.")
+
+    if valor_unitario < 0:
+        raise ValueError("O valor unitário não pode ser negativo.")
+
+    valor_total = round(quantidade * valor_unitario, 4)
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q("""
+    INSERT INTO almoxarifado_lotes (
+        insumo_id,
+        data_entrada,
+        lote,
+        fornecedor,
+        numero_nf,
+        quantidade_inicial,
+        quantidade_atual,
+        valor_unitario,
+        valor_total,
+        status
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """), (
+        insumo_id,
+        data_entrada,
+        lote,
+        fornecedor,
+        numero_nf,
+        quantidade,
+        quantidade,
+        valor_unitario,
+        valor_total,
+        "Aberto"
+    ))
+
+    lote_id = None
+    try:
+        if DATABASE_URL:
+            cursor.execute("SELECT LASTVAL() as id")
+            lote_id = cursor.fetchone()["id"]
+        else:
+            lote_id = cursor.lastrowid
+    except Exception:
+        lote_id = None
+
+    cursor.execute(q("""
+    INSERT INTO almoxarifado_movimentacoes (
+        data_movimentacao,
+        tipo,
+        insumo_id,
+        lote_id,
+        quantidade,
+        valor_unitario,
+        valor_total,
+        fornecedor,
+        numero_nf,
+        lote,
+        origem,
+        observacoes
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """), (
+        data_entrada,
+        "ENTRADA",
+        insumo_id,
+        lote_id,
+        quantidade,
+        valor_unitario,
+        valor_total,
+        fornecedor,
+        numero_nf,
+        lote,
+        "Entrada manual",
+        observacoes
+    ))
+
+    conn.commit()
+    conn.close()
+
+
+def buscar_saldos_almoxarifado():
+    criar_tabelas_estoque_almoxarifado()
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+    SELECT
+        i.id,
+        i.descricao,
+        i.categoria,
+        i.unidade,
+        i.ativo,
+        COALESCE(SUM(l.quantidade_atual), 0) as saldo_atual,
+        COALESCE(SUM(l.quantidade_atual * l.valor_unitario), 0) as valor_estoque
+    FROM almoxarifado_insumos i
+    LEFT JOIN almoxarifado_lotes l ON l.insumo_id = i.id
+    GROUP BY i.id, i.descricao, i.categoria, i.unidade, i.ativo
+    ORDER BY i.categoria ASC, i.descricao ASC
+    """)
+
+    saldos = cursor.fetchall()
+    conn.close()
+    return saldos
+
+
+def buscar_lotes_almoxarifado(limite=50):
+    criar_tabelas_estoque_almoxarifado()
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q("""
+    SELECT
+        l.*,
+        i.descricao as insumo,
+        i.unidade as unidade,
+        i.categoria as categoria
+    FROM almoxarifado_lotes l
+    JOIN almoxarifado_insumos i ON i.id = l.insumo_id
+    ORDER BY l.data_entrada ASC, l.id ASC
+    LIMIT ?
+    """), (limite,))
+
+    lotes = cursor.fetchall()
+    conn.close()
+    return lotes
+
+
+def buscar_movimentacoes_almoxarifado(limite=80):
+    criar_tabelas_estoque_almoxarifado()
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q("""
+    SELECT
+        m.*,
+        i.descricao as insumo,
+        i.unidade as unidade,
+        i.categoria as categoria
+    FROM almoxarifado_movimentacoes m
+    JOIN almoxarifado_insumos i ON i.id = m.insumo_id
+    ORDER BY m.data_movimentacao DESC, m.id DESC
+    LIMIT ?
+    """), (limite,))
+
+    movimentacoes = cursor.fetchall()
+    conn.close()
+    return movimentacoes
+
+
+def calcular_resumo_estoque_almoxarifado(saldos):
+    total_itens_com_saldo = sum(1 for item in saldos if float(item["saldo_atual"] or 0) > 0)
+    valor_total = sum(float(item["valor_estoque"] or 0) for item in saldos)
+    itens_zerados = sum(1 for item in saldos if float(item["saldo_atual"] or 0) <= 0)
+
+    return {
+        "itens_com_saldo": total_itens_com_saldo,
+        "itens_zerados": itens_zerados,
+        "valor_total": round(valor_total, 2),
+        "total_itens": len(saldos)
+    }
+
+
 def calcular_resumo_almoxarifado(insumos):
     total_itens = len(insumos)
     itens_ativos = sum(1 for item in insumos if item["ativo"] == "Sim")
@@ -1588,6 +1858,37 @@ def editar_insumo_almoxarifado(insumo_id):
         insumo=insumo,
         categorias=CATEGORIAS_ALMOXARIFADO,
         unidades=UNIDADES_ALMOXARIFADO
+    )
+
+
+@app.route("/almoxarifado/entrada", methods=["GET", "POST"])
+@perfil_permitido("pcp")
+def entrada_estoque_almoxarifado():
+    criar_tabelas_estoque_almoxarifado()
+
+    if request.method == "POST":
+        try:
+            salvar_entrada_estoque_almoxarifado(request.form)
+            flash("Entrada de estoque registrada com sucesso.")
+            return redirect(url_for("entrada_estoque_almoxarifado"))
+        except Exception as erro:
+            flash(f"Erro ao registrar entrada de estoque: {erro}")
+
+    hoje = datetime.now().strftime("%Y-%m-%d")
+    insumos = buscar_insumos_almoxarifado("Todas", "Sim", "")
+    saldos = buscar_saldos_almoxarifado()
+    lotes = buscar_lotes_almoxarifado()
+    movimentacoes = buscar_movimentacoes_almoxarifado()
+    resumo = calcular_resumo_estoque_almoxarifado(saldos)
+
+    return render_template(
+        "almoxarifado_entrada.html",
+        hoje=hoje,
+        insumos=insumos,
+        saldos=saldos,
+        lotes=lotes,
+        movimentacoes=movimentacoes,
+        resumo=resumo
     )
 
 

@@ -1,0 +1,247 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+
+<section class="hero-dashboard almoxarifado-hero">
+    <div>
+        <span class="eyebrow">Almoxarifado</span>
+        <h2>Entrada de Estoque</h2>
+
+        <div class="hero-resumo-inline">
+            <span><strong>Regra:</strong> cada entrada cria um lote para FIFO</span>
+            <span><strong>Uso futuro:</strong> baixa automática no encerramento da OP</span>
+        </div>
+    </div>
+
+    <div class="dre-acoes-topo dre-acoes-compactas">
+        <a href="{{ url_for('almoxarifado') }}" class="botao-dre-exportar">Cadastro de Insumos</a>
+    </div>
+</section>
+
+<div class="cards-executivos almoxarifado-kpis">
+    <div class="card kpi-card destaque">
+        <span class="kpi-label">Valor em estoque</span>
+        <strong>R$ {{ "%.2f"|format(resumo.valor_total) }}</strong>
+        <small>Soma dos lotes com saldo</small>
+    </div>
+
+    <div class="card kpi-card">
+        <span class="kpi-label">Itens com saldo</span>
+        <strong>{{ resumo.itens_com_saldo }}</strong>
+        <small>Insumos disponíveis</small>
+    </div>
+
+    <div class="card kpi-card alerta">
+        <span class="kpi-label">Itens zerados</span>
+        <strong>{{ resumo.itens_zerados }}</strong>
+        <small>Sem saldo atual</small>
+    </div>
+
+    <div class="card kpi-card">
+        <span class="kpi-label">Itens monitorados</span>
+        <strong>{{ resumo.total_itens }}</strong>
+        <small>Base de insumos cadastrados</small>
+    </div>
+</div>
+
+<div class="almoxarifado-grid">
+    <div class="card almoxarifado-form-card">
+        <div class="section-title-row">
+            <div>
+                <span class="eyebrow">Nova movimentação</span>
+                <h2>Registrar Entrada</h2>
+            </div>
+        </div>
+
+        <form method="POST" action="{{ url_for('entrada_estoque_almoxarifado') }}">
+            <div class="form-grid">
+                <div>
+                    <label>Data de entrada</label>
+                    <input type="date" name="data_entrada" value="{{ hoje }}" required>
+                </div>
+
+                <div>
+                    <label>Insumo</label>
+                    <select name="insumo_id" required>
+                        <option value="">Selecione</option>
+                        {% for insumo in insumos %}
+                        <option value="{{ insumo.id }}">{{ insumo.descricao }} | {{ insumo.unidade }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div>
+                    <label>Quantidade</label>
+                    <input type="number" step="0.0001" min="0.0001" name="quantidade" required>
+                </div>
+
+                <div>
+                    <label>Valor unitário</label>
+                    <input type="number" step="0.0001" min="0" name="valor_unitario" required>
+                </div>
+
+                <div>
+                    <label>Fornecedor</label>
+                    <input type="text" name="fornecedor" placeholder="Fornecedor da NF">
+                </div>
+
+                <div>
+                    <label>Nota fiscal</label>
+                    <input type="text" name="numero_nf" placeholder="Número da NF">
+                </div>
+
+                <div>
+                    <label>Lote</label>
+                    <input type="text" name="lote" placeholder="Lote interno ou fornecedor">
+                </div>
+            </div>
+
+            <label>Observações</label>
+            <textarea name="observacoes" rows="3" placeholder="Informações úteis sobre a entrada, compra ou conferência."></textarea>
+
+            <button type="submit">Registrar entrada</button>
+        </form>
+    </div>
+
+    <div class="card almoxarifado-nota-card">
+        <div class="section-title-row">
+            <div>
+                <span class="eyebrow">Como o FIFO começa aqui</span>
+                <h2>Lógica da entrada</h2>
+            </div>
+        </div>
+
+        <div class="almoxarifado-roadmap">
+            <div><strong>1. Entrada</strong><span>Quantidade + valor unitário criam um lote.</span></div>
+            <div><strong>2. Saldo</strong><span>O saldo atual soma os lotes ainda abertos.</span></div>
+            <div><strong>3. FIFO</strong><span>A baixa futura consumirá primeiro o lote mais antigo.</span></div>
+            <div><strong>4. CMV</strong><span>O custo consumido será levado para a OP.</span></div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="section-title-row">
+        <div>
+            <span class="eyebrow">Saldo Atual</span>
+            <h2>Estoque por Insumo</h2>
+        </div>
+    </div>
+
+    {% if saldos %}
+    <div class="tabela-responsiva tabela-executiva almoxarifado-tabela">
+        <table>
+            <thead>
+                <tr>
+                    <th>Insumo</th>
+                    <th>Categoria</th>
+                    <th>Unidade</th>
+                    <th>Saldo</th>
+                    <th>Valor estoque</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in saldos %}
+                <tr>
+                    <td><strong>{{ item.descricao }}</strong></td>
+                    <td>{{ item.categoria }}</td>
+                    <td>{{ item.unidade }}</td>
+                    <td>{{ "%.4f"|format(item.saldo_atual) }}</td>
+                    <td>R$ {{ "%.2f"|format(item.valor_estoque) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+        <p class="obs">Nenhum insumo cadastrado.</p>
+    {% endif %}
+</div>
+
+<div class="card">
+    <div class="section-title-row">
+        <div>
+            <span class="eyebrow">FIFO</span>
+            <h2>Lotes em Estoque</h2>
+        </div>
+    </div>
+
+    {% if lotes %}
+    <div class="tabela-responsiva tabela-executiva almoxarifado-tabela">
+        <table>
+            <thead>
+                <tr>
+                    <th>Data</th>
+                    <th>Insumo</th>
+                    <th>Lote</th>
+                    <th>NF</th>
+                    <th>Qtd. inicial</th>
+                    <th>Qtd. atual</th>
+                    <th>Valor unit.</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for lote in lotes %}
+                <tr>
+                    <td>{{ lote.data_entrada }}</td>
+                    <td><strong>{{ lote.insumo }}</strong></td>
+                    <td>{{ lote.lote or '-' }}</td>
+                    <td>{{ lote.numero_nf or '-' }}</td>
+                    <td>{{ "%.4f"|format(lote.quantidade_inicial) }} {{ lote.unidade }}</td>
+                    <td>{{ "%.4f"|format(lote.quantidade_atual) }} {{ lote.unidade }}</td>
+                    <td>R$ {{ "%.4f"|format(lote.valor_unitario) }}</td>
+                    <td>{{ lote.status }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+        <p class="obs">Nenhum lote registrado ainda.</p>
+    {% endif %}
+</div>
+
+<div class="card">
+    <div class="section-title-row">
+        <div>
+            <span class="eyebrow">Histórico</span>
+            <h2>Últimas Movimentações</h2>
+        </div>
+    </div>
+
+    {% if movimentacoes %}
+    <div class="tabela-responsiva tabela-executiva almoxarifado-tabela">
+        <table>
+            <thead>
+                <tr>
+                    <th>Data</th>
+                    <th>Tipo</th>
+                    <th>Insumo</th>
+                    <th>Quantidade</th>
+                    <th>Valor unit.</th>
+                    <th>Valor total</th>
+                    <th>Origem</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for mov in movimentacoes %}
+                <tr>
+                    <td>{{ mov.data_movimentacao }}</td>
+                    <td><strong>{{ mov.tipo }}</strong></td>
+                    <td>{{ mov.insumo }}</td>
+                    <td>{{ "%.4f"|format(mov.quantidade) }} {{ mov.unidade }}</td>
+                    <td>R$ {{ "%.4f"|format(mov.valor_unitario) }}</td>
+                    <td>R$ {{ "%.2f"|format(mov.valor_total) }}</td>
+                    <td>{{ mov.origem }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+        <p class="obs">Nenhuma movimentação registrada.</p>
+    {% endif %}
+</div>
+
+{% endblock %}
