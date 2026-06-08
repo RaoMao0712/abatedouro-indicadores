@@ -5,6 +5,9 @@
 <div class="card">
     <h2>Editar Venda Diária</h2>
 
+    {% set qtd_unidades = venda.quantidade_unidades if venda.quantidade_unidades is defined and venda.quantidade_unidades else (venda.quantidade if venda.unidade != 'kg' else 0) %}
+    {% set qtd_kg = venda.quantidade_kg if venda.quantidade_kg is defined and venda.quantidade_kg else (venda.quantidade if venda.unidade == 'kg' else 0) %}
+
     <form method="POST">
         <div class="form-grid">
             <div>
@@ -19,7 +22,7 @@
 
             <div>
                 <label>SKU</label>
-                <select name="sku" required>
+                <select name="sku" id="sku-venda-editar" required>
                     <option
                         value="Galinha Cortada"
                         {% if venda.sku == "Galinha Cortada" %}selected{% endif %}
@@ -36,15 +39,30 @@
                 </select>
             </div>
 
-            <div>
-                <label>Quantidade vendida</label>
+            <div class="campo-venda-unidades">
+                <label>Unidades / bandejas vendidas</label>
                 <input
                     type="number"
                     step="0.01"
-                    name="quantidade"
-                    value="{{ venda.quantidade }}"
+                    min="0"
+                    name="quantidade_unidades"
+                    value="{{ qtd_unidades }}"
                     required
                 >
+                <small class="obs">Base do CMV: ave viva + embalagem.</small>
+            </div>
+
+            <div class="campo-venda-kg">
+                <label>Kg vendidos</label>
+                <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    name="quantidade_kg"
+                    value="{{ qtd_kg }}"
+                    required
+                >
+                <small class="obs">Base para preço médio e CMV por kg.</small>
             </div>
 
             <div>
@@ -52,6 +70,7 @@
                 <input
                     type="number"
                     step="0.01"
+                    min="0"
                     name="receita"
                     value="{{ venda.receita }}"
                     required
@@ -76,9 +95,34 @@
     </form>
 
     <p class="obs">
-        Para Galinha Cortada, a quantidade será interpretada como kg.
-        Para Galinha Inteira, a quantidade será interpretada como unidades.
+        Galinha Cortada: CMV usa unidades/bandejas vendidas e CMV por kg usa os kg vendidos. Galinha Inteira: cálculo 1 x 1 por unidade.
     </p>
 </div>
+
+<script>
+    function ajustarCamposVendaEdicao() {
+        const sku = document.getElementById("sku-venda-editar").value;
+        const campoKg = document.querySelector(".campo-venda-kg");
+        const inputKg = campoKg.querySelector("input");
+        const labelUnidades = document.querySelector(".campo-venda-unidades label");
+        const ajudaUnidades = document.querySelector(".campo-venda-unidades small");
+
+        if (sku === "Galinha Cortada") {
+            campoKg.style.display = "block";
+            inputKg.required = true;
+            labelUnidades.textContent = "Unidades / bandejas vendidas";
+            ajudaUnidades.textContent = "Base do CMV: ave viva + embalagem.";
+        } else {
+            campoKg.style.display = "none";
+            inputKg.required = false;
+            inputKg.value = "";
+            labelUnidades.textContent = "Unidades vendidas";
+            ajudaUnidades.textContent = "Base do CMV 1 x 1.";
+        }
+    }
+
+    document.getElementById("sku-venda-editar").addEventListener("change", ajustarCamposVendaEdicao);
+    ajustarCamposVendaEdicao();
+</script>
 
 {% endblock %}

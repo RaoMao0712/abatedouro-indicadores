@@ -573,7 +573,7 @@ def criar_tabelas_custos():
     conn.commit()
 
     parametros_padrao = [
-        ("Galinha Cortada", 0, "R$/kg vivo", 0, "R$/kg produzido"),
+        ("Galinha Cortada", 0, "R$/ave", 0, "R$/bandeja"),
         ("Galinha Inteira", 0, "R$/ave", 0, "R$/unidade")
     ]
 
@@ -654,8 +654,8 @@ def salvar_parametros_custos(form):
         custo_embalagem = float(form.get(f"custo_embalagem_{chave}") or 0)
 
         if sku == "Galinha Cortada":
-            unidade_custo_ave = "R$/kg vivo"
-            unidade_custo_embalagem = "R$/kg produzido"
+            unidade_custo_ave = "R$/ave"
+            unidade_custo_embalagem = "R$/bandeja"
         else:
             unidade_custo_ave = "R$/ave"
             unidade_custo_embalagem = "R$/unidade"
@@ -718,6 +718,8 @@ def criar_tabela_vendas():
             sku TEXT NOT NULL,
             quantidade REAL NOT NULL,
             unidade TEXT NOT NULL,
+            quantidade_unidades REAL DEFAULT 0,
+            quantidade_kg REAL DEFAULT 0,
             receita REAL NOT NULL,
             observacoes TEXT,
             criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -731,43 +733,111 @@ def criar_tabela_vendas():
             sku TEXT NOT NULL,
             quantidade REAL NOT NULL,
             unidade TEXT NOT NULL,
+            quantidade_unidades REAL DEFAULT 0,
+            quantidade_kg REAL DEFAULT 0,
             receita REAL NOT NULL,
             observacoes TEXT,
             criado_em TEXT DEFAULT CURRENT_TIMESTAMP
         )
         """)
 
+    tentar_alter_table(cursor, conn, "ALTER TABLE vendas_diarias ADD COLUMN quantidade_unidades REAL DEFAULT 0")
+    tentar_alter_table(cursor, conn, "ALTER TABLE vendas_diarias ADD COLUMN quantidade_kg REAL DEFAULT 0")
+
     conn.commit()
     conn.close()
+
+
+
+def preparar_quantidades_venda(sku, form, quantidade_atual=None, unidade_atual=None):
+    """
+    Padroniza as quantidades de venda para suportar a lógica correta da DRE.
+
+    Galinha Cortada:
+    - quantidade_unidades = bandejas vendidas, usada para CMV;
+    - quantidade_kg = kg vendidos, usado para receita/kg e CMV/kg;
+    - quantidade legado = kg, para compatibilidade com telas antigas.
+
+    Galinha Inteira:
+    - quantidade_unidades = unidades vendidas;
+    - quantidade_kg = 0;
+    - quantidade legado = unidades.
+    """
+    quantidade_legacy = form.get("quantidade")
+    quantidade_unidades_raw = (
+        form.get("quantidade_unidades")
+        or form.get("unidades_vendidas")
+        or form.get("bandejas_vendidas")
+        or ""
+    )
+    quantidade_kg_raw = (
+        form.get("quantidade_kg")
+        or form.get("kg_vendidos")
+        or ""
+    )
+
+    if sku == "Galinha Cortada":
+        quantidade_unidades = float(quantidade_unidades_raw or 0)
+        quantidade_kg = float(quantidade_kg_raw or quantidade_legacy or quantidade_atual or 0)
+
+        if quantidade_unidades <= 0:
+            raise ValueError("Informe a quantidade de bandejas/unidades vendidas para Galinha Cortada.")
+
+        if quantidade_kg <= 0:
+            raise ValueError("Informe a quantidade em kg vendida para Galinha Cortada.")
+
+        return {
+            "quantidade": quantidade_kg,
+            "unidade": "kg",
+            "quantidade_unidades": quantidade_unidades,
+            "quantidade_kg": quantidade_kg
+        }
+
+    quantidade_unidades = float(quantidade_unidades_raw or quantidade_legacy or quantidade_atual or 0)
+
+    if quantidade_unidades <= 0:
+        raise ValueError("Informe a quantidade de unidades vendidas.")
+
+    return {
+        "quantidade": quantidade_unidades,
+        "unidade": "unidades",
+        "quantidade_unidades": quantidade_unidades,
+        "quantidade_kg": 0
+    }
 
 
 def salvar_venda_diaria(form):
     criar_tabela_vendas()
 
     sku = form["sku"]
-    quantidade = float(form["quantidade"])
     receita = float(form["receita"])
-
-    if quantidade <= 0:
-        raise ValueError("A quantidade vendida deve ser maior que zero.")
 
     if receita < 0:
         raise ValueError("A receita não pode ser negativa.")
 
-    unidade = "kg" if sku == "Galinha Cortada" else "unidades"
+    quantidades = preparar_quantidades_venda(sku, form)
 
     conn = conectar()
     cursor = conn.cursor()
 
     cursor.execute(q("""
     INSERT INTO vendas_diarias (
-        data, sku, quantidade, unidade, receita, observacoes
-    ) VALUES (?, ?, ?, ?, ?, ?)
-    """), (
-        form["data"],
+        data,
         sku,
         quantidade,
         unidade,
+        quantidade_unidades,
+        quantidade_kg,
+        receita,
+        observacoes
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """), (
+        form["data"],
+        sku,
+        quantidades["quantidade"],
+        quantidades["unidade"],
+        quantidades["quantidade_unidades"],
+        quantidades["quantidade_kg"],
         receita,
         form.get("observacoes", "")
     ))
@@ -992,6 +1062,49 @@ def buscar_dados_relatorio_custos(competencia_inicio, competencia_fim):
 
 
 
+def valor_linha_venda(item, campo, padrao=0):
+    try:
+        valor = item[campo]
+    except Exception:
+        valor = padrao
+
+    if valor is None:
+        return padrao
+
+    return float(valor or 0)
+
+
+def normalizar_venda_para_dre(item):
+    sku = item["sku"]
+    quantidade = valor_linha_venda(item, "quantidade")
+    unidade = (item["unidade"] or "").lower()
+    quantidade_unidades = valor_linha_venda(item, "quantidade_unidades")
+    quantidade_kg = valor_linha_venda(item, "quantidade_kg")
+    receita = valor_linha_venda(item, "receita")
+
+    # Compatibilidade com registros antigos: antes a Galinha Cortada era lançada só em kg.
+    if sku == "Galinha Cortada":
+        if quantidade_kg <= 0 and unidade == "kg":
+            quantidade_kg = quantidade
+
+        if quantidade_unidades <= 0 and unidade in ["unidades", "unidade", "aves", "ave"]:
+            quantidade_unidades = quantidade
+    else:
+        if quantidade_unidades <= 0:
+            quantidade_unidades = quantidade
+
+        quantidade_kg = 0
+
+    return {
+        "sku": sku,
+        "receita": receita,
+        "quantidade": quantidade,
+        "unidade": unidade,
+        "quantidade_unidades": quantidade_unidades,
+        "quantidade_kg": quantidade_kg
+    }
+
+
 def buscar_dados_dre_gerencial(competencia):
     criar_tabelas_custos()
     criar_tabela_vendas()
@@ -1005,39 +1118,55 @@ def buscar_dados_dre_gerencial(competencia):
     cursor = conn.cursor()
 
     cursor.execute(q("""
-    SELECT
-        sku,
-        COALESCE(SUM(receita), 0) as receita,
-        COALESCE(SUM(quantidade), 0) as quantidade
+    SELECT *
     FROM vendas_diarias
     WHERE data BETWEEN ? AND ?
-    GROUP BY sku
-    ORDER BY sku
+    ORDER BY sku ASC, data ASC, id ASC
     """), (data_inicio, data_fim))
 
-    vendas_raw = cursor.fetchall()
+    vendas_linhas = [normalizar_venda_para_dre(item) for item in cursor.fetchall()]
 
-    vendas_por_sku = []
     vendas_por_sku_dict = {}
     receita_bruta = 0
 
-    for item in vendas_raw:
+    for item in vendas_linhas:
         sku = item["sku"]
-        receita = float(item["receita"] or 0)
-        quantidade = float(item["quantidade"] or 0)
 
-        receita_bruta += receita
+        if sku not in vendas_por_sku_dict:
+            vendas_por_sku_dict[sku] = {
+                "receita": 0,
+                "quantidade": 0,
+                "quantidade_unidades": 0,
+                "quantidade_kg": 0
+            }
+
+        vendas_por_sku_dict[sku]["receita"] += item["receita"]
+        vendas_por_sku_dict[sku]["quantidade_unidades"] += item["quantidade_unidades"]
+        vendas_por_sku_dict[sku]["quantidade_kg"] += item["quantidade_kg"]
+
+        if sku == "Galinha Cortada":
+            vendas_por_sku_dict[sku]["quantidade"] += item["quantidade_kg"]
+        else:
+            vendas_por_sku_dict[sku]["quantidade"] += item["quantidade_unidades"]
+
+        receita_bruta += item["receita"]
+
+    vendas_por_sku = []
+
+    for sku, venda in vendas_por_sku_dict.items():
+        quantidade_base = venda["quantidade_kg"] if sku == "Galinha Cortada" else venda["quantidade_unidades"]
+        unidade_base = "kg" if sku == "Galinha Cortada" else "unidades"
+        preco_medio = venda["receita"] / quantidade_base if quantidade_base > 0 else 0
 
         vendas_por_sku.append({
             "sku": sku,
-            "receita": round(receita, 2),
-            "quantidade": round(quantidade, 2)
+            "receita": round(venda["receita"], 2),
+            "quantidade": round(quantidade_base, 2),
+            "unidade": unidade_base,
+            "quantidade_unidades": round(venda["quantidade_unidades"], 2),
+            "quantidade_kg": round(venda["quantidade_kg"], 2),
+            "preco_medio": round(preco_medio, 4)
         })
-
-        vendas_por_sku_dict[sku] = {
-            "receita": receita,
-            "quantidade": quantidade
-        }
 
     cursor.execute("SELECT * FROM parametros_custos")
 
@@ -1045,10 +1174,6 @@ def buscar_dados_dre_gerencial(competencia):
         item["sku"]: item
         for item in cursor.fetchall()
     }
-
-    # Correção conceitual:
-    # O CMV da DRE acompanha o volume vendido, não o volume produzido.
-    rendimento_meta_cmv = 0.63
 
     cmv_por_sku = []
     cmv_total = 0
@@ -1063,36 +1188,43 @@ def buscar_dados_dre_gerencial(competencia):
             custo_ave = float(parametros_sku["custo_ave"] or 0)
             custo_embalagem = float(parametros_sku["custo_embalagem"] or 0)
 
-        quantidade_vendida = float(venda["quantidade"] or 0)
+        quantidade_unidades = float(venda["quantidade_unidades"] or 0)
+        quantidade_kg = float(venda["quantidade_kg"] or 0)
 
-        if sku == "Galinha Cortada":
-            # custo_ave está em R$/kg vivo.
-            # Para transformar em custo por kg vendido, divide pelo rendimento-meta.
-            custo_materia_prima_unitario = 0
+        # Regra atual validada:
+        # Galinha Cortada: (ave viva + embalagem) x bandejas vendidas.
+        # CMV por kg = CMV total / kg vendidos.
+        # Galinha Inteira: 1 x 1 por unidade vendida.
+        custo_materia_prima_unitario = custo_ave
+        custo_embalagem_unitario = custo_embalagem
+        quantidade_cmv = quantidade_unidades
 
-            if rendimento_meta_cmv > 0:
-                custo_materia_prima_unitario = custo_ave / rendimento_meta_cmv
-
-            custo_materia_prima = quantidade_vendida * custo_materia_prima_unitario
-            custo_embalagens = quantidade_vendida * custo_embalagem
-
-        else:
-            # Galinha Inteira: custo_ave em R$/ave e embalagem em R$/unidade.
-            custo_materia_prima_unitario = custo_ave
-            custo_materia_prima = quantidade_vendida * custo_materia_prima_unitario
-            custo_embalagens = quantidade_vendida * custo_embalagem
-
+        custo_materia_prima = quantidade_cmv * custo_materia_prima_unitario
+        custo_embalagens = quantidade_cmv * custo_embalagem_unitario
         cmv_sku = custo_materia_prima + custo_embalagens
         cmv_total += cmv_sku
 
+        cmv_por_kg = 0
+        if sku == "Galinha Cortada" and quantidade_kg > 0:
+            cmv_por_kg = cmv_sku / quantidade_kg
+
+        cmv_por_unidade = 0
+        if quantidade_cmv > 0:
+            cmv_por_unidade = cmv_sku / quantidade_cmv
+
         cmv_por_sku.append({
             "sku": sku,
-            "quantidade_vendida": round(quantidade_vendida, 2),
+            "quantidade_vendida": round(quantidade_kg if sku == "Galinha Cortada" else quantidade_unidades, 2),
+            "quantidade_unidades": round(quantidade_unidades, 2),
+            "quantidade_kg": round(quantidade_kg, 2),
             "custo_materia_prima_unitario": round(custo_materia_prima_unitario, 4),
-            "custo_embalagem_unitario": round(custo_embalagem, 4),
+            "custo_embalagem_unitario": round(custo_embalagem_unitario, 4),
             "materia_prima": round(custo_materia_prima, 2),
             "embalagem": round(custo_embalagens, 2),
-            "cmv": round(cmv_sku, 2)
+            "cmv": round(cmv_sku, 2),
+            "cmv_por_kg": round(cmv_por_kg, 4),
+            "cmv_por_unidade": round(cmv_por_unidade, 4),
+            "observacao_calculo": "CMV por bandeja vendida; CMV/kg calculado pelos kg vendidos." if sku == "Galinha Cortada" else "CMV 1 x 1 por unidade vendida."
         })
 
     cursor.execute(q("""
@@ -4308,16 +4440,36 @@ def editar_venda_diaria(venda_id):
     if request.method == "POST":
         try:
             sku = request.form["sku"]
-            quantidade = float(request.form["quantidade"])
             receita = float(request.form["receita"])
-
-            if quantidade <= 0:
-                raise ValueError("A quantidade vendida deve ser maior que zero.")
 
             if receita < 0:
                 raise ValueError("A receita não pode ser negativa.")
 
-            unidade = "kg" if sku == "Galinha Cortada" else "unidades"
+            form_edicao = request.form.copy()
+
+            try:
+                quantidade_unidades_atual = float(venda["quantidade_unidades"] or 0)
+            except Exception:
+                quantidade_unidades_atual = 0
+
+            try:
+                quantidade_kg_atual = float(venda["quantidade_kg"] or 0)
+            except Exception:
+                quantidade_kg_atual = 0
+
+            if sku == "Galinha Cortada":
+                if not form_edicao.get("quantidade_unidades") and quantidade_unidades_atual > 0:
+                    form_edicao["quantidade_unidades"] = str(quantidade_unidades_atual)
+
+                if not form_edicao.get("quantidade_kg") and quantidade_kg_atual > 0:
+                    form_edicao["quantidade_kg"] = str(quantidade_kg_atual)
+
+            quantidades = preparar_quantidades_venda(
+                sku,
+                form_edicao,
+                quantidade_atual=float(venda["quantidade"] or 0),
+                unidade_atual=venda["unidade"]
+            )
 
             conn = conectar()
             cursor = conn.cursor()
@@ -4327,14 +4479,18 @@ def editar_venda_diaria(venda_id):
                 sku = ?,
                 quantidade = ?,
                 unidade = ?,
+                quantidade_unidades = ?,
+                quantidade_kg = ?,
                 receita = ?,
                 observacoes = ?
             WHERE id = ?
             """), (
                 request.form["data"],
                 sku,
-                quantidade,
-                unidade,
+                quantidades["quantidade"],
+                quantidades["unidade"],
+                quantidades["quantidade_unidades"],
+                quantidades["quantidade_kg"],
                 receita,
                 request.form.get("observacoes", ""),
                 venda_id

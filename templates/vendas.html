@@ -1,4 +1,4 @@
-    {% extends "base.html" %}
+{% extends "base.html" %}
 
 {% block conteudo %}
 
@@ -6,7 +6,7 @@
     <h2>Vendas Diárias</h2>
 
     <p class="obs">
-        Registre a receita consolidada do dia por SKU. Não é necessário lançar NF por NF.
+        Registre a receita consolidada do dia por SKU. Para Galinha Cortada, informe tanto as bandejas/unidades vendidas quanto os kg vendidos.
     </p>
 </div>
 
@@ -15,7 +15,7 @@
     <div class="card">
         <h2>Nova Venda</h2>
 
-        <form method="POST">
+        <form method="POST" id="form-venda">
             <div class="form-grid">
                 <div>
                     <label>Data da venda</label>
@@ -24,20 +24,27 @@
 
                 <div>
                     <label>SKU</label>
-                    <select name="sku" required>
+                    <select name="sku" id="sku-venda" required>
                         <option value="Galinha Cortada">Galinha Cortada</option>
                         <option value="Galinha Inteira">Galinha Inteira</option>
                     </select>
                 </div>
 
-                <div>
-                    <label>Quantidade vendida</label>
-                    <input type="number" step="0.01" name="quantidade" required>
+                <div class="campo-venda-unidades">
+                    <label>Unidades / bandejas vendidas</label>
+                    <input type="number" step="0.01" min="0" name="quantidade_unidades" required>
+                    <small class="obs">Base do CMV: ave viva + embalagem.</small>
+                </div>
+
+                <div class="campo-venda-kg">
+                    <label>Kg vendidos</label>
+                    <input type="number" step="0.01" min="0" name="quantidade_kg" required>
+                    <small class="obs">Base para preço médio e CMV por kg.</small>
                 </div>
 
                 <div>
                     <label>Receita total (R$)</label>
-                    <input type="number" step="0.01" name="receita" required>
+                    <input type="number" step="0.01" min="0" name="receita" required>
                 </div>
 
                 <div>
@@ -50,8 +57,7 @@
         </form>
 
         <p class="obs">
-            Para Galinha Cortada, a quantidade será interpretada como kg.
-            Para Galinha Inteira, a quantidade será interpretada como unidades.
+            Galinha Cortada: CMV usa unidades/bandejas vendidas e o indicador por kg usa os kg vendidos. Galinha Inteira: cálculo 1 x 1 por unidade.
         </p>
     </div>
 
@@ -60,14 +66,25 @@
 
         {% if vendas_diarias %}
             {% for item in vendas_diarias %}
-            {% set preco_medio = (item.receita / item.quantidade) if item.quantidade else 0 %}
+            {% set qtd_unidades = item.quantidade_unidades if item.quantidade_unidades is defined and item.quantidade_unidades else (item.quantidade if item.unidade != 'kg' else 0) %}
+            {% set qtd_kg = item.quantidade_kg if item.quantidade_kg is defined and item.quantidade_kg else (item.quantidade if item.unidade == 'kg' else 0) %}
+            {% set base_preco = qtd_kg if item.sku == 'Galinha Cortada' else qtd_unidades %}
+            {% set unidade_preco = 'kg' if item.sku == 'Galinha Cortada' else 'unidade' %}
+            {% set preco_medio = (item.receita / base_preco) if base_preco else 0 %}
 
             <div class="history-item">
                 <p><strong>Data:</strong> {{ item.data }}</p>
                 <p><strong>SKU:</strong> {{ item.sku }}</p>
-                <p><strong>Quantidade:</strong> {{ "%.2f"|format(item.quantidade or 0) }} {{ item.unidade }}</p>
+
+                {% if item.sku == 'Galinha Cortada' %}
+                    <p><strong>Unidades/bandejas:</strong> {{ "%.2f"|format(qtd_unidades or 0) }}</p>
+                    <p><strong>Kg vendidos:</strong> {{ "%.2f"|format(qtd_kg or 0) }} kg</p>
+                {% else %}
+                    <p><strong>Unidades vendidas:</strong> {{ "%.2f"|format(qtd_unidades or 0) }}</p>
+                {% endif %}
+
                 <p><strong>Receita:</strong> R$ {{ "%.2f"|format(item.receita or 0) }}</p>
-                <p><strong>Preço médio:</strong> R$ {{ "%.2f"|format(preco_medio) }} / {{ item.unidade }}</p>
+                <p><strong>Preço médio:</strong> R$ {{ "%.2f"|format(preco_medio) }} / {{ unidade_preco }}</p>
 
                 {% if item.observacoes %}
                 <p><strong>Observações:</strong> {{ item.observacoes }}</p>
@@ -87,5 +104,31 @@
     </div>
 
 </div>
+
+<script>
+    function ajustarCamposVenda() {
+        const sku = document.getElementById("sku-venda").value;
+        const campoKg = document.querySelector(".campo-venda-kg");
+        const inputKg = campoKg.querySelector("input");
+        const labelUnidades = document.querySelector(".campo-venda-unidades label");
+        const ajudaUnidades = document.querySelector(".campo-venda-unidades small");
+
+        if (sku === "Galinha Cortada") {
+            campoKg.style.display = "block";
+            inputKg.required = true;
+            labelUnidades.textContent = "Unidades / bandejas vendidas";
+            ajudaUnidades.textContent = "Base do CMV: ave viva + embalagem.";
+        } else {
+            campoKg.style.display = "none";
+            inputKg.required = false;
+            inputKg.value = "";
+            labelUnidades.textContent = "Unidades vendidas";
+            ajudaUnidades.textContent = "Base do CMV 1 x 1.";
+        }
+    }
+
+    document.getElementById("sku-venda").addEventListener("change", ajustarCamposVenda);
+    ajustarCamposVenda();
+</script>
 
 {% endblock %}

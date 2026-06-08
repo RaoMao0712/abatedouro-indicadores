@@ -50,7 +50,14 @@
 
             {% for item in vendas_por_sku %}
             <div class="dre-extrato-linha subitem">
-                <div><strong>Venda — {{ item.sku }}</strong><small>{{ "%.2f"|format(item.quantidade or 0) }} vendidos</small></div>
+                <div>
+                    <strong>Venda — {{ item.sku }}</strong>
+                    {% if item.sku == 'Galinha Cortada' %}
+                        <small>{{ "%.2f"|format(item.quantidade_unidades or 0) }} bandejas • {{ "%.2f"|format(item.quantidade_kg or 0) }} kg vendidos</small>
+                    {% else %}
+                        <small>{{ "%.2f"|format(item.quantidade_unidades or item.quantidade or 0) }} unidades vendidas</small>
+                    {% endif %}
+                </div>
                 <span>R$ {{ "%.2f"|format(item.receita or 0) }}</span>
             </div>
             {% endfor %}
@@ -102,12 +109,32 @@
     <div class="card dre-detalhe-card">
         <div class="section-title-row"><div><span class="eyebrow">CMV</span><h2>Composição por SKU</h2></div></div>
         <div class="dre-tabela-executiva">
-            <div class="dre-tabela-header dre-cmv-header"><span>SKU</span><span>Matéria-prima</span><span>Embalagem</span><span>CMV</span></div>
+            <div class="dre-tabela-header dre-cmv-header"><span>SKU</span><span>Base CMV</span><span>Matéria-prima</span><span>Embalagem</span><span>CMV</span></div>
             {% for item in cmv_por_sku %}
-            <div class="dre-tabela-row dre-cmv-row"><span>{{ item.sku }}</span><small>R$ {{ "%.2f"|format(item.materia_prima or 0) }}</small><small>R$ {{ "%.2f"|format(item.embalagem or 0) }}</small><strong>R$ {{ "%.2f"|format(item.cmv or 0) }}</strong></div>
+            <div class="dre-tabela-row dre-cmv-row">
+                <span>{{ item.sku }}</span>
+                <small>
+                    {{ "%.2f"|format(item.quantidade_unidades or 0) }} un.
+                    {% if item.sku == 'Galinha Cortada' %}
+                        • {{ "%.2f"|format(item.quantidade_kg or 0) }} kg
+                    {% endif %}
+                </small>
+                <small>R$ {{ "%.2f"|format(item.materia_prima or 0) }}</small>
+                <small>R$ {{ "%.2f"|format(item.embalagem or 0) }}</small>
+                <strong>R$ {{ "%.2f"|format(item.cmv or 0) }}</strong>
+            </div>
+            {% if item.sku == 'Galinha Cortada' %}
+            <div class="dre-tabela-row dre-cmv-row">
+                <span>CMV/kg — {{ item.sku }}</span>
+                <small>R$ {{ "%.4f"|format(item.cmv_por_kg or 0) }} / kg</small>
+                <small>Ave: R$ {{ "%.4f"|format(item.custo_materia_prima_unitario or 0) }} / un.</small>
+                <small>Emb.: R$ {{ "%.4f"|format(item.custo_embalagem_unitario or 0) }} / un.</small>
+                <strong>R$ {{ "%.4f"|format(item.cmv_por_unidade or 0) }} / un.</strong>
+            </div>
+            {% endif %}
             {% endfor %}
         </div>
-        <p class="obs dre-obs">O CMV acompanha o volume vendido na competência e utiliza os parâmetros de custo cadastrados.</p>
+        <p class="obs dre-obs">O CMV acompanha o volume vendido na competência. Para Galinha Cortada: (ave viva + embalagem) × bandejas vendidas; CMV/kg = CMV total ÷ kg vendidos. Para Galinha Inteira: cálculo 1 x 1 por unidade.</p>
     </div>
 </div>
 
@@ -118,7 +145,7 @@
     {% else %}
         A operação apresentou resultado operacional negativo na competência analisada.
     {% endif %}
-    A DRE considera receita de venda, CMV parametrizado e custos mensais lançados no FrigoDatta.
+    A DRE considera receita de venda, CMV por unidade/bandeja vendida e custos mensais lançados no FrigoDatta.
 </div>
 
 {% endblock %}
