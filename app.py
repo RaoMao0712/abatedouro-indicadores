@@ -2113,6 +2113,317 @@ def rastreabilidade_almoxarifado():
         termo=termo
     )
 
+
+
+# ============================================================
+# MÓDULO RECEITAS DOS SKUS
+# ============================================================
+
+UNIDADES_VENDA_SKU = [
+    "Kg",
+    "Un"
+]
+
+TIPOS_CONSUMO_RECEITA = [
+    "Matéria-prima",
+    "Embalagem primária - 1 pra 1",
+    "Embalagem secundária - proporcional",
+    "Outro"
+]
+
+
+def criar_tabelas_receitas_sku():
+    criar_tabelas_estoque_almoxarifado()
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    if DATABASE_URL:
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS skus (
+            id SERIAL PRIMARY KEY,
+            nome TEXT NOT NULL UNIQUE,
+            unidade_venda TEXT NOT NULL DEFAULT 'Kg',
+            ativo TEXT DEFAULT 'Sim',
+            observacoes TEXT,
+            criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
+
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS receitas_sku (
+            id SERIAL PRIMARY KEY,
+            sku_id INTEGER NOT NULL,
+            insumo_id INTEGER NOT NULL,
+            quantidade_por_unidade REAL NOT NULL,
+            tipo_consumo TEXT DEFAULT '',
+            observacoes TEXT,
+            criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
+    else:
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS skus (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nome TEXT NOT NULL UNIQUE,
+            unidade_venda TEXT NOT NULL DEFAULT 'Kg',
+            ativo TEXT DEFAULT 'Sim',
+            observacoes TEXT,
+            criado_em TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
+
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS receitas_sku (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sku_id INTEGER NOT NULL,
+            insumo_id INTEGER NOT NULL,
+            quantidade_por_unidade REAL NOT NULL,
+            tipo_consumo TEXT DEFAULT '',
+            observacoes TEXT,
+            criado_em TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
+
+    conn.commit()
+
+    skus_padrao = [
+        ("Galinha Cortada", "Kg", "Produto vendido por kg. A OP consome insumos por unidade produzida e forma estoque em kg."),
+        ("Galinha Inteira", "Un", "Produto vendido por unidade.")
+    ]
+
+    for sku in skus_padrao:
+        try:
+            cursor.execute(q("""
+            INSERT INTO skus (nome, unidade_venda, ativo, observacoes)
+            VALUES (?, ?, ?, ?)
+            """), (sku[0], sku[1], "Sim", sku[2]))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+
+    conn.close()
+
+
+def buscar_skus(filtro_status="Todos"):
+    criar_tabelas_receitas_sku()
+
+    condicoes = ["1 = 1"]
+    parametros = []
+
+    if filtro_status and filtro_status != "Todos":
+        condicoes.append("ativo = ?")
+        parametros.append(filtro_status)
+
+    where_sql = " AND ".join(condicoes)
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q(f"""
+    SELECT *
+    FROM skus
+    WHERE {where_sql}
+    ORDER BY ativo DESC, nome ASC
+    """), tuple(parametros))
+
+    skus = cursor.fetchall()
+    conn.close()
+    return skus
+
+
+def salvar_sku(form):
+    criar_tabelas_receitas_sku()
+
+    nome = form.get("nome", "").strip()
+    unidade_venda = form.get("unidade_venda", "Kg").strip()
+    ativo = form.get("ativo", "Sim").strip()
+    observacoes = form.get("observacoes", "").strip()
+
+    if not nome:
+        raise ValueError("Informe o nome do SKU.")
+
+    if unidade_venda not in UNIDADES_VENDA_SKU:
+        raise ValueError("Unidade de venda inválida.")
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q("""
+    INSERT INTO skus (nome, unidade_venda, ativo, observacoes)
+    VALUES (?, ?, ?, ?)
+    """), (nome, unidade_venda, ativo, observacoes))
+
+    conn.commit()
+    conn.close()
+
+
+def salvar_item_receita_sku(form):
+    criar_tabelas_receitas_sku()
+
+    sku_id = int(form.get("sku_id") or 0)
+    insumo_id = int(form.get("insumo_id") or 0)
+    quantidade_por_unidade = float(form.get("quantidade_por_unidade") or 0)
+    tipo_consumo = form.get("tipo_consumo", "").strip()
+    observacoes = form.get("observacoes", "").strip()
+
+    if quantidade_por_unidade <= 0:
+        raise ValueError("A quantidade por unidade precisa ser maior que zero.")
+
+    if tipo_consumo and tipo_consumo not in TIPOS_CONSUMO_RECEITA:
+        raise ValueError("Tipo de consumo inválido.")
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q("SELECT id FROM skus WHERE id = ?"), (sku_id,))
+    if not cursor.fetchone():
+        conn.close()
+        raise ValueError("Selecione um SKU válido.")
+
+    cursor.execute(q("SELECT id FROM almoxarifado_insumos WHERE id = ?"), (insumo_id,))
+    if not cursor.fetchone():
+        conn.close()
+        raise ValueError("Selecione um insumo válido.")
+
+    cursor.execute(q("""
+    INSERT INTO receitas_sku (
+        sku_id,
+        insumo_id,
+        quantidade_por_unidade,
+        tipo_consumo,
+        observacoes
+    ) VALUES (?, ?, ?, ?, ?)
+    """), (
+        sku_id,
+        insumo_id,
+        quantidade_por_unidade,
+        tipo_consumo,
+        observacoes
+    ))
+
+    conn.commit()
+    conn.close()
+
+
+def excluir_item_receita_sku(item_id):
+    criar_tabelas_receitas_sku()
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q("DELETE FROM receitas_sku WHERE id = ?"), (item_id,))
+
+    conn.commit()
+    conn.close()
+
+
+def buscar_receitas_sku():
+    criar_tabelas_receitas_sku()
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+    SELECT
+        r.*,
+        s.nome as sku,
+        s.unidade_venda as unidade_venda,
+        i.descricao as insumo,
+        i.categoria as categoria_insumo,
+        i.unidade as unidade_insumo
+    FROM receitas_sku r
+    JOIN skus s ON s.id = r.sku_id
+    JOIN almoxarifado_insumos i ON i.id = r.insumo_id
+    ORDER BY s.nome ASC, r.id ASC
+    """)
+
+    itens = cursor.fetchall()
+    conn.close()
+
+    receitas = {}
+
+    for item in itens:
+        sku = item["sku"]
+        if sku not in receitas:
+            receitas[sku] = {
+                "sku": sku,
+                "unidade_venda": item["unidade_venda"],
+                "itens": [],
+                "total_itens": 0
+            }
+
+        receitas[sku]["itens"].append(item)
+        receitas[sku]["total_itens"] += 1
+
+    return list(receitas.values())
+
+
+def calcular_resumo_receitas_sku(skus, receitas):
+    total_skus = len(skus)
+    skus_ativos = sum(1 for item in skus if item["ativo"] == "Sim")
+    total_itens = sum(receita["total_itens"] for receita in receitas)
+    skus_com_receita = len(receitas)
+
+    return {
+        "total_skus": total_skus,
+        "skus_ativos": skus_ativos,
+        "skus_com_receita": skus_com_receita,
+        "total_itens": total_itens
+    }
+
+
+@app.route("/receitas-sku", methods=["GET", "POST"])
+@perfil_permitido("pcp")
+def receitas_sku():
+    criar_tabelas_receitas_sku()
+
+    if request.method == "POST":
+        acao = request.form.get("acao")
+
+        try:
+            if acao == "salvar_sku":
+                salvar_sku(request.form)
+                flash("SKU cadastrado com sucesso.")
+
+            elif acao == "salvar_item_receita":
+                salvar_item_receita_sku(request.form)
+                flash("Item adicionado à receita com sucesso.")
+
+            else:
+                flash("Ação inválida.")
+
+        except Exception as erro:
+            flash(f"Erro ao salvar receita/SKU: {erro}")
+
+        return redirect(url_for("receitas_sku"))
+
+    skus = buscar_skus()
+    skus_ativos = buscar_skus("Sim")
+    insumos = buscar_insumos_almoxarifado("Todas", "Sim", "")
+    receitas = buscar_receitas_sku()
+    resumo = calcular_resumo_receitas_sku(skus, receitas)
+
+    return render_template(
+        "receitas_sku.html",
+        skus=skus,
+        skus_ativos=skus_ativos,
+        insumos=insumos,
+        receitas=receitas,
+        resumo=resumo,
+        unidades_venda=UNIDADES_VENDA_SKU,
+        tipos_consumo=TIPOS_CONSUMO_RECEITA
+    )
+
+
+@app.route("/receitas-sku/item/<int:item_id>/excluir", methods=["POST"])
+@perfil_permitido("pcp")
+def excluir_item_receita_sku_rota(item_id):
+    excluir_item_receita_sku(item_id)
+    flash("Item removido da receita com sucesso.")
+    return redirect(url_for("receitas_sku"))
+
+
 # ============================================================
 # MÓDULO FINANCEIRO - MOVIMENTAÇÃO DE CAIXA
 # ============================================================

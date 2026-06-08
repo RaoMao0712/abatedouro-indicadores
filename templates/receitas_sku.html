@@ -1,0 +1,248 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+
+<section class="hero-dashboard almoxarifado-hero">
+    <div>
+        <span class="eyebrow">Produção</span>
+        <h2>Receitas dos SKUs</h2>
+
+        <div class="hero-resumo-inline">
+            <span><strong>Regra:</strong> consumo por unidade produzida</span>
+            <span><strong>Uso futuro:</strong> baixa automática, FIFO e CMV real</span>
+        </div>
+    </div>
+
+    <div class="dre-acoes-topo dre-acoes-compactas">
+        <a href="{{ url_for('ordem_producao') }}" class="botao-dre-exportar">Nova OP</a>
+        <a href="{{ url_for('consultar_op') }}" class="botao-dre-exportar">Consultar OP</a>
+        <a href="{{ url_for('almoxarifado') }}" class="botao-dre-exportar">Almoxarifado</a>
+    </div>
+</section>
+
+<div class="cards-executivos almoxarifado-kpis">
+    <div class="card kpi-card destaque">
+        <span class="kpi-label">SKUs cadastrados</span>
+        <strong>{{ resumo.total_skus }}</strong>
+        <small>Produtos/processos na base</small>
+    </div>
+
+    <div class="card kpi-card">
+        <span class="kpi-label">SKUs ativos</span>
+        <strong>{{ resumo.skus_ativos }}</strong>
+        <small>Disponíveis para receita</small>
+    </div>
+
+    <div class="card kpi-card">
+        <span class="kpi-label">Com receita</span>
+        <strong>{{ resumo.skus_com_receita }}</strong>
+        <small>SKUs com itens vinculados</small>
+    </div>
+
+    <div class="card kpi-card alerta">
+        <span class="kpi-label">Itens de receita</span>
+        <strong>{{ resumo.total_itens }}</strong>
+        <small>Insumos vinculados aos SKUs</small>
+    </div>
+</div>
+
+<div class="almoxarifado-grid">
+    <div class="card almoxarifado-form-card">
+        <div class="section-title-row">
+            <div>
+                <span class="eyebrow">SKU</span>
+                <h2>Cadastrar Produto / Processo</h2>
+            </div>
+        </div>
+
+        <form method="POST" action="{{ url_for('receitas_sku') }}">
+            <input type="hidden" name="acao" value="salvar_sku">
+
+            <div class="form-grid">
+                <div>
+                    <label>Nome do SKU</label>
+                    <input type="text" name="nome" placeholder="Ex.: Galinha Congelada, Coxa e Sobrecoxa..." required>
+                </div>
+
+                <div>
+                    <label>Unidade de venda</label>
+                    <select name="unidade_venda" required>
+                        {% for unidade in unidades_venda %}
+                        <option value="{{ unidade }}">{{ unidade }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div>
+                    <label>Status</label>
+                    <select name="ativo" required>
+                        <option value="Sim">Ativo</option>
+                        <option value="Não">Inativo</option>
+                    </select>
+                </div>
+            </div>
+
+            <label>Observações</label>
+            <textarea name="observacoes" rows="3" placeholder="Ex.: produto vendido por kg, embalagem consumida por unidade produzida..."></textarea>
+
+            <button type="submit">Cadastrar SKU</button>
+        </form>
+    </div>
+
+    <div class="card almoxarifado-form-card">
+        <div class="section-title-row">
+            <div>
+                <span class="eyebrow">Receita</span>
+                <h2>Adicionar Insumo ao SKU</h2>
+            </div>
+        </div>
+
+        <form method="POST" action="{{ url_for('receitas_sku') }}">
+            <input type="hidden" name="acao" value="salvar_item_receita">
+
+            <div class="form-grid">
+                <div>
+                    <label>SKU</label>
+                    <select name="sku_id" required>
+                        <option value="">Selecione</option>
+                        {% for sku in skus_ativos %}
+                        <option value="{{ sku.id }}">{{ sku.nome }} | Venda: {{ sku.unidade_venda }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div>
+                    <label>Insumo</label>
+                    <select name="insumo_id" required>
+                        <option value="">Selecione</option>
+                        {% for insumo in insumos %}
+                        <option value="{{ insumo.id }}">{{ insumo.descricao }} | {{ insumo.unidade }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div>
+                    <label>Quantidade por unidade produzida</label>
+                    <input type="number" step="0.0001" name="quantidade_por_unidade" placeholder="Ex.: 1 ou 0.0833" required>
+                </div>
+
+                <div>
+                    <label>Tipo de consumo</label>
+                    <select name="tipo_consumo">
+                        <option value="">Selecione</option>
+                        {% for tipo in tipos_consumo %}
+                        <option value="{{ tipo }}">{{ tipo }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            <label>Observações</label>
+            <textarea name="observacoes" rows="3" placeholder="Ex.: caixa proporcional 1 para 12 bandejas."></textarea>
+
+            <button type="submit">Adicionar à receita</button>
+        </form>
+    </div>
+</div>
+
+<div class="card">
+    <div class="section-title-row">
+        <div>
+            <span class="eyebrow">Receitas Cadastradas</span>
+            <h2>Consumo por Unidade Produzida</h2>
+        </div>
+    </div>
+
+    {% if receitas %}
+        {% for receita in receitas %}
+        <div class="card" style="margin-bottom: 18px;">
+            <div class="section-title-row">
+                <div>
+                    <span class="eyebrow">SKU</span>
+                    <h2>{{ receita.sku }}</h2>
+                    <p class="obs">Unidade de venda: {{ receita.unidade_venda }} | Itens: {{ receita.total_itens }}</p>
+                </div>
+            </div>
+
+            <div class="tabela-responsiva tabela-executiva almoxarifado-tabela">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Insumo</th>
+                            <th>Categoria</th>
+                            <th>Qtd por unidade</th>
+                            <th>Unidade insumo</th>
+                            <th>Tipo</th>
+                            <th>Observações</th>
+                            <th>Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in receita.itens %}
+                        <tr>
+                            <td><strong>{{ item.insumo }}</strong></td>
+                            <td>{{ item.categoria_insumo }}</td>
+                            <td>{{ "%.4f"|format(item.quantidade_por_unidade) }}</td>
+                            <td>{{ item.unidade_insumo }}</td>
+                            <td>{{ item.tipo_consumo or '-' }}</td>
+                            <td>{{ item.observacoes or '-' }}</td>
+                            <td>
+                                <form method="POST" action="{{ url_for('excluir_item_receita_sku_rota', item_id=item.id) }}" onsubmit="return confirm('Remover este item da receita?')">
+                                    <button type="submit" class="botao-excluir">Remover</button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endfor %}
+    {% else %}
+        <p class="obs">Nenhuma receita cadastrada ainda. Cadastre os itens consumidos por unidade produzida para cada SKU.</p>
+    {% endif %}
+</div>
+
+<div class="card">
+    <div class="section-title-row">
+        <div>
+            <span class="eyebrow">SKUs</span>
+            <h2>Produtos / Processos Cadastrados</h2>
+        </div>
+    </div>
+
+    {% if skus %}
+    <div class="tabela-responsiva tabela-executiva almoxarifado-tabela">
+        <table>
+            <thead>
+                <tr>
+                    <th>Código</th>
+                    <th>Nome</th>
+                    <th>Unidade venda</th>
+                    <th>Status</th>
+                    <th>Observações</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for sku in skus %}
+                <tr>
+                    <td>#{{ sku.id }}</td>
+                    <td><strong>{{ sku.nome }}</strong></td>
+                    <td>{{ sku.unidade_venda }}</td>
+                    <td>
+                        <span class="badge-almoxarifado {% if sku.ativo == 'Sim' %}ativo{% else %}inativo{% endif %}">
+                            {% if sku.ativo == 'Sim' %}Ativo{% else %}Inativo{% endif %}
+                        </span>
+                    </td>
+                    <td>{{ sku.observacoes or '-' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+        <p class="obs">Nenhum SKU cadastrado.</p>
+    {% endif %}
+</div>
+
+{% endblock %}
