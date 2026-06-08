@@ -1342,6 +1342,257 @@ def gerar_excel_dre_gerencial(competencia, dados):
 
 
 
+
+# ============================================================
+# MÓDULO ALMOXARIFADO
+# ============================================================
+
+CATEGORIAS_ALMOXARIFADO = [
+    "Matéria-prima",
+    "Embalagem",
+    "Produto Químico",
+    "Peça de Reposição",
+    "EPI",
+    "Material de Limpeza",
+    "Material de Escritório",
+    "Combustível / Lubrificante",
+    "Outros"
+]
+
+UNIDADES_ALMOXARIFADO = [
+    "Kg",
+    "Un",
+    "Cx",
+    "Pacote",
+    "Litro",
+    "Metro",
+    "Par",
+    "Galão",
+    "Saco"
+]
+
+
+def criar_tabelas_almoxarifado():
+    conn = conectar()
+    cursor = conn.cursor()
+
+    if DATABASE_URL:
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS almoxarifado_insumos (
+            id SERIAL PRIMARY KEY,
+            descricao TEXT NOT NULL UNIQUE,
+            categoria TEXT NOT NULL,
+            unidade TEXT NOT NULL,
+            ativo TEXT DEFAULT 'Sim',
+            observacoes TEXT,
+            criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
+    else:
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS almoxarifado_insumos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            descricao TEXT NOT NULL UNIQUE,
+            categoria TEXT NOT NULL,
+            unidade TEXT NOT NULL,
+            ativo TEXT DEFAULT 'Sim',
+            observacoes TEXT,
+            criado_em TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
+
+    tentar_alter_table(cursor, conn, "ALTER TABLE almoxarifado_insumos ADD COLUMN observacoes TEXT")
+
+    conn.commit()
+    conn.close()
+
+
+def salvar_insumo_almoxarifado(form):
+    criar_tabelas_almoxarifado()
+
+    descricao = form.get("descricao", "").strip()
+    categoria = form.get("categoria", "").strip()
+    unidade = form.get("unidade", "").strip()
+    ativo = form.get("ativo", "Sim").strip()
+    observacoes = form.get("observacoes", "").strip()
+
+    if not descricao:
+        raise ValueError("Informe a descrição do insumo.")
+
+    if categoria not in CATEGORIAS_ALMOXARIFADO:
+        raise ValueError("Categoria inválida.")
+
+    if unidade not in UNIDADES_ALMOXARIFADO:
+        raise ValueError("Unidade inválida.")
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q("""
+    INSERT INTO almoxarifado_insumos (
+        descricao, categoria, unidade, ativo, observacoes
+    ) VALUES (?, ?, ?, ?, ?)
+    """), (
+        descricao,
+        categoria,
+        unidade,
+        ativo,
+        observacoes
+    ))
+
+    conn.commit()
+    conn.close()
+
+
+def buscar_insumos_almoxarifado(filtro_categoria="Todas", filtro_status="Todos", termo=""):
+    criar_tabelas_almoxarifado()
+
+    condicoes = ["1 = 1"]
+    parametros = []
+
+    if filtro_categoria and filtro_categoria != "Todas":
+        condicoes.append("categoria = ?")
+        parametros.append(filtro_categoria)
+
+    if filtro_status and filtro_status != "Todos":
+        condicoes.append("ativo = ?")
+        parametros.append(filtro_status)
+
+    if termo:
+        condicoes.append("LOWER(descricao) LIKE ?")
+        parametros.append(f"%{termo.lower()}%")
+
+    where_sql = " AND ".join(condicoes)
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q(f"""
+    SELECT *
+    FROM almoxarifado_insumos
+    WHERE {where_sql}
+    ORDER BY ativo DESC, categoria ASC, descricao ASC
+    """), tuple(parametros))
+
+    insumos = cursor.fetchall()
+    conn.close()
+    return insumos
+
+
+def buscar_insumo_almoxarifado_por_id(insumo_id):
+    criar_tabelas_almoxarifado()
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q("""
+    SELECT *
+    FROM almoxarifado_insumos
+    WHERE id = ?
+    """), (insumo_id,))
+
+    insumo = cursor.fetchone()
+    conn.close()
+    return insumo
+
+
+def atualizar_insumo_almoxarifado(insumo_id, form):
+    criar_tabelas_almoxarifado()
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q("""
+    UPDATE almoxarifado_insumos
+    SET descricao = ?,
+        categoria = ?,
+        unidade = ?,
+        ativo = ?,
+        observacoes = ?
+    WHERE id = ?
+    """), (
+        form.get("descricao", "").strip(),
+        form.get("categoria", "").strip(),
+        form.get("unidade", "").strip(),
+        form.get("ativo", "Sim").strip(),
+        form.get("observacoes", "").strip(),
+        insumo_id
+    ))
+
+    conn.commit()
+    conn.close()
+
+
+def calcular_resumo_almoxarifado(insumos):
+    total_itens = len(insumos)
+    itens_ativos = sum(1 for item in insumos if item["ativo"] == "Sim")
+    itens_inativos = total_itens - itens_ativos
+    categorias_usadas = len(set(item["categoria"] for item in insumos))
+
+    return {
+        "total_itens": total_itens,
+        "itens_ativos": itens_ativos,
+        "itens_inativos": itens_inativos,
+        "categorias_usadas": categorias_usadas
+    }
+
+
+@app.route("/almoxarifado", methods=["GET", "POST"])
+@perfil_permitido("pcp")
+def almoxarifado():
+    criar_tabelas_almoxarifado()
+
+    categoria_filtro = request.args.get("categoria") or "Todas"
+    status_filtro = request.args.get("status") or "Todos"
+    termo = request.args.get("termo") or ""
+
+    if request.method == "POST":
+        try:
+            salvar_insumo_almoxarifado(request.form)
+            flash("Insumo cadastrado com sucesso.")
+            return redirect(url_for("almoxarifado"))
+        except Exception as erro:
+            flash(f"Erro ao cadastrar insumo: {erro}")
+
+    insumos = buscar_insumos_almoxarifado(categoria_filtro, status_filtro, termo)
+    resumo = calcular_resumo_almoxarifado(insumos)
+
+    return render_template(
+        "almoxarifado.html",
+        insumos=insumos,
+        resumo=resumo,
+        categorias=CATEGORIAS_ALMOXARIFADO,
+        unidades=UNIDADES_ALMOXARIFADO,
+        categoria_filtro=categoria_filtro,
+        status_filtro=status_filtro,
+        termo=termo
+    )
+
+
+@app.route("/almoxarifado/editar/<int:insumo_id>", methods=["GET", "POST"])
+@perfil_permitido("pcp")
+def editar_insumo_almoxarifado(insumo_id):
+    insumo = buscar_insumo_almoxarifado_por_id(insumo_id)
+
+    if not insumo:
+        flash("Insumo não encontrado.")
+        return redirect(url_for("almoxarifado"))
+
+    if request.method == "POST":
+        try:
+            atualizar_insumo_almoxarifado(insumo_id, request.form)
+            flash("Insumo atualizado com sucesso.")
+            return redirect(url_for("almoxarifado"))
+        except Exception as erro:
+            flash(f"Erro ao atualizar insumo: {erro}")
+
+    return render_template(
+        "almoxarifado_editar.html",
+        insumo=insumo,
+        categorias=CATEGORIAS_ALMOXARIFADO,
+        unidades=UNIDADES_ALMOXARIFADO
+    )
+
+
 # ============================================================
 # MÓDULO FINANCEIRO - MOVIMENTAÇÃO DE CAIXA
 # ============================================================

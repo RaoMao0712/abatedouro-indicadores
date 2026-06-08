@@ -1,0 +1,186 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+
+<section class="hero-dashboard almoxarifado-hero">
+    <div>
+        <span class="eyebrow">Almoxarifado</span>
+        <h2>Cadastro de Insumos</h2>
+
+        <div class="hero-resumo-inline">
+            <span><strong>Base:</strong> insumos, embalagens, químicos, peças e materiais</span>
+            <span><strong>Próxima etapa:</strong> entradas de estoque, FIFO e CMV real</span>
+        </div>
+    </div>
+
+    <form method="GET" action="{{ url_for('almoxarifado') }}" class="almoxarifado-filtro-form">
+        <div>
+            <label>Buscar</label>
+            <input type="text" name="termo" value="{{ termo }}" placeholder="Descrição do insumo">
+        </div>
+
+        <div>
+            <label>Categoria</label>
+            <select name="categoria">
+                <option value="Todas" {% if categoria_filtro == "Todas" %}selected{% endif %}>Todas</option>
+                {% for categoria in categorias %}
+                <option value="{{ categoria }}" {% if categoria_filtro == categoria %}selected{% endif %}>{{ categoria }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div>
+            <label>Status</label>
+            <select name="status">
+                <option value="Todos" {% if status_filtro == "Todos" %}selected{% endif %}>Todos</option>
+                <option value="Sim" {% if status_filtro == "Sim" %}selected{% endif %}>Ativos</option>
+                <option value="Não" {% if status_filtro == "Não" %}selected{% endif %}>Inativos</option>
+            </select>
+        </div>
+
+        <button type="submit" class="botao-hero-filtro">Filtrar</button>
+    </form>
+</section>
+
+<div class="cards-executivos almoxarifado-kpis">
+    <div class="card kpi-card destaque">
+        <span class="kpi-label">Itens cadastrados</span>
+        <strong>{{ resumo.total_itens }}</strong>
+        <small>Total de insumos na base</small>
+    </div>
+
+    <div class="card kpi-card">
+        <span class="kpi-label">Itens ativos</span>
+        <strong>{{ resumo.itens_ativos }}</strong>
+        <small>Disponíveis para movimentação</small>
+    </div>
+
+    <div class="card kpi-card alerta">
+        <span class="kpi-label">Itens inativos</span>
+        <strong>{{ resumo.itens_inativos }}</strong>
+        <small>Fora de uso no momento</small>
+    </div>
+
+    <div class="card kpi-card">
+        <span class="kpi-label">Categorias usadas</span>
+        <strong>{{ resumo.categorias_usadas }}</strong>
+        <small>Grupos de controle ativos</small>
+    </div>
+</div>
+
+<div class="almoxarifado-grid">
+    <div class="card almoxarifado-form-card">
+        <div class="section-title-row">
+            <div>
+                <span class="eyebrow">Novo Item</span>
+                <h2>Cadastrar Insumo</h2>
+            </div>
+        </div>
+
+        <form method="POST" action="{{ url_for('almoxarifado') }}">
+            <div class="form-grid">
+                <div>
+                    <label>Descrição</label>
+                    <input type="text" name="descricao" placeholder="Ex.: Bandeja G, Ave Viva, Sanitizante..." required>
+                </div>
+
+                <div>
+                    <label>Categoria</label>
+                    <select name="categoria" required>
+                        {% for categoria in categorias %}
+                        <option value="{{ categoria }}">{{ categoria }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div>
+                    <label>Unidade</label>
+                    <select name="unidade" required>
+                        {% for unidade in unidades %}
+                        <option value="{{ unidade }}">{{ unidade }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div>
+                    <label>Status</label>
+                    <select name="ativo" required>
+                        <option value="Sim">Ativo</option>
+                        <option value="Não">Inativo</option>
+                    </select>
+                </div>
+            </div>
+
+            <label>Observações</label>
+            <textarea name="observacoes" rows="3" placeholder="Informações úteis para compras, produção, manutenção ou qualidade."></textarea>
+
+            <button type="submit">Cadastrar insumo</button>
+        </form>
+    </div>
+
+    <div class="card almoxarifado-nota-card">
+        <div class="section-title-row">
+            <div>
+                <span class="eyebrow">Fundação</span>
+                <h2>Próximas etapas</h2>
+            </div>
+        </div>
+
+        <div class="almoxarifado-roadmap">
+            <div><strong>1. Cadastro</strong><span>Químicos, embalagens, matéria-prima, peças e EPIs.</span></div>
+            <div><strong>2. Entrada de Estoque</strong><span>NF, fornecedor, quantidade, valor unitário e lote.</span></div>
+            <div><strong>3. FIFO</strong><span>Consumo primeiro do estoque mais antigo.</span></div>
+            <div><strong>4. CMV Real</strong><span>Receita do SKU + consumo automático.</span></div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="section-title-row">
+        <div>
+            <span class="eyebrow">Base de Insumos</span>
+            <h2>Itens Cadastrados</h2>
+        </div>
+    </div>
+
+    {% if insumos %}
+    <div class="tabela-responsiva tabela-executiva almoxarifado-tabela">
+        <table>
+            <thead>
+                <tr>
+                    <th>Código</th>
+                    <th>Descrição</th>
+                    <th>Categoria</th>
+                    <th>Unidade</th>
+                    <th>Status</th>
+                    <th>Observações</th>
+                    <th>Ações</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in insumos %}
+                <tr>
+                    <td>#{{ item.id }}</td>
+                    <td><strong>{{ item.descricao }}</strong></td>
+                    <td>{{ item.categoria }}</td>
+                    <td>{{ item.unidade }}</td>
+                    <td>
+                        <span class="badge-almoxarifado {% if item.ativo == 'Sim' %}ativo{% else %}inativo{% endif %}">
+                            {% if item.ativo == 'Sim' %}Ativo{% else %}Inativo{% endif %}
+                        </span>
+                    </td>
+                    <td>{% if item.observacoes %}{{ item.observacoes }}{% else %}-{% endif %}</td>
+                    <td>
+                        <a href="{{ url_for('editar_insumo_almoxarifado', insumo_id=item.id) }}" class="botao-tabela-almoxarifado">Editar</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+        <p class="obs">Nenhum insumo encontrado para os filtros selecionados.</p>
+    {% endif %}
+</div>
+
+{% endblock %}

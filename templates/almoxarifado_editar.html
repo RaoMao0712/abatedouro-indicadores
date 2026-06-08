@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+
+<section class="hero-dashboard almoxarifado-hero">
+    <div>
+        <span class="eyebrow">Almoxarifado</span>
+        <h2>Editar Insumo</h2>
+
+        <div class="hero-resumo-inline">
+            <span><strong>Código:</strong> #{{ insumo.id }}</span>
+            <span><strong>Categoria:</strong> {{ insumo.categoria }}</span>
+        </div>
+    </div>
+
+    <div class="dre-acoes-topo dre-acoes-compactas">
+        <a href="{{ url_for('almoxarifado') }}" class="botao-dre-exportar">Voltar</a>
+    </div>
+</section>
+
+<div class="card">
+    <form method="POST">
+        <div class="form-grid">
+            <div>
+                <label>Descrição</label>
+                <input type="text" name="descricao" value="{{ insumo.descricao }}" required>
+            </div>
+
+            <div>
+                <label>Categoria</label>
+                <select name="categoria" required>
+                    {% for categoria in categorias %}
+                    <option value="{{ categoria }}" {% if insumo.categoria == categoria %}selected{% endif %}>{{ categoria }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div>
+                <label>Unidade</label>
+                <select name="unidade" required>
+                    {% for unidade in unidades %}
+                    <option value="{{ unidade }}" {% if insumo.unidade == unidade %}selected{% endif %}>{{ unidade }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div>
+                <label>Status</label>
+                <select name="ativo" required>
+                    <option value="Sim" {% if insumo.ativo == "Sim" %}selected{% endif %}>Ativo</option>
+                    <option value="Não" {% if insumo.ativo == "Não" %}selected{% endif %}>Inativo</option>
+                </select>
+            </div>
+        </div>
+
+        <label>Observações</label>
+        <textarea name="observacoes" rows="3">{{ insumo.observacoes }}</textarea>
+
+        <button type="submit">Salvar alterações</button>
+    </form>
+</div>
+
+{% endblock %}
