@@ -123,13 +123,20 @@ def preparar_grafico_despesas_operacionais(linhas_custos, receita_bruta, limite=
         cor = cores[indice % len(cores)]
         segmentos.append(f"{cor} {inicio:.2f}deg {fim:.2f}deg")
 
-        # Coordenadas simples para rótulos ao redor da rosca.
-        # 0 grau visual no topo; por isso subtrai 90 graus.
+        # Coordenadas dos rótulos ao redor da rosca.
+        # Regra visual validada: só exibimos rótulos externos para categorias
+        # com pelo menos 5% da receita. As demais continuam na tabela lateral.
+        #
+        # Também limitamos a distância dos rótulos para impedir invasão da tabela
+        # lateral e evitar balões excessivamente afastados do gráfico.
         import math
         rad = math.radians(meio - 90)
-        x = 50 + (46 * math.cos(rad))
-        y = 50 + (41 * math.sin(rad))
+        x = 50 + (32 * math.cos(rad))
+        y = 50 + (31 * math.sin(rad))
+        x = max(28, min(72, x))
+        y = max(22, min(78, y))
         alinhamento = "right" if x < 50 else "left"
+        mostrar_rotulo = float(item["percentual_receita"] or 0) >= 5
 
         itens_saida.append({
             "categoria": item["categoria"],
@@ -139,11 +146,11 @@ def preparar_grafico_despesas_operacionais(linhas_custos, receita_bruta, limite=
             "percentual_receita_formatado": formatar_percentual_br(item["percentual_receita"]),
             "percentual_despesa": round(fatia * 100, 2),
             "percentual_despesa_formatado": formatar_percentual_br(fatia * 100),
-            "mostrar_label": item["percentual_receita"] >= 5,
             "cor": cor,
             "x": round(x, 2),
             "y": round(y, 2),
-            "alinhamento": alinhamento
+            "alinhamento": alinhamento,
+            "mostrar_rotulo": mostrar_rotulo
         })
 
         angulo_atual = fim

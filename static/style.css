@@ -3592,15 +3592,15 @@ button:hover {
 
 .dre-donut-layout {
     display: grid;
-    grid-template-columns: minmax(520px, 1.2fr) minmax(300px, 0.8fr);
-    gap: 18px;
+    grid-template-columns: minmax(560px, 1.15fr) minmax(360px, 0.85fr);
+    gap: 34px;
     align-items: center;
 }
 
 .dre-donut-area {
     position: relative;
     min-height: 390px;
-    overflow: visible;
+    overflow: hidden;
 }
 
 .dre-donut {
@@ -3658,16 +3658,18 @@ button:hover {
 
 .dre-donut-label {
     position: absolute;
-    transform: translate(-50%, -50%);
-    min-width: 132px;
-    max-width: 176px;
+    transform: translateY(-50%);
+    min-width: 116px;
+    max-width: 148px;
     padding: 7px 9px;
     border-radius: 10px;
-    background: rgba(255,255,255,0.92);
+    background: rgba(255,255,255,0.94);
     border: 1px solid #e2e8f0;
     box-shadow: 0 8px 18px rgba(15,23,42,0.09);
     font-size: 11px;
     line-height: 1.15;
+    z-index: 4;
+    pointer-events: none;
 }
 
 .dre-donut-label::before {
@@ -3680,11 +3682,11 @@ button:hover {
 }
 
 .dre-donut-label.left::before {
-    left: 100%;
+    right: 100%;
 }
 
 .dre-donut-label.right::before {
-    right: 100%;
+    left: 100%;
 }
 
 .dre-donut-label span {
@@ -3701,8 +3703,13 @@ button:hover {
     font-weight: 950;
 }
 
+.dre-donut-label.left {
+    text-align: left;
+}
+
 .dre-donut-label.right {
     text-align: right;
+    transform: translate(-100%, -50%);
 }
 
 .dre-donut-tabela {

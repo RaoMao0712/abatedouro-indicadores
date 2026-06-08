@@ -217,7 +217,7 @@
             </div>
 
             {% for item in despesas_grafico.itens %}
-                {% if item.mostrar_label %}
+                {% if item.mostrar_rotulo %}
                 <div class="dre-donut-label {{ item.alinhamento }}" style="left: {{ item.x }}%; top: {{ item.y }}%; --label-color: {{ item.cor }};">
                     <span>{{ item.categoria }}</span>
                     <strong>{{ item.percentual_receita|br_percentual }}</strong>
