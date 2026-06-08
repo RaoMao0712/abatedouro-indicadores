@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+
+<section class="hero-dashboard almoxarifado-hero">
+    <div>
+        <span class="eyebrow">Almoxarifado</span>
+        <h2>Saldo Atual</h2>
+
+        <div class="hero-resumo-inline">
+            <span><strong>Finalidade:</strong> consulta rápida do estoque disponível</span>
+            <span><strong>Base:</strong> soma dos lotes ainda disponíveis</span>
+        </div>
+    </div>
+
+    <div class="dre-acoes-topo dre-acoes-compactas">
+        <a href="{{ url_for('almoxarifado') }}" class="botao-dre-exportar">Cadastro</a>
+        <a href="{{ url_for('entrada_estoque_almoxarifado') }}" class="botao-dre-exportar">Entrada</a>
+        <a href="{{ url_for('movimentacoes_almoxarifado') }}" class="botao-dre-exportar">Movimentações</a>
+        <a href="{{ url_for('rastreabilidade_almoxarifado') }}" class="botao-dre-exportar">Rastreabilidade</a>
+    </div>
+</section>
+
+<div class="cards-executivos almoxarifado-kpis">
+    <div class="card kpi-card destaque">
+        <span class="kpi-label">Valor em estoque</span>
+        <strong>R$ {{ "%.2f"|format(resumo.valor_total) }}</strong>
+        <small>Soma dos saldos valorizados</small>
+    </div>
+
+    <div class="card kpi-card">
+        <span class="kpi-label">Itens com saldo</span>
+        <strong>{{ resumo.itens_com_saldo }}</strong>
+        <small>Disponíveis para consumo</small>
+    </div>
+
+    <div class="card kpi-card alerta">
+        <span class="kpi-label">Itens zerados</span>
+        <strong>{{ resumo.itens_zerados }}</strong>
+        <small>Exigem atenção de compras</small>
+    </div>
+
+    <div class="card kpi-card">
+        <span class="kpi-label">Itens monitorados</span>
+        <strong>{{ resumo.total_itens }}</strong>
+        <small>Insumos cadastrados</small>
+    </div>
+</div>
+
+<div class="card">
+    <form method="GET" action="{{ url_for('saldo_almoxarifado') }}" class="almoxarifado-filtro-form">
+        <div>
+            <label>Buscar</label>
+            <input type="text" name="termo" value="{{ termo }}" placeholder="Descrição do insumo">
+        </div>
+
+        <div>
+            <label>Categoria</label>
+            <select name="categoria">
+                <option value="Todas" {% if categoria_filtro == "Todas" %}selected{% endif %}>Todas</option>
+                {% for categoria in categorias %}
+                <option value="{{ categoria }}" {% if categoria_filtro == categoria %}selected{% endif %}>{{ categoria }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <button type="submit" class="botao-hero-filtro">Filtrar</button>
+    </form>
+</div>
+
+<div class="card">
+    <div class="section-title-row">
+        <div>
+            <span class="eyebrow">Consulta</span>
+            <h2>Estoque por Insumo</h2>
+        </div>
+    </div>
+
+    {% if saldos %}
+    <div class="tabela-responsiva tabela-executiva almoxarifado-tabela">
+        <table>
+            <thead>
+                <tr>
+                    <th>Insumo</th>
+                    <th>Categoria</th>
+                    <th>Unidade</th>
+                    <th>Saldo</th>
+                    <th>Valor em estoque</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in saldos %}
+                <tr>
+                    <td><strong>{{ item.descricao }}</strong></td>
+                    <td>{{ item.categoria }}</td>
+                    <td>{{ item.unidade }}</td>
+                    <td>{{ "%.4f"|format(item.saldo_atual) }}</td>
+                    <td>R$ {{ "%.2f"|format(item.valor_estoque) }}</td>
+                    <td>
+                        {% if item.saldo_atual > 0 %}
+                            <span class="badge-almoxarifado ativo">Com saldo</span>
+                        {% else %}
+                            <span class="badge-almoxarifado inativo">Zerado</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+        <p class="obs">Nenhum saldo encontrado para os filtros selecionados.</p>
+    {% endif %}
+</div>
+
+{% endblock %}

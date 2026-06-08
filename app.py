@@ -1790,6 +1790,140 @@ def calcular_resumo_estoque_almoxarifado(saldos):
     }
 
 
+
+def buscar_saldos_almoxarifado_filtrado(filtro_categoria="Todas", termo=""):
+    criar_tabelas_estoque_almoxarifado()
+
+    condicoes = ["1 = 1"]
+    parametros = []
+
+    if filtro_categoria and filtro_categoria != "Todas":
+        condicoes.append("i.categoria = ?")
+        parametros.append(filtro_categoria)
+
+    if termo:
+        condicoes.append("LOWER(i.descricao) LIKE ?")
+        parametros.append(f"%{termo.lower()}%")
+
+    where_sql = " AND ".join(condicoes)
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q(f"""
+    SELECT
+        i.id,
+        i.descricao,
+        i.categoria,
+        i.unidade,
+        i.ativo,
+        COALESCE(SUM(l.quantidade_atual), 0) as saldo_atual,
+        COALESCE(SUM(l.quantidade_atual * l.valor_unitario), 0) as valor_estoque
+    FROM almoxarifado_insumos i
+    LEFT JOIN almoxarifado_lotes l ON l.insumo_id = i.id
+    WHERE {where_sql}
+    GROUP BY i.id, i.descricao, i.categoria, i.unidade, i.ativo
+    ORDER BY i.categoria ASC, i.descricao ASC
+    """), tuple(parametros))
+
+    saldos = cursor.fetchall()
+    conn.close()
+    return saldos
+
+
+def buscar_movimentacoes_almoxarifado_filtrado(data_inicio, data_fim, tipo_filtro="Todos", termo="", limite=300):
+    criar_tabelas_estoque_almoxarifado()
+
+    condicoes = ["m.data_movimentacao BETWEEN ? AND ?"]
+    parametros = [data_inicio, data_fim]
+
+    if tipo_filtro and tipo_filtro != "Todos":
+        condicoes.append("m.tipo = ?")
+        parametros.append(tipo_filtro)
+
+    if termo:
+        condicoes.append("LOWER(i.descricao) LIKE ?")
+        parametros.append(f"%{termo.lower()}%")
+
+    where_sql = " AND ".join(condicoes)
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q(f"""
+    SELECT
+        m.*,
+        i.descricao as insumo,
+        i.unidade as unidade,
+        i.categoria as categoria
+    FROM almoxarifado_movimentacoes m
+    JOIN almoxarifado_insumos i ON i.id = m.insumo_id
+    WHERE {where_sql}
+    ORDER BY m.data_movimentacao DESC, m.id DESC
+    LIMIT ?
+    """), tuple(parametros + [limite]))
+
+    movimentacoes = cursor.fetchall()
+    conn.close()
+    return movimentacoes
+
+
+def buscar_lotes_almoxarifado_filtrado(insumo_id="", status_filtro="Todos", termo="", limite=300):
+    criar_tabelas_estoque_almoxarifado()
+
+    condicoes = ["1 = 1"]
+    parametros = []
+
+    if insumo_id:
+        condicoes.append("l.insumo_id = ?")
+        parametros.append(int(insumo_id))
+
+    if status_filtro and status_filtro != "Todos":
+        condicoes.append("l.status = ?")
+        parametros.append(status_filtro)
+
+    if termo:
+        condicoes.append("LOWER(i.descricao) LIKE ?")
+        parametros.append(f"%{termo.lower()}%")
+
+    where_sql = " AND ".join(condicoes)
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q(f"""
+    SELECT
+        l.*,
+        i.descricao as insumo,
+        i.unidade as unidade,
+        i.categoria as categoria
+    FROM almoxarifado_lotes l
+    JOIN almoxarifado_insumos i ON i.id = l.insumo_id
+    WHERE {where_sql}
+    ORDER BY l.data_entrada ASC, l.id ASC
+    LIMIT ?
+    """), tuple(parametros + [limite]))
+
+    lotes = cursor.fetchall()
+    conn.close()
+    return lotes
+
+
+def calcular_resumo_rastreabilidade(lotes):
+    lotes_abertos = sum(1 for item in lotes if item["status"] == "Aberto")
+    lotes_fechados = sum(1 for item in lotes if item["status"] == "Fechado")
+    quantidade_total = sum(float(item["quantidade_atual"] or 0) for item in lotes)
+    valor_total = sum(float(item["quantidade_atual"] or 0) * float(item["valor_unitario"] or 0) for item in lotes)
+
+    return {
+        "total_lotes": len(lotes),
+        "lotes_abertos": lotes_abertos,
+        "lotes_fechados": lotes_fechados,
+        "quantidade_total": round(quantidade_total, 4),
+        "valor_total": round(valor_total, 2)
+    }
+
+
 def calcular_resumo_almoxarifado(insumos):
     total_itens = len(insumos)
     itens_ativos = sum(1 for item in insumos if item["ativo"] == "Sim")
@@ -1891,6 +2025,93 @@ def entrada_estoque_almoxarifado():
         resumo=resumo
     )
 
+
+
+@app.route("/almoxarifado/saldo")
+@perfil_permitido("pcp")
+def saldo_almoxarifado():
+    criar_tabelas_estoque_almoxarifado()
+
+    categoria_filtro = request.args.get("categoria") or "Todas"
+    termo = request.args.get("termo") or ""
+
+    saldos = buscar_saldos_almoxarifado_filtrado(categoria_filtro, termo)
+    resumo = calcular_resumo_estoque_almoxarifado(saldos)
+
+    return render_template(
+        "almoxarifado_saldo.html",
+        saldos=saldos,
+        resumo=resumo,
+        categorias=CATEGORIAS_ALMOXARIFADO,
+        categoria_filtro=categoria_filtro,
+        termo=termo
+    )
+
+
+@app.route("/almoxarifado/movimentacoes")
+@perfil_permitido("pcp")
+def movimentacoes_almoxarifado():
+    criar_tabelas_estoque_almoxarifado()
+
+    agora = datetime.now()
+    hoje = agora.strftime("%Y-%m-%d")
+    primeiro_dia_mes = agora.replace(day=1).strftime("%Y-%m-%d")
+
+    data_inicio = request.args.get("data_inicio") or primeiro_dia_mes
+    data_fim = request.args.get("data_fim") or hoje
+    tipo_filtro = request.args.get("tipo") or "Todos"
+    termo = request.args.get("termo") or ""
+
+    movimentacoes = buscar_movimentacoes_almoxarifado_filtrado(
+        data_inicio,
+        data_fim,
+        tipo_filtro,
+        termo
+    )
+
+    entradas = sum(float(item["valor_total"] or 0) for item in movimentacoes if item["tipo"] == "ENTRADA")
+    saidas = sum(float(item["valor_total"] or 0) for item in movimentacoes if item["tipo"] == "SAIDA")
+
+    resumo = {
+        "total_movimentacoes": len(movimentacoes),
+        "valor_entradas": round(entradas, 2),
+        "valor_saidas": round(saidas, 2),
+        "saldo_valor": round(entradas - saidas, 2)
+    }
+
+    return render_template(
+        "almoxarifado_movimentacoes.html",
+        movimentacoes=movimentacoes,
+        resumo=resumo,
+        data_inicio=data_inicio,
+        data_fim=data_fim,
+        tipo_filtro=tipo_filtro,
+        termo=termo
+    )
+
+
+@app.route("/almoxarifado/rastreabilidade")
+@perfil_permitido("pcp")
+def rastreabilidade_almoxarifado():
+    criar_tabelas_estoque_almoxarifado()
+
+    insumo_id = request.args.get("insumo_id") or ""
+    status_filtro = request.args.get("status") or "Todos"
+    termo = request.args.get("termo") or ""
+
+    insumos = buscar_insumos_almoxarifado("Todas", "Sim", "")
+    lotes = buscar_lotes_almoxarifado_filtrado(insumo_id, status_filtro, termo)
+    resumo = calcular_resumo_rastreabilidade(lotes)
+
+    return render_template(
+        "almoxarifado_rastreabilidade.html",
+        insumos=insumos,
+        lotes=lotes,
+        resumo=resumo,
+        insumo_id=insumo_id,
+        status_filtro=status_filtro,
+        termo=termo
+    )
 
 # ============================================================
 # MÓDULO FINANCEIRO - MOVIMENTAÇÃO DE CAIXA

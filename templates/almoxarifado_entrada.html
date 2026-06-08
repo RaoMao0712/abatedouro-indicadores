@@ -14,7 +14,10 @@
     </div>
 
     <div class="dre-acoes-topo dre-acoes-compactas">
-        <a href="{{ url_for('almoxarifado') }}" class="botao-dre-exportar">Cadastro de Insumos</a>
+        <a href="{{ url_for('almoxarifado') }}" class="botao-dre-exportar">Cadastro</a>
+        <a href="{{ url_for('saldo_almoxarifado') }}" class="botao-dre-exportar">Saldo Atual</a>
+        <a href="{{ url_for('movimentacoes_almoxarifado') }}" class="botao-dre-exportar">Movimentações</a>
+        <a href="{{ url_for('rastreabilidade_almoxarifado') }}" class="botao-dre-exportar">Rastreabilidade</a>
     </div>
 </section>
 
@@ -114,7 +117,7 @@
         <div class="almoxarifado-roadmap">
             <div><strong>1. Entrada</strong><span>Quantidade + valor unitário criam um lote.</span></div>
             <div><strong>2. Saldo</strong><span>O saldo atual soma os lotes ainda abertos.</span></div>
-            <div><strong>3. FIFO</strong><span>A baixa futura consumirá primeiro o lote mais antigo.</span></div>
+            <div><strong>3. Rastreabilidade</strong><span>A baixa futura consumirá automaticamente o lote mais antigo.</span></div>
             <div><strong>4. CMV</strong><span>O custo consumido será levado para a OP.</span></div>
         </div>
     </div>
@@ -161,7 +164,7 @@
 <div class="card">
     <div class="section-title-row">
         <div>
-            <span class="eyebrow">FIFO</span>
+            <span class="eyebrow">Rastreabilidade</span>
             <h2>Lotes em Estoque</h2>
         </div>
     </div>
