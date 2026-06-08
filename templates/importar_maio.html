@@ -4,86 +4,90 @@
 
 <section class="hero-dashboard almoxarifado-hero">
     <div>
-        <span class="eyebrow">Importação Oficial</span>
-        <h2>Produção de Maio/2026</h2>
+        <span class="eyebrow">Importação oficial</span>
+        <h2>Maio/2026 — OPs e Descartes</h2>
+
         <div class="hero-resumo-inline">
-            <span><strong>Finalidade:</strong> carregar histórico oficial de OPs e descartes</span>
-            <span><strong>Segurança:</strong> validação antes da gravação e transação única</span>
+            <span><strong>Uso:</strong> importar histórico oficial de maio</span>
+            <span><strong>Segurança:</strong> valida antes de gravar</span>
         </div>
     </div>
 
     <div class="dre-acoes-topo dre-acoes-compactas">
         <a href="{{ url_for('dashboard') }}" class="botao-dre-exportar">Dashboard</a>
         <a href="{{ url_for('consultar_op') }}" class="botao-dre-exportar">Consultar OP</a>
+        <a href="{{ url_for('relatorio') }}" class="botao-dre-exportar">Relatório</a>
     </div>
 </section>
 
-<div class="card almoxarifado-nota-card">
+<div class="card">
     <div class="section-title-row">
         <div>
-            <span class="eyebrow">Atenção</span>
-            <h2>Use somente a planilha oficial revisada</h2>
+            <span class="eyebrow">Planilha</span>
+            <h2>Enviar arquivo Excel</h2>
         </div>
     </div>
 
-    <div class="almoxarifado-roadmap">
-        <div><strong>1. Validar</strong><span>Primeiro envie a planilha usando o botão Validar.</span></div>
-        <div><strong>2. Conferir</strong><span>Confira OPs, aves, kg produzidos e descartes.</span></div>
-        <div><strong>3. Importar</strong><span>Marque a confirmação e importe oficialmente.</span></div>
-        <div><strong>4. Verificar</strong><span>Abra o Dashboard filtrando Maio/2026.</span></div>
-    </div>
-</div>
+    <p class="obs">
+        Primeiro clique em <strong>Validar planilha</strong>. Se não houver erros, envie novamente marcando a confirmação e clique em
+        <strong>Importar oficialmente</strong>.
+    </p>
 
-<div class="card">
     <form method="POST" enctype="multipart/form-data">
         <div class="form-grid">
             <div>
-                <label>Planilha Excel</label>
-                <input type="file" name="arquivo" accept=".xlsx" required>
+                <label>Arquivo Excel</label>
+                <input type="file" name="arquivo" accept=".xlsx,.xlsm" required>
             </div>
 
             <div>
-                <label>Confirmação</label>
+                <label>Confirmação para importação oficial</label>
                 <label class="checkbox-item">
                     <input type="checkbox" name="substituir" value="sim">
-                    Substituir dados oficiais de Maio/2026 já importados anteriormente
+                    Substituir com segurança dados oficiais de Maio/2026 importados anteriormente
                 </label>
             </div>
         </div>
 
-        <div class="dre-acoes-topo dre-acoes-compactas" style="margin-top: 16px;">
-            <button type="submit" name="acao" value="validar">Validar planilha</button>
-            <button type="submit" name="acao" value="importar" onclick="return confirm('Confirma a importação oficial de Maio/2026?')">Importar oficialmente</button>
+        <div class="acoes-lote">
+            <button type="submit" name="acao" value="validar" class="botao-lote-editar">
+                Validar planilha
+            </button>
+
+            <button type="submit" name="acao" value="importar" class="botao-impressao"
+                    onclick="return confirm('Confirma a importação oficial de Maio/2026?')">
+                Importar oficialmente
+            </button>
         </div>
     </form>
 </div>
 
 {% if erros %}
-<div class="card" style="border-left: 5px solid #dc2626;">
+<div class="card">
     <div class="section-title-row">
         <div>
-            <span class="eyebrow">Bloqueio de Segurança</span>
-            <h2>Corrija antes de importar</h2>
+            <span class="eyebrow">Validação</span>
+            <h2>Erros encontrados</h2>
         </div>
     </div>
 
     {% for erro in erros %}
-        <p class="obs" style="color: #dc2626; font-weight: 700;">{{ erro }}</p>
+        <p class="obs" style="color:#dc2626;"><strong>•</strong> {{ erro }}</p>
     {% endfor %}
 </div>
 {% endif %}
 
 {% if avisos %}
-<div class="card" style="border-left: 5px solid #f97316;">
+<div class="card">
     <div class="section-title-row">
         <div>
-            <span class="eyebrow">Avisos</span>
-            <h2>Pontos de atenção</h2>
+            <span class="eyebrow">Validação</span>
+            <h2>Avisos</h2>
         </div>
     </div>
 
     {% for aviso in avisos %}
-        <p class="obs">{{ aviso }}</p>
+        <p class="obs"><strong>•</strong> {{ aviso }}</p>
     {% endfor %}
 </div>
 {% endif %}
@@ -93,33 +97,33 @@
     <div class="card kpi-card destaque">
         <span class="kpi-label">OPs</span>
         <strong>{{ resumo.total_ops }}</strong>
-        <small>Registros encontrados</small>
+        <small>OPs encontradas</small>
     </div>
 
     <div class="card kpi-card">
         <span class="kpi-label">Aves recebidas</span>
         <strong>{{ "%.0f"|format(resumo.total_aves) }}</strong>
-        <small>Total de maio</small>
+        <small>Total da planilha</small>
     </div>
 
     <div class="card kpi-card">
         <span class="kpi-label">Kg produzidos</span>
         <strong>{{ "%.2f"|format(resumo.total_kg) }}</strong>
-        <small>Produto acabado</small>
+        <small>Produção final</small>
     </div>
 
     <div class="card kpi-card alerta">
         <span class="kpi-label">Descartes</span>
         <strong>{{ "%.0f"|format(resumo.total_descartes) }}</strong>
-        <small>Ocorrências por motivo</small>
+        <small>Ocorrências importáveis</small>
     </div>
 </div>
 
 <div class="card">
     <div class="section-title-row">
         <div>
-            <span class="eyebrow">Validação</span>
-            <h2>Resumo da Planilha</h2>
+            <span class="eyebrow">Resumo</span>
+            <h2>Conferência da importação</h2>
         </div>
     </div>
 
@@ -132,13 +136,12 @@
                 </tr>
             </thead>
             <tbody>
-                <tr><td>OPs encontradas</td><td>{{ resumo.total_ops }}</td></tr>
                 <tr><td>Aves recebidas</td><td>{{ "%.0f"|format(resumo.total_aves) }}</td></tr>
                 <tr><td>Mortes antes da pendura</td><td>{{ "%.0f"|format(resumo.total_mortes) }}</td></tr>
                 <tr><td>Peso vivo</td><td>{{ "%.2f"|format(resumo.total_peso_vivo) }} kg</td></tr>
                 <tr><td>Unidades produzidas</td><td>{{ "%.0f"|format(resumo.total_unidades) }}</td></tr>
                 <tr><td>Kg produzidos</td><td>{{ "%.2f"|format(resumo.total_kg) }} kg</td></tr>
-                <tr><td>Descartes</td><td>{{ "%.0f"|format(resumo.total_descartes) }}</td></tr>
+                <tr><td>Total de descartes</td><td>{{ "%.0f"|format(resumo.total_descartes) }}</td></tr>
             </tbody>
         </table>
     </div>
@@ -148,7 +151,7 @@
     <div class="section-title-row">
         <div>
             <span class="eyebrow">Qualidade</span>
-            <h2>Descartes por Motivo</h2>
+            <h2>Descartes por motivo</h2>
         </div>
     </div>
 
@@ -180,19 +183,26 @@
 {% endif %}
 
 {% if resultado %}
-<div class="card" style="border-left: 5px solid #16a34a;">
+<div class="card">
     <div class="section-title-row">
         <div>
-            <span class="eyebrow">Concluído</span>
-            <h2>Importação realizada</h2>
+            <span class="eyebrow">Importação concluída</span>
+            <h2>Resultado da carga oficial</h2>
         </div>
     </div>
 
-    <p><strong>OPs removidas da importação anterior:</strong> {{ resultado.removidas }}</p>
-    <p><strong>OPs importadas:</strong> {{ resultado.ops_importadas }}</p>
-    <p><strong>Descartes importados:</strong> {{ resultado.descartes_importados }}</p>
+    <p class="obs"><strong>OPs removidas antes da substituição:</strong> {{ resultado.removidas }}</p>
+    <p class="obs"><strong>OPs importadas:</strong> {{ resultado.ops_importadas }}</p>
+    <p class="obs"><strong>Descartes importados:</strong> {{ resultado.descartes_importados }}</p>
 
-    <a href="{{ url_for('dashboard') }}?data_inicio=2026-05-01&data_fim=2026-05-31&status=Encerrada&sku=Galinha%20Cortada" class="botao-dre-exportar">Abrir Dashboard de Maio</a>
+    <div class="dre-acoes-topo dre-acoes-compactas">
+        <a href="{{ url_for('dashboard', data_inicio='2026-05-01', data_fim='2026-05-31', status='Encerrada') }}" class="botao-dre-exportar">
+            Ver Dashboard de Maio
+        </a>
+        <a href="{{ url_for('consultar_op') }}" class="botao-dre-exportar">
+            Consultar OPs
+        </a>
+    </div>
 </div>
 {% endif %}
 
