@@ -275,57 +275,144 @@
         <p class="obs">Nenhum dado produtivo no período/status selecionado.</p>
     {% endif %}
 
-    <div class="card" style="margin-top:20px;">
-        <h3>Equipe Necessária para Operação</h3>
-
-        <div class="linha-info">
-            <strong>Mão de obra direta total</strong>
-            <span>{{ mao_obra_direta_media }} colaboradores</span>
-        </div>
-
-        <p class="obs">
-            Média calculada com base nas OPs filtradas para este SKU.
-        </p>
-    </div>
-
     <p class="obs">
         A coluna Colab. médio representa a média de colaboradores por OP em cada setor.
         A Expedição não entra neste cálculo, pois ocorre em outro fluxo operacional após o congelamento.
     </p>
 </div>
 
-<div class="card">
-    <div class="section-title-row">
+<div class="card qualidade-executiva-card">
+    <div class="section-title-row qualidade-executiva-header">
         <div>
             <span class="eyebrow">Qualidade</span>
-            <h2>% de Descarte / Condenação por Motivo</h2>
+            <h2>Descartes e Condenações por Motivo</h2>
         </div>
+
+        {% if descartes_por_motivo %}
+            {% set total_descartes_motivo = namespace(valor=0) %}
+            {% for item in descartes_por_motivo %}
+                {% set total_descartes_motivo.valor = total_descartes_motivo.valor + item.quantidade %}
+            {% endfor %}
+
+            <div class="qualidade-total-box">
+                <span>Total analisado</span>
+                <strong>{{ "%.0f"|format(total_descartes_motivo.valor) }}</strong>
+                <small>aves descartadas/condenadas</small>
+            </div>
+        {% endif %}
     </div>
 
     {% if descartes_por_motivo %}
+        {% set cores_qualidade = [
+            '#f97316', '#ef4444', '#f59e0b', '#8b5cf6', '#2563eb',
+            '#14b8a6', '#ec4899', '#a16207', '#64748b', '#1f3b4d'
+        ] %}
+        {% set total_descartes_motivo = namespace(valor=0) %}
         {% for item in descartes_por_motivo %}
-            <div class="linha-info barra-indicador">
-                <strong>{{ item.motivo }}</strong>
-                <span>{{ "%.2f"|format(item.percentual) }}% — {{ "%.2f"|format(item.quantidade) }} aves</span>
-            </div>
+            {% set total_descartes_motivo.valor = total_descartes_motivo.valor + item.quantidade %}
         {% endfor %}
+        {% set donut = namespace(valor='conic-gradient(', acumulado=0) %}
+        {% for item in descartes_por_motivo %}
+            {% set fatia = (item.quantidade / total_descartes_motivo.valor * 100) if total_descartes_motivo.valor > 0 else 0 %}
+            {% set proximo = donut.acumulado + fatia %}
+            {% set indice_cor = loop.index0 % (cores_qualidade|length) %}
+            {% set cor = cores_qualidade[indice_cor] %}
+            {% set donut.valor = donut.valor ~ cor ~ ' ' ~ ('%.4f'|format(donut.acumulado)) ~ '% ' ~ ('%.4f'|format(proximo)) ~ '%' ~ (', ' if not loop.last else '') %}
+            {% set donut.acumulado = proximo %}
+        {% endfor %}
+        {% set donut.valor = donut.valor ~ ')' %}
+
+        <div class="qualidade-executiva-grid">
+            <div class="qualidade-tabela-bloco">
+                <div class="qualidade-subtitulo">
+                    <span>Lista Executiva</span>
+                    <strong>Motivos de perda</strong>
+                </div>
+
+                <div class="tabela-responsiva tabela-qualidade-executiva">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Motivo</th>
+                                <th>Qtd</th>
+                                <th>%</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in descartes_por_motivo %}
+                            <tr>
+                                <td>
+                                    <span class="qualidade-cor" style="background: {{ cores_qualidade[loop.index0 % (cores_qualidade|length)] }};"></span>
+                                    <strong>{{ item.motivo }}</strong>
+                                </td>
+                                <td>{{ "%.0f"|format(item.quantidade) }}</td>
+                                <td>{{ "%.2f"|format(item.percentual) }}%</td>
+                            </tr>
+                            {% endfor %}
+                            <tr class="qualidade-total-linha">
+                                <td>Total</td>
+                                <td>{{ "%.0f"|format(total_descartes_motivo.valor) }}</td>
+                                <td>{{ "%.2f"|format((total_descartes_motivo.valor / aves_abatidas * 100) if aves_abatidas > 0 else 0) }}%</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <p class="obs qualidade-obs">
+                    Percentuais calculados sobre aves abatidas viáveis no período filtrado.
+                </p>
+            </div>
+
+            <div class="qualidade-grafico-bloco">
+                <div class="qualidade-subtitulo">
+                    <span>Distribuição</span>
+                    <strong>Participação por motivo</strong>
+                </div>
+
+                <div class="qualidade-donut-area">
+                    <div class="qualidade-donut" style="background: {{ donut.valor }};">
+                        <div class="qualidade-donut-centro">
+                            <span>Total</span>
+                            <strong>{{ "%.0f"|format(total_descartes_motivo.valor) }}</strong>
+                            <small>{{ "%.2f"|format((total_descartes_motivo.valor / aves_abatidas * 100) if aves_abatidas > 0 else 0) }}%</small>
+                        </div>
+                    </div>
+
+                    <div class="qualidade-legenda-executiva">
+                        {% for item in descartes_por_motivo %}
+                        <div class="qualidade-legenda-item">
+                            <span class="qualidade-cor" style="background: {{ cores_qualidade[loop.index0 % (cores_qualidade|length)] }};"></span>
+                            <strong>{{ item.motivo }}</strong>
+                            <em>{{ "%.2f"|format(item.percentual) }}%</em>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <p class="obs qualidade-obs">
+                    Leitura principal por motivo. Mortes antes da pendura entram como “Morte na gaiola / antes da pendura”.
+                </p>
+            </div>
+        </div>
     {% else %}
         <p class="obs">Nenhum descarte ou condenação em aves no período/status selecionado.</p>
     {% endif %}
 
-    <p class="obs">Leitura principal por motivo. Mortes antes da pendura entram como “Morte na gaiola / antes da pendura”.</p>
-
-    <div style="margin-top: 22px;">
-        <span class="eyebrow">Mapa de origem</span>
-        <h3 style="margin-top: 6px;">Consolidado por Setor</h3>
+    <div class="qualidade-setores-compacto">
+        <div class="qualidade-subtitulo">
+            <span>Mapa de origem</span>
+            <strong>Consolidado por setor</strong>
+        </div>
 
         {% if descartes_por_setor %}
-            {% for item in descartes_por_setor %}
-                <div class="linha-info barra-indicador">
-                    <strong>{{ item.setor }}</strong>
-                    <span>{{ "%.2f"|format(item.percentual) }}% — {{ "%.2f"|format(item.quantidade) }} aves</span>
-                </div>
-            {% endfor %}
+            <div class="qualidade-setores-grid">
+                {% for item in descartes_por_setor %}
+                    <div class="qualidade-setor-pill">
+                        <strong>{{ item.setor }}</strong>
+                        <span>{{ "%.2f"|format(item.percentual) }}% — {{ "%.0f"|format(item.quantidade) }} aves</span>
+                    </div>
+                {% endfor %}
+            </div>
         {% else %}
             <p class="obs">Nenhum setor com descarte ou condenação em aves no período/status selecionado.</p>
         {% endif %}
