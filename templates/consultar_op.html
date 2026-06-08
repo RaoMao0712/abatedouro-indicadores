@@ -330,6 +330,66 @@
 
 </div>
 
+
+<!-- BAIXAS DE ESTOQUE -->
+
+<div class="card">
+
+    <h2>Baixas de Estoque da OP</h2>
+
+    {% if baixas_estoque %}
+
+    <div class="tabela-responsiva tabela-executiva almoxarifado-tabela">
+        <table>
+            <thead>
+                <tr>
+                    <th>Data</th>
+                    <th>Tipo</th>
+                    <th>Insumo</th>
+                    <th>Quantidade</th>
+                    <th>Valor unit.</th>
+                    <th>Valor total</th>
+                    <th>Lote</th>
+                    <th>NF</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for mov in baixas_estoque %}
+                <tr>
+                    <td>{{ mov.data_movimentacao }}</td>
+                    <td><strong>{{ mov.tipo }}</strong></td>
+                    <td>{{ mov.insumo }}</td>
+                    <td>{{ "%.4f"|format(mov.quantidade) }} {{ mov.unidade }}</td>
+                    <td>R$ {{ "%.4f"|format(mov.valor_unitario) }}</td>
+                    <td>R$ {{ "%.2f"|format(mov.valor_total) }}</td>
+                    <td>{{ mov.lote or '-' }}</td>
+                    <td>{{ mov.numero_nf or '-' }}</td>
+                    <td>
+                        {% if mov.estornado == "Sim" %}
+                            <span class="badge-almoxarifado inativo">Estornado</span>
+                        {% elif mov.tipo == "ESTORNO_OP" %}
+                            <span class="badge-almoxarifado ativo">Estorno</span>
+                        {% else %}
+                            <span class="badge-almoxarifado ativo">Ativo</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    {% else %}
+
+        <p class="obs">
+            Nenhuma baixa de estoque vinculada a esta OP.
+        </p>
+
+    {% endif %}
+
+</div>
+
 <!-- MÃO DE OBRA -->
 
 <div class="card">

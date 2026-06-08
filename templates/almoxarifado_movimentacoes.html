@@ -64,7 +64,9 @@
             <select name="tipo">
                 <option value="Todos" {% if tipo_filtro == "Todos" %}selected{% endif %}>Todos</option>
                 <option value="ENTRADA" {% if tipo_filtro == "ENTRADA" %}selected{% endif %}>Entrada</option>
-                <option value="SAIDA" {% if tipo_filtro == "SAIDA" %}selected{% endif %}>Saída</option>
+                <option value="SAIDA" {% if tipo_filtro == "SAIDA" %}selected{% endif %}>Saídas</option>
+                <option value="SAIDA_OP" {% if tipo_filtro == "SAIDA_OP" %}selected{% endif %}>Saída automática OP</option>
+                <option value="ESTORNO_OP" {% if tipo_filtro == "ESTORNO_OP" %}selected{% endif %}>Estorno de OP</option>
                 <option value="AJUSTE" {% if tipo_filtro == "AJUSTE" %}selected{% endif %}>Ajuste</option>
             </select>
         </div>
@@ -93,6 +95,7 @@
                 <tr>
                     <th>Data</th>
                     <th>Tipo</th>
+                    <th>Status</th>
                     <th>Insumo</th>
                     <th>Quantidade</th>
                     <th>Valor unit.</th>
@@ -108,6 +111,13 @@
                 <tr>
                     <td>{{ mov.data_movimentacao }}</td>
                     <td><strong>{{ mov.tipo }}</strong></td>
+                    <td>
+                        {% if mov.estornado == "Sim" %}
+                            <span class="badge-almoxarifado inativo">Estornado</span>
+                        {% else %}
+                            <span class="badge-almoxarifado ativo">Ativo</span>
+                        {% endif %}
+                    </td>
                     <td>{{ mov.insumo }}</td>
                     <td>{{ "%.4f"|format(mov.quantidade) }} {{ mov.unidade }}</td>
                     <td>R$ {{ "%.4f"|format(mov.valor_unitario) }}</td>

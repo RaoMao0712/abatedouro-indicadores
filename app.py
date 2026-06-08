@@ -1602,6 +1602,13 @@ def criar_tabelas_estoque_almoxarifado():
         )
         """)
 
+    tentar_alter_table(cursor, conn, "ALTER TABLE almoxarifado_movimentacoes ADD COLUMN estornado TEXT DEFAULT 'Não'")
+    conn = conectar()
+    cursor = conn.cursor()
+    tentar_alter_table(cursor, conn, "ALTER TABLE almoxarifado_movimentacoes ADD COLUMN estornado_em TEXT")
+    conn = conectar()
+    cursor = conn.cursor()
+
     conn.commit()
     conn.close()
 
@@ -1838,8 +1845,12 @@ def buscar_movimentacoes_almoxarifado_filtrado(data_inicio, data_fim, tipo_filtr
     parametros = [data_inicio, data_fim]
 
     if tipo_filtro and tipo_filtro != "Todos":
-        condicoes.append("m.tipo = ?")
-        parametros.append(tipo_filtro)
+        if tipo_filtro == "SAIDA":
+            condicoes.append("m.tipo LIKE ?")
+            parametros.append("SAIDA%")
+        else:
+            condicoes.append("m.tipo = ?")
+            parametros.append(tipo_filtro)
 
     if termo:
         condicoes.append("LOWER(i.descricao) LIKE ?")
@@ -2069,8 +2080,23 @@ def movimentacoes_almoxarifado():
         termo
     )
 
-    entradas = sum(float(item["valor_total"] or 0) for item in movimentacoes if item["tipo"] == "ENTRADA")
-    saidas = sum(float(item["valor_total"] or 0) for item in movimentacoes if item["tipo"] == "SAIDA")
+    entradas = 0
+    saidas = 0
+
+    for item in movimentacoes:
+        estornado = item["estornado"] if "estornado" in item.keys() else "Não"
+
+        if estornado == "Sim":
+            continue
+
+        tipo_movimentacao = str(item["tipo"] or "")
+        valor_movimentacao = float(item["valor_total"] or 0)
+
+        if tipo_movimentacao in ["ENTRADA", "ESTORNO_OP"]:
+            entradas += valor_movimentacao
+
+        if tipo_movimentacao.startswith("SAIDA"):
+            saidas += valor_movimentacao
 
     resumo = {
         "total_movimentacoes": len(movimentacoes),
@@ -2358,6 +2384,320 @@ def buscar_receitas_sku():
 
     return list(receitas.values())
 
+
+
+
+def buscar_receita_sku_por_nome(sku_nome):
+    criar_tabelas_receitas_sku()
+
+    sku_nome = (sku_nome or "Galinha Cortada").strip()
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q("""
+    SELECT
+        r.*,
+        s.nome as sku,
+        s.unidade_venda as unidade_venda,
+        i.descricao as insumo,
+        i.categoria as categoria_insumo,
+        i.unidade as unidade_insumo
+    FROM receitas_sku r
+    JOIN skus s ON s.id = r.sku_id
+    JOIN almoxarifado_insumos i ON i.id = r.insumo_id
+    WHERE s.nome = ?
+      AND COALESCE(s.ativo, 'Sim') = 'Sim'
+      AND COALESCE(i.ativo, 'Sim') = 'Sim'
+    ORDER BY r.id ASC
+    """), (sku_nome,))
+
+    receita = cursor.fetchall()
+    conn.close()
+    return receita
+
+
+def calcular_consumos_receita_op(sku_nome, unidades_produzidas):
+    receita = buscar_receita_sku_por_nome(sku_nome)
+
+    if not receita:
+        raise ValueError(
+            f"O SKU '{sku_nome}' não possui receita cadastrada. Cadastre a receita antes de encerrar a OP."
+        )
+
+    consumos = []
+
+    for item in receita:
+        quantidade_por_unidade = float(item["quantidade_por_unidade"] or 0)
+        quantidade_necessaria = round(quantidade_por_unidade * float(unidades_produzidas or 0), 4)
+
+        if quantidade_necessaria <= 0:
+            continue
+
+        consumos.append({
+            "insumo_id": item["insumo_id"],
+            "insumo": item["insumo"],
+            "unidade_insumo": item["unidade_insumo"],
+            "quantidade_por_unidade": quantidade_por_unidade,
+            "quantidade_necessaria": quantidade_necessaria,
+            "tipo_consumo": item["tipo_consumo"] or ""
+        })
+
+    if not consumos:
+        raise ValueError(
+            f"O SKU '{sku_nome}' possui receita cadastrada, mas nenhum item com consumo maior que zero."
+        )
+
+    return consumos
+
+
+def buscar_saldo_insumo_por_id(cursor, insumo_id):
+    cursor.execute(q("""
+    SELECT COALESCE(SUM(quantidade_atual), 0) as saldo
+    FROM almoxarifado_lotes
+    WHERE insumo_id = ?
+      AND quantidade_atual > 0
+    """), (insumo_id,))
+
+    resultado = cursor.fetchone()
+    return float(resultado["saldo"] or 0) if resultado else 0
+
+
+def validar_saldo_para_consumos(cursor, consumos):
+    faltas = []
+
+    for consumo in consumos:
+        saldo = buscar_saldo_insumo_por_id(cursor, consumo["insumo_id"])
+        necessario = float(consumo["quantidade_necessaria"] or 0)
+
+        if saldo + 0.0001 < necessario:
+            faltas.append(
+                f"{consumo['insumo']}: necessário {necessario:.4f} {consumo['unidade_insumo']} | disponível {saldo:.4f} {consumo['unidade_insumo']}"
+            )
+
+    if faltas:
+        mensagem = "Estoque insuficiente para encerrar a OP:\n" + "\n".join(faltas)
+        raise ValueError(mensagem)
+
+
+def op_possui_baixa_estoque_ativa(cursor, op_id):
+    cursor.execute(q("""
+    SELECT COUNT(*) as total
+    FROM almoxarifado_movimentacoes
+    WHERE op_id = ?
+      AND tipo = 'SAIDA_OP'
+      AND COALESCE(estornado, 'Não') <> 'Sim'
+    """), (op_id,))
+
+    resultado = cursor.fetchone()
+    return int(resultado["total"] or 0) > 0
+
+
+
+
+def validar_estoque_receita_op(op, unidades_produzidas):
+    criar_tabelas_receitas_sku()
+
+    sku_nome = op["sku"] or "Galinha Cortada"
+    consumos = calcular_consumos_receita_op(sku_nome, unidades_produzidas)
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    try:
+        if op_possui_baixa_estoque_ativa(cursor, op["id"]):
+            raise ValueError("Esta OP já possui baixa de estoque ativa. Reabra/estorne antes de encerrar novamente.")
+
+        validar_saldo_para_consumos(cursor, consumos)
+
+    finally:
+        conn.close()
+
+def baixar_estoque_op_fifo(op, unidades_produzidas):
+    criar_tabelas_receitas_sku()
+
+    sku_nome = op["sku"] or "Galinha Cortada"
+    consumos = calcular_consumos_receita_op(sku_nome, unidades_produzidas)
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    try:
+        if op_possui_baixa_estoque_ativa(cursor, op["id"]):
+            raise ValueError("Esta OP já possui baixa de estoque ativa. Reabra/estorne antes de encerrar novamente.")
+
+        validar_saldo_para_consumos(cursor, consumos)
+
+        for consumo in consumos:
+            quantidade_restante = float(consumo["quantidade_necessaria"] or 0)
+
+            cursor.execute(q("""
+            SELECT *
+            FROM almoxarifado_lotes
+            WHERE insumo_id = ?
+              AND quantidade_atual > 0
+            ORDER BY data_entrada ASC, id ASC
+            """), (consumo["insumo_id"],))
+
+            lotes = cursor.fetchall()
+
+            for lote in lotes:
+                if quantidade_restante <= 0.0001:
+                    break
+
+                quantidade_lote = float(lote["quantidade_atual"] or 0)
+                quantidade_consumida = min(quantidade_lote, quantidade_restante)
+                quantidade_nova = round(quantidade_lote - quantidade_consumida, 4)
+                status_lote = "Fechado" if quantidade_nova <= 0.0001 else "Aberto"
+                valor_unitario = float(lote["valor_unitario"] or 0)
+                valor_total = round(quantidade_consumida * valor_unitario, 4)
+
+                cursor.execute(q("""
+                UPDATE almoxarifado_lotes
+                SET quantidade_atual = ?,
+                    status = ?
+                WHERE id = ?
+                """), (
+                    max(0, quantidade_nova),
+                    status_lote,
+                    lote["id"]
+                ))
+
+                cursor.execute(q("""
+                INSERT INTO almoxarifado_movimentacoes (
+                    data_movimentacao,
+                    tipo,
+                    insumo_id,
+                    lote_id,
+                    quantidade,
+                    valor_unitario,
+                    valor_total,
+                    fornecedor,
+                    numero_nf,
+                    lote,
+                    origem,
+                    op_id,
+                    observacoes,
+                    estornado
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """), (
+                    op["data"],
+                    "SAIDA_OP",
+                    consumo["insumo_id"],
+                    lote["id"],
+                    round(quantidade_consumida, 4),
+                    valor_unitario,
+                    valor_total,
+                    lote["fornecedor"],
+                    lote["numero_nf"],
+                    lote["lote"],
+                    "Encerramento OP",
+                    op["id"],
+                    f"Baixa automática da OP {op['id']} | SKU: {sku_nome} | Consumo: {consumo['tipo_consumo']}",
+                    "Não"
+                ))
+
+                quantidade_restante = round(quantidade_restante - quantidade_consumida, 4)
+
+            if quantidade_restante > 0.0001:
+                raise ValueError(
+                    f"Estoque insuficiente durante a baixa do insumo {consumo['insumo']}. Restante: {quantidade_restante:.4f}."
+                )
+
+        conn.commit()
+
+    except Exception:
+        conn.rollback()
+        raise
+
+    finally:
+        conn.close()
+
+
+def estornar_baixa_estoque_op(op_id):
+    criar_tabelas_estoque_almoxarifado()
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute(q("""
+        SELECT *
+        FROM almoxarifado_movimentacoes
+        WHERE op_id = ?
+          AND tipo = 'SAIDA_OP'
+          AND COALESCE(estornado, 'Não') <> 'Sim'
+        ORDER BY id ASC
+        """), (op_id,))
+
+        movimentacoes = cursor.fetchall()
+
+        for mov in movimentacoes:
+            quantidade = float(mov["quantidade"] or 0)
+            lote_id = mov["lote_id"]
+
+            if lote_id:
+                cursor.execute(q("""
+                UPDATE almoxarifado_lotes
+                SET quantidade_atual = quantidade_atual + ?,
+                    status = 'Aberto'
+                WHERE id = ?
+                """), (quantidade, lote_id))
+
+            cursor.execute(q("""
+            UPDATE almoxarifado_movimentacoes
+            SET estornado = ?,
+                estornado_em = ?
+            WHERE id = ?
+            """), (
+                "Sim",
+                datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                mov["id"]
+            ))
+
+            cursor.execute(q("""
+            INSERT INTO almoxarifado_movimentacoes (
+                data_movimentacao,
+                tipo,
+                insumo_id,
+                lote_id,
+                quantidade,
+                valor_unitario,
+                valor_total,
+                fornecedor,
+                numero_nf,
+                lote,
+                origem,
+                op_id,
+                observacoes,
+                estornado
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """), (
+                datetime.now().strftime("%Y-%m-%d"),
+                "ESTORNO_OP",
+                mov["insumo_id"],
+                mov["lote_id"],
+                quantidade,
+                float(mov["valor_unitario"] or 0),
+                float(mov["valor_total"] or 0),
+                mov["fornecedor"],
+                mov["numero_nf"],
+                mov["lote"],
+                "Reabertura/Exclusão OP",
+                op_id,
+                f"Estorno automático da baixa de estoque da OP {op_id}",
+                "Não"
+            ))
+
+        conn.commit()
+        return len(movimentacoes)
+
+    except Exception:
+        conn.rollback()
+        raise
+
+    finally:
+        conn.close()
 
 def calcular_resumo_receitas_sku(skus, receitas):
     total_skus = len(skus)
@@ -5206,6 +5546,12 @@ def excluir_descartes_lote():
 @app.route("/op/<int:op_id>/excluir", methods=["POST"])
 @perfil_permitido("admin")
 def excluir_op(op_id):
+    try:
+        estornos = estornar_baixa_estoque_op(op_id)
+    except Exception as erro:
+        flash(f"Erro ao estornar estoque antes de excluir a OP: {erro}")
+        return redirect(url_for("consultar_op", op_id=op_id))
+
     conn = conectar()
     cursor = conn.cursor()
 
@@ -5224,7 +5570,11 @@ def excluir_op(op_id):
     conn.commit()
     conn.close()
 
-    flash("OP excluída com sucesso.")
+    if estornos:
+        flash(f"OP excluída com sucesso. {estornos} baixa(s) de estoque foram estornadas.")
+    else:
+        flash("OP excluída com sucesso.")
+
     return redirect(url_for("consultar_op"))
 
 
@@ -5248,11 +5598,22 @@ def encerrar_op(op_id):
         kg_produzidos_raw = request.form.get("kg_produzidos", "")
         descontar_almoco = request.form.get("descontar_almoco") == "sim"
 
+        if unidades_produzidas <= 0:
+            raise ValueError("Informe uma quantidade de unidades produzidas maior que zero.")
+
         kg_produzidos = None
         if (op["sku"] or "Galinha Cortada") == "Galinha Cortada":
             if not kg_produzidos_raw:
                 raise ValueError("Informe o kg produzido para Galinha Cortada.")
             kg_produzidos = float(kg_produzidos_raw)
+
+            if kg_produzidos <= 0:
+                raise ValueError("Informe uma quantidade de kg produzidos maior que zero.")
+
+        validar_estoque_receita_op(
+            op=op,
+            unidades_produzidas=unidades_produzidas
+        )
 
         gerar_producao_automatica_setores(
             op=op,
@@ -5262,6 +5623,11 @@ def encerrar_op(op_id):
             unidades_produzidas=unidades_produzidas,
             kg_produzidos=kg_produzidos,
             descontar_almoco=descontar_almoco
+        )
+
+        baixar_estoque_op_fifo(
+            op=op,
+            unidades_produzidas=unidades_produzidas
         )
 
         conn = conectar()
@@ -5276,10 +5642,12 @@ def encerrar_op(op_id):
         conn.commit()
         conn.close()
 
-        flash("OP encerrada com sucesso. A produção foi gerada automaticamente.")
+        flash("OP encerrada com sucesso. A produção foi gerada e o estoque foi baixado automaticamente.")
 
     except ValueError as erro:
-        flash(str(erro))
+        flash(str(erro).replace("\n", " | "))
+    except Exception as erro:
+        flash(f"Erro ao encerrar OP: {erro}")
 
     return redirect(url_for("consultar_op", op_id=op_id))
 
@@ -5287,6 +5655,12 @@ def encerrar_op(op_id):
 @app.route("/op/<int:op_id>/reabrir", methods=["POST"])
 @perfil_permitido("admin")
 def reabrir_op(op_id):
+    try:
+        estornos = estornar_baixa_estoque_op(op_id)
+    except Exception as erro:
+        flash(f"Erro ao estornar estoque antes de reabrir a OP: {erro}")
+        return redirect(url_for("consultar_op", op_id=op_id))
+
     conn = conectar()
     cursor = conn.cursor()
 
@@ -5299,7 +5673,11 @@ def reabrir_op(op_id):
     conn.commit()
     conn.close()
 
-    flash("OP reaberta com sucesso.")
+    if estornos:
+        flash(f"OP reaberta com sucesso. {estornos} baixa(s) de estoque foram estornadas.")
+    else:
+        flash("OP reaberta com sucesso.")
+
     return redirect(url_for("consultar_op", op_id=op_id))
 
 
@@ -5318,6 +5696,7 @@ def consultar_op():
     paradas = []
     descartes = []
     tempos_setor = []
+    baixas_estoque = []
     resumo = None
 
     if op_id:
@@ -5342,6 +5721,20 @@ def consultar_op():
         cursor.execute(q("SELECT * FROM apontamentos_tempos_setor WHERE op_id = ? ORDER BY id ASC"), (op_id,))
         tempos_setor = cursor.fetchall()
 
+        criar_tabelas_estoque_almoxarifado()
+        cursor.execute(q("""
+        SELECT
+            m.*,
+            i.descricao as insumo,
+            i.unidade as unidade
+        FROM almoxarifado_movimentacoes m
+        JOIN almoxarifado_insumos i ON i.id = m.insumo_id
+        WHERE m.op_id = ?
+          AND m.tipo IN ('SAIDA_OP', 'ESTORNO_OP')
+        ORDER BY m.id ASC
+        """), (op_id,))
+        baixas_estoque = cursor.fetchall()
+
         if op:
             resumo = calcular_resumo_op(op, producoes, descartes)
 
@@ -5356,6 +5749,7 @@ def consultar_op():
         paradas=paradas,
         descartes=descartes,
         tempos_setor=tempos_setor,
+        baixas_estoque=baixas_estoque,
         resumo=resumo
     )
 
