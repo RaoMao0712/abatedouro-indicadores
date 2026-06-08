@@ -17,6 +17,162 @@ from openpyxl.utils import get_column_letter
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "segredo")
 
+
+# ============================================================
+# FORMATAÇÃO BR / APRESENTAÇÃO EXECUTIVA
+# ============================================================
+
+def formatar_numero_br(valor, casas=2):
+    try:
+        numero = float(valor or 0)
+    except Exception:
+        numero = 0
+
+    texto = f"{numero:,.{casas}f}"
+    return texto.replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def formatar_moeda_br(valor):
+    return f"R$ {formatar_numero_br(valor, 2)}"
+
+
+def formatar_percentual_br(valor):
+    return f"{formatar_numero_br(valor, 2)}%"
+
+
+@app.template_filter("br_numero")
+def filtro_br_numero(valor, casas=2):
+    return formatar_numero_br(valor, int(casas))
+
+
+@app.template_filter("br_moeda")
+def filtro_br_moeda(valor):
+    return formatar_moeda_br(valor)
+
+
+@app.template_filter("br_percentual")
+def filtro_br_percentual(valor):
+    return formatar_percentual_br(valor)
+
+
+def preparar_grafico_despesas_operacionais(linhas_custos, receita_bruta, limite=6):
+    """
+    Prepara os dados visuais do gráfico de rosca da DRE.
+    O tamanho das fatias usa participação dentro das despesas operacionais.
+    O rótulo exibido usa % da receita, para manter leitura gerencial.
+    """
+    itens_validos = [
+        {
+            "categoria": item["categoria"],
+            "valor": float(item["valor"] or 0),
+            "percentual_receita": float(item["percentual"] or 0)
+        }
+        for item in linhas_custos
+        if float(item["valor"] or 0) > 0
+    ]
+
+    itens_validos = sorted(itens_validos, key=lambda item: item["valor"], reverse=True)
+    total_despesas = sum(item["valor"] for item in itens_validos)
+
+    if total_despesas <= 0:
+        return {
+            "itens": [],
+            "gradiente": "#e5e7eb 0deg 360deg",
+            "total": 0,
+            "percentual_receita_total": 0
+        }
+
+    cores = [
+        "#2563eb",
+        "#16a34a",
+        "#f97316",
+        "#8b5cf6",
+        "#0891b2",
+        "#64748b",
+        "#dc2626"
+    ]
+
+    limite_principal = max(1, limite - 1)
+    principais = itens_validos[:limite_principal]
+    restantes = itens_validos[limite_principal:]
+
+    itens_grafico = []
+
+    for item in principais:
+        itens_grafico.append(item)
+
+    if restantes:
+        valor_outras = sum(item["valor"] for item in restantes)
+        percentual_receita_outras = sum(item["percentual_receita"] for item in restantes)
+        itens_grafico.append({
+            "categoria": f"Outras categorias ({len(restantes)})",
+            "valor": valor_outras,
+            "percentual_receita": percentual_receita_outras
+        })
+
+    segmentos = []
+    angulo_atual = 0
+    itens_saida = []
+
+    for indice, item in enumerate(itens_grafico):
+        fatia = item["valor"] / total_despesas
+        graus = fatia * 360
+        inicio = angulo_atual
+        fim = 360 if indice == len(itens_grafico) - 1 else angulo_atual + graus
+        meio = (inicio + fim) / 2
+        cor = cores[indice % len(cores)]
+        segmentos.append(f"{cor} {inicio:.2f}deg {fim:.2f}deg")
+
+        # Coordenadas simples para rótulos ao redor da rosca.
+        # 0 grau visual no topo; por isso subtrai 90 graus.
+        import math
+        rad = math.radians(meio - 90)
+        x = 50 + (46 * math.cos(rad))
+        y = 50 + (41 * math.sin(rad))
+        alinhamento = "right" if x < 50 else "left"
+
+        itens_saida.append({
+            "categoria": item["categoria"],
+            "valor": round(item["valor"], 2),
+            "valor_formatado": formatar_moeda_br(item["valor"]),
+            "percentual_receita": round(item["percentual_receita"], 2),
+            "percentual_receita_formatado": formatar_percentual_br(item["percentual_receita"]),
+            "percentual_despesa": round(fatia * 100, 2),
+            "percentual_despesa_formatado": formatar_percentual_br(fatia * 100),
+            "cor": cor,
+            "x": round(x, 2),
+            "y": round(y, 2),
+            "alinhamento": alinhamento
+        })
+
+        angulo_atual = fim
+
+    return {
+        "itens": itens_saida,
+        "gradiente": ", ".join(segmentos),
+        "total": round(total_despesas, 2),
+        "total_formatado": formatar_moeda_br(total_despesas),
+        "percentual_receita_total": round((total_despesas / receita_bruta * 100) if receita_bruta > 0 else 0, 2),
+        "percentual_receita_total_formatado": formatar_percentual_br((total_despesas / receita_bruta * 100) if receita_bruta > 0 else 0)
+    }
+
+
+def preparar_linhas_custos_executivas(linhas_custos, limite=6):
+    itens = [item for item in linhas_custos if float(item["valor"] or 0) > 0]
+    itens = sorted(itens, key=lambda item: float(item["valor"] or 0), reverse=True)
+
+    if len(itens) <= limite:
+        return itens
+
+    principais = itens[:limite - 1]
+    restantes = itens[limite - 1:]
+    principais.append({
+        "categoria": f"Outras categorias ({len(restantes)})",
+        "valor": round(sum(float(item["valor"] or 0) for item in restantes), 2),
+        "percentual": round(sum(float(item["percentual"] or 0) for item in restantes), 2)
+    })
+    return principais
+
 DATABASE_URL = os.getenv("DATABASE_URL")
 DB_NAME = "abatedouro.db"
 
@@ -1270,6 +1426,9 @@ def buscar_dados_dre_gerencial(competencia):
         for categoria, valor in custos.items()
     ]
 
+    linhas_custos_executivas = preparar_linhas_custos_executivas(linhas_custos)
+    despesas_grafico = preparar_grafico_despesas_operacionais(linhas_custos, receita_bruta)
+
     return {
         "receita_bruta": round(receita_bruta, 2),
         "vendas_por_sku": vendas_por_sku,
@@ -1281,6 +1440,8 @@ def buscar_dados_dre_gerencial(competencia):
         "custos_operacionais_total": round(custos_operacionais_total, 2),
         "custos_operacionais_percentual": round(perc(custos_operacionais_total), 2),
         "linhas_custos": linhas_custos,
+        "linhas_custos_executivas": linhas_custos_executivas,
+        "despesas_grafico": despesas_grafico,
         "resultado_operacional": round(resultado_operacional, 2),
         "margem_operacional_percentual": round(perc(resultado_operacional), 2)
     }
@@ -4235,6 +4396,8 @@ def dre_gerencial():
         custos_operacionais_total=dados["custos_operacionais_total"],
         custos_operacionais_percentual=dados["custos_operacionais_percentual"],
         linhas_custos=dados["linhas_custos"],
+        linhas_custos_executivas=dados.get("linhas_custos_executivas", dados["linhas_custos"]),
+        despesas_grafico=dados.get("despesas_grafico", {}),
         resultado_operacional=dados["resultado_operacional"],
         margem_operacional_percentual=dados["margem_operacional_percentual"]
     )

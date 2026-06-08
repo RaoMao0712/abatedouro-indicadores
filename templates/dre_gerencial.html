@@ -2,19 +2,20 @@
 
 {% block conteudo %}
 
-<section class="hero-dashboard dre-hero dre-hero-executiva">
-    <div>
+<section class="hero-dashboard dre-hero dre-hero-oficial">
+    <div class="dre-hero-icone" aria-hidden="true">▣</div>
+
+    <div class="dre-hero-titulo-oficial">
         <span class="eyebrow">Relatório Financeiro</span>
         <h2>DRE Gerencial Industrial</h2>
-
         <div class="hero-resumo-inline">
             <span><strong>Competência:</strong> {{ competencia }}</span>
             <span><strong>Visão:</strong> Receita • CMV • Custos • Resultado</span>
         </div>
     </div>
 
-    <div class="dre-acoes-topo dre-acoes-compactas">
-        <form method="GET" action="{{ url_for('dre_gerencial') }}" class="dre-filtro-form dre-filtro-compacto">
+    <div class="dre-acoes-topo dre-acoes-oficiais">
+        <form method="GET" action="{{ url_for('dre_gerencial') }}" class="dre-filtro-form dre-filtro-oficial">
             <div>
                 <label>Competência</label>
                 <input type="month" name="competencia" value="{{ competencia }}" required>
@@ -22,123 +23,224 @@
             <button type="submit" class="botao-hero-filtro">Gerar</button>
         </form>
 
-        <div class="dre-botoes-exportacao">
-            <a href="{{ url_for('exportar_dre_gerencial_excel', competencia=competencia) }}" class="botao-dre-exportar">Excel</a>
+        <div class="dre-botoes-exportacao dre-botoes-oficiais">
+            <a href="{{ url_for('exportar_dre_gerencial_excel', competencia=competencia) }}" class="botao-dre-exportar">Exportar Excel</a>
             <button type="button" class="botao-dre-imprimir" onclick="window.print()">Imprimir</button>
         </div>
     </div>
 </section>
 
-<div class="dre-executiva-layout">
+<div class="dre-executiva-layout dre-layout-oficial">
 
-    <section class="card dre-extrato-card">
-        <div class="dre-cabecalho-extrato">
+    <section class="card dre-extrato-card dre-card-oficial">
+        <div class="section-title-row dre-titulo-limpo">
             <div>
                 <span class="eyebrow">DRE Executiva</span>
                 <h2>Resultado da Competência</h2>
             </div>
-            <div class="dre-status {% if resultado_operacional >= 0 %}positivo{% else %}negativo{% endif %}">
-                {% if resultado_operacional >= 0 %}Resultado positivo{% else %}Resultado negativo{% endif %}
-            </div>
         </div>
 
-        <div class="dre-extrato">
-            <div class="dre-extrato-linha receita">
+        <div class="dre-tabela-oficial dre-tabela-dre-principal">
+            <div class="dre-tabela-oficial-header">
+                <span></span>
+                <span>Valor (R$)</span>
+                <span>% Receita</span>
+            </div>
+
+            <div class="dre-tabela-oficial-row receita">
                 <div><strong>Receita Bruta</strong><small>Receita total de vendas no período</small></div>
-                <span>R$ {{ "%.2f"|format(receita_bruta or 0) }}</span>
+                <strong>{{ receita_bruta|br_moeda }}</strong>
+                <strong>{{ 100|br_percentual if receita_bruta > 0 else 0|br_percentual }}</strong>
             </div>
 
             {% for item in vendas_por_sku %}
-            <div class="dre-extrato-linha subitem">
+            <div class="dre-tabela-oficial-row subitem">
                 <div>
                     <strong>Venda — {{ item.sku }}</strong>
                     {% if item.sku == 'Galinha Cortada' %}
-                        <small>{{ "%.2f"|format(item.quantidade_unidades or 0) }} bandejas • {{ "%.2f"|format(item.quantidade_kg or 0) }} kg vendidos</small>
+                        <small>{{ item.quantidade_unidades|br_numero }} bandejas • {{ item.quantidade_kg|br_numero }} kg vendidos</small>
                     {% else %}
-                        <small>{{ "%.2f"|format(item.quantidade_unidades or item.quantidade or 0) }} unidades vendidas</small>
+                        <small>{{ (item.quantidade_unidades or item.quantidade or 0)|br_numero }} unidades vendidas</small>
                     {% endif %}
                 </div>
-                <span>R$ {{ "%.2f"|format(item.receita or 0) }}</span>
+                <span>{{ item.receita|br_moeda }}</span>
+                <span>{{ ((item.receita / receita_bruta * 100) if receita_bruta > 0 else 0)|br_percentual }}</span>
             </div>
             {% endfor %}
 
-            <div class="dre-extrato-linha saida">
+            <div class="dre-tabela-oficial-row saida">
                 <div><strong>(-) CMV</strong><small>Custo das mercadorias vendidas</small></div>
-                <span>R$ {{ "%.2f"|format(cmv_total or 0) }}</span>
+                <strong>- {{ cmv_total|br_moeda }}</strong>
+                <strong>{{ cmv_percentual|br_percentual }}</strong>
             </div>
 
-            <div class="dre-extrato-linha total">
-                <div><strong>= Margem Bruta</strong><small>{{ "%.2f"|format(margem_bruta_percentual or 0) }}% da receita</small></div>
-                <span>R$ {{ "%.2f"|format(margem_bruta or 0) }}</span>
+            <div class="dre-tabela-oficial-row total">
+                <div><strong>= Margem Bruta</strong><small>Margem sobre a receita</small></div>
+                <strong>{{ margem_bruta|br_moeda }}</strong>
+                <strong>{{ margem_bruta_percentual|br_percentual }}</strong>
             </div>
 
-            <div class="dre-extrato-linha saida">
+            <div class="dre-tabela-oficial-row saida">
                 <div><strong>(-) Custos Operacionais</strong><small>Custos mensais lançados na competência</small></div>
-                <span>R$ {{ "%.2f"|format(custos_operacionais_total or 0) }}</span>
+                <strong>- {{ custos_operacionais_total|br_moeda }}</strong>
+                <strong>{{ custos_operacionais_percentual|br_percentual }}</strong>
             </div>
 
-            <div class="dre-extrato-linha resultado {% if resultado_operacional >= 0 %}positivo{% else %}negativo{% endif %}">
-                <div><strong>= Resultado Operacional</strong><small>{{ "%.2f"|format(margem_operacional_percentual or 0) }}% de margem operacional</small></div>
-                <span>R$ {{ "%.2f"|format(resultado_operacional or 0) }}</span>
+            <div class="dre-tabela-oficial-row resultado {% if resultado_operacional >= 0 %}positivo{% else %}negativo{% endif %}">
+                <div><strong>= Resultado Operacional</strong><small>Margem operacional</small></div>
+                <strong>{% if resultado_operacional < 0 %}- {% endif %}{{ (resultado_operacional|abs)|br_moeda }}</strong>
+                <strong>{{ margem_operacional_percentual|br_percentual }}</strong>
             </div>
         </div>
     </section>
 
-    <aside class="dre-painel-indicadores">
-        <div class="card dre-mini-kpi"><span>Receita Bruta</span><strong>R$ {{ "%.2f"|format(receita_bruta or 0) }}</strong><small>Base de cálculo da DRE</small></div>
-        <div class="card dre-mini-kpi"><span>CMV</span><strong>{{ "%.2f"|format(cmv_percentual or 0) }}%</strong><small>R$ {{ "%.2f"|format(cmv_total or 0) }}</small></div>
-        <div class="card dre-mini-kpi destaque"><span>Margem Bruta</span><strong>{{ "%.2f"|format(margem_bruta_percentual or 0) }}%</strong><small>R$ {{ "%.2f"|format(margem_bruta or 0) }}</small></div>
-        <div class="card dre-mini-kpi {% if resultado_operacional >= 0 %}resultado-positivo{% else %}resultado-negativo{% endif %}"><span>Resultado</span><strong>{{ "%.2f"|format(margem_operacional_percentual or 0) }}%</strong><small>R$ {{ "%.2f"|format(resultado_operacional or 0) }}</small></div>
+    <aside class="dre-painel-indicadores dre-kpis-oficiais">
+        <div class="card dre-mini-kpi dre-kpi-oficial kpi-receita">
+            <div>
+                <span>Receita Bruta</span>
+                <strong>{{ receita_bruta|br_moeda }}</strong>
+                <small>Base de cálculo da DRE</small>
+            </div>
+            <b>$</b>
+        </div>
+
+        <div class="card dre-mini-kpi dre-kpi-oficial kpi-cmv">
+            <div>
+                <span>CMV</span>
+                <strong>{{ cmv_total|br_moeda }}</strong>
+                <small>{{ cmv_percentual|br_percentual }} sobre a receita</small>
+            </div>
+            <b>▾</b>
+        </div>
+
+        <div class="card dre-mini-kpi dre-kpi-oficial kpi-margem">
+            <div>
+                <span>Margem Bruta</span>
+                <strong>{{ margem_bruta|br_moeda }}</strong>
+                <small>{{ margem_bruta_percentual|br_percentual }} sobre a receita</small>
+            </div>
+            <b>↗</b>
+        </div>
+
+        <div class="card dre-mini-kpi dre-kpi-oficial kpi-resultado {% if resultado_operacional >= 0 %}resultado-positivo{% else %}resultado-negativo{% endif %}">
+            <div>
+                <span>Resultado Operacional</span>
+                <strong>{% if resultado_operacional < 0 %}- {% endif %}{{ (resultado_operacional|abs)|br_moeda }}</strong>
+                <small>{{ margem_operacional_percentual|br_percentual }} de margem operacional</small>
+            </div>
+            <b>{% if resultado_operacional >= 0 %}↗{% else %}↘{% endif %}</b>
+        </div>
     </aside>
 
 </div>
 
-<div class="dre-detalhes-grid">
-    <div class="card dre-detalhe-card">
-        <div class="section-title-row"><div><span class="eyebrow">Custos</span><h2>Custos Operacionais por Categoria</h2></div></div>
-        <div class="dre-tabela-executiva">
-            <div class="dre-tabela-header"><span>Categoria</span><span>Valor</span><span>% Receita</span></div>
-            {% for item in linhas_custos %}
+<div class="dre-detalhes-grid dre-detalhes-oficial">
+    <div class="card dre-detalhe-card dre-card-oficial">
+        <div class="section-title-row dre-titulo-limpo">
+            <div><span class="eyebrow">Custos</span><h2>Custos Operacionais por Categoria</h2></div>
+        </div>
+
+        <div class="dre-tabela-executiva dre-tabela-custos-oficial">
+            <div class="dre-tabela-header"><span>Categoria</span><span>Valor (R$)</span><span>% Receita</span></div>
+            {% for item in linhas_custos_executivas %}
                 {% if item.valor and item.valor != 0 %}
-                <div class="dre-tabela-row"><span>{{ item.categoria }}</span><strong>R$ {{ "%.2f"|format(item.valor or 0) }}</strong><small>{{ "%.2f"|format(item.percentual or 0) }}%</small></div>
+                <div class="dre-tabela-row">
+                    <span>{{ item.categoria }}</span>
+                    <strong>{{ item.valor|br_moeda }}</strong>
+                    <small>{{ item.percentual|br_percentual }}</small>
+                </div>
                 {% endif %}
             {% endfor %}
+            <div class="dre-tabela-row dre-total-geral-row">
+                <span>Total de Custos Operacionais</span>
+                <strong>{{ custos_operacionais_total|br_moeda }}</strong>
+                <small>{{ custos_operacionais_percentual|br_percentual }}</small>
+            </div>
         </div>
     </div>
 
-    <div class="card dre-detalhe-card">
-        <div class="section-title-row"><div><span class="eyebrow">CMV</span><h2>Composição por SKU</h2></div></div>
-        <div class="dre-tabela-executiva">
-            <div class="dre-tabela-header dre-cmv-header"><span>SKU</span><span>Base CMV</span><span>Matéria-prima</span><span>Embalagem</span><span>CMV</span></div>
+    <div class="card dre-detalhe-card dre-card-oficial">
+        <div class="section-title-row dre-titulo-limpo">
+            <div><span class="eyebrow">CMV</span><h2>Composição do CMV por SKU</h2></div>
+        </div>
+
+        <div class="dre-tabela-executiva dre-tabela-cmv-oficial">
+            <div class="dre-tabela-header dre-cmv-header"><span>SKU</span><span>Base de Cálculo</span><span>Matéria-prima</span><span>Embalagem</span><span>CMV Total</span><span>CMV/kg ou un.</span></div>
             {% for item in cmv_por_sku %}
             <div class="dre-tabela-row dre-cmv-row">
                 <span>{{ item.sku }}</span>
                 <small>
-                    {{ "%.2f"|format(item.quantidade_unidades or 0) }} un.
-                    {% if item.sku == 'Galinha Cortada' %}
-                        • {{ "%.2f"|format(item.quantidade_kg or 0) }} kg
-                    {% endif %}
+                    {{ item.quantidade_unidades|br_numero }} {% if item.sku == 'Galinha Cortada' %}bandejas{% else %}unidades{% endif %}
+                    {% if item.sku == 'Galinha Cortada' %}<br>{{ item.quantidade_kg|br_numero }} kg{% endif %}
                 </small>
-                <small>R$ {{ "%.2f"|format(item.materia_prima or 0) }}</small>
-                <small>R$ {{ "%.2f"|format(item.embalagem or 0) }}</small>
-                <strong>R$ {{ "%.2f"|format(item.cmv or 0) }}</strong>
+                <small>{{ item.materia_prima|br_moeda }}</small>
+                <small>{{ item.embalagem|br_moeda }}</small>
+                <strong>{{ item.cmv|br_moeda }}</strong>
+                <strong>
+                    {% if item.sku == 'Galinha Cortada' %}
+                        {{ item.cmv_por_kg|br_moeda }} / kg
+                    {% else %}
+                        {{ item.cmv_por_unidade|br_moeda }} / un.
+                    {% endif %}
+                </strong>
             </div>
-            {% if item.sku == 'Galinha Cortada' %}
-            <div class="dre-tabela-row dre-cmv-row">
-                <span>CMV/kg — {{ item.sku }}</span>
-                <small>R$ {{ "%.4f"|format(item.cmv_por_kg or 0) }} / kg</small>
-                <small>Ave: R$ {{ "%.4f"|format(item.custo_materia_prima_unitario or 0) }} / un.</small>
-                <small>Emb.: R$ {{ "%.4f"|format(item.custo_embalagem_unitario or 0) }} / un.</small>
-                <strong>R$ {{ "%.4f"|format(item.cmv_por_unidade or 0) }} / un.</strong>
-            </div>
-            {% endif %}
             {% endfor %}
+
+            <div class="dre-tabela-row dre-cmv-row dre-total-geral-row">
+                <span>Total Geral</span>
+                <small></small>
+                <small>{{ cmv_por_sku|sum(attribute='materia_prima')|br_moeda }}</small>
+                <small>{{ cmv_por_sku|sum(attribute='embalagem')|br_moeda }}</small>
+                <strong>{{ cmv_total|br_moeda }}</strong>
+                <strong>-</strong>
+            </div>
         </div>
-        <p class="obs dre-obs">O CMV acompanha o volume vendido na competência. Para Galinha Cortada: (ave viva + embalagem) × bandejas vendidas; CMV/kg = CMV total ÷ kg vendidos. Para Galinha Inteira: cálculo 1 x 1 por unidade.</p>
+
+        <p class="obs dre-obs">CMV Galinha Cortada: (custo da ave viva + custo da embalagem) × quantidade de bandejas vendidas. CMV/kg = CMV total ÷ kg vendidos. Galinha Inteira: 1 × 1 por unidade.</p>
     </div>
 </div>
 
-<div class="card dre-leitura-executiva">
+<div class="card dre-card-oficial dre-despesas-grafico-card">
+    <div class="section-title-row dre-titulo-limpo">
+        <div><span class="eyebrow">Despesas</span><h2>Distribuição das Despesas Operacionais</h2></div>
+    </div>
+
+    {% if despesas_grafico and despesas_grafico.itens %}
+    <div class="dre-donut-layout">
+        <div class="dre-donut-area">
+            <div class="dre-donut" style="background: conic-gradient({{ despesas_grafico.gradiente }});">
+                <div class="dre-donut-centro">
+                    <span>Total</span>
+                    <strong>{{ despesas_grafico.total|br_moeda }}</strong>
+                    <small>{{ despesas_grafico.percentual_receita_total|br_percentual }} da receita</small>
+                </div>
+            </div>
+
+            {% for item in despesas_grafico.itens %}
+            <div class="dre-donut-label {{ item.alinhamento }}" style="left: {{ item.x }}%; top: {{ item.y }}%; --label-color: {{ item.cor }};">
+                <span>{{ item.categoria }}</span>
+                <strong>{{ item.percentual_receita|br_percentual }}</strong>
+            </div>
+            {% endfor %}
+        </div>
+
+        <div class="dre-donut-tabela">
+            {% for item in despesas_grafico.itens %}
+            <div class="dre-donut-tabela-row">
+                <i style="background: {{ item.cor }};"></i>
+                <span>{{ item.categoria }}</span>
+                <strong>{{ item.valor|br_moeda }}</strong>
+                <small>{{ item.percentual_receita|br_percentual }}</small>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% else %}
+        <p class="obs">Nenhuma despesa operacional lançada para esta competência.</p>
+    {% endif %}
+</div>
+
+<div class="card dre-leitura-executiva dre-leitura-oficial">
     <strong>Leitura executiva:</strong>
     {% if resultado_operacional >= 0 %}
         A operação apresentou resultado operacional positivo na competência analisada.
