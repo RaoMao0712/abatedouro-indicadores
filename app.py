@@ -10,7 +10,7 @@ import uuid
 import sqlite3
 import psycopg2
 import psycopg2.extras
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
@@ -4311,14 +4311,6 @@ def dashboard():
         produtividade_setores=produtividade_setores,
         produtividade_setores_hora=produtividade_setores_hora
     )
-
-
-
-
-
-
-
-
 @app.route("/dre-gerencial/exportar-excel")
 @perfil_permitido("pcp")
 def exportar_dre_gerencial_excel():
@@ -6239,6 +6231,450 @@ def relatorio():
     )
 
 
+
+
+# ============================================================
+# IMPORTAÇÃO OFICIAL DE MAIO/2026
+# Rota temporária e segura para carregar OPs + descartes via Excel.
+# ============================================================
+
+COLUNAS_OPS_IMPORTACAO_MAIO = {
+    "data": ["data"],
+    "sku": ["sku"],
+    "fornecedor": ["fornecedor"],
+    "gta": ["gta"],
+    "nota_fiscal": ["nota fiscal", "nf", "nota_fiscal"],
+    "quantidade_aves": ["quantidade de aves", "aves", "quantidade_aves"],
+    "mortes_antes_pendura": ["mortes antes da pendura", "mortes_antes_pendura"],
+    "peso_vivo": ["peso vivo", "peso_vivo"],
+    "unidades_produzidas": ["unidades produzidas", "unidades_produzidas"],
+    "kg_produzidos": ["kg produzidos", "kg_produzidos"],
+    "observacoes": ["observações", "observacoes", "obs"],
+}
+
+MOTIVOS_DESCARTE_IMPORTACAO_MAIO = [
+    "Hematomas",
+    "Contaminação no processo",
+    "Aspecto repugnante",
+    "Doença",
+    "Cozimento",
+    "Caquexia",
+    "Fratura",
+    "Carcaça incompleta",
+    "Outra",
+]
+
+
+def normalizar_cabecalho_importacao(valor):
+    if valor is None:
+        return ""
+    texto = str(valor).strip().lower()
+    mapa = str.maketrans("áàâãéêíóôõúç", "aaaaeeiooouc")
+    return texto.translate(mapa).replace("_", " ")
+
+
+def valor_excel_para_data_texto(valor):
+    if not valor:
+        return ""
+    if isinstance(valor, datetime):
+        return valor.strftime("%Y-%m-%d")
+    texto = str(valor).strip()
+    formatos = ["%Y-%m-%d", "%d/%m/%Y", "%d/%m/%y"]
+    for formato in formatos:
+        try:
+            return datetime.strptime(texto, formato).strftime("%Y-%m-%d")
+        except Exception:
+            pass
+    raise ValueError(f"Data inválida: {valor}")
+
+
+def numero_importacao(valor, padrao=0):
+    if valor is None or str(valor).strip() == "":
+        return padrao
+    if isinstance(valor, str):
+        valor = valor.replace("R$", "").replace(".", "").replace(",", ".").strip()
+    return float(valor)
+
+
+def inteiro_importacao(valor, padrao=0):
+    return int(round(numero_importacao(valor, padrao)))
+
+
+def texto_importacao(valor):
+    if valor is None:
+        return ""
+    if isinstance(valor, float) and valor.is_integer():
+        return str(int(valor))
+    return str(valor).strip()
+
+
+def mapa_colunas_por_cabecalho(ws):
+    cabecalhos = {}
+    for idx, celula in enumerate(ws[1], start=1):
+        cabecalhos[normalizar_cabecalho_importacao(celula.value)] = idx
+    return cabecalhos
+
+
+def localizar_coluna(cabecalhos, nomes_possiveis):
+    normalizados = [normalizar_cabecalho_importacao(nome) for nome in nomes_possiveis]
+    for nome in normalizados:
+        if nome in cabecalhos:
+            return cabecalhos[nome]
+    return None
+
+
+def ler_planilha_importacao_maio(arquivo_excel):
+    wb = load_workbook(arquivo_excel, data_only=True)
+
+    erros = []
+    avisos = []
+    ops = []
+    descartes = []
+
+    if "OPs" not in wb.sheetnames:
+        erros.append("A planilha precisa ter uma aba chamada 'OPs'.")
+        return {"erros": erros, "avisos": avisos, "ops": ops, "descartes": descartes}
+
+    ws_ops = wb["OPs"]
+    cabecalhos_ops = mapa_colunas_por_cabecalho(ws_ops)
+    colunas = {}
+
+    for chave, nomes in COLUNAS_OPS_IMPORTACAO_MAIO.items():
+        colunas[chave] = localizar_coluna(cabecalhos_ops, nomes)
+
+    obrigatorias = [
+        "data", "sku", "fornecedor", "quantidade_aves", "mortes_antes_pendura",
+        "peso_vivo", "unidades_produzidas", "kg_produzidos"
+    ]
+
+    for chave in obrigatorias:
+        if not colunas.get(chave):
+            erros.append(f"Aba OPs: coluna obrigatória ausente: {chave}.")
+
+    if erros:
+        return {"erros": erros, "avisos": avisos, "ops": ops, "descartes": descartes}
+
+    for linha in range(2, ws_ops.max_row + 1):
+        data_raw = ws_ops.cell(linha, colunas["data"]).value
+        if not data_raw:
+            continue
+
+        try:
+            data = valor_excel_para_data_texto(data_raw)
+            sku = texto_importacao(ws_ops.cell(linha, colunas["sku"]).value) or "Galinha Cortada"
+            fornecedor = texto_importacao(ws_ops.cell(linha, colunas["fornecedor"]).value)
+            gta = texto_importacao(ws_ops.cell(linha, colunas["gta"]).value) if colunas.get("gta") else ""
+            nota_fiscal = texto_importacao(ws_ops.cell(linha, colunas["nota_fiscal"]).value) if colunas.get("nota_fiscal") else ""
+            quantidade_aves = inteiro_importacao(ws_ops.cell(linha, colunas["quantidade_aves"]).value)
+            mortes_antes_pendura = inteiro_importacao(ws_ops.cell(linha, colunas["mortes_antes_pendura"]).value)
+            peso_vivo = numero_importacao(ws_ops.cell(linha, colunas["peso_vivo"]).value)
+            unidades_produzidas = numero_importacao(ws_ops.cell(linha, colunas["unidades_produzidas"]).value)
+            kg_produzidos = numero_importacao(ws_ops.cell(linha, colunas["kg_produzidos"]).value)
+            observacoes = texto_importacao(ws_ops.cell(linha, colunas["observacoes"]).value) if colunas.get("observacoes") else ""
+
+            if not fornecedor:
+                erros.append(f"Aba OPs linha {linha}: fornecedor vazio.")
+            if quantidade_aves <= 0:
+                erros.append(f"Aba OPs linha {linha}: quantidade de aves precisa ser maior que zero.")
+            if peso_vivo <= 0:
+                erros.append(f"Aba OPs linha {linha}: peso vivo precisa ser maior que zero.")
+            if unidades_produzidas <= 0:
+                erros.append(f"Aba OPs linha {linha}: unidades produzidas precisa ser maior que zero.")
+            if kg_produzidos <= 0:
+                erros.append(f"Aba OPs linha {linha}: kg produzidos está vazio ou zerado. Não é seguro importar histórico oficial sem kg produzido.")
+
+            ops.append({
+                "linha": linha,
+                "data": data,
+                "sku": sku,
+                "fornecedor": fornecedor,
+                "gta": gta,
+                "nota_fiscal": nota_fiscal,
+                "quantidade_aves": quantidade_aves,
+                "mortes_antes_pendura": mortes_antes_pendura,
+                "peso_vivo": peso_vivo,
+                "unidades_produzidas": unidades_produzidas,
+                "kg_produzidos": kg_produzidos,
+                "observacoes": observacoes,
+            })
+        except Exception as erro:
+            erros.append(f"Aba OPs linha {linha}: {erro}")
+
+    if "Descartes" in wb.sheetnames:
+        ws_desc = wb["Descartes"]
+        cabecalhos_desc = mapa_colunas_por_cabecalho(ws_desc)
+        col_data_desc = localizar_coluna(cabecalhos_desc, ["data"])
+
+        if not col_data_desc:
+            erros.append("Aba Descartes: coluna Data ausente.")
+        else:
+            colunas_motivos = []
+            for motivo in MOTIVOS_DESCARTE_IMPORTACAO_MAIO:
+                col = localizar_coluna(cabecalhos_desc, [motivo])
+                if col:
+                    colunas_motivos.append((motivo, col))
+
+            if not colunas_motivos:
+                avisos.append("Aba Descartes existe, mas nenhum motivo conhecido foi encontrado no cabeçalho.")
+
+            for linha in range(2, ws_desc.max_row + 1):
+                data_raw = ws_desc.cell(linha, col_data_desc).value
+                if not data_raw:
+                    continue
+                try:
+                    data = valor_excel_para_data_texto(data_raw)
+                    for motivo, col in colunas_motivos:
+                        quantidade = numero_importacao(ws_desc.cell(linha, col).value)
+                        if quantidade > 0:
+                            descartes.append({
+                                "linha": linha,
+                                "data": data,
+                                "setor": "Não informado",
+                                "categoria": "Condenação / Descarte",
+                                "motivo": motivo,
+                                "quantidade": quantidade,
+                                "unidade": "aves",
+                                "observacoes": "Importado da planilha oficial de maio/2026. Setor não informado na origem."
+                            })
+                except Exception as erro:
+                    erros.append(f"Aba Descartes linha {linha}: {erro}")
+    else:
+        avisos.append("A planilha não possui aba 'Descartes'. Apenas OPs serão importadas.")
+
+    if not ops:
+        erros.append("Nenhuma OP válida encontrada para importação.")
+
+    datas_ops = {op["data"] for op in ops}
+    for descarte in descartes:
+        if descarte["data"] not in datas_ops:
+            avisos.append(f"Descarte em {descarte['data']} sem OP na mesma data. Ele não será importado se não houver OP correspondente.")
+
+    return {"erros": erros, "avisos": avisos, "ops": ops, "descartes": descartes}
+
+
+def resumir_importacao_maio(dados):
+    ops = dados.get("ops", [])
+    descartes = dados.get("descartes", [])
+    total_aves = sum(op["quantidade_aves"] for op in ops)
+    total_mortes = sum(op["mortes_antes_pendura"] for op in ops)
+    total_peso_vivo = sum(op["peso_vivo"] for op in ops)
+    total_unidades = sum(op["unidades_produzidas"] for op in ops)
+    total_kg = sum(op["kg_produzidos"] for op in ops)
+    total_descartes = sum(item["quantidade"] for item in descartes)
+
+    motivos = {}
+    for item in descartes:
+        motivos[item["motivo"]] = motivos.get(item["motivo"], 0) + item["quantidade"]
+
+    motivos_ordenados = [
+        {"motivo": motivo, "quantidade": round(qtd, 2), "percentual": round((qtd / total_descartes * 100), 2) if total_descartes > 0 else 0}
+        for motivo, qtd in sorted(motivos.items(), key=lambda par: par[1], reverse=True)
+    ]
+
+    return {
+        "total_ops": len(ops),
+        "total_aves": round(total_aves, 2),
+        "total_mortes": round(total_mortes, 2),
+        "total_peso_vivo": round(total_peso_vivo, 2),
+        "total_unidades": round(total_unidades, 2),
+        "total_kg": round(total_kg, 2),
+        "total_descartes": round(total_descartes, 2),
+        "motivos": motivos_ordenados,
+    }
+
+
+def excluir_historico_maio_2026(cursor):
+    cursor.execute(q("""
+    SELECT id
+    FROM ordens_producao
+    WHERE data BETWEEN ? AND ?
+      AND (observacoes LIKE ? OR observacoes LIKE ?)
+    """), ("2026-05-01", "2026-05-31", "%Importação oficial Maio/2026%", "%Importado da planilha oficial de maio/2026%"))
+
+    ids = [item["id"] for item in cursor.fetchall()]
+
+    if not ids:
+        return 0
+
+    placeholders = ",".join(["?"] * len(ids))
+
+    for tabela in [
+        "apontamentos_setor",
+        "apontamentos_producao",
+        "apontamentos_mao_obra",
+        "apontamentos_paradas",
+        "apontamentos_descartes",
+        "apontamentos_tempos_setor",
+    ]:
+        cursor.execute(q(f"DELETE FROM {tabela} WHERE op_id IN ({placeholders})"), tuple(ids))
+
+    cursor.execute(q(f"DELETE FROM ordens_producao WHERE id IN ({placeholders})"), tuple(ids))
+    return len(ids)
+
+
+def obter_id_inserido(cursor):
+    if DATABASE_URL:
+        cursor.execute("SELECT LASTVAL() as id")
+        return cursor.fetchone()["id"]
+    return cursor.lastrowid
+
+
+def importar_dados_oficiais_maio(dados, substituir=True):
+    criar_banco()
+    criar_tabelas_receitas_sku()
+    criar_tabela_tempos_setor()
+
+    if dados.get("erros"):
+        raise ValueError("A planilha possui erros de validação e não pode ser importada.")
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    try:
+        removidas = 0
+        if substituir:
+            removidas = excluir_historico_maio_2026(cursor)
+
+        # Mantém uma relação por data para vincular descartes. Em caso de mais de uma OP no dia,
+        # os descartes do dia ficam vinculados à última OP importada daquela data.
+        # Para Maio/2026, a planilha consolidada está diária, então essa regra é suficiente.
+        op_por_data = {}
+        ops_importadas = 0
+        descartes_importados = 0
+
+        for op in dados["ops"]:
+            peso_medio = op["peso_vivo"] / op["quantidade_aves"] if op["quantidade_aves"] else 0
+            observacoes = op.get("observacoes") or ""
+            observacoes = (observacoes + " | " if observacoes else "") + "Importação oficial Maio/2026"
+
+            cursor.execute(q("""
+            INSERT INTO ordens_producao (
+                data, sku, fornecedor, gta, nota_fiscal, quantidade_aves,
+                mortes_antes_pendura, peso_vivo, peso_medio, observacoes, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """), (
+                op["data"],
+                op["sku"],
+                op["fornecedor"],
+                op["gta"],
+                op["nota_fiscal"],
+                op["quantidade_aves"],
+                op["mortes_antes_pendura"],
+                op["peso_vivo"],
+                peso_medio,
+                observacoes,
+                "Encerrada",
+            ))
+
+            op_id = obter_id_inserido(cursor)
+            op_por_data[op["data"]] = op_id
+            ops_importadas += 1
+
+            # Produção final em unidades e kg para alimentar Dashboard e Relatórios.
+            cursor.execute(q("""
+            INSERT INTO apontamentos_producao (
+                op_id, data, setor, quantidade, unidade, observacoes
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """), (
+                op_id,
+                op["data"],
+                "Expedição",
+                op["unidades_produzidas"],
+                "unidades",
+                "Produção final importada da planilha oficial de maio/2026."
+            ))
+
+            cursor.execute(q("""
+            INSERT INTO apontamentos_producao (
+                op_id, data, setor, quantidade, unidade, observacoes
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """), (
+                op_id,
+                op["data"],
+                "Expedição",
+                op["kg_produzidos"],
+                "kg",
+                "Kg final produzido importado da planilha oficial de maio/2026."
+            ))
+
+        for descarte in dados["descartes"]:
+            op_id = op_por_data.get(descarte["data"])
+            if not op_id:
+                continue
+
+            cursor.execute(q("""
+            INSERT INTO apontamentos_descartes (
+                op_id, data, setor, categoria, motivo, quantidade, unidade, observacoes
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """), (
+                op_id,
+                descarte["data"],
+                descarte["setor"],
+                descarte["categoria"],
+                descarte["motivo"],
+                descarte["quantidade"],
+                descarte["unidade"],
+                descarte["observacoes"],
+            ))
+            descartes_importados += 1
+
+        conn.commit()
+        conn.close()
+
+        return {
+            "removidas": removidas,
+            "ops_importadas": ops_importadas,
+            "descartes_importados": descartes_importados,
+        }
+
+    except Exception:
+        conn.rollback()
+        conn.close()
+        raise
+
+
+@app.route("/importar-maio", methods=["GET", "POST"])
+@perfil_permitido("pcp")
+def importar_maio():
+    resultado = None
+    resumo = None
+    erros = []
+    avisos = []
+    importado = False
+
+    if request.method == "POST":
+        arquivo = request.files.get("arquivo")
+        acao = request.form.get("acao", "validar")
+        substituir = request.form.get("substituir") == "sim"
+
+        if not arquivo or not arquivo.filename:
+            erros.append("Selecione a planilha de maio em Excel.")
+        else:
+            try:
+                dados = ler_planilha_importacao_maio(arquivo)
+                erros = dados.get("erros", [])
+                avisos = dados.get("avisos", [])
+                resumo = resumir_importacao_maio(dados)
+
+                if acao == "importar" and not erros:
+                    if not substituir:
+                        erros.append("Para importar oficialmente, marque a confirmação de substituição segura dos dados oficiais de Maio/2026 importados anteriormente.")
+                    else:
+                        resultado = importar_dados_oficiais_maio(dados, substituir=True)
+                        importado = True
+                        flash("Importação oficial de Maio/2026 concluída com sucesso.")
+
+            except Exception as erro:
+                erros.append(str(erro))
+
+    return render_template(
+        "importar_maio.html",
+        resumo=resumo,
+        erros=erros,
+        avisos=avisos,
+        resultado=resultado,
+        importado=importado
+    )
 
 if __name__ == "__main__":
     criar_banco()
