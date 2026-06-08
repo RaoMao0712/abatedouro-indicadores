@@ -51,7 +51,11 @@
 
         {% if sku_filtro == "Todos" %}
         <p class="alerta-hero">
-            Atenção: indicadores em kg e rendimento podem ficar distorcidos com SKUs misturados. Para rendimento, filtre por Galinha Cortada.
+            Rendimento travado tecnicamente em Galinha Cortada. A tabela de mix mostra a produção total do período.
+        </p>
+        {% elif sku_filtro == "Galinha Inteira" %}
+        <p class="alerta-hero">
+            Rendimento não aplicável para Galinha Inteira na lógica atual. O mix abaixo continua mostrando a produção total do período.
         </p>
         {% endif %}
     </form>
@@ -107,24 +111,25 @@
 
 <div class="cards-executivos">
     <div class="card kpi-card">
-        <span class="kpi-label">Peso de entrada</span>
-        <strong>{{ peso_entrada }}</strong>
-        <small>kg de peso vivo</small>
+        <span class="kpi-label">Peso base rendimento</span>
+        <strong>{{ peso_entrada_rendimento }}</strong>
+        <small>kg vivo — somente Galinha Cortada</small>
     </div>
 
     <div class="card kpi-card">
-        <span class="kpi-label">Produção líquida</span>
-        <strong>{{ kg_produzidos }}</strong>
-        <small>kg produzidos</small>
+        <span class="kpi-label">Produção base rendimento</span>
+        <strong>{{ kg_produzidos_rendimento }}</strong>
+        <small>kg produzidos — somente Galinha Cortada</small>
     </div>
 
     <div class="card kpi-card destaque kpi-meta-card">
         <span class="kpi-label">Rendimento</span>
 
+        {% if rendimento_aplicavel %}
         <div class="kpi-meta-layout">
             <div>
                 <strong>{{ rendimento }}%</strong>
-                <small>kg produzidos / peso vivo</small>
+                <small>kg produzidos / peso vivo da Galinha Cortada</small>
                 <small class="meta-texto">Meta: {{ meta_rendimento }}%</small>
             </div>
 
@@ -134,13 +139,78 @@
                 <small>vs meta</small>
             </div>
         </div>
+        {% else %}
+        <div class="kpi-meta-layout">
+            <div>
+                <strong>N/A</strong>
+                <small>Indicador aplicável apenas para Galinha Cortada</small>
+                <small class="meta-texto">Meta: {{ meta_rendimento }}%</small>
+            </div>
+        </div>
+        {% endif %}
     </div>
 
     <div class="card kpi-card">
         <span class="kpi-label">Unidades produzidas</span>
         <strong>{{ unidades_produzidas }}</strong>
-        <small>bandejas enviadas para a câmara fria</small>
+        <small>conforme filtro de SKU selecionado</small>
     </div>
+</div>
+
+<div class="card mix-producao-card">
+    <div class="section-title-row mix-producao-header">
+        <div>
+            <span class="eyebrow">Mix de Produção</span>
+            <h2>Produção Total do Período</h2>
+        </div>
+        <div class="mix-total-box">
+            <span>Total de aves produzidas</span>
+            <strong>{{ "%.0f"|format(total_unidades_mix) }}</strong>
+            <small>independente do filtro de SKU</small>
+        </div>
+    </div>
+
+    {% if mix_producao_periodo %}
+    <div class="tabela-responsiva tabela-executiva tabela-mix-producao">
+        <table>
+            <thead>
+                <tr>
+                    <th>SKU</th>
+                    <th>Unidades Produzidas</th>
+                    <th>Representatividade</th>
+                    <th>Kg Produzidos</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in mix_producao_periodo %}
+                <tr>
+                    <td><strong>{{ item.sku }}</strong></td>
+                    <td>{{ "%.0f"|format(item.unidades_produzidas) }}</td>
+                    <td>
+                        <div class="mix-percentual-cell">
+                            <span>{{ "%.2f"|format(item.representatividade) }}%</span>
+                            <div class="mix-barra"><i style="width: {{ item.representatividade }}%;"></i></div>
+                        </div>
+                    </td>
+                    <td>{{ "%.2f"|format(item.kg_produzidos) }}</td>
+                </tr>
+                {% endfor %}
+                <tr class="mix-total-linha">
+                    <td>Total do período</td>
+                    <td>{{ "%.0f"|format(total_unidades_mix) }}</td>
+                    <td>100,00%</td>
+                    <td>{{ "%.2f"|format(total_kg_mix) }}</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+        <p class="obs">Nenhuma produção final registrada no período/status selecionado.</p>
+    {% endif %}
+
+    <p class="obs mix-obs">
+        Esta tabela respeita data e status, mas ignora o filtro de SKU para mostrar a composição real da produção no período.
+    </p>
 </div>
 
 <div class="section-title">
@@ -315,8 +385,7 @@
         {% for item in descartes_por_motivo %}
             {% set fatia = (item.quantidade / total_descartes_motivo.valor * 100) if total_descartes_motivo.valor > 0 else 0 %}
             {% set proximo = donut.acumulado + fatia %}
-            {% set indice_cor = loop.index0 % (cores_qualidade|length) %}
-            {% set cor = cores_qualidade[indice_cor] %}
+            {% set cor = cores_qualidade[loop.index0 % cores_qualidade|length] %}
             {% set donut.valor = donut.valor ~ cor ~ ' ' ~ ('%.4f'|format(donut.acumulado)) ~ '% ' ~ ('%.4f'|format(proximo)) ~ '%' ~ (', ' if not loop.last else '') %}
             {% set donut.acumulado = proximo %}
         {% endfor %}
@@ -342,7 +411,7 @@
                             {% for item in descartes_por_motivo %}
                             <tr>
                                 <td>
-                                    <span class="qualidade-cor" style="background: {{ cores_qualidade[loop.index0 % (cores_qualidade|length)] }};"></span>
+                                    <span class="qualidade-cor" style="background: {{ cores_qualidade[loop.index0 % cores_qualidade|length] }};"></span>
                                     <strong>{{ item.motivo }}</strong>
                                 </td>
                                 <td>{{ "%.0f"|format(item.quantidade) }}</td>
@@ -381,7 +450,7 @@
                     <div class="qualidade-legenda-executiva">
                         {% for item in descartes_por_motivo %}
                         <div class="qualidade-legenda-item">
-                            <span class="qualidade-cor" style="background: {{ cores_qualidade[loop.index0 % (cores_qualidade|length)] }};"></span>
+                            <span class="qualidade-cor" style="background: {{ cores_qualidade[loop.index0 % cores_qualidade|length] }};"></span>
                             <strong>{{ item.motivo }}</strong>
                             <em>{{ "%.2f"|format(item.percentual) }}%</em>
                         </div>

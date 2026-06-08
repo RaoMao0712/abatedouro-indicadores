@@ -3633,6 +3633,81 @@ def dashboard():
 
     unidades_produzidas = cursor.fetchone()["unidades"] or 0
 
+    # Base técnica do rendimento: sempre Galinha Cortada.
+    # Isso evita distorção quando o filtro estiver em "Todos" ou quando houver Galinha Inteira no período.
+    cursor.execute(q(f"""
+    SELECT COALESCE(SUM(p.quantidade), 0) as kg
+    FROM apontamentos_producao p
+    JOIN ordens_producao o ON o.id = p.op_id
+    WHERE o.data BETWEEN ? AND ?
+      AND LOWER(p.unidade) = 'kg'
+      AND COALESCE(o.sku, 'Galinha Cortada') = 'Galinha Cortada'
+      {status_condicao_alias}
+    """), (data_inicio, data_fim) + parametros_status)
+
+    kg_produzidos_rendimento = cursor.fetchone()["kg"] or 0
+
+    cursor.execute(q(f"""
+    SELECT COALESCE(SUM(peso_vivo), 0) as peso_vivo
+    FROM ordens_producao
+    WHERE data BETWEEN ? AND ?
+      AND COALESCE(sku, 'Galinha Cortada') = 'Galinha Cortada'
+      {status_condicao_op}
+    """), (data_inicio, data_fim) + parametros_status)
+
+    peso_entrada_rendimento = cursor.fetchone()["peso_vivo"] or 0
+    rendimento_aplicavel = sku_filtro != "Galinha Inteira"
+
+    # Mix de produção do período: respeita data e status, mas ignora o filtro de SKU.
+    cursor.execute(q(f"""
+    SELECT
+        COALESCE(o.sku, 'Galinha Cortada') as sku,
+        COALESCE(SUM(p.quantidade), 0) as unidades_produzidas
+    FROM apontamentos_producao p
+    JOIN ordens_producao o ON o.id = p.op_id
+    WHERE o.data BETWEEN ? AND ?
+      AND p.setor = 'Expedição'
+      AND LOWER(p.unidade) IN ('unidades', 'unidade', 'aves', 'ave')
+      {status_condicao_alias}
+    GROUP BY COALESCE(o.sku, 'Galinha Cortada')
+    ORDER BY unidades_produzidas DESC
+    """), (data_inicio, data_fim) + parametros_status)
+
+    mix_unidades_raw = cursor.fetchall()
+
+    cursor.execute(q(f"""
+    SELECT
+        COALESCE(o.sku, 'Galinha Cortada') as sku,
+        COALESCE(SUM(p.quantidade), 0) as kg_produzidos
+    FROM apontamentos_producao p
+    JOIN ordens_producao o ON o.id = p.op_id
+    WHERE o.data BETWEEN ? AND ?
+      AND LOWER(p.unidade) = 'kg'
+      {status_condicao_alias}
+    GROUP BY COALESCE(o.sku, 'Galinha Cortada')
+    """), (data_inicio, data_fim) + parametros_status)
+
+    mix_kg_raw = cursor.fetchall()
+    kg_por_sku_mix = {
+        item["sku"]: float(item["kg_produzidos"] or 0)
+        for item in mix_kg_raw
+    }
+
+    total_unidades_mix = sum(float(item["unidades_produzidas"] or 0) for item in mix_unidades_raw)
+    total_kg_mix = sum(kg_por_sku_mix.values())
+    mix_producao_periodo = []
+
+    for item in mix_unidades_raw:
+        sku_mix = item["sku"] or "Não informado"
+        unidades_mix = float(item["unidades_produzidas"] or 0)
+        representatividade = (unidades_mix / total_unidades_mix * 100) if total_unidades_mix > 0 else 0
+        mix_producao_periodo.append({
+            "sku": sku_mix,
+            "unidades_produzidas": round(unidades_mix, 2),
+            "representatividade": round(representatividade, 2),
+            "kg_produzidos": round(kg_por_sku_mix.get(sku_mix, 0), 2)
+        })
+
     total_problemas_aves = mortes_antes_pendura + descartes_aves
 
     cursor.execute(q(f"""
@@ -3868,8 +3943,8 @@ def dashboard():
         viabilidade_percentual = (viabilidade / aves_recebidas) * 100
 
     rendimento = 0
-    if peso_entrada > 0:
-        rendimento = (kg_produzidos / peso_entrada) * 100
+    if rendimento_aplicavel and peso_entrada_rendimento > 0:
+        rendimento = (kg_produzidos_rendimento / peso_entrada_rendimento) * 100
 
     meta_viabilidade = 99.5
     meta_rendimento = 63.0
@@ -3946,7 +4021,13 @@ def dashboard():
         viabilidade_percentual=round(viabilidade_percentual, 2),
         peso_entrada=round(peso_entrada, 2),
         kg_produzidos=round(kg_produzidos, 2),
+        peso_entrada_rendimento=round(peso_entrada_rendimento, 2),
+        kg_produzidos_rendimento=round(kg_produzidos_rendimento, 2),
+        rendimento_aplicavel=rendimento_aplicavel,
         unidades_produzidas=round(unidades_produzidas, 2),
+        mix_producao_periodo=mix_producao_periodo,
+        total_unidades_mix=round(total_unidades_mix, 2),
+        total_kg_mix=round(total_kg_mix, 2),
         rendimento=round(rendimento, 2),
         meta_viabilidade=round(meta_viabilidade, 2),
         meta_rendimento=round(meta_rendimento, 2),
