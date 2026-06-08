@@ -217,10 +217,12 @@
             </div>
 
             {% for item in despesas_grafico.itens %}
-            <div class="dre-donut-label {{ item.alinhamento }}" style="left: {{ item.x }}%; top: {{ item.y }}%; --label-color: {{ item.cor }};">
-                <span>{{ item.categoria }}</span>
-                <strong>{{ item.percentual_receita|br_percentual }}</strong>
-            </div>
+                {% if item.mostrar_label %}
+                <div class="dre-donut-label {{ item.alinhamento }}" style="left: {{ item.x }}%; top: {{ item.y }}%; --label-color: {{ item.cor }};">
+                    <span>{{ item.categoria }}</span>
+                    <strong>{{ item.percentual_receita|br_percentual }}</strong>
+                </div>
+                {% endif %}
             {% endfor %}
         </div>
 

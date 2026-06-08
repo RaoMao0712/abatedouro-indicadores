@@ -139,6 +139,7 @@ def preparar_grafico_despesas_operacionais(linhas_custos, receita_bruta, limite=
             "percentual_receita_formatado": formatar_percentual_br(item["percentual_receita"]),
             "percentual_despesa": round(fatia * 100, 2),
             "percentual_despesa_formatado": formatar_percentual_br(fatia * 100),
+            "mostrar_label": item["percentual_receita"] >= 5,
             "cor": cor,
             "x": round(x, 2),
             "y": round(y, 2),
