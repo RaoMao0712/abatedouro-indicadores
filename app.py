@@ -1401,8 +1401,6 @@ def criar_tabelas_almoxarifado():
         )
         """)
 
-    tentar_alter_table(cursor, conn, "ALTER TABLE almoxarifado_insumos ADD COLUMN observacoes TEXT")
-
     conn.commit()
     conn.close()
 
