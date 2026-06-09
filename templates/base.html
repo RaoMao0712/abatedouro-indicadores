@@ -53,8 +53,11 @@
         <div class="sidebar-section">
             <span class="sidebar-title">Gestão</span>
 
-            {% if perfil == "admin" or perfil == "pcp" %}
+            {% if perfil == "admin" or perfil == "pcp" or perfil == "producao" or perfil == "qualidade" %}
                 <a href="{{ url_for('dashboard') }}">Dashboard</a>
+            {% endif %}
+
+            {% if perfil == "admin" or perfil == "pcp" %}
                 <a href="{{ url_for('custos') }}">Custos</a>
                 <a href="{{ url_for('vendas') }}">Vendas</a>
                 <a href="{{ url_for('relatorio') }}">Relatório</a>
