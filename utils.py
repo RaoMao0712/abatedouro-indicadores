@@ -48,4 +48,3 @@ def normalizar_chave_setor(setor):
         .replace("ã", "a")
         .replace("é", "e")
     )
-

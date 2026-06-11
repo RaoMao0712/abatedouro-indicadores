@@ -43,4 +43,3 @@ def perfil_permitido(*perfis_autorizados):
         return wrapper
 
     return decorador
-
