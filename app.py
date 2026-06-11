@@ -17,6 +17,162 @@ from openpyxl.utils import get_column_letter
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "segredo")
 
+
+# ============================================================
+# FORMATAÇÃO BR / APRESENTAÇÃO EXECUTIVA
+# ============================================================
+
+def formatar_numero_br(valor, casas=2):
+    try:
+        numero = float(valor or 0)
+    except Exception:
+        numero = 0
+
+    texto = f"{numero:,.{casas}f}"
+    return texto.replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def formatar_moeda_br(valor):
+    return f"R$ {formatar_numero_br(valor, 2)}"
+
+
+def formatar_percentual_br(valor):
+    return f"{formatar_numero_br(valor, 2)}%"
+
+
+@app.template_filter("br_numero")
+def filtro_br_numero(valor, casas=2):
+    return formatar_numero_br(valor, int(casas))
+
+
+@app.template_filter("br_moeda")
+def filtro_br_moeda(valor):
+    return formatar_moeda_br(valor)
+
+
+@app.template_filter("br_percentual")
+def filtro_br_percentual(valor):
+    return formatar_percentual_br(valor)
+
+
+def preparar_grafico_despesas_operacionais(linhas_custos, receita_bruta, limite=6):
+    """
+    Prepara os dados visuais do gráfico de rosca da DRE.
+    O tamanho das fatias usa participação dentro das despesas operacionais.
+    O rótulo exibido usa % da receita, para manter leitura gerencial.
+    """
+    itens_validos = [
+        {
+            "categoria": item["categoria"],
+            "valor": float(item["valor"] or 0),
+            "percentual_receita": float(item["percentual"] or 0)
+        }
+        for item in linhas_custos
+        if float(item["valor"] or 0) > 0
+    ]
+
+    itens_validos = sorted(itens_validos, key=lambda item: item["valor"], reverse=True)
+    total_despesas = sum(item["valor"] for item in itens_validos)
+
+    if total_despesas <= 0:
+        return {
+            "itens": [],
+            "gradiente": "#e5e7eb 0deg 360deg",
+            "total": 0,
+            "percentual_receita_total": 0
+        }
+
+    cores = [
+        "#2563eb",
+        "#16a34a",
+        "#f97316",
+        "#8b5cf6",
+        "#0891b2",
+        "#64748b",
+        "#dc2626"
+    ]
+
+    limite_principal = max(1, limite - 1)
+    principais = itens_validos[:limite_principal]
+    restantes = itens_validos[limite_principal:]
+
+    itens_grafico = []
+
+    for item in principais:
+        itens_grafico.append(item)
+
+    if restantes:
+        valor_outras = sum(item["valor"] for item in restantes)
+        percentual_receita_outras = sum(item["percentual_receita"] for item in restantes)
+        itens_grafico.append({
+            "categoria": f"Outras categorias ({len(restantes)})",
+            "valor": valor_outras,
+            "percentual_receita": percentual_receita_outras
+        })
+
+    segmentos = []
+    angulo_atual = 0
+    itens_saida = []
+
+    for indice, item in enumerate(itens_grafico):
+        fatia = item["valor"] / total_despesas
+        graus = fatia * 360
+        inicio = angulo_atual
+        fim = 360 if indice == len(itens_grafico) - 1 else angulo_atual + graus
+        meio = (inicio + fim) / 2
+        cor = cores[indice % len(cores)]
+        segmentos.append(f"{cor} {inicio:.2f}deg {fim:.2f}deg")
+
+        # Coordenadas simples para rótulos ao redor da rosca.
+        # 0 grau visual no topo; por isso subtrai 90 graus.
+        import math
+        rad = math.radians(meio - 90)
+        x = 50 + (46 * math.cos(rad))
+        y = 50 + (41 * math.sin(rad))
+        alinhamento = "right" if x < 50 else "left"
+
+        itens_saida.append({
+            "categoria": item["categoria"],
+            "valor": round(item["valor"], 2),
+            "valor_formatado": formatar_moeda_br(item["valor"]),
+            "percentual_receita": round(item["percentual_receita"], 2),
+            "percentual_receita_formatado": formatar_percentual_br(item["percentual_receita"]),
+            "percentual_despesa": round(fatia * 100, 2),
+            "percentual_despesa_formatado": formatar_percentual_br(fatia * 100),
+            "cor": cor,
+            "x": round(x, 2),
+            "y": round(y, 2),
+            "alinhamento": alinhamento
+        })
+
+        angulo_atual = fim
+
+    return {
+        "itens": itens_saida,
+        "gradiente": ", ".join(segmentos),
+        "total": round(total_despesas, 2),
+        "total_formatado": formatar_moeda_br(total_despesas),
+        "percentual_receita_total": round((total_despesas / receita_bruta * 100) if receita_bruta > 0 else 0, 2),
+        "percentual_receita_total_formatado": formatar_percentual_br((total_despesas / receita_bruta * 100) if receita_bruta > 0 else 0)
+    }
+
+
+def preparar_linhas_custos_executivas(linhas_custos, limite=6):
+    itens = [item for item in linhas_custos if float(item["valor"] or 0) > 0]
+    itens = sorted(itens, key=lambda item: float(item["valor"] or 0), reverse=True)
+
+    if len(itens) <= limite:
+        return itens
+
+    principais = itens[:limite - 1]
+    restantes = itens[limite - 1:]
+    principais.append({
+        "categoria": f"Outras categorias ({len(restantes)})",
+        "valor": round(sum(float(item["valor"] or 0) for item in restantes), 2),
+        "percentual": round(sum(float(item["percentual"] or 0) for item in restantes), 2)
+    })
+    return principais
+
 DATABASE_URL = os.getenv("DATABASE_URL")
 DB_NAME = "abatedouro.db"
 
@@ -573,7 +729,7 @@ def criar_tabelas_custos():
     conn.commit()
 
     parametros_padrao = [
-        ("Galinha Cortada", 0, "R$/kg vivo", 0, "R$/kg produzido"),
+        ("Galinha Cortada", 0, "R$/ave", 0, "R$/bandeja"),
         ("Galinha Inteira", 0, "R$/ave", 0, "R$/unidade")
     ]
 
@@ -654,8 +810,8 @@ def salvar_parametros_custos(form):
         custo_embalagem = float(form.get(f"custo_embalagem_{chave}") or 0)
 
         if sku == "Galinha Cortada":
-            unidade_custo_ave = "R$/kg vivo"
-            unidade_custo_embalagem = "R$/kg produzido"
+            unidade_custo_ave = "R$/ave"
+            unidade_custo_embalagem = "R$/bandeja"
         else:
             unidade_custo_ave = "R$/ave"
             unidade_custo_embalagem = "R$/unidade"
@@ -718,6 +874,8 @@ def criar_tabela_vendas():
             sku TEXT NOT NULL,
             quantidade REAL NOT NULL,
             unidade TEXT NOT NULL,
+            quantidade_unidades REAL DEFAULT 0,
+            quantidade_kg REAL DEFAULT 0,
             receita REAL NOT NULL,
             observacoes TEXT,
             criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -731,43 +889,111 @@ def criar_tabela_vendas():
             sku TEXT NOT NULL,
             quantidade REAL NOT NULL,
             unidade TEXT NOT NULL,
+            quantidade_unidades REAL DEFAULT 0,
+            quantidade_kg REAL DEFAULT 0,
             receita REAL NOT NULL,
             observacoes TEXT,
             criado_em TEXT DEFAULT CURRENT_TIMESTAMP
         )
         """)
 
+    tentar_alter_table(cursor, conn, "ALTER TABLE vendas_diarias ADD COLUMN quantidade_unidades REAL DEFAULT 0")
+    tentar_alter_table(cursor, conn, "ALTER TABLE vendas_diarias ADD COLUMN quantidade_kg REAL DEFAULT 0")
+
     conn.commit()
     conn.close()
+
+
+
+def preparar_quantidades_venda(sku, form, quantidade_atual=None, unidade_atual=None):
+    """
+    Padroniza as quantidades de venda para suportar a lógica correta da DRE.
+
+    Galinha Cortada:
+    - quantidade_unidades = bandejas vendidas, usada para CMV;
+    - quantidade_kg = kg vendidos, usado para receita/kg e CMV/kg;
+    - quantidade legado = kg, para compatibilidade com telas antigas.
+
+    Galinha Inteira:
+    - quantidade_unidades = unidades vendidas;
+    - quantidade_kg = 0;
+    - quantidade legado = unidades.
+    """
+    quantidade_legacy = form.get("quantidade")
+    quantidade_unidades_raw = (
+        form.get("quantidade_unidades")
+        or form.get("unidades_vendidas")
+        or form.get("bandejas_vendidas")
+        or ""
+    )
+    quantidade_kg_raw = (
+        form.get("quantidade_kg")
+        or form.get("kg_vendidos")
+        or ""
+    )
+
+    if sku == "Galinha Cortada":
+        quantidade_unidades = float(quantidade_unidades_raw or 0)
+        quantidade_kg = float(quantidade_kg_raw or quantidade_legacy or quantidade_atual or 0)
+
+        if quantidade_unidades <= 0:
+            raise ValueError("Informe a quantidade de bandejas/unidades vendidas para Galinha Cortada.")
+
+        if quantidade_kg <= 0:
+            raise ValueError("Informe a quantidade em kg vendida para Galinha Cortada.")
+
+        return {
+            "quantidade": quantidade_kg,
+            "unidade": "kg",
+            "quantidade_unidades": quantidade_unidades,
+            "quantidade_kg": quantidade_kg
+        }
+
+    quantidade_unidades = float(quantidade_unidades_raw or quantidade_legacy or quantidade_atual or 0)
+
+    if quantidade_unidades <= 0:
+        raise ValueError("Informe a quantidade de unidades vendidas.")
+
+    return {
+        "quantidade": quantidade_unidades,
+        "unidade": "unidades",
+        "quantidade_unidades": quantidade_unidades,
+        "quantidade_kg": 0
+    }
 
 
 def salvar_venda_diaria(form):
     criar_tabela_vendas()
 
     sku = form["sku"]
-    quantidade = float(form["quantidade"])
     receita = float(form["receita"])
-
-    if quantidade <= 0:
-        raise ValueError("A quantidade vendida deve ser maior que zero.")
 
     if receita < 0:
         raise ValueError("A receita não pode ser negativa.")
 
-    unidade = "kg" if sku == "Galinha Cortada" else "unidades"
+    quantidades = preparar_quantidades_venda(sku, form)
 
     conn = conectar()
     cursor = conn.cursor()
 
     cursor.execute(q("""
     INSERT INTO vendas_diarias (
-        data, sku, quantidade, unidade, receita, observacoes
-    ) VALUES (?, ?, ?, ?, ?, ?)
-    """), (
-        form["data"],
+        data,
         sku,
         quantidade,
         unidade,
+        quantidade_unidades,
+        quantidade_kg,
+        receita,
+        observacoes
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """), (
+        form["data"],
+        sku,
+        quantidades["quantidade"],
+        quantidades["unidade"],
+        quantidades["quantidade_unidades"],
+        quantidades["quantidade_kg"],
         receita,
         form.get("observacoes", "")
     ))
@@ -992,6 +1218,49 @@ def buscar_dados_relatorio_custos(competencia_inicio, competencia_fim):
 
 
 
+def valor_linha_venda(item, campo, padrao=0):
+    try:
+        valor = item[campo]
+    except Exception:
+        valor = padrao
+
+    if valor is None:
+        return padrao
+
+    return float(valor or 0)
+
+
+def normalizar_venda_para_dre(item):
+    sku = item["sku"]
+    quantidade = valor_linha_venda(item, "quantidade")
+    unidade = (item["unidade"] or "").lower()
+    quantidade_unidades = valor_linha_venda(item, "quantidade_unidades")
+    quantidade_kg = valor_linha_venda(item, "quantidade_kg")
+    receita = valor_linha_venda(item, "receita")
+
+    # Compatibilidade com registros antigos: antes a Galinha Cortada era lançada só em kg.
+    if sku == "Galinha Cortada":
+        if quantidade_kg <= 0 and unidade == "kg":
+            quantidade_kg = quantidade
+
+        if quantidade_unidades <= 0 and unidade in ["unidades", "unidade", "aves", "ave"]:
+            quantidade_unidades = quantidade
+    else:
+        if quantidade_unidades <= 0:
+            quantidade_unidades = quantidade
+
+        quantidade_kg = 0
+
+    return {
+        "sku": sku,
+        "receita": receita,
+        "quantidade": quantidade,
+        "unidade": unidade,
+        "quantidade_unidades": quantidade_unidades,
+        "quantidade_kg": quantidade_kg
+    }
+
+
 def buscar_dados_dre_gerencial(competencia):
     criar_tabelas_custos()
     criar_tabela_vendas()
@@ -1005,39 +1274,55 @@ def buscar_dados_dre_gerencial(competencia):
     cursor = conn.cursor()
 
     cursor.execute(q("""
-    SELECT
-        sku,
-        COALESCE(SUM(receita), 0) as receita,
-        COALESCE(SUM(quantidade), 0) as quantidade
+    SELECT *
     FROM vendas_diarias
     WHERE data BETWEEN ? AND ?
-    GROUP BY sku
-    ORDER BY sku
+    ORDER BY sku ASC, data ASC, id ASC
     """), (data_inicio, data_fim))
 
-    vendas_raw = cursor.fetchall()
+    vendas_linhas = [normalizar_venda_para_dre(item) for item in cursor.fetchall()]
 
-    vendas_por_sku = []
     vendas_por_sku_dict = {}
     receita_bruta = 0
 
-    for item in vendas_raw:
+    for item in vendas_linhas:
         sku = item["sku"]
-        receita = float(item["receita"] or 0)
-        quantidade = float(item["quantidade"] or 0)
 
-        receita_bruta += receita
+        if sku not in vendas_por_sku_dict:
+            vendas_por_sku_dict[sku] = {
+                "receita": 0,
+                "quantidade": 0,
+                "quantidade_unidades": 0,
+                "quantidade_kg": 0
+            }
+
+        vendas_por_sku_dict[sku]["receita"] += item["receita"]
+        vendas_por_sku_dict[sku]["quantidade_unidades"] += item["quantidade_unidades"]
+        vendas_por_sku_dict[sku]["quantidade_kg"] += item["quantidade_kg"]
+
+        if sku == "Galinha Cortada":
+            vendas_por_sku_dict[sku]["quantidade"] += item["quantidade_kg"]
+        else:
+            vendas_por_sku_dict[sku]["quantidade"] += item["quantidade_unidades"]
+
+        receita_bruta += item["receita"]
+
+    vendas_por_sku = []
+
+    for sku, venda in vendas_por_sku_dict.items():
+        quantidade_base = venda["quantidade_kg"] if sku == "Galinha Cortada" else venda["quantidade_unidades"]
+        unidade_base = "kg" if sku == "Galinha Cortada" else "unidades"
+        preco_medio = venda["receita"] / quantidade_base if quantidade_base > 0 else 0
 
         vendas_por_sku.append({
             "sku": sku,
-            "receita": round(receita, 2),
-            "quantidade": round(quantidade, 2)
+            "receita": round(venda["receita"], 2),
+            "quantidade": round(quantidade_base, 2),
+            "unidade": unidade_base,
+            "quantidade_unidades": round(venda["quantidade_unidades"], 2),
+            "quantidade_kg": round(venda["quantidade_kg"], 2),
+            "preco_medio": round(preco_medio, 4)
         })
-
-        vendas_por_sku_dict[sku] = {
-            "receita": receita,
-            "quantidade": quantidade
-        }
 
     cursor.execute("SELECT * FROM parametros_custos")
 
@@ -1045,10 +1330,6 @@ def buscar_dados_dre_gerencial(competencia):
         item["sku"]: item
         for item in cursor.fetchall()
     }
-
-    # Correção conceitual:
-    # O CMV da DRE acompanha o volume vendido, não o volume produzido.
-    rendimento_meta_cmv = 0.63
 
     cmv_por_sku = []
     cmv_total = 0
@@ -1063,36 +1344,43 @@ def buscar_dados_dre_gerencial(competencia):
             custo_ave = float(parametros_sku["custo_ave"] or 0)
             custo_embalagem = float(parametros_sku["custo_embalagem"] or 0)
 
-        quantidade_vendida = float(venda["quantidade"] or 0)
+        quantidade_unidades = float(venda["quantidade_unidades"] or 0)
+        quantidade_kg = float(venda["quantidade_kg"] or 0)
 
-        if sku == "Galinha Cortada":
-            # custo_ave está em R$/kg vivo.
-            # Para transformar em custo por kg vendido, divide pelo rendimento-meta.
-            custo_materia_prima_unitario = 0
+        # Regra atual validada:
+        # Galinha Cortada: (ave viva + embalagem) x bandejas vendidas.
+        # CMV por kg = CMV total / kg vendidos.
+        # Galinha Inteira: 1 x 1 por unidade vendida.
+        custo_materia_prima_unitario = custo_ave
+        custo_embalagem_unitario = custo_embalagem
+        quantidade_cmv = quantidade_unidades
 
-            if rendimento_meta_cmv > 0:
-                custo_materia_prima_unitario = custo_ave / rendimento_meta_cmv
-
-            custo_materia_prima = quantidade_vendida * custo_materia_prima_unitario
-            custo_embalagens = quantidade_vendida * custo_embalagem
-
-        else:
-            # Galinha Inteira: custo_ave em R$/ave e embalagem em R$/unidade.
-            custo_materia_prima_unitario = custo_ave
-            custo_materia_prima = quantidade_vendida * custo_materia_prima_unitario
-            custo_embalagens = quantidade_vendida * custo_embalagem
-
+        custo_materia_prima = quantidade_cmv * custo_materia_prima_unitario
+        custo_embalagens = quantidade_cmv * custo_embalagem_unitario
         cmv_sku = custo_materia_prima + custo_embalagens
         cmv_total += cmv_sku
 
+        cmv_por_kg = 0
+        if sku == "Galinha Cortada" and quantidade_kg > 0:
+            cmv_por_kg = cmv_sku / quantidade_kg
+
+        cmv_por_unidade = 0
+        if quantidade_cmv > 0:
+            cmv_por_unidade = cmv_sku / quantidade_cmv
+
         cmv_por_sku.append({
             "sku": sku,
-            "quantidade_vendida": round(quantidade_vendida, 2),
+            "quantidade_vendida": round(quantidade_kg if sku == "Galinha Cortada" else quantidade_unidades, 2),
+            "quantidade_unidades": round(quantidade_unidades, 2),
+            "quantidade_kg": round(quantidade_kg, 2),
             "custo_materia_prima_unitario": round(custo_materia_prima_unitario, 4),
-            "custo_embalagem_unitario": round(custo_embalagem, 4),
+            "custo_embalagem_unitario": round(custo_embalagem_unitario, 4),
             "materia_prima": round(custo_materia_prima, 2),
             "embalagem": round(custo_embalagens, 2),
-            "cmv": round(cmv_sku, 2)
+            "cmv": round(cmv_sku, 2),
+            "cmv_por_kg": round(cmv_por_kg, 4),
+            "cmv_por_unidade": round(cmv_por_unidade, 4),
+            "observacao_calculo": "CMV por bandeja vendida; CMV/kg calculado pelos kg vendidos." if sku == "Galinha Cortada" else "CMV 1 x 1 por unidade vendida."
         })
 
     cursor.execute(q("""
@@ -1138,6 +1426,9 @@ def buscar_dados_dre_gerencial(competencia):
         for categoria, valor in custos.items()
     ]
 
+    linhas_custos_executivas = preparar_linhas_custos_executivas(linhas_custos)
+    despesas_grafico = preparar_grafico_despesas_operacionais(linhas_custos, receita_bruta)
+
     return {
         "receita_bruta": round(receita_bruta, 2),
         "vendas_por_sku": vendas_por_sku,
@@ -1149,6 +1440,8 @@ def buscar_dados_dre_gerencial(competencia):
         "custos_operacionais_total": round(custos_operacionais_total, 2),
         "custos_operacionais_percentual": round(perc(custos_operacionais_total), 2),
         "linhas_custos": linhas_custos,
+        "linhas_custos_executivas": linhas_custos_executivas,
+        "despesas_grafico": despesas_grafico,
         "resultado_operacional": round(resultado_operacional, 2),
         "margem_operacional_percentual": round(perc(resultado_operacional), 2)
     }
@@ -2422,788 +2715,6 @@ def excluir_item_receita_sku_rota(item_id):
     excluir_item_receita_sku(item_id)
     flash("Item removido da receita com sucesso.")
     return redirect(url_for("receitas_sku"))
-
-
-
-# ============================================================
-# MÓDULO EXPEDIÇÃO / ESTOQUE DE PRODUTO ACABADO
-# ============================================================
-
-TIPOS_DESTINATARIO_EXPEDICAO = [
-    "Empresa do Grupo",
-    "Cliente",
-    "Transportadora",
-    "Outro"
-]
-
-TIPOS_SAIDA_EXPEDICAO = [
-    "Transferência interna",
-    "Venda futura / cliente",
-    "Bonificação",
-    "Amostra / teste",
-    "Ajuste operacional"
-]
-
-TIPOS_PRODUTO_ESTOQUE = [
-    "Produto Acabado",
-    "Produto Intermediário"
-]
-
-
-def criar_tabelas_expedicao():
-    conn = conectar()
-    cursor = conn.cursor()
-
-    if DATABASE_URL:
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS destinatarios_expedicao (
-            id SERIAL PRIMARY KEY,
-            nome TEXT NOT NULL UNIQUE,
-            tipo TEXT NOT NULL DEFAULT 'Cliente',
-            documento TEXT,
-            cidade TEXT,
-            uf TEXT,
-            ativo TEXT DEFAULT 'Sim',
-            observacoes TEXT,
-            criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-        """)
-
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS estoque_produtos_movimentacoes (
-            id SERIAL PRIMARY KEY,
-            data_movimentacao TEXT NOT NULL,
-            tipo TEXT NOT NULL,
-            sku TEXT NOT NULL,
-            tipo_produto TEXT NOT NULL DEFAULT 'Produto Acabado',
-            quantidade_unidades REAL DEFAULT 0,
-            quantidade_kg REAL DEFAULT 0,
-            origem TEXT,
-            op_id INTEGER,
-            romaneio_id INTEGER,
-            destinatario_nome TEXT,
-            responsavel TEXT,
-            observacoes TEXT,
-            criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-        """)
-
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS romaneios_expedicao (
-            id SERIAL PRIMARY KEY,
-            data TEXT NOT NULL,
-            numero_romaneio TEXT UNIQUE NOT NULL,
-            tipo_saida TEXT NOT NULL,
-            destinatario_id INTEGER,
-            destino_nome TEXT NOT NULL,
-            motorista TEXT,
-            placa TEXT,
-            responsavel TEXT,
-            status TEXT DEFAULT 'Emitido',
-            observacoes TEXT,
-            criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-        """)
-
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS romaneios_expedicao_itens (
-            id SERIAL PRIMARY KEY,
-            romaneio_id INTEGER NOT NULL,
-            sku TEXT NOT NULL,
-            tipo_produto TEXT NOT NULL DEFAULT 'Produto Acabado',
-            quantidade_unidades REAL DEFAULT 0,
-            quantidade_kg REAL DEFAULT 0,
-            observacoes TEXT
-        )
-        """)
-    else:
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS destinatarios_expedicao (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            nome TEXT NOT NULL UNIQUE,
-            tipo TEXT NOT NULL DEFAULT 'Cliente',
-            documento TEXT,
-            cidade TEXT,
-            uf TEXT,
-            ativo TEXT DEFAULT 'Sim',
-            observacoes TEXT,
-            criado_em TEXT DEFAULT CURRENT_TIMESTAMP
-        )
-        """)
-
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS estoque_produtos_movimentacoes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            data_movimentacao TEXT NOT NULL,
-            tipo TEXT NOT NULL,
-            sku TEXT NOT NULL,
-            tipo_produto TEXT NOT NULL DEFAULT 'Produto Acabado',
-            quantidade_unidades REAL DEFAULT 0,
-            quantidade_kg REAL DEFAULT 0,
-            origem TEXT,
-            op_id INTEGER,
-            romaneio_id INTEGER,
-            destinatario_nome TEXT,
-            responsavel TEXT,
-            observacoes TEXT,
-            criado_em TEXT DEFAULT CURRENT_TIMESTAMP
-        )
-        """)
-
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS romaneios_expedicao (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            data TEXT NOT NULL,
-            numero_romaneio TEXT UNIQUE NOT NULL,
-            tipo_saida TEXT NOT NULL,
-            destinatario_id INTEGER,
-            destino_nome TEXT NOT NULL,
-            motorista TEXT,
-            placa TEXT,
-            responsavel TEXT,
-            status TEXT DEFAULT 'Emitido',
-            observacoes TEXT,
-            criado_em TEXT DEFAULT CURRENT_TIMESTAMP
-        )
-        """)
-
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS romaneios_expedicao_itens (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            romaneio_id INTEGER NOT NULL,
-            sku TEXT NOT NULL,
-            tipo_produto TEXT NOT NULL DEFAULT 'Produto Acabado',
-            quantidade_unidades REAL DEFAULT 0,
-            quantidade_kg REAL DEFAULT 0,
-            observacoes TEXT
-        )
-        """)
-
-    conn.commit()
-
-    try:
-        cursor.execute(q("""
-        INSERT INTO destinatarios_expedicao (
-            nome, tipo, documento, cidade, uf, ativo, observacoes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
-        """), (
-            "LSM Distribuidora",
-            "Empresa do Grupo",
-            "",
-            "",
-            "",
-            "Sim",
-            "Destinatário padrão para transferências internas do grupo."
-        ))
-        conn.commit()
-    except Exception:
-        conn.rollback()
-
-    conn.close()
-
-
-def obter_id_inserido_generico(cursor):
-    if DATABASE_URL:
-        cursor.execute("SELECT LASTVAL() as id")
-        return cursor.fetchone()["id"]
-    return cursor.lastrowid
-
-
-def salvar_destinatario_expedicao(form):
-    criar_tabelas_expedicao()
-
-    nome = form.get("nome", "").strip()
-    tipo = form.get("tipo", "Cliente").strip()
-    documento = form.get("documento", "").strip()
-    cidade = form.get("cidade", "").strip()
-    uf = form.get("uf", "").strip().upper()
-    ativo = form.get("ativo", "Sim").strip()
-    observacoes = form.get("observacoes", "").strip()
-
-    if not nome:
-        raise ValueError("Informe o nome do destinatário.")
-
-    if tipo not in TIPOS_DESTINATARIO_EXPEDICAO:
-        raise ValueError("Tipo de destinatário inválido.")
-
-    conn = conectar()
-    cursor = conn.cursor()
-
-    cursor.execute(q("""
-    INSERT INTO destinatarios_expedicao (
-        nome, tipo, documento, cidade, uf, ativo, observacoes
-    ) VALUES (?, ?, ?, ?, ?, ?, ?)
-    """), (
-        nome, tipo, documento, cidade, uf, ativo, observacoes
-    ))
-
-    conn.commit()
-    conn.close()
-
-
-def buscar_destinatarios_expedicao(filtro_status="Todos", termo=""):
-    criar_tabelas_expedicao()
-
-    condicoes = ["1 = 1"]
-    parametros = []
-
-    if filtro_status and filtro_status != "Todos":
-        condicoes.append("ativo = ?")
-        parametros.append(filtro_status)
-
-    if termo:
-        condicoes.append("LOWER(nome) LIKE ?")
-        parametros.append(f"%{termo.lower()}%")
-
-    where_sql = " AND ".join(condicoes)
-
-    conn = conectar()
-    cursor = conn.cursor()
-
-    cursor.execute(q(f"""
-    SELECT *
-    FROM destinatarios_expedicao
-    WHERE {where_sql}
-    ORDER BY ativo DESC, nome ASC
-    """), tuple(parametros))
-
-    destinatarios = cursor.fetchall()
-    conn.close()
-    return destinatarios
-
-
-def buscar_destinatario_expedicao_por_id(destinatario_id):
-    criar_tabelas_expedicao()
-
-    if not destinatario_id:
-        return None
-
-    conn = conectar()
-    cursor = conn.cursor()
-
-    cursor.execute(q("""
-    SELECT *
-    FROM destinatarios_expedicao
-    WHERE id = ?
-    """), (int(destinatario_id),))
-
-    destinatario = cursor.fetchone()
-    conn.close()
-    return destinatario
-
-
-def calcular_saldos_produtos():
-    criar_tabelas_expedicao()
-
-    conn = conectar()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-    SELECT
-        sku,
-        tipo_produto,
-        COALESCE(SUM(quantidade_unidades), 0) as saldo_unidades,
-        COALESCE(SUM(quantidade_kg), 0) as saldo_kg
-    FROM estoque_produtos_movimentacoes
-    GROUP BY sku, tipo_produto
-    ORDER BY sku ASC, tipo_produto ASC
-    """)
-
-    saldos = cursor.fetchall()
-    conn.close()
-    return saldos
-
-
-def saldo_produto_dict():
-    saldos = calcular_saldos_produtos()
-    resultado = {}
-
-    for item in saldos:
-        chave = (item["sku"], item["tipo_produto"])
-        resultado[chave] = {
-            "unidades": float(item["saldo_unidades"] or 0),
-            "kg": float(item["saldo_kg"] or 0)
-        }
-
-    return resultado
-
-
-def buscar_movimentacoes_produtos(limite=100):
-    criar_tabelas_expedicao()
-
-    conn = conectar()
-    cursor = conn.cursor()
-
-    cursor.execute(q("""
-    SELECT *
-    FROM estoque_produtos_movimentacoes
-    ORDER BY data_movimentacao DESC, id DESC
-    LIMIT ?
-    """), (limite,))
-
-    movimentacoes = cursor.fetchall()
-    conn.close()
-    return movimentacoes
-
-
-def calcular_resumo_estoque_produtos(saldos):
-    saldo_unidades = sum(float(item["saldo_unidades"] or 0) for item in saldos)
-    saldo_kg = sum(float(item["saldo_kg"] or 0) for item in saldos)
-    skus_com_saldo = sum(
-        1 for item in saldos
-        if float(item["saldo_unidades"] or 0) > 0 or float(item["saldo_kg"] or 0) > 0
-    )
-
-    return {
-        "saldo_unidades": round(saldo_unidades, 2),
-        "saldo_kg": round(saldo_kg, 2),
-        "skus_com_saldo": skus_com_saldo,
-        "linhas": len(saldos)
-    }
-
-
-def registrar_entrada_estoque_produto_op(op, unidades_produzidas, kg_produzidos=None):
-    criar_tabelas_expedicao()
-
-    sku = op["sku"] or "Galinha Cortada"
-    tipo_produto = "Produto Acabado"
-    unidades = float(unidades_produzidas or 0)
-    kg = float(kg_produzidos or 0) if sku == "Galinha Cortada" else 0
-
-    if unidades <= 0:
-        raise ValueError("A quantidade de unidades produzidas precisa ser maior que zero.")
-
-    if sku == "Galinha Cortada" and kg <= 0:
-        raise ValueError("Informe os kg produzidos para formar estoque de Galinha Cortada.")
-
-    conn = conectar()
-    cursor = conn.cursor()
-
-    cursor.execute(q("""
-    DELETE FROM estoque_produtos_movimentacoes
-    WHERE op_id = ?
-      AND origem = 'Encerramento OP'
-      AND tipo = 'ENTRADA_OP'
-    """), (op["id"],))
-
-    cursor.execute(q("""
-    INSERT INTO estoque_produtos_movimentacoes (
-        data_movimentacao,
-        tipo,
-        sku,
-        tipo_produto,
-        quantidade_unidades,
-        quantidade_kg,
-        origem,
-        op_id,
-        observacoes
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """), (
-        op["data"],
-        "ENTRADA_OP",
-        sku,
-        tipo_produto,
-        unidades,
-        kg,
-        "Encerramento OP",
-        op["id"],
-        f"Entrada automática gerada no encerramento da OP #{op['id']}."
-    ))
-
-    conn.commit()
-    conn.close()
-
-
-def excluir_entrada_estoque_produto_op_se_sem_saida(op_id):
-    criar_tabelas_expedicao()
-
-    conn = conectar()
-    cursor = conn.cursor()
-
-    cursor.execute(q("""
-    SELECT COUNT(*) as total
-    FROM estoque_produtos_movimentacoes
-    WHERE op_id = ?
-      AND tipo = 'SAIDA_ROMANEIO'
-    """), (op_id,))
-
-    saidas = cursor.fetchone()["total"] or 0
-
-    if saidas > 0:
-        conn.close()
-        raise ValueError("Esta OP já possui saída por romaneio vinculada. Não é seguro reabrir sem ajuste de expedição.")
-
-    cursor.execute(q("""
-    DELETE FROM estoque_produtos_movimentacoes
-    WHERE op_id = ?
-      AND origem = 'Encerramento OP'
-      AND tipo = 'ENTRADA_OP'
-    """), (op_id,))
-
-    conn.commit()
-    conn.close()
-
-
-def gerar_numero_romaneio(data_texto):
-    criar_tabelas_expedicao()
-
-    ano_mes = (data_texto or datetime.now().strftime("%Y-%m-%d"))[:7].replace("-", "")
-    prefixo = f"ROM-{ano_mes}-"
-
-    conn = conectar()
-    cursor = conn.cursor()
-
-    cursor.execute(q("""
-    SELECT COUNT(*) as total
-    FROM romaneios_expedicao
-    WHERE numero_romaneio LIKE ?
-    """), (prefixo + "%",))
-
-    total = cursor.fetchone()["total"] or 0
-    conn.close()
-
-    return f"{prefixo}{int(total) + 1:04d}"
-
-
-def itens_romaneio_do_form(form):
-    skus = form.getlist("sku[]")
-    tipos_produto = form.getlist("tipo_produto[]")
-    unidades = form.getlist("quantidade_unidades[]")
-    kgs = form.getlist("quantidade_kg[]")
-    observacoes = form.getlist("item_observacoes[]")
-
-    itens = []
-
-    for indice, sku in enumerate(skus):
-        sku = (sku or "").strip()
-        tipo_produto = (tipos_produto[indice] if indice < len(tipos_produto) else "Produto Acabado").strip()
-        qtd_unidades = float(unidades[indice] or 0) if indice < len(unidades) else 0
-        qtd_kg = float(kgs[indice] or 0) if indice < len(kgs) else 0
-        obs = observacoes[indice].strip() if indice < len(observacoes) else ""
-
-        if not sku and qtd_unidades <= 0 and qtd_kg <= 0:
-            continue
-
-        if not sku:
-            raise ValueError("Selecione o SKU em todos os itens preenchidos.")
-
-        if tipo_produto not in TIPOS_PRODUTO_ESTOQUE:
-            raise ValueError("Tipo de produto inválido no romaneio.")
-
-        if qtd_unidades < 0 or qtd_kg < 0:
-            raise ValueError("Quantidade negativa não é permitida no romaneio.")
-
-        if qtd_unidades <= 0 and qtd_kg <= 0:
-            raise ValueError("Informe unidade ou kg para cada item do romaneio.")
-
-        if sku == "Galinha Inteira" and qtd_unidades <= 0:
-            raise ValueError("Para Galinha Inteira, informe a quantidade em unidades.")
-
-        if sku == "Galinha Cortada" and qtd_kg <= 0:
-            raise ValueError("Para Galinha Cortada, informe a quantidade em kg.")
-
-        itens.append({
-            "sku": sku,
-            "tipo_produto": tipo_produto,
-            "quantidade_unidades": qtd_unidades,
-            "quantidade_kg": qtd_kg,
-            "observacoes": obs
-        })
-
-    if not itens:
-        raise ValueError("Informe pelo menos um item no romaneio.")
-
-    return itens
-
-
-def validar_saldo_para_romaneio(itens):
-    saldos = saldo_produto_dict()
-
-    for item in itens:
-        chave = (item["sku"], item["tipo_produto"])
-        saldo = saldos.get(chave, {"unidades": 0, "kg": 0})
-
-        if item["quantidade_unidades"] > saldo["unidades"] + 0.0001:
-            raise ValueError(
-                f"Saldo insuficiente de {item['sku']} ({item['tipo_produto']}) em unidades. "
-                f"Saldo atual: {formatar_numero_br(saldo['unidades'], 2)}."
-            )
-
-        if item["quantidade_kg"] > saldo["kg"] + 0.0001:
-            raise ValueError(
-                f"Saldo insuficiente de {item['sku']} ({item['tipo_produto']}) em kg. "
-                f"Saldo atual: {formatar_numero_br(saldo['kg'], 2)} kg."
-            )
-
-
-def salvar_romaneio_expedicao(form):
-    criar_tabelas_expedicao()
-
-    data = form.get("data", "").strip()
-    tipo_saida = form.get("tipo_saida", "").strip()
-    destinatario_id = form.get("destinatario_id", "").strip()
-    motorista = form.get("motorista", "").strip()
-    placa = form.get("placa", "").strip().upper()
-    responsavel = form.get("responsavel", "").strip()
-    observacoes = form.get("observacoes", "").strip()
-
-    if not data:
-        raise ValueError("Informe a data do romaneio.")
-
-    if tipo_saida not in TIPOS_SAIDA_EXPEDICAO:
-        raise ValueError("Tipo de saída inválido.")
-
-    destinatario = buscar_destinatario_expedicao_por_id(destinatario_id)
-    if not destinatario:
-        raise ValueError("Selecione um destinatário válido.")
-
-    itens = itens_romaneio_do_form(form)
-    validar_saldo_para_romaneio(itens)
-
-    numero_romaneio = form.get("numero_romaneio", "").strip() or gerar_numero_romaneio(data)
-
-    conn = conectar()
-    cursor = conn.cursor()
-
-    try:
-        cursor.execute(q("""
-        INSERT INTO romaneios_expedicao (
-            data,
-            numero_romaneio,
-            tipo_saida,
-            destinatario_id,
-            destino_nome,
-            motorista,
-            placa,
-            responsavel,
-            status,
-            observacoes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """), (
-            data,
-            numero_romaneio,
-            tipo_saida,
-            int(destinatario_id),
-            destinatario["nome"],
-            motorista,
-            placa,
-            responsavel,
-            "Emitido",
-            observacoes
-        ))
-
-        romaneio_id = obter_id_inserido_generico(cursor)
-
-        for item in itens:
-            cursor.execute(q("""
-            INSERT INTO romaneios_expedicao_itens (
-                romaneio_id,
-                sku,
-                tipo_produto,
-                quantidade_unidades,
-                quantidade_kg,
-                observacoes
-            ) VALUES (?, ?, ?, ?, ?, ?)
-            """), (
-                romaneio_id,
-                item["sku"],
-                item["tipo_produto"],
-                item["quantidade_unidades"],
-                item["quantidade_kg"],
-                item["observacoes"]
-            ))
-
-            cursor.execute(q("""
-            INSERT INTO estoque_produtos_movimentacoes (
-                data_movimentacao,
-                tipo,
-                sku,
-                tipo_produto,
-                quantidade_unidades,
-                quantidade_kg,
-                origem,
-                romaneio_id,
-                destinatario_nome,
-                responsavel,
-                observacoes
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """), (
-                data,
-                "SAIDA_ROMANEIO",
-                item["sku"],
-                item["tipo_produto"],
-                -abs(item["quantidade_unidades"]),
-                -abs(item["quantidade_kg"]),
-                "Romaneio de expedição",
-                romaneio_id,
-                destinatario["nome"],
-                responsavel,
-                f"Baixa automática pelo romaneio {numero_romaneio}. {item['observacoes']}".strip()
-            ))
-
-        conn.commit()
-        return romaneio_id
-
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
-
-
-def buscar_romaneios_expedicao(limite=100):
-    criar_tabelas_expedicao()
-
-    conn = conectar()
-    cursor = conn.cursor()
-
-    cursor.execute(q("""
-    SELECT *
-    FROM romaneios_expedicao
-    ORDER BY data DESC, id DESC
-    LIMIT ?
-    """), (limite,))
-
-    romaneios = cursor.fetchall()
-    conn.close()
-    return romaneios
-
-
-def buscar_romaneio_expedicao_por_id(romaneio_id):
-    criar_tabelas_expedicao()
-
-    conn = conectar()
-    cursor = conn.cursor()
-
-    cursor.execute(q("""
-    SELECT *
-    FROM romaneios_expedicao
-    WHERE id = ?
-    """), (romaneio_id,))
-    romaneio = cursor.fetchone()
-
-    cursor.execute(q("""
-    SELECT *
-    FROM romaneios_expedicao_itens
-    WHERE romaneio_id = ?
-    ORDER BY id ASC
-    """), (romaneio_id,))
-    itens = cursor.fetchall()
-
-    conn.close()
-    return romaneio, itens
-
-
-def calcular_resumo_romaneios(romaneios):
-    return {
-        "total_romaneios": len(romaneios),
-        "emitidos": sum(1 for item in romaneios if item["status"] == "Emitido"),
-        "cancelados": sum(1 for item in romaneios if item["status"] == "Cancelado")
-    }
-
-
-@app.route("/expedicao/destinatarios", methods=["GET", "POST"])
-@perfil_permitido("pcp")
-def destinatarios_expedicao():
-    criar_tabelas_expedicao()
-
-    filtro_status = request.args.get("status") or "Todos"
-    termo = request.args.get("termo") or ""
-
-    if request.method == "POST":
-        try:
-            salvar_destinatario_expedicao(request.form)
-            flash("Destinatário cadastrado com sucesso.")
-            return redirect(url_for("destinatarios_expedicao"))
-        except Exception as erro:
-            flash(f"Erro ao cadastrar destinatário: {erro}")
-
-    destinatarios = buscar_destinatarios_expedicao(filtro_status, termo)
-
-    return render_template(
-        "destinatarios_expedicao.html",
-        destinatarios=destinatarios,
-        tipos_destinatario=TIPOS_DESTINATARIO_EXPEDICAO,
-        filtro_status=filtro_status,
-        termo=termo
-    )
-
-
-@app.route("/expedicao/estoque")
-@perfil_permitido("pcp")
-def estoque_produtos():
-    criar_tabelas_expedicao()
-
-    saldos = calcular_saldos_produtos()
-    movimentacoes = buscar_movimentacoes_produtos()
-    resumo = calcular_resumo_estoque_produtos(saldos)
-
-    return render_template(
-        "estoque_produtos.html",
-        saldos=saldos,
-        movimentacoes=movimentacoes,
-        resumo=resumo
-    )
-
-
-@app.route("/expedicao/romaneio", methods=["GET", "POST"])
-@perfil_permitido("pcp")
-def novo_romaneio_expedicao():
-    criar_tabelas_expedicao()
-
-    hoje = datetime.now().strftime("%Y-%m-%d")
-    destinatarios = buscar_destinatarios_expedicao("Sim", "")
-    saldos = calcular_saldos_produtos()
-
-    if request.method == "POST":
-        try:
-            romaneio_id = salvar_romaneio_expedicao(request.form)
-            flash("Romaneio de expedição emitido com sucesso. O estoque foi baixado automaticamente.")
-            return redirect(url_for("visualizar_romaneio_expedicao", romaneio_id=romaneio_id))
-        except Exception as erro:
-            flash(f"Erro ao emitir romaneio: {erro}")
-
-    return render_template(
-        "romaneio_expedicao.html",
-        hoje=hoje,
-        numero_romaneio=gerar_numero_romaneio(hoje),
-        destinatarios=destinatarios,
-        saldos=saldos,
-        tipos_saida=TIPOS_SAIDA_EXPEDICAO,
-        tipos_produto=TIPOS_PRODUTO_ESTOQUE
-    )
-
-
-@app.route("/expedicao/romaneios")
-@perfil_permitido("pcp")
-def historico_romaneios_expedicao():
-    criar_tabelas_expedicao()
-
-    romaneios = buscar_romaneios_expedicao()
-    resumo = calcular_resumo_romaneios(romaneios)
-
-    return render_template(
-        "historico_romaneios.html",
-        romaneios=romaneios,
-        resumo=resumo
-    )
-
-
-@app.route("/expedicao/romaneio/<int:romaneio_id>")
-@perfil_permitido("pcp")
-def visualizar_romaneio_expedicao(romaneio_id):
-    romaneio, itens = buscar_romaneio_expedicao_por_id(romaneio_id)
-
-    if not romaneio:
-        flash("Romaneio não encontrado.")
-        return redirect(url_for("historico_romaneios_expedicao"))
-
-    return render_template(
-        "romaneio_visualizar.html",
-        romaneio=romaneio,
-        itens=itens
-    )
-
 
 
 # ============================================================
@@ -4885,6 +4396,8 @@ def dre_gerencial():
         custos_operacionais_total=dados["custos_operacionais_total"],
         custos_operacionais_percentual=dados["custos_operacionais_percentual"],
         linhas_custos=dados["linhas_custos"],
+        linhas_custos_executivas=dados.get("linhas_custos_executivas", dados["linhas_custos"]),
+        despesas_grafico=dados.get("despesas_grafico", {}),
         resultado_operacional=dados["resultado_operacional"],
         margem_operacional_percentual=dados["margem_operacional_percentual"]
     )
@@ -5090,16 +4603,36 @@ def editar_venda_diaria(venda_id):
     if request.method == "POST":
         try:
             sku = request.form["sku"]
-            quantidade = float(request.form["quantidade"])
             receita = float(request.form["receita"])
-
-            if quantidade <= 0:
-                raise ValueError("A quantidade vendida deve ser maior que zero.")
 
             if receita < 0:
                 raise ValueError("A receita não pode ser negativa.")
 
-            unidade = "kg" if sku == "Galinha Cortada" else "unidades"
+            form_edicao = request.form.copy()
+
+            try:
+                quantidade_unidades_atual = float(venda["quantidade_unidades"] or 0)
+            except Exception:
+                quantidade_unidades_atual = 0
+
+            try:
+                quantidade_kg_atual = float(venda["quantidade_kg"] or 0)
+            except Exception:
+                quantidade_kg_atual = 0
+
+            if sku == "Galinha Cortada":
+                if not form_edicao.get("quantidade_unidades") and quantidade_unidades_atual > 0:
+                    form_edicao["quantidade_unidades"] = str(quantidade_unidades_atual)
+
+                if not form_edicao.get("quantidade_kg") and quantidade_kg_atual > 0:
+                    form_edicao["quantidade_kg"] = str(quantidade_kg_atual)
+
+            quantidades = preparar_quantidades_venda(
+                sku,
+                form_edicao,
+                quantidade_atual=float(venda["quantidade"] or 0),
+                unidade_atual=venda["unidade"]
+            )
 
             conn = conectar()
             cursor = conn.cursor()
@@ -5109,14 +4642,18 @@ def editar_venda_diaria(venda_id):
                 sku = ?,
                 quantidade = ?,
                 unidade = ?,
+                quantidade_unidades = ?,
+                quantidade_kg = ?,
                 receita = ?,
                 observacoes = ?
             WHERE id = ?
             """), (
                 request.form["data"],
                 sku,
-                quantidade,
-                unidade,
+                quantidades["quantidade"],
+                quantidades["unidade"],
+                quantidades["quantidade_unidades"],
+                quantidades["quantidade_kg"],
                 receita,
                 request.form.get("observacoes", ""),
                 venda_id
@@ -6175,12 +5712,6 @@ def encerrar_op(op_id):
             descontar_almoco=descontar_almoco
         )
 
-        registrar_entrada_estoque_produto_op(
-            op=op,
-            unidades_produzidas=unidades_produzidas,
-            kg_produzidos=kg_produzidos
-        )
-
         conn = conectar()
         cursor = conn.cursor()
 
@@ -6193,7 +5724,7 @@ def encerrar_op(op_id):
         conn.commit()
         conn.close()
 
-        flash("OP encerrada com sucesso. A produção foi gerada automaticamente e o estoque de produto acabado foi atualizado.")
+        flash("OP encerrada com sucesso. A produção foi gerada automaticamente.")
 
     except ValueError as erro:
         flash(str(erro))
@@ -6204,12 +5735,6 @@ def encerrar_op(op_id):
 @app.route("/op/<int:op_id>/reabrir", methods=["POST"])
 @perfil_permitido("admin")
 def reabrir_op(op_id):
-    try:
-        excluir_entrada_estoque_produto_op_se_sem_saida(op_id)
-    except ValueError as erro:
-        flash(str(erro))
-        return redirect(url_for("consultar_op", op_id=op_id))
-
     conn = conectar()
     cursor = conn.cursor()
 
@@ -6241,8 +5766,6 @@ def consultar_op():
     paradas = []
     descartes = []
     tempos_setor = []
-    movimentos_estoque_produto = []
-    baixas_estoque = []
     resumo = None
 
     if op_id:
@@ -6267,18 +5790,6 @@ def consultar_op():
         cursor.execute(q("SELECT * FROM apontamentos_tempos_setor WHERE op_id = ? ORDER BY id ASC"), (op_id,))
         tempos_setor = cursor.fetchall()
 
-        try:
-            criar_tabelas_expedicao()
-            cursor.execute(q("""
-            SELECT *
-            FROM estoque_produtos_movimentacoes
-            WHERE op_id = ?
-            ORDER BY data_movimentacao DESC, id DESC
-            """), (op_id,))
-            movimentos_estoque_produto = cursor.fetchall()
-        except Exception:
-            movimentos_estoque_produto = []
-
         if op:
             resumo = calcular_resumo_op(op, producoes, descartes)
 
@@ -6293,8 +5804,6 @@ def consultar_op():
         paradas=paradas,
         descartes=descartes,
         tempos_setor=tempos_setor,
-        movimentos_estoque_produto=movimentos_estoque_produto,
-        baixas_estoque=baixas_estoque,
         resumo=resumo
     )
 
