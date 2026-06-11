@@ -17,6 +17,42 @@ from openpyxl.utils import get_column_letter
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "segredo")
 
+
+# ============================================================
+# FILTROS JINJA - FORMATAÇÃO BRASILEIRA
+# ============================================================
+
+def formatar_numero_br(valor, casas_decimais=2):
+    try:
+        numero = float(valor or 0)
+        return f"{numero:,.{casas_decimais}f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    except Exception:
+        return f"{0:,.{casas_decimais}f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def formatar_moeda_br(valor):
+    try:
+        numero = float(valor or 0)
+        return "R$ " + f"{numero:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    except Exception:
+        return "R$ 0,00"
+
+
+@app.template_filter("br_numero")
+def br_numero(valor):
+    return formatar_numero_br(valor, 2)
+
+
+@app.template_filter("br_moeda")
+def br_moeda(valor):
+    return formatar_moeda_br(valor)
+
+
+@app.template_filter("br_percentual")
+def br_percentual(valor):
+    return formatar_numero_br(valor, 2) + "%"
+
+
 DATABASE_URL = os.getenv("DATABASE_URL")
 DB_NAME = "abatedouro.db"
 
