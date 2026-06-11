@@ -12,6 +12,8 @@ import psycopg2.extras
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
+from auth import login_obrigatorio, destino_por_perfil, perfil_permitido
+from utils import calcular_horas_programadas, calcular_produtividade, setores_padrao, normalizar_chave_setor
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "segredo")
