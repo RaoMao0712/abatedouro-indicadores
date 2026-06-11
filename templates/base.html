@@ -65,16 +65,6 @@
             {% endif %}
         </div>
 
-        {% if perfil == "admin" or perfil == "pcp" %}
-        <div class="sidebar-section">
-            <span class="sidebar-title">Expedição</span>
-            <a href="{{ url_for('estoque_produtos') }}">Estoque PA</a>
-            <a href="{{ url_for('novo_romaneio_expedicao') }}">Novo Romaneio</a>
-            <a href="{{ url_for('historico_romaneios_expedicao') }}">Romaneios</a>
-            <a href="{{ url_for('destinatarios_expedicao') }}">Destinatários</a>
-        </div>
-        {% endif %}
-
         <div class="sidebar-section">
             <span class="sidebar-title">Produção</span>
 

@@ -4,12 +4,11 @@ from functools import wraps
 from datetime import datetime, timedelta
 import calendar
 from io import BytesIO
-from urllib.parse import urlparse
 import os
 import uuid
 import sqlite3
-import psycopg2
-import psycopg2.extras
+from database import DATABASE_URL, q, conectar, tentar_alter_table
+from filters import registrar_filtros_jinja, formatar_numero_br, formatar_moeda_br
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
@@ -17,44 +16,7 @@ from openpyxl.utils import get_column_letter
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "segredo")
 
-
-# ============================================================
-# FILTROS JINJA - FORMATAÇÃO BRASILEIRA
-# ============================================================
-
-def formatar_numero_br(valor, casas_decimais=2):
-    try:
-        numero = float(valor or 0)
-        return f"{numero:,.{casas_decimais}f}".replace(",", "X").replace(".", ",").replace("X", ".")
-    except Exception:
-        return f"{0:,.{casas_decimais}f}".replace(",", "X").replace(".", ",").replace("X", ".")
-
-
-def formatar_moeda_br(valor):
-    try:
-        numero = float(valor or 0)
-        return "R$ " + f"{numero:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-    except Exception:
-        return "R$ 0,00"
-
-
-@app.template_filter("br_numero")
-def br_numero(valor):
-    return formatar_numero_br(valor, 2)
-
-
-@app.template_filter("br_moeda")
-def br_moeda(valor):
-    return formatar_moeda_br(valor)
-
-
-@app.template_filter("br_percentual")
-def br_percentual(valor):
-    return formatar_numero_br(valor, 2) + "%"
-
-
-DATABASE_URL = os.getenv("DATABASE_URL")
-DB_NAME = "abatedouro.db"
+registrar_filtros_jinja(app)
 
 
 CATEGORIAS_CUSTOS = [
@@ -89,36 +51,6 @@ CATEGORIAS_CUSTOS = [
     "Outros"
 ]
 
-
-def q(sql):
-    if DATABASE_URL:
-        return sql.replace("?", "%s")
-    return sql
-
-
-def conectar():
-    if DATABASE_URL:
-        result = urlparse(DATABASE_URL)
-        return psycopg2.connect(
-            database=result.path[1:],
-            user=result.username,
-            password=result.password,
-            host=result.hostname,
-            port=result.port,
-            cursor_factory=psycopg2.extras.RealDictCursor
-        )
-
-    conn = sqlite3.connect(DB_NAME)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
-def tentar_alter_table(cursor, conn, comando):
-    try:
-        cursor.execute(comando)
-        conn.commit()
-    except Exception:
-        conn.rollback()
 
 
 def criar_banco():
