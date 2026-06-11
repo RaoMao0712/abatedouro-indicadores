@@ -1,14 +1,14 @@
 from flask import Flask, render_template, request, redirect, url_for, session, flash, send_file
 from werkzeug.security import generate_password_hash, check_password_hash
-from functools import wraps
 from datetime import datetime, timedelta
 import calendar
 from io import BytesIO
+from urllib.parse import urlparse
 import os
 import uuid
 import sqlite3
-from database import DATABASE_URL, q, conectar, tentar_alter_table
-from filters import registrar_filtros_jinja, formatar_numero_br, formatar_moeda_br
+import psycopg2
+import psycopg2.extras
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
@@ -16,7 +16,8 @@ from openpyxl.utils import get_column_letter
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "segredo")
 
-registrar_filtros_jinja(app)
+DATABASE_URL = os.getenv("DATABASE_URL")
+DB_NAME = "abatedouro.db"
 
 
 CATEGORIAS_CUSTOS = [
@@ -51,6 +52,36 @@ CATEGORIAS_CUSTOS = [
     "Outros"
 ]
 
+
+def q(sql):
+    if DATABASE_URL:
+        return sql.replace("?", "%s")
+    return sql
+
+
+def conectar():
+    if DATABASE_URL:
+        result = urlparse(DATABASE_URL)
+        return psycopg2.connect(
+            database=result.path[1:],
+            user=result.username,
+            password=result.password,
+            host=result.hostname,
+            port=result.port,
+            cursor_factory=psycopg2.extras.RealDictCursor
+        )
+
+    conn = sqlite3.connect(DB_NAME)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def tentar_alter_table(cursor, conn, comando):
+    try:
+        cursor.execute(comando)
+        conn.commit()
+    except Exception:
+        conn.rollback()
 
 
 def criar_banco():
@@ -366,87 +397,6 @@ def criar_banco():
 
     conn.commit()
     conn.close()
-
-
-def login_obrigatorio(funcao):
-    @wraps(funcao)
-    def wrapper(*args, **kwargs):
-        if "usuario_id" not in session:
-            return redirect(url_for("login"))
-        return funcao(*args, **kwargs)
-    return wrapper
-
-
-def destino_por_perfil(perfil):
-    if perfil == "admin" or perfil == "pcp":
-        return "dashboard"
-
-    if perfil == "qualidade":
-        return "apontamento_descartes"
-
-    if perfil == "producao":
-        return "apontamento_producao"
-
-    return "login"
-
-
-def perfil_permitido(*perfis_autorizados):
-    def decorador(funcao):
-        @wraps(funcao)
-        def wrapper(*args, **kwargs):
-            if "usuario_id" not in session:
-                return redirect(url_for("login"))
-
-            perfil = session.get("perfil", "")
-
-            if perfil == "admin" or perfil in perfis_autorizados:
-                return funcao(*args, **kwargs)
-
-            flash("Acesso não autorizado para este usuário.")
-            return redirect(url_for(destino_por_perfil(perfil)))
-
-        return wrapper
-
-    return decorador
-
-
-def calcular_horas_programadas(hora_inicio, hora_fim):
-    inicio = datetime.strptime(hora_inicio, "%H:%M")
-    fim = datetime.strptime(hora_fim, "%H:%M")
-    diferenca = fim - inicio
-    horas = diferenca.total_seconds() / 3600
-
-    if horas < 0:
-        horas += 24
-
-    return round(horas, 2)
-
-
-def calcular_produtividade(quantidade, colaboradores, horas_programadas, horas_paradas):
-    horas_uteis = horas_programadas - horas_paradas
-
-    if horas_uteis <= 0:
-        return 0
-
-    homem_hora = colaboradores * horas_uteis
-
-    if homem_hora <= 0:
-        return 0
-
-    produtividade = quantidade / homem_hora
-    return round(produtividade, 2)
-
-
-def setores_padrao():
-    return [
-        "Recepção e Pendura",
-        "Escalda e Depenagem",
-        "Evisceração",
-        "Corte",
-        "Embalagem",
-        "Expedição"
-    ]
-
 
 
 def criar_tabela_tempos_setor():
@@ -4093,17 +4043,6 @@ def buscar_op_por_id(op_id):
     return op
 
 
-
-
-def normalizar_chave_setor(setor):
-    return (
-        setor
-        .replace(" ", "_")
-        .replace("/", "_")
-        .replace("ç", "c")
-        .replace("ã", "a")
-        .replace("é", "e")
-    )
 
 
 def setores_por_sku(sku):
