@@ -220,20 +220,10 @@
                 {% if item.mostrar_rotulo %}
                 <div class="dre-donut-label {{ item.alinhamento }}" style="left: {{ item.x }}%; top: {{ item.y }}%; --label-color: {{ item.cor }};">
                     <span>{{ item.categoria }}</span>
-                    <strong>{{ item.percentual_receita|br_percentual }}</strong>
+                    <strong>{{ item.valor|br_moeda }}</strong>
+                    <small>{{ item.percentual_receita|br_percentual }} da receita</small>
                 </div>
                 {% endif %}
-            {% endfor %}
-        </div>
-
-        <div class="dre-donut-tabela">
-            {% for item in despesas_grafico.itens %}
-            <div class="dre-donut-tabela-row">
-                <i style="background: {{ item.cor }};"></i>
-                <span>{{ item.categoria }}</span>
-                <strong>{{ item.valor|br_moeda }}</strong>
-                <small>{{ item.percentual_receita|br_percentual }}</small>
-            </div>
             {% endfor %}
         </div>
     </div>
