@@ -4,7 +4,7 @@
 
 <div class="card">
 
-    <div class="section-title-row"><div><h2>Consultar Ordem de Produção</h2></div><div><a href="{{ url_for('receitas_sku') }}" class="botao-dre-exportar">Receitas SKU</a></div></div>
+    <h2>Consultar Ordem de Produção</h2>
 
     <form method="GET">
 
@@ -330,50 +330,47 @@
 
 </div>
 
-
-<!-- BAIXAS DE ESTOQUE -->
+<!-- ESTOQUE DE PRODUTO ACABADO / INTERMEDIÁRIO -->
 
 <div class="card">
 
-    <h2>Baixas de Estoque da OP</h2>
+    <h2>Estoque de Produto da OP</h2>
 
-    {% if baixas_estoque %}
+    {% if movimentos_estoque_produto %}
 
-    <div class="tabela-responsiva tabela-executiva almoxarifado-tabela">
+    <div class="tabela-responsiva tabela-executiva expedicao-tabela">
         <table>
             <thead>
                 <tr>
                     <th>Data</th>
                     <th>Tipo</th>
-                    <th>Insumo</th>
-                    <th>Quantidade</th>
-                    <th>Valor unit.</th>
-                    <th>Valor total</th>
-                    <th>Lote</th>
-                    <th>NF</th>
-                    <th>Status</th>
+                    <th>SKU</th>
+                    <th>Tipo produto</th>
+                    <th>Unidades</th>
+                    <th>Kg</th>
+                    <th>Origem</th>
+                    <th>Romaneio</th>
+                    <th>Observações</th>
                 </tr>
             </thead>
             <tbody>
-                {% for mov in baixas_estoque %}
+                {% for mov in movimentos_estoque_produto %}
                 <tr>
                     <td>{{ mov.data_movimentacao }}</td>
                     <td><strong>{{ mov.tipo }}</strong></td>
-                    <td>{{ mov.insumo }}</td>
-                    <td>{{ "%.4f"|format(mov.quantidade) }} {{ mov.unidade }}</td>
-                    <td>R$ {{ "%.4f"|format(mov.valor_unitario) }}</td>
-                    <td>R$ {{ "%.2f"|format(mov.valor_total) }}</td>
-                    <td>{{ mov.lote or '-' }}</td>
-                    <td>{{ mov.numero_nf or '-' }}</td>
+                    <td>{{ mov.sku }}</td>
+                    <td>{{ mov.tipo_produto }}</td>
+                    <td>{{ mov.quantidade_unidades|br_numero }}</td>
+                    <td>{{ mov.quantidade_kg|br_numero }}</td>
+                    <td>{{ mov.origem or '-' }}</td>
                     <td>
-                        {% if mov.estornado == "Sim" %}
-                            <span class="badge-almoxarifado inativo">Estornado</span>
-                        {% elif mov.tipo == "ESTORNO_OP" %}
-                            <span class="badge-almoxarifado ativo">Estorno</span>
+                        {% if mov.romaneio_id %}
+                            #{{ mov.romaneio_id }}
                         {% else %}
-                            <span class="badge-almoxarifado ativo">Ativo</span>
+                            -
                         {% endif %}
                     </td>
+                    <td>{{ mov.observacoes or '-' }}</td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -383,7 +380,7 @@
     {% else %}
 
         <p class="obs">
-            Nenhuma baixa de estoque vinculada a esta OP.
+            Esta OP ainda não gerou movimentação no estoque de produto.
         </p>
 
     {% endif %}

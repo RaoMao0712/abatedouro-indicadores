@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+
+<section class="hero-dashboard expedicao-hero">
+    <div>
+        <span class="eyebrow">Expedição</span>
+        <h2>Romaneio {{ romaneio.numero_romaneio }}</h2>
+        <div class="hero-resumo-inline">
+            <span><strong>Destino:</strong> {{ romaneio.destino_nome }}</span>
+            <span><strong>Tipo:</strong> {{ romaneio.tipo_saida }}</span>
+        </div>
+    </div>
+
+    <div class="expedicao-acoes-topo">
+        <button type="button" class="botao-dre-imprimir" onclick="window.print()">Imprimir</button>
+        <a href="{{ url_for('historico_romaneios_expedicao') }}" class="botao-dre-exportar">Histórico</a>
+        <a href="{{ url_for('novo_romaneio_expedicao') }}" class="botao-dre-exportar">Novo</a>
+    </div>
+</section>
+
+<div class="card romaneio-print-card">
+    <div class="section-title-row">
+        <div>
+            <span class="eyebrow">Documento operacional</span>
+            <h2>Romaneio de saída</h2>
+        </div>
+    </div>
+
+    <div class="romaneio-cabecalho-impressao">
+        <div>
+            <small>Nº romaneio</small>
+            <strong>{{ romaneio.numero_romaneio }}</strong>
+        </div>
+
+        <div>
+            <small>Data</small>
+            <strong>{{ romaneio.data }}</strong>
+        </div>
+
+        <div>
+            <small>Tipo de saída</small>
+            <strong>{{ romaneio.tipo_saida }}</strong>
+        </div>
+
+        <div>
+            <small>Destinatário</small>
+            <strong>{{ romaneio.destino_nome }}</strong>
+        </div>
+
+        <div>
+            <small>Motorista</small>
+            <strong>{{ romaneio.motorista or "-" }}</strong>
+        </div>
+
+        <div>
+            <small>Placa</small>
+            <strong>{{ romaneio.placa or "-" }}</strong>
+        </div>
+
+        <div>
+            <small>Responsável</small>
+            <strong>{{ romaneio.responsavel or "-" }}</strong>
+        </div>
+
+        <div>
+            <small>Status</small>
+            <strong>{{ romaneio.status }}</strong>
+        </div>
+    </div>
+
+    <div class="tabela-responsiva tabela-executiva expedicao-tabela">
+        <table>
+            <thead>
+                <tr>
+                    <th>SKU</th>
+                    <th>Tipo produto</th>
+                    <th>Unidades</th>
+                    <th>Kg</th>
+                    <th>Observações</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in itens %}
+                <tr>
+                    <td><strong>{{ item.sku }}</strong></td>
+                    <td>{{ item.tipo_produto }}</td>
+                    <td>{{ item.quantidade_unidades|br_numero }}</td>
+                    <td>{{ item.quantidade_kg|br_numero }}</td>
+                    <td>{{ item.observacoes or "-" }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    {% if romaneio.observacoes %}
+    <p class="obs dre-obs"><strong>Observações:</strong> {{ romaneio.observacoes }}</p>
+    {% endif %}
+
+    <p class="obs dre-obs">
+        Este documento registra saída física de produto da câmara fria do abatedouro.
+        Não substitui nota fiscal e não gera receita automaticamente na DRE.
+    </p>
+
+    <div class="romaneio-assinaturas">
+        <div>Responsável pela expedição</div>
+        <div>Recebedor / motorista</div>
+    </div>
+</div>
+
+{% endblock %}

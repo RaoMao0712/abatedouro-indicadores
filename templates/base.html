@@ -53,11 +53,8 @@
         <div class="sidebar-section">
             <span class="sidebar-title">Gestão</span>
 
-            {% if perfil == "admin" or perfil == "pcp" or perfil == "producao" or perfil == "qualidade" %}
-                <a href="{{ url_for('dashboard') }}">Dashboard</a>
-            {% endif %}
-
             {% if perfil == "admin" or perfil == "pcp" %}
+                <a href="{{ url_for('dashboard') }}">Dashboard</a>
                 <a href="{{ url_for('custos') }}">Custos</a>
                 <a href="{{ url_for('vendas') }}">Vendas</a>
                 <a href="{{ url_for('relatorio') }}">Relatório</a>
@@ -67,6 +64,16 @@
                 <a href="{{ url_for('almoxarifado') }}">Almoxarifado</a>
             {% endif %}
         </div>
+
+        {% if perfil == "admin" or perfil == "pcp" %}
+        <div class="sidebar-section">
+            <span class="sidebar-title">Expedição</span>
+            <a href="{{ url_for('estoque_produtos') }}">Estoque PA</a>
+            <a href="{{ url_for('novo_romaneio_expedicao') }}">Novo Romaneio</a>
+            <a href="{{ url_for('historico_romaneios_expedicao') }}">Romaneios</a>
+            <a href="{{ url_for('destinatarios_expedicao') }}">Destinatários</a>
+        </div>
+        {% endif %}
 
         <div class="sidebar-section">
             <span class="sidebar-title">Produção</span>

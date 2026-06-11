@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+
+<section class="hero-dashboard expedicao-hero">
+    <div>
+        <span class="eyebrow">Expedição</span>
+        <h2>Histórico de Romaneios</h2>
+        <div class="hero-resumo-inline">
+            <span><strong>Uso:</strong> acompanhamento das transferências e saídas</span>
+            <span><strong>Base:</strong> informação operacional para futura emissão de NF</span>
+        </div>
+    </div>
+
+    <div class="expedicao-acoes-topo">
+        <a href="{{ url_for('novo_romaneio_expedicao') }}" class="botao-dre-exportar">Novo Romaneio</a>
+        <a href="{{ url_for('estoque_produtos') }}" class="botao-dre-exportar">Estoque PA</a>
+        <a href="{{ url_for('destinatarios_expedicao') }}" class="botao-dre-exportar">Destinatários</a>
+    </div>
+</section>
+
+<div class="expedicao-kpis">
+    <div class="card kpi-card destaque">
+        <span class="kpi-label">Romaneios</span>
+        <strong>{{ resumo.total_romaneios }}</strong>
+        <small>Total listado</small>
+    </div>
+
+    <div class="card kpi-card">
+        <span class="kpi-label">Emitidos</span>
+        <strong>{{ resumo.emitidos }}</strong>
+        <small>Romaneios válidos</small>
+    </div>
+
+    <div class="card kpi-card alerta">
+        <span class="kpi-label">Cancelados</span>
+        <strong>{{ resumo.cancelados }}</strong>
+        <small>Registros cancelados</small>
+    </div>
+
+    <div class="card kpi-card">
+        <span class="kpi-label">Finalidade</span>
+        <strong>NF</strong>
+        <small>Base para faturamento futuro</small>
+    </div>
+</div>
+
+<div class="card expedicao-card">
+    <div class="section-title-row">
+        <div>
+            <span class="eyebrow">Histórico</span>
+            <h2>Romaneios emitidos</h2>
+        </div>
+    </div>
+
+    {% if romaneios %}
+    <div class="tabela-responsiva tabela-executiva expedicao-tabela">
+        <table>
+            <thead>
+                <tr>
+                    <th>Data</th>
+                    <th>Nº romaneio</th>
+                    <th>Tipo saída</th>
+                    <th>Destinatário</th>
+                    <th>Motorista</th>
+                    <th>Placa</th>
+                    <th>Responsável</th>
+                    <th>Status</th>
+                    <th>Ação</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in romaneios %}
+                <tr>
+                    <td>{{ item.data }}</td>
+                    <td><strong>{{ item.numero_romaneio }}</strong></td>
+                    <td>{{ item.tipo_saida }}</td>
+                    <td>{{ item.destino_nome }}</td>
+                    <td>{{ item.motorista or "-" }}</td>
+                    <td>{{ item.placa or "-" }}</td>
+                    <td>{{ item.responsavel or "-" }}</td>
+                    <td>
+                        {% if item.status == "Emitido" %}
+                            <span class="badge-expedicao entrada">Emitido</span>
+                        {% else %}
+                            <span class="badge-expedicao neutro">{{ item.status }}</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <a href="{{ url_for('visualizar_romaneio_expedicao', romaneio_id=item.id) }}" class="botao-editar">Ver</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+        <p class="obs">Nenhum romaneio emitido ainda.</p>
+    {% endif %}
+</div>
+
+{% endblock %}

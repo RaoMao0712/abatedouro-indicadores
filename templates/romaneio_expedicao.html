@@ -1,0 +1,166 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+
+<section class="hero-dashboard expedicao-hero">
+    <div>
+        <span class="eyebrow">Expedição</span>
+        <h2>Novo Romaneio de Saída</h2>
+        <div class="hero-resumo-inline">
+            <span><strong>Função:</strong> baixa estoque da câmara fria do abatedouro</span>
+            <span><strong>Observação:</strong> romaneio não gera receita e não substitui NF</span>
+        </div>
+    </div>
+
+    <div class="expedicao-acoes-topo">
+        <a href="{{ url_for('estoque_produtos') }}" class="botao-dre-exportar">Estoque PA</a>
+        <a href="{{ url_for('historico_romaneios_expedicao') }}" class="botao-dre-exportar">Histórico</a>
+        <a href="{{ url_for('destinatarios_expedicao') }}" class="botao-dre-exportar">Destinatários</a>
+    </div>
+</section>
+
+<div class="card expedicao-card">
+    <div class="section-title-row">
+        <div>
+            <span class="eyebrow">Emissão</span>
+            <h2>Dados do romaneio</h2>
+        </div>
+    </div>
+
+    <form method="POST">
+        <div class="expedicao-form-grid">
+            <div>
+                <label>Data</label>
+                <input type="date" name="data" value="{{ hoje }}" required>
+            </div>
+
+            <div>
+                <label>Nº romaneio</label>
+                <input type="text" name="numero_romaneio" value="{{ numero_romaneio }}" required>
+            </div>
+
+            <div>
+                <label>Tipo de saída</label>
+                <select name="tipo_saida" required>
+                    {% for tipo in tipos_saida %}
+                    <option value="{{ tipo }}">{{ tipo }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div>
+                <label>Destinatário</label>
+                <select name="destinatario_id" required>
+                    <option value="">Selecione</option>
+                    {% for destinatario in destinatarios %}
+                    <option value="{{ destinatario.id }}">{{ destinatario.nome }} — {{ destinatario.tipo }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div>
+                <label>Motorista</label>
+                <input type="text" name="motorista">
+            </div>
+
+            <div>
+                <label>Placa</label>
+                <input type="text" name="placa">
+            </div>
+
+            <div>
+                <label>Responsável</label>
+                <input type="text" name="responsavel" value="{{ session.get('nome', '') }}">
+            </div>
+        </div>
+
+        <label>Observações gerais</label>
+        <input type="text" name="observacoes">
+
+        <div class="section-title-row">
+            <div>
+                <span class="eyebrow">Itens</span>
+                <h2>Produtos expedidos</h2>
+            </div>
+        </div>
+
+        <div class="romaneio-itens">
+            {% for i in range(5) %}
+            <div class="romaneio-item-row">
+                <div>
+                    <label>SKU</label>
+                    <select name="sku[]">
+                        <option value="">Selecione</option>
+                        <option value="Galinha Cortada">Galinha Cortada</option>
+                        <option value="Galinha Inteira">Galinha Inteira</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label>Tipo produto</label>
+                    <select name="tipo_produto[]">
+                        {% for tipo_produto in tipos_produto %}
+                        <option value="{{ tipo_produto }}">{{ tipo_produto }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div>
+                    <label>Unidades</label>
+                    <input type="number" step="0.01" name="quantidade_unidades[]" placeholder="0">
+                </div>
+
+                <div>
+                    <label>Kg</label>
+                    <input type="number" step="0.01" name="quantidade_kg[]" placeholder="0">
+                </div>
+
+                <div>
+                    <label>Obs. item</label>
+                    <input type="text" name="item_observacoes[]">
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+
+        <button type="submit">Emitir romaneio e baixar estoque</button>
+    </form>
+</div>
+
+<div class="card expedicao-card">
+    <div class="section-title-row">
+        <div>
+            <span class="eyebrow">Consulta</span>
+            <h2>Saldo disponível antes da saída</h2>
+        </div>
+    </div>
+
+    {% if saldos %}
+    <div class="tabela-responsiva tabela-executiva expedicao-tabela">
+        <table>
+            <thead>
+                <tr>
+                    <th>SKU</th>
+                    <th>Tipo produto</th>
+                    <th>Saldo unidades</th>
+                    <th>Saldo kg</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in saldos %}
+                <tr>
+                    <td><strong>{{ item.sku }}</strong></td>
+                    <td>{{ item.tipo_produto }}</td>
+                    <td>{{ item.saldo_unidades|br_numero }}</td>
+                    <td>{{ item.saldo_kg|br_numero }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+        <p class="obs">Ainda não existe saldo de produto para expedir.</p>
+    {% endif %}
+</div>
+
+{% endblock %}

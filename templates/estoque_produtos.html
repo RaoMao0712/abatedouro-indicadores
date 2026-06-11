@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+
+<section class="hero-dashboard expedicao-hero">
+    <div>
+        <span class="eyebrow">Expedição</span>
+        <h2>Estoque de Produto Acabado / Intermediário</h2>
+        <div class="hero-resumo-inline">
+            <span><strong>Entrada:</strong> automática no encerramento da OP</span>
+            <span><strong>Saída:</strong> baixa por romaneio de expedição</span>
+        </div>
+    </div>
+
+    <div class="expedicao-acoes-topo">
+        <a href="{{ url_for('novo_romaneio_expedicao') }}" class="botao-dre-exportar">Novo Romaneio</a>
+        <a href="{{ url_for('historico_romaneios_expedicao') }}" class="botao-dre-exportar">Romaneios</a>
+        <a href="{{ url_for('destinatarios_expedicao') }}" class="botao-dre-exportar">Destinatários</a>
+    </div>
+</section>
+
+<div class="expedicao-kpis">
+    <div class="card kpi-card">
+        <span class="kpi-label">Saldo em unidades</span>
+        <strong>{{ resumo.saldo_unidades|br_numero }}</strong>
+        <small>Total físico em unidades no estoque</small>
+    </div>
+
+    <div class="card kpi-card destaque">
+        <span class="kpi-label">Saldo em kg</span>
+        <strong>{{ resumo.saldo_kg|br_numero }}</strong>
+        <small>Total físico em kg no estoque</small>
+    </div>
+
+    <div class="card kpi-card">
+        <span class="kpi-label">SKUs com saldo</span>
+        <strong>{{ resumo.skus_com_saldo }}</strong>
+        <small>SKU/tipo com saldo positivo</small>
+    </div>
+
+    <div class="card kpi-card">
+        <span class="kpi-label">Linhas de estoque</span>
+        <strong>{{ resumo.linhas }}</strong>
+        <small>Combinações de SKU e tipo</small>
+    </div>
+</div>
+
+<div class="card expedicao-card">
+    <div class="section-title-row">
+        <div>
+            <span class="eyebrow">Saldo</span>
+            <h2>Saldo atual por SKU</h2>
+        </div>
+    </div>
+
+    {% if saldos %}
+    <div class="tabela-responsiva tabela-executiva expedicao-tabela">
+        <table>
+            <thead>
+                <tr>
+                    <th>SKU</th>
+                    <th>Tipo de produto</th>
+                    <th>Saldo unidades</th>
+                    <th>Saldo kg</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in saldos %}
+                <tr>
+                    <td><strong>{{ item.sku }}</strong></td>
+                    <td>{{ item.tipo_produto }}</td>
+                    <td>{{ item.saldo_unidades|br_numero }}</td>
+                    <td>{{ item.saldo_kg|br_numero }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+        <p class="obs">Nenhuma movimentação de produto registrada ainda.</p>
+    {% endif %}
+</div>
+
+<div class="card expedicao-card">
+    <div class="section-title-row">
+        <div>
+            <span class="eyebrow">Movimentações</span>
+            <h2>Últimas movimentações</h2>
+        </div>
+    </div>
+
+    {% if movimentacoes %}
+    <div class="tabela-responsiva tabela-executiva expedicao-tabela">
+        <table>
+            <thead>
+                <tr>
+                    <th>Data</th>
+                    <th>Tipo</th>
+                    <th>SKU</th>
+                    <th>Tipo produto</th>
+                    <th>Unidades</th>
+                    <th>Kg</th>
+                    <th>Origem</th>
+                    <th>OP</th>
+                    <th>Romaneio</th>
+                    <th>Destino</th>
+                    <th>Observações</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in movimentacoes %}
+                <tr>
+                    <td>{{ item.data_movimentacao }}</td>
+                    <td>
+                        {% if item.tipo == "ENTRADA_OP" %}
+                            <span class="badge-expedicao entrada">{{ item.tipo }}</span>
+                        {% elif item.tipo == "SAIDA_ROMANEIO" %}
+                            <span class="badge-expedicao saida">{{ item.tipo }}</span>
+                        {% else %}
+                            <span class="badge-expedicao neutro">{{ item.tipo }}</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ item.sku }}</td>
+                    <td>{{ item.tipo_produto }}</td>
+                    <td>{{ item.quantidade_unidades|br_numero }}</td>
+                    <td>{{ item.quantidade_kg|br_numero }}</td>
+                    <td>{{ item.origem or "-" }}</td>
+                    <td>{% if item.op_id %}#{{ item.op_id }}{% else %}-{% endif %}</td>
+                    <td>{% if item.romaneio_id %}#{{ item.romaneio_id }}{% else %}-{% endif %}</td>
+                    <td>{{ item.destinatario_nome or "-" }}</td>
+                    <td>{{ item.observacoes or "-" }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+        <p class="obs">Nenhuma movimentação registrada.</p>
+    {% endif %}
+</div>
+
+{% endblock %}
