@@ -978,6 +978,141 @@ def buscar_venda_diaria_por_id(venda_id):
 
 
 
+# ============================================================
+# EXPEDIÇÃO - SPRINT 1.0
+# ============================================================
+
+def criar_tabelas_expedicao():
+    """
+    Cria a fundação do módulo de Expedição.
+
+    Sprint 1.0:
+    - Apenas estrutura, listagem e ponto de entrada no menu.
+    - Não baixa estoque.
+    - Não gera venda.
+    - Não interfere na DRE nem no Financeiro.
+    """
+    conn = conectar()
+    cursor = conn.cursor()
+
+    if DATABASE_URL:
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS expedicoes (
+            id SERIAL PRIMARY KEY,
+            numero_romaneio TEXT UNIQUE NOT NULL,
+            data TEXT NOT NULL,
+            tipo_movimentacao TEXT NOT NULL DEFAULT 'TRANSFERENCIA',
+            destino TEXT NOT NULL,
+            responsavel TEXT,
+            observacoes TEXT,
+            status TEXT NOT NULL DEFAULT 'Aberto',
+            criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
+
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS expedicao_itens (
+            id SERIAL PRIMARY KEY,
+            expedicao_id INTEGER NOT NULL,
+            op_id INTEGER,
+            sku TEXT NOT NULL,
+            quantidade_unidades REAL DEFAULT 0,
+            quantidade_kg REAL DEFAULT 0,
+            criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
+    else:
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS expedicoes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            numero_romaneio TEXT UNIQUE NOT NULL,
+            data TEXT NOT NULL,
+            tipo_movimentacao TEXT NOT NULL DEFAULT 'TRANSFERENCIA',
+            destino TEXT NOT NULL,
+            responsavel TEXT,
+            observacoes TEXT,
+            status TEXT NOT NULL DEFAULT 'Aberto',
+            criado_em TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
+
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS expedicao_itens (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            expedicao_id INTEGER NOT NULL,
+            op_id INTEGER,
+            sku TEXT NOT NULL,
+            quantidade_unidades REAL DEFAULT 0,
+            quantidade_kg REAL DEFAULT 0,
+            criado_em TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
+
+    conn.commit()
+    conn.close()
+
+
+def buscar_expedicoes(data_inicio=None, data_fim=None, status=None):
+    criar_tabelas_expedicao()
+
+    filtros = []
+    parametros = []
+
+    if data_inicio:
+        filtros.append("data >= ?")
+        parametros.append(data_inicio)
+
+    if data_fim:
+        filtros.append("data <= ?")
+        parametros.append(data_fim)
+
+    if status and status != "Todos":
+        filtros.append("status = ?")
+        parametros.append(status)
+
+    where = ""
+    if filtros:
+        where = "WHERE " + " AND ".join(filtros)
+
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute(q(f"""
+    SELECT
+        e.*,
+        COALESCE(COUNT(i.id), 0) as total_itens,
+        COALESCE(SUM(i.quantidade_unidades), 0) as total_unidades,
+        COALESCE(SUM(i.quantidade_kg), 0) as total_kg
+    FROM expedicoes e
+    LEFT JOIN expedicao_itens i ON i.expedicao_id = e.id
+    {where}
+    GROUP BY e.id, e.numero_romaneio, e.data, e.tipo_movimentacao, e.destino, e.responsavel, e.observacoes, e.status, e.criado_em
+    ORDER BY e.data DESC, e.id DESC
+    """), tuple(parametros))
+
+    expedicoes = cursor.fetchall()
+    conn.close()
+    return expedicoes
+
+
+def calcular_resumo_expedicao(expedicoes):
+    total_romaneios = len(expedicoes)
+    abertos = sum(1 for item in expedicoes if item["status"] == "Aberto")
+    concluidos = sum(1 for item in expedicoes if item["status"] == "Concluído")
+    cancelados = sum(1 for item in expedicoes if item["status"] == "Cancelado")
+
+    total_unidades = sum(float(item["total_unidades"] or 0) for item in expedicoes)
+    total_kg = sum(float(item["total_kg"] or 0) for item in expedicoes)
+
+    return {
+        "total_romaneios": total_romaneios,
+        "abertos": abertos,
+        "concluidos": concluidos,
+        "cancelados": cancelados,
+        "total_unidades": round(total_unidades, 2),
+        "total_kg": round(total_kg, 2)
+    }
+
+
 
 
 def normalizar_competencia(competencia):
@@ -4268,6 +4403,32 @@ def dashboard():
 
 
 
+
+
+
+@app.route("/expedicao")
+@perfil_permitido("pcp")
+def expedicao():
+    criar_tabelas_expedicao()
+
+    hoje = datetime.now()
+    primeiro_dia_mes = hoje.replace(day=1).strftime("%Y-%m-%d")
+    data_inicio = request.args.get("data_inicio") or primeiro_dia_mes
+    data_fim = request.args.get("data_fim") or hoje.strftime("%Y-%m-%d")
+    status = request.args.get("status") or "Todos"
+
+    expedicoes = buscar_expedicoes(data_inicio, data_fim, status)
+    resumo = calcular_resumo_expedicao(expedicoes)
+
+    return render_template(
+        "expedicao.html",
+        expedicoes=expedicoes,
+        resumo=resumo,
+        data_inicio=data_inicio,
+        data_fim=data_fim,
+        status=status,
+        status_opcoes=["Todos", "Aberto", "Concluído", "Cancelado"]
+    )
 
 
 @app.route("/dre-gerencial/exportar-excel")

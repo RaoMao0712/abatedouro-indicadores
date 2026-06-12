@@ -4430,3 +4430,277 @@ button:hover {
         grid-template-columns: repeat(4, 1fr) !important;
     }
 }
+
+/* ============================================================
+   EXPEDIÇÃO - SPRINT 1.0
+   Fundação visual do módulo. Não altera estoque, DRE ou Financeiro.
+   ============================================================ */
+
+.expedicao-page {
+    display: grid;
+    gap: 16px;
+}
+
+.expedicao-hero {
+    grid-template-columns: minmax(320px, 0.95fr) minmax(520px, 1.05fr);
+    gap: 18px;
+    align-items: center;
+    padding: 16px 20px;
+    margin-bottom: 12px;
+}
+
+.expedicao-hero h2 {
+    font-size: 23px;
+    margin: 4px 0 8px;
+}
+
+.expedicao-filtro-form {
+    display: grid;
+    grid-template-columns: 1fr 1fr 0.9fr 96px;
+    gap: 10px;
+    align-items: end;
+    background: rgba(255,255,255,0.10);
+    border: 1px solid rgba(255,255,255,0.16);
+    border-radius: 16px;
+    padding: 12px;
+    backdrop-filter: blur(10px);
+}
+
+.expedicao-filtro-form label {
+    color: #fdba74;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.45px;
+    margin: 0 0 4px;
+}
+
+.expedicao-filtro-form input,
+.expedicao-filtro-form select {
+    height: 38px;
+    border-radius: 11px;
+    padding: 8px 10px;
+    font-size: 13px;
+}
+
+.expedicao-filtro-form .botao-hero-filtro {
+    height: 38px;
+    margin: 0;
+    padding: 0 12px;
+    border-radius: 11px;
+    font-size: 13px;
+}
+
+.expedicao-kpis {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 14px;
+}
+
+.expedicao-kpi {
+    min-height: 104px;
+    margin-bottom: 0;
+    padding: 18px;
+    border-left: 5px solid #f97316;
+}
+
+.expedicao-kpi span {
+    display: block;
+    color: #64748b;
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 0.65px;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+}
+
+.expedicao-kpi strong {
+    display: block;
+    color: #0f2f45;
+    font-size: 26px;
+    line-height: 1;
+    letter-spacing: -0.8px;
+    margin-bottom: 6px;
+}
+
+.expedicao-kpi small {
+    color: #64748b;
+    font-size: 12px;
+}
+
+.expedicao-kpi.azul { border-left-color: #2563eb; }
+.expedicao-kpi.verde { border-left-color: #16a34a; }
+.expedicao-kpi.vermelho { border-left-color: #dc2626; }
+
+.expedicao-toolbar {
+    display: flex;
+    justify-content: space-between;
+    gap: 14px;
+    align-items: center;
+    margin-bottom: 14px;
+}
+
+.expedicao-toolbar h2 {
+    border-left: 6px solid #f97316;
+    padding-left: 12px;
+    margin: 0;
+    font-size: 22px;
+}
+
+.botao-expedicao-novo {
+    width: auto;
+    min-width: 170px;
+    height: 40px;
+    margin: 0;
+    padding: 0 16px;
+    border-radius: 12px;
+    font-size: 13px;
+    font-weight: 900;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #f97316, #fb923c);
+    opacity: 0.72;
+    cursor: not-allowed;
+}
+
+.expedicao-tabela {
+    border: 1px solid #e2e8f0;
+    border-radius: 16px;
+    overflow: hidden;
+    background: white;
+}
+
+.expedicao-tabela-header,
+.expedicao-tabela-row {
+    display: grid;
+    grid-template-columns: 135px 110px 150px minmax(0, 1fr) 130px 110px 110px;
+    gap: 10px;
+    align-items: center;
+}
+
+.expedicao-tabela-header {
+    background: #f8fafc;
+    color: #334155;
+    font-size: 11px;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 10px 12px;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.expedicao-tabela-row {
+    padding: 11px 12px;
+    border-bottom: 1px solid #e5e7eb;
+    font-size: 13px;
+}
+
+.expedicao-tabela-row:last-child {
+    border-bottom: none;
+}
+
+.expedicao-tabela-row strong {
+    color: #0f2f45;
+    font-weight: 900;
+}
+
+.expedicao-tabela-row span,
+.expedicao-tabela-row small {
+    color: #475569;
+    font-weight: 700;
+}
+
+.badge-expedicao {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: fit-content;
+    border-radius: 999px;
+    padding: 5px 10px;
+    font-size: 11px;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.badge-expedicao.aberto {
+    color: #2563eb;
+    background: rgba(37,99,235,0.10);
+    border: 1px solid rgba(37,99,235,0.22);
+}
+
+.badge-expedicao.concluido {
+    color: #16a34a;
+    background: rgba(22,163,74,0.10);
+    border: 1px solid rgba(22,163,74,0.22);
+}
+
+.badge-expedicao.cancelado {
+    color: #dc2626;
+    background: rgba(220,38,38,0.10);
+    border: 1px solid rgba(220,38,38,0.22);
+}
+
+.expedicao-vazio {
+    padding: 28px 18px;
+    text-align: center;
+    color: #64748b;
+    font-size: 14px;
+}
+
+.expedicao-vazio strong {
+    display: block;
+    color: #0f2f45;
+    font-size: 18px;
+    margin-bottom: 6px;
+}
+
+.expedicao-aviso {
+    background: #fff7ed;
+    border: 1px solid #fed7aa;
+    color: #7c2d12;
+    border-radius: 16px;
+    padding: 14px 16px;
+    font-size: 13px;
+    line-height: 1.45;
+}
+
+.expedicao-aviso strong {
+    color: #9a3412;
+}
+
+@media (max-width: 1250px) {
+    .expedicao-hero,
+    .expedicao-filtro-form {
+        grid-template-columns: 1fr;
+    }
+
+    .expedicao-kpis {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .expedicao-tabela {
+        overflow-x: auto;
+    }
+
+    .expedicao-tabela-header,
+    .expedicao-tabela-row {
+        min-width: 980px;
+    }
+}
+
+@media (max-width: 720px) {
+    .expedicao-kpis {
+        grid-template-columns: 1fr;
+    }
+
+    .expedicao-toolbar {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .botao-expedicao-novo {
+        width: 100%;
+    }
+}
+
