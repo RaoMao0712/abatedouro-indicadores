@@ -4431,6 +4431,116 @@ def expedicao():
     )
 
 
+
+def gerar_numero_romaneio(data_romaneio):
+    """
+    Gera número sequencial diário do romaneio.
+    Formato: ROM-AAAAMMDD-001
+
+    Sprint 1.1:
+    - Numeração simples e isolada.
+    - Não baixa estoque.
+    - Não gera venda.
+    - Não interfere em DRE, Financeiro ou Almoxarifado.
+    """
+    criar_tabelas_expedicao()
+
+    data_base = (data_romaneio or datetime.now().strftime("%Y-%m-%d")).strip()
+    prefixo = "ROM-" + data_base.replace("-", "")
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q("""
+    SELECT COUNT(*) as total
+    FROM expedicoes
+    WHERE numero_romaneio LIKE ?
+    """), (f"{prefixo}-%",))
+
+    resultado = cursor.fetchone()
+    conn.close()
+
+    total = int(resultado["total"] or 0)
+    sequencial = total + 1
+
+    return f"{prefixo}-{sequencial:03d}"
+
+
+def salvar_romaneio_expedicao(form):
+    """
+    Salva apenas o cabeçalho do romaneio.
+
+    Sprint 1.1:
+    - Cria o romaneio em aberto.
+    - Tipo fixo: TRANSFERENCIA.
+    - Sem itens.
+    - Sem baixa de estoque.
+    """
+    criar_tabelas_expedicao()
+
+    data_romaneio = (form.get("data") or "").strip()
+    destino = (form.get("destino") or "").strip()
+    responsavel = (form.get("responsavel") or "").strip()
+    observacoes = (form.get("observacoes") or "").strip()
+
+    if not data_romaneio:
+        raise ValueError("Informe a data do romaneio.")
+
+    if not destino:
+        raise ValueError("Informe o destino do romaneio.")
+
+    numero_romaneio = gerar_numero_romaneio(data_romaneio)
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q("""
+    INSERT INTO expedicoes (
+        numero_romaneio,
+        data,
+        tipo_movimentacao,
+        destino,
+        responsavel,
+        observacoes,
+        status
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    """), (
+        numero_romaneio,
+        data_romaneio,
+        "TRANSFERENCIA",
+        destino,
+        responsavel,
+        observacoes,
+        "Aberto"
+    ))
+
+    conn.commit()
+    conn.close()
+
+    return numero_romaneio
+
+
+@app.route("/expedicao/novo", methods=["GET", "POST"])
+@perfil_permitido("pcp")
+def novo_romaneio_expedicao():
+    criar_tabelas_expedicao()
+
+    hoje = datetime.now().strftime("%Y-%m-%d")
+
+    if request.method == "POST":
+        try:
+            numero_romaneio = salvar_romaneio_expedicao(request.form)
+            flash(f"Romaneio {numero_romaneio} criado com sucesso.")
+            return redirect(url_for("expedicao"))
+        except Exception as erro:
+            flash(f"Erro ao criar romaneio: {erro}")
+
+    return render_template(
+        "novo_romaneio.html",
+        hoje=hoje
+    )
+
+
 @app.route("/dre-gerencial/exportar-excel")
 @perfil_permitido("pcp")
 def exportar_dre_gerencial_excel():

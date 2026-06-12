@@ -9,8 +9,8 @@
             <span class="eyebrow">Expedição</span>
             <h2>Romaneios de Expedição</h2>
             <div class="hero-resumo-inline">
-                <span><strong>Etapa:</strong> Sprint 1.0 — fundação do módulo</span>
-                <span><strong>Escopo:</strong> Cadastro estrutural • Listagem • Menu</span>
+                <span><strong>Etapa:</strong> Sprint 1.1 — novo romaneio</span>
+                <span><strong>Escopo:</strong> Cabeçalho do romaneio • Numeração automática • Listagem</span>
             </div>
         </div>
 
@@ -71,9 +71,9 @@
                 <h2>Romaneios</h2>
             </div>
 
-            <button type="button" class="botao-expedicao-novo" disabled>
+            <a href="{{ url_for('novo_romaneio_expedicao') }}" class="botao-expedicao-novo">
                 Novo Romaneio
-            </button>
+            </a>
         </div>
 
         <div class="expedicao-tabela">
@@ -110,14 +110,14 @@
             {% else %}
                 <div class="expedicao-vazio">
                     <strong>Nenhum romaneio encontrado.</strong>
-                    A fundação do módulo de Expedição já está pronta. O cadastro do novo romaneio entra na próxima sprint.
+                    Nenhum romaneio foi criado para o período filtrado.
                 </div>
             {% endif %}
         </div>
     </section>
 
     <div class="expedicao-aviso">
-        <strong>Nota da Sprint 1.0:</strong>
+        <strong>Nota da Sprint 1.1:</strong>
         esta etapa cria apenas a fundação do módulo de Expedição. Ainda não há baixa de estoque,
         vínculo com vendas, movimentação financeira ou impacto na DRE.
     </div>

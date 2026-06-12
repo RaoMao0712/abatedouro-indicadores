@@ -1,0 +1,13 @@
+{% extends 'base.html' %}
+{% block conteudo %}
+<div class="card">
+<h2>Novo Romaneio</h2>
+<form method="POST">
+<p>Data: <input type="date" name="data" value="{{ hoje }}" required></p>
+<p>Destino: <input type="text" name="destino" required></p>
+<p>Responsável: <input type="text" name="responsavel"></p>
+<p>Observações:<br><textarea name="observacoes"></textarea></p>
+<button type="submit">Salvar Romaneio</button>
+</form>
+</div>
+{% endblock %}
