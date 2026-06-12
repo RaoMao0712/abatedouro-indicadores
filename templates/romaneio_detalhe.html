@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+
+<div class="expedicao-page">
+
+    <section class="hero-dashboard expedicao-hero">
+        <div>
+            <span class="eyebrow">Expedição</span>
+            <h2>{{ expedicao.numero_romaneio }}</h2>
+            <div class="hero-resumo-inline">
+                <span><strong>Data:</strong> {{ expedicao.data }}</span>
+                <span><strong>Destino:</strong> {{ expedicao.destino }}</span>
+                <span><strong>Responsável:</strong> {{ expedicao.responsavel or '-' }}</span>
+                <span><strong>Status:</strong> {{ expedicao.status }}</span>
+            </div>
+        </div>
+
+        <div class="hero-meta-resumo">
+            <div>
+                <span><strong>Tipo:</strong> {{ expedicao.tipo_movimentacao }}</span>
+                <span><strong>Itens:</strong> {{ resumo_itens.total_itens|br_numero(0) }}</span>
+                <span><strong>Unidades:</strong> {{ resumo_itens.total_unidades|br_numero(2) }}</span>
+                <span><strong>Kg:</strong> {{ resumo_itens.total_kg|br_numero(2) }}</span>
+            </div>
+        </div>
+    </section>
+
+    <section class="expedicao-kpis">
+        <div class="card expedicao-kpi azul">
+            <span>Itens</span>
+            <strong>{{ resumo_itens.total_itens|br_numero(0) }}</strong>
+            <small>Total de linhas no romaneio</small>
+        </div>
+
+        <div class="card expedicao-kpi verde">
+            <span>Unidades</span>
+            <strong>{{ resumo_itens.total_unidades|br_numero(2) }}</strong>
+            <small>Quantidade total informada</small>
+        </div>
+
+        <div class="card expedicao-kpi">
+            <span>Kg</span>
+            <strong>{{ resumo_itens.total_kg|br_numero(2) }}</strong>
+            <small>Peso total informado</small>
+        </div>
+
+        <div class="card expedicao-kpi vermelho">
+            <span>Status</span>
+            <strong>{{ expedicao.status }}</strong>
+            <small>Situação do romaneio</small>
+        </div>
+    </section>
+
+    <section class="card">
+        <div class="section-title-row">
+            <div>
+                <span class="eyebrow">Itens</span>
+                <h2>Adicionar Item Manual</h2>
+            </div>
+
+            <a href="{{ url_for('expedicao') }}" class="botao-secundario">
+                Voltar para Expedição
+            </a>
+        </div>
+
+        {% if expedicao.status == "Aberto" %}
+        <form method="POST" class="form-grid">
+            <div>
+                <label>SKU</label>
+                <select name="sku" required>
+                    <option value="">Selecione</option>
+                    {% for sku in skus %}
+                        <option value="{{ sku }}">{{ sku }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div>
+                <label>Quantidade Unidades</label>
+                <input type="number" name="quantidade_unidades" step="0.01" min="0" value="0">
+            </div>
+
+            <div>
+                <label>Quantidade Kg</label>
+                <input type="number" name="quantidade_kg" step="0.01" min="0" value="0">
+            </div>
+
+            <div>
+                <button type="submit">
+                    Adicionar Item
+                </button>
+            </div>
+        </form>
+        {% else %}
+            <div class="alerta-suave">
+                Este romaneio não está aberto. Não é possível adicionar novos itens.
+            </div>
+        {% endif %}
+    </section>
+
+    <section class="card">
+        <div class="section-title-row">
+            <div>
+                <span class="eyebrow">Composição</span>
+                <h2>Itens do Romaneio</h2>
+            </div>
+        </div>
+
+        <div class="expedicao-tabela">
+            <div class="expedicao-tabela-header">
+                <span>SKU</span>
+                <span>OP</span>
+                <span>Unidades</span>
+                <span>Kg</span>
+                <span>Origem</span>
+                <span>Status</span>
+            </div>
+
+            {% if itens %}
+                {% for item in itens %}
+                <div class="expedicao-tabela-row">
+                    <strong>{{ item.sku }}</strong>
+                    <span>{{ item.op_id or '-' }}</span>
+                    <span>{{ item.quantidade_unidades|br_numero(2) }}</span>
+                    <span>{{ item.quantidade_kg|br_numero(2) }}</span>
+                    <span>Manual</span>
+                    <span><b class="badge-expedicao aberto">Registrado</b></span>
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="expedicao-vazio">
+                    <strong>Nenhum item adicionado.</strong>
+                    Cadastre os itens manualmente nesta sprint. O vínculo com OP entra na próxima etapa.
+                </div>
+            {% endif %}
+        </div>
+    </section>
+
+    <div class="expedicao-aviso">
+        <strong>Nota da Sprint 1.2:</strong>
+        os itens cadastrados aqui são informativos e manuais. Ainda não há baixa de estoque,
+        vínculo com OP, venda, movimentação financeira ou impacto na DRE.
+    </div>
+
+</div>
+
+{% endblock %}

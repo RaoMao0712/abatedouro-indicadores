@@ -4541,6 +4541,143 @@ def novo_romaneio_expedicao():
     )
 
 
+
+
+def buscar_expedicao_por_id(expedicao_id):
+    criar_tabelas_expedicao()
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q("""
+    SELECT *
+    FROM expedicoes
+    WHERE id = ?
+    """), (expedicao_id,))
+
+    expedicao = cursor.fetchone()
+    conn.close()
+
+    return expedicao
+
+
+def buscar_itens_expedicao(expedicao_id):
+    criar_tabelas_expedicao()
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q("""
+    SELECT *
+    FROM expedicao_itens
+    WHERE expedicao_id = ?
+    ORDER BY id ASC
+    """), (expedicao_id,))
+
+    itens = cursor.fetchall()
+    conn.close()
+
+    return itens
+
+
+def calcular_resumo_itens_expedicao(itens):
+    total_itens = len(itens)
+    total_unidades = sum(float(item["quantidade_unidades"] or 0) for item in itens)
+    total_kg = sum(float(item["quantidade_kg"] or 0) for item in itens)
+
+    return {
+        "total_itens": total_itens,
+        "total_unidades": round(total_unidades, 2),
+        "total_kg": round(total_kg, 2)
+    }
+
+
+def salvar_item_expedicao(expedicao_id, form):
+    """
+    Salva item manual do romaneio.
+
+    Sprint 1.2:
+    - Itens manuais.
+    - Sem baixa de estoque.
+    - Sem vínculo obrigatório com OP.
+    - Sem impacto na DRE, Financeiro ou Almoxarifado.
+    """
+    criar_tabelas_expedicao()
+
+    expedicao = buscar_expedicao_por_id(expedicao_id)
+
+    if not expedicao:
+        raise ValueError("Romaneio não encontrado.")
+
+    if expedicao["status"] != "Aberto":
+        raise ValueError("Só é possível adicionar itens em romaneios abertos.")
+
+    sku = (form.get("sku") or "").strip()
+    quantidade_unidades = float(form.get("quantidade_unidades") or 0)
+    quantidade_kg = float(form.get("quantidade_kg") or 0)
+
+    if sku not in ["Galinha Cortada", "Galinha Inteira"]:
+        raise ValueError("Selecione um SKU válido.")
+
+    if quantidade_unidades < 0 or quantidade_kg < 0:
+        raise ValueError("As quantidades não podem ser negativas.")
+
+    if quantidade_unidades <= 0 and quantidade_kg <= 0:
+        raise ValueError("Informe pelo menos uma quantidade para o item.")
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q("""
+    INSERT INTO expedicao_itens (
+        expedicao_id,
+        op_id,
+        sku,
+        quantidade_unidades,
+        quantidade_kg
+    ) VALUES (?, ?, ?, ?, ?)
+    """), (
+        expedicao_id,
+        None,
+        sku,
+        quantidade_unidades,
+        quantidade_kg
+    ))
+
+    conn.commit()
+    conn.close()
+
+
+@app.route("/expedicao/<int:expedicao_id>", methods=["GET", "POST"])
+@perfil_permitido("pcp")
+def detalhe_romaneio_expedicao(expedicao_id):
+    criar_tabelas_expedicao()
+
+    expedicao = buscar_expedicao_por_id(expedicao_id)
+
+    if not expedicao:
+        flash("Romaneio não encontrado.")
+        return redirect(url_for("expedicao"))
+
+    if request.method == "POST":
+        try:
+            salvar_item_expedicao(expedicao_id, request.form)
+            flash("Item adicionado ao romaneio com sucesso.")
+            return redirect(url_for("detalhe_romaneio_expedicao", expedicao_id=expedicao_id))
+        except Exception as erro:
+            flash(f"Erro ao adicionar item: {erro}")
+
+    itens = buscar_itens_expedicao(expedicao_id)
+    resumo_itens = calcular_resumo_itens_expedicao(itens)
+
+    return render_template(
+        "romaneio_detalhe.html",
+        expedicao=expedicao,
+        itens=itens,
+        resumo_itens=resumo_itens,
+        skus=["Galinha Cortada", "Galinha Inteira"]
+    )
+
 @app.route("/dre-gerencial/exportar-excel")
 @perfil_permitido("pcp")
 def exportar_dre_gerencial_excel():

@@ -1,13 +1,93 @@
-{% extends 'base.html' %}
+{% extends "base.html" %}
+
 {% block conteudo %}
-<div class="card">
-<h2>Novo Romaneio</h2>
-<form method="POST">
-<p>Data: <input type="date" name="data" value="{{ hoje }}" required></p>
-<p>Destino: <input type="text" name="destino" required></p>
-<p>Responsável: <input type="text" name="responsavel"></p>
-<p>Observações:<br><textarea name="observacoes"></textarea></p>
-<button type="submit">Salvar Romaneio</button>
-</form>
+
+<div class="expedicao-page">
+
+    <section class="hero-dashboard expedicao-hero">
+        <div>
+            <span class="eyebrow">Expedição</span>
+            <h2>Novo Romaneio</h2>
+            <div class="hero-resumo-inline">
+                <span><strong>Etapa:</strong> Sprint 1.1 — cabeçalho do romaneio</span>
+                <span><strong>Escopo:</strong> Transferência interna • Sem baixa de estoque • Sem impacto na DRE</span>
+            </div>
+        </div>
+
+        <div class="hero-meta-resumo">
+            <div>
+                <span><strong>Status:</strong> Aberto</span>
+                <span><strong>Tipo:</strong> Transferência Interna</span>
+                <span><strong>Itens:</strong> Adicionados após salvar</span>
+            </div>
+        </div>
+    </section>
+
+    <section class="card">
+        <div class="section-title-row">
+            <div>
+                <span class="eyebrow">Cadastro</span>
+                <h2>Cabeçalho do Romaneio</h2>
+            </div>
+
+            <a href="{{ url_for('expedicao') }}" class="botao-secundario">
+                Voltar
+            </a>
+        </div>
+
+        <form method="POST" class="form-grid">
+            <div>
+                <label>Data do Romaneio</label>
+                <input type="date" name="data" value="{{ hoje }}" required>
+            </div>
+
+            <div>
+                <label>Tipo de Movimentação</label>
+                <input type="text" value="Transferência Interna" disabled>
+            </div>
+
+            <div>
+                <label>Destino</label>
+                <input
+                    type="text"
+                    name="destino"
+                    placeholder="Ex.: LSM / Câmara fria / Cliente interno"
+                    required
+                >
+            </div>
+
+            <div>
+                <label>Responsável</label>
+                <input
+                    type="text"
+                    name="responsavel"
+                    placeholder="Nome do responsável"
+                >
+            </div>
+
+            <div style="grid-column: 1 / -1;">
+                <label>Observações</label>
+                <textarea
+                    name="observacoes"
+                    rows="4"
+                    placeholder="Observações operacionais do romaneio"
+                ></textarea>
+            </div>
+
+            <div style="grid-column: 1 / -1;">
+                <button type="submit">
+                    Salvar Romaneio
+                </button>
+            </div>
+        </form>
+    </section>
+
+    <div class="expedicao-aviso">
+        <strong>Nota da Sprint 1.1:</strong>
+        esta etapa cria apenas o cabeçalho do romaneio. A inclusão de itens acontece na tela de detalhe.
+        Ainda não há baixa de estoque, vínculo com vendas, movimentação financeira ou impacto na DRE.
+    </div>
+
 </div>
+
 {% endblock %}

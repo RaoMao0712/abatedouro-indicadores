@@ -9,8 +9,8 @@
             <span class="eyebrow">Expedição</span>
             <h2>Romaneios de Expedição</h2>
             <div class="hero-resumo-inline">
-                <span><strong>Etapa:</strong> Sprint 1.1 — novo romaneio</span>
-                <span><strong>Escopo:</strong> Cabeçalho do romaneio • Numeração automática • Listagem</span>
+                <span><strong>Etapa:</strong> Sprint 1.2 — itens do romaneio</span>
+                <span><strong>Escopo:</strong> Cabeçalho • Itens manuais • Totais por romaneio</span>
             </div>
         </div>
 
@@ -90,7 +90,11 @@
             {% if expedicoes %}
                 {% for item in expedicoes %}
                 <div class="expedicao-tabela-row">
-                    <strong>{{ item.numero_romaneio }}</strong>
+                    <strong>
+                        <a href="{{ url_for('detalhe_romaneio_expedicao', expedicao_id=item.id) }}">
+                            {{ item.numero_romaneio }}
+                        </a>
+                    </strong>
                     <span>{{ item.data }}</span>
                     <span>{{ item.tipo_movimentacao }}</span>
                     <span>{{ item.destino }}</span>
@@ -118,7 +122,7 @@
 
     <div class="expedicao-aviso">
         <strong>Nota da Sprint 1.1:</strong>
-        esta etapa cria apenas a fundação do módulo de Expedição. Ainda não há baixa de estoque,
+        esta etapa permite cadastrar itens manuais no romaneio. Ainda não há baixa de estoque,
         vínculo com vendas, movimentação financeira ou impacto na DRE.
     </div>
 
