@@ -544,6 +544,9 @@
         id: "rotulosPercentuais",
         afterDatasetsDraw(chart) {
             const { ctx } = chart;
+            const totalPontos = Array.isArray(chart.data.labels) ? chart.data.labels.length : 0;
+            const limiteRotulosCompletos = 15;
+
             ctx.save();
             ctx.font = "700 11px Arial";
             ctx.textAlign = "center";
@@ -556,10 +559,33 @@
                 }
 
                 const meta = chart.getDatasetMeta(datasetIndex);
+                const valoresValidos = dataset.data
+                    .map((valor, index) => ({ valor, index }))
+                    .filter(item => item.valor !== null && item.valor !== undefined && !Number.isNaN(Number(item.valor)));
+
+                if (!valoresValidos.length) {
+                    return;
+                }
+
+                let indicesParaRotular = new Set(valoresValidos.map(item => item.index));
+
+                if (totalPontos > limiteRotulosCompletos) {
+                    const primeiro = valoresValidos[0];
+                    const ultimo = valoresValidos[valoresValidos.length - 1];
+                    const maior = valoresValidos.reduce((atual, item) => Number(item.valor) > Number(atual.valor) ? item : atual, valoresValidos[0]);
+                    const menor = valoresValidos.reduce((atual, item) => Number(item.valor) < Number(atual.valor) ? item : atual, valoresValidos[0]);
+
+                    indicesParaRotular = new Set([
+                        primeiro.index,
+                        ultimo.index,
+                        maior.index,
+                        menor.index
+                    ]);
+                }
 
                 meta.data.forEach((element, index) => {
                     const valor = dataset.data[index];
-                    if (valor === null || valor === undefined) {
+                    if (valor === null || valor === undefined || !indicesParaRotular.has(index)) {
                         return;
                     }
 
