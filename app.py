@@ -6572,6 +6572,180 @@ def relatorio():
 
 
 # ============================================================
+# RELATÓRIO DE RENDIMENTO
+# ============================================================
+
+@app.route("/relatorio-rendimento")
+@perfil_permitido("pcp")
+def relatorio_rendimento():
+    criar_banco()
+
+    agora = datetime.now()
+    hoje = agora.strftime("%Y-%m-%d")
+    primeiro_dia_mes = agora.replace(day=1).strftime("%Y-%m-%d")
+
+    data_inicio = request.args.get("data_inicio") or primeiro_dia_mes
+    data_fim = request.args.get("data_fim") or hoje
+    sku_filtro = request.args.get("sku") or "Todos"
+    fornecedor_filtro = request.args.get("fornecedor") or "Todos"
+
+    meta_rendimento = 63.0
+
+    condicoes = [
+        "o.data BETWEEN ? AND ?",
+        "COALESCE(o.status, 'Aberta') = 'Encerrada'"
+    ]
+    parametros = [data_inicio, data_fim]
+
+    if sku_filtro != "Todos":
+        condicoes.append("COALESCE(o.sku, 'Galinha Cortada') = ?")
+        parametros.append(sku_filtro)
+
+    if fornecedor_filtro != "Todos":
+        condicoes.append("o.fornecedor = ?")
+        parametros.append(fornecedor_filtro)
+
+    where_sql = " AND ".join(condicoes)
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q(f"""
+    SELECT
+        o.data,
+        o.fornecedor,
+        COALESCE(SUM(o.peso_vivo), 0) as peso_vivo,
+        COALESCE(SUM(prod.kg_produzidos), 0) as kg_produzidos
+    FROM ordens_producao o
+    LEFT JOIN (
+        SELECT
+            op_id,
+            COALESCE(SUM(quantidade), 0) as kg_produzidos
+        FROM apontamentos_producao
+        WHERE LOWER(unidade) = 'kg'
+        GROUP BY op_id
+    ) prod ON prod.op_id = o.id
+    WHERE {where_sql}
+    GROUP BY o.data, o.fornecedor
+    ORDER BY o.data ASC, o.fornecedor ASC
+    """), tuple(parametros))
+
+    registros = cursor.fetchall()
+    conn.close()
+
+    datas = sorted({item["data"] for item in registros})
+    fornecedores_grafico = sorted({item["fornecedor"] for item in registros})
+
+    dados_por_chave = {}
+
+    total_kg_produzidos = 0
+    total_peso_vivo = 0
+    tabela_linhas = []
+
+    for item in registros:
+        data = item["data"]
+        fornecedor = item["fornecedor"]
+        kg_produzidos = float(item["kg_produzidos"] or 0)
+        peso_vivo = float(item["peso_vivo"] or 0)
+        rendimento = (kg_produzidos / peso_vivo * 100) if peso_vivo > 0 else 0
+        desvio_meta = rendimento - meta_rendimento
+
+        total_kg_produzidos += kg_produzidos
+        total_peso_vivo += peso_vivo
+
+        linha = {
+            "data": data,
+            "fornecedor": fornecedor,
+            "kg_produzidos": round(kg_produzidos, 2),
+            "peso_vivo": round(peso_vivo, 2),
+            "rendimento": round(rendimento, 2),
+            "desvio_meta": round(desvio_meta, 2)
+        }
+
+        dados_por_chave[(data, fornecedor)] = linha
+        tabela_linhas.append(linha)
+
+    rendimento_medio = (
+        total_kg_produzidos / total_peso_vivo * 100
+        if total_peso_vivo > 0
+        else 0
+    )
+
+    cores = [
+        "#2563eb",
+        "#16a34a",
+        "#f97316",
+        "#8b5cf6",
+        "#0891b2",
+        "#dc2626",
+        "#64748b"
+    ]
+
+    datasets = []
+
+    for indice, fornecedor in enumerate(fornecedores_grafico):
+        dados_linha = []
+        detalhes_linha = []
+
+        for data in datas:
+            linha = dados_por_chave.get((data, fornecedor))
+
+            if linha:
+                dados_linha.append(linha["rendimento"])
+                detalhes_linha.append({
+                    "kg_produzidos": linha["kg_produzidos"],
+                    "peso_vivo": linha["peso_vivo"]
+                })
+            else:
+                dados_linha.append(None)
+                detalhes_linha.append(None)
+
+        cor = cores[indice % len(cores)]
+
+        datasets.append({
+            "label": fornecedor,
+            "data": dados_linha,
+            "detalhes": detalhes_linha,
+            "borderColor": cor,
+            "backgroundColor": cor,
+            "tension": 0.25,
+            "pointRadius": 4,
+            "pointHoverRadius": 6,
+            "spanGaps": False
+        })
+
+    if datas:
+        datasets.append({
+            "label": f"Meta {formatar_percentual_br(meta_rendimento)}",
+            "data": [meta_rendimento for _ in datas],
+            "borderColor": "#111827",
+            "backgroundColor": "#111827",
+            "borderDash": [8, 6],
+            "pointRadius": 0,
+            "pointHoverRadius": 0,
+            "tension": 0,
+            "ehMeta": True
+        })
+
+    return render_template(
+        "relatorio_rendimento.html",
+        data_inicio=data_inicio,
+        data_fim=data_fim,
+        sku_filtro=sku_filtro,
+        fornecedor_filtro=fornecedor_filtro,
+        fornecedores=buscar_fornecedores(),
+        skus=["Galinha Inteira", "Galinha Cortada"],
+        datas=datas,
+        datasets=datasets,
+        tabela_linhas=tabela_linhas,
+        rendimento_medio=round(rendimento_medio, 2),
+        meta_rendimento=meta_rendimento,
+        total_kg_produzidos=round(total_kg_produzidos, 2),
+        total_peso_vivo=round(total_peso_vivo, 2)
+    )
+
+
+# ============================================================
 # IMPORTAÇÃO OFICIAL DE MAIO/2026
 # Rota temporária para carregar OPs + descartes via Excel.
 # ============================================================
