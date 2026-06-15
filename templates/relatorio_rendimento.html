@@ -5,6 +5,7 @@
 <style>
     :root {
         --frigo-azul: #1f3b4d;
+        --frigo-azul-escuro: #123047;
         --frigo-azul-2: #244e67;
         --frigo-laranja: #f97316;
         --frigo-texto: #0f172a;
@@ -22,10 +23,10 @@
     }
 
     .relatorio-hero {
-        background: linear-gradient(135deg, var(--frigo-azul) 0%, var(--frigo-azul-2) 100%);
+        background: linear-gradient(135deg, var(--frigo-azul-escuro) 0%, var(--frigo-azul) 100%);
         color: #fff;
         border-radius: 16px;
-        padding: 18px 20px;
+        padding: 16px 18px;
         box-shadow: 0 12px 30px rgba(15, 23, 42, 0.14);
     }
 
@@ -37,15 +38,40 @@
         margin-bottom: 14px;
     }
 
+    .relatorio-titulo-area {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        min-width: 0;
+    }
+
+    .relatorio-icone {
+        width: 42px;
+        height: 42px;
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        background: rgba(255, 255, 255, 0.08);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex: 0 0 auto;
+    }
+
+    .relatorio-icone svg {
+        width: 24px;
+        height: 24px;
+        stroke: #fff;
+    }
+
     .relatorio-hero h2 {
         margin: 0;
-        font-size: 25px;
+        font-size: 24px;
         letter-spacing: -0.04em;
         line-height: 1.08;
     }
 
     .relatorio-hero p {
-        margin: 6px 0 0 0;
+        margin: 5px 0 0 0;
         color: rgba(255,255,255,0.82);
         font-size: 14px;
     }
@@ -65,40 +91,58 @@
         box-sizing: border-box;
         white-space: nowrap;
         letter-spacing: -0.01em;
+        transition: transform 0.12s ease, filter 0.12s ease;
     }
 
     .btn-imprimir-topo {
-        background: rgba(249, 115, 22, 0.98);
+        background: transparent;
+        border: 1px solid rgba(249, 115, 22, 0.95);
         min-height: 36px;
-        padding: 9px 13px;
+        padding: 8px 13px;
         font-size: 13px;
-        box-shadow: 0 10px 22px rgba(249, 115, 22, 0.18);
+        box-shadow: none;
+        color: #fff;
+        gap: 8px;
+    }
+
+    .btn-imprimir-topo svg {
+        width: 17px;
+        height: 17px;
+        stroke: #fff;
     }
 
     .btn-filtrar {
         background: var(--frigo-laranja);
-        min-height: 38px;
-        padding: 9px 13px;
+        min-height: 39px;
+        padding: 9px 14px;
         font-size: 13px;
-        box-shadow: 0 10px 22px rgba(249, 115, 22, 0.18);
+        box-shadow: 0 10px 22px rgba(249, 115, 22, 0.20);
         width: 100%;
+        gap: 8px;
+    }
+
+    .btn-filtrar svg {
+        width: 16px;
+        height: 16px;
+        stroke: #fff;
     }
 
     .btn-imprimir-topo:hover,
     .btn-filtrar:hover {
         filter: brightness(0.96);
+        transform: translateY(-1px);
     }
 
     .filtros-hero {
-        background: rgba(255, 255, 255, 0.08);
-        border: 1px solid rgba(255, 255, 255, 0.18);
-        border-radius: 14px;
-        padding: 12px;
+        background: rgba(255, 255, 255, 0.07);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        border-radius: 13px;
+        padding: 11px;
     }
 
     .filtros-grid {
         display: grid;
-        grid-template-columns: 1fr 1fr 1fr 1.25fr 0.72fr;
+        grid-template-columns: 1fr 1fr 1fr 1.25fr 0.78fr;
         gap: 10px;
         align-items: end;
     }
@@ -106,7 +150,7 @@
     .campo-filtro label {
         display: block;
         font-size: 11px;
-        color: rgba(255,255,255,0.78);
+        color: rgba(255,255,255,0.80);
         font-weight: 850;
         text-transform: uppercase;
         margin-bottom: 5px;
@@ -120,10 +164,10 @@
         border-radius: 9px;
         padding: 9px 10px;
         font-size: 13px;
-        background: rgba(255, 255, 255, 0.96);
+        background: rgba(255, 255, 255, 0.97);
         color: var(--frigo-texto);
         box-sizing: border-box;
-        min-height: 38px;
+        min-height: 39px;
     }
 
     .kpi-grid-rendimento {
@@ -164,33 +208,27 @@
         line-height: 1.05;
     }
 
-    .area-grafico-tabela {
-        display: grid;
-        grid-template-columns: minmax(0, 1.08fr) minmax(430px, 0.92fr);
-        gap: 14px;
-        align-items: stretch;
-    }
-
     .grafico-card,
     .tabela-card {
         min-width: 0;
-        padding: 16px;
+        padding: 18px 20px;
     }
 
-    .grafico-header {
+    .grafico-header,
+    .secao-titulo {
         display: flex;
         justify-content: space-between;
         gap: 14px;
         align-items: flex-start;
-        margin-bottom: 10px;
+        margin-bottom: 12px;
     }
 
     .grafico-header h3,
     .tabela-card h3 {
         margin: 0;
         color: var(--frigo-azul);
-        font-size: 20px;
-        letter-spacing: -0.03em;
+        font-size: 21px;
+        letter-spacing: -0.035em;
     }
 
     .grafico-header p {
@@ -212,57 +250,26 @@
 
     .grafico-wrapper {
         position: relative;
-        height: 405px;
-    }
-
-    .legenda-impressao {
-        margin-top: 10px;
-        border-radius: 10px;
-        border: 1px solid #bfdbfe;
-        background: #eff6ff;
-        color: #1e3a8a;
-        padding: 9px 11px;
-        font-size: 12px;
-        line-height: 1.35;
-    }
-
-    .tabela-card {
-        display: flex;
-        flex-direction: column;
-    }
-
-    .secao-titulo {
-        display: flex;
-        align-items: flex-start;
-        justify-content: space-between;
-        gap: 10px;
-        margin-bottom: 12px;
-    }
-
-    .secao-titulo span {
-        color: var(--frigo-muted);
-        font-size: 12px;
-        line-height: 1.35;
+        height: 430px;
     }
 
     .tabela-scroll {
         overflow: auto;
-        max-height: 432px;
-        border-radius: 12px;
         border: 1px solid var(--frigo-borda);
+        border-radius: 12px;
     }
 
     .tabela-rendimento {
         width: 100%;
         border-collapse: collapse;
-        font-size: 12px;
+        font-size: 13px;
     }
 
     .tabela-rendimento th {
         background: var(--frigo-azul);
         color: #fff;
         text-align: left;
-        padding: 9px 10px;
+        padding: 10px 10px;
         font-size: 11px;
         text-transform: uppercase;
         letter-spacing: 0.04em;
@@ -273,7 +280,7 @@
 
     .tabela-rendimento td {
         border-bottom: 1px solid #e5e7eb;
-        padding: 9px 10px;
+        padding: 10px 10px;
         color: #334155;
         vertical-align: middle;
     }
@@ -289,34 +296,81 @@
     }
 
     .badge-positivo {
-        color: var(--frigo-verde);
+        color: var(--frigo-verde) !important;
         font-weight: 850;
     }
 
     .badge-negativo {
-        color: var(--frigo-vermelho);
+        color: var(--frigo-vermelho) !important;
         font-weight: 850;
     }
 
-    .status-badge {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
+    .status-pill {
         border-radius: 999px;
-        padding: 4px 8px;
-        font-size: 11px;
-        font-weight: 850;
+        padding: 5px 9px;
+        font-weight: 800;
+        font-size: 12px;
+        display: inline-flex;
         white-space: nowrap;
     }
 
-    .status-badge.acima {
-        color: #166534;
+    .status-pill.positivo {
         background: #dcfce7;
+        color: #166534;
     }
 
-    .status-badge.abaixo {
-        color: #b91c1c;
+    .status-pill.negativo {
         background: #fee2e2;
+        color: #b91c1c;
+    }
+
+    .tabela-resumo-rodape {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        align-items: center;
+        margin-top: 12px;
+        color: var(--frigo-muted);
+        font-size: 12px;
+    }
+
+    .status-legenda {
+        display: flex;
+        gap: 16px;
+        align-items: center;
+        flex-wrap: wrap;
+    }
+
+    .status-legenda span {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .status-legenda span::before {
+        content: "";
+        width: 9px;
+        height: 9px;
+        border-radius: 999px;
+        display: inline-block;
+        background: var(--frigo-muted);
+    }
+
+    .status-legenda .positivo::before {
+        background: var(--frigo-verde);
+    }
+
+    .status-legenda .negativo::before {
+        background: var(--frigo-vermelho);
+    }
+
+    .nota-tecnica-card {
+        background: #eff6ff;
+        border-color: #bfdbfe;
+        color: #1e3a8a;
+        font-size: 13px;
+        line-height: 1.45;
+        padding: 12px 16px;
     }
 
     .sem-dados {
@@ -328,27 +382,8 @@
         border: 1px dashed #cbd5e1;
     }
 
-    .nota-tecnica-card {
-        padding: 12px 14px;
-        color: #1e3a8a;
-        background: #eff6ff;
-        border-color: #bfdbfe;
-        font-size: 12px;
-        line-height: 1.45;
-    }
-
     .linha-print-reticencias {
         display: none;
-    }
-
-    @media (max-width: 1200px) {
-        .area-grafico-tabela {
-            grid-template-columns: 1fr;
-        }
-
-        .tabela-scroll {
-            max-height: none;
-        }
     }
 
     @media (max-width: 1100px) {
@@ -361,6 +396,11 @@
     @media (max-width: 680px) {
         .relatorio-hero-topo {
             flex-direction: column;
+            align-items: stretch;
+        }
+
+        .relatorio-titulo-area {
+            align-items: flex-start;
         }
 
         .botoes-impressao,
@@ -382,15 +422,20 @@
     @media print {
         @page {
             size: A4 landscape;
-            margin: 8mm;
+            margin: 7mm;
+        }
+
+        * {
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
         }
 
         html,
         body {
-            width: 100% !important;
             background: #fff !important;
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
+            width: 297mm;
+            min-height: 210mm;
+            overflow: hidden !important;
         }
 
         .topo,
@@ -403,7 +448,8 @@
         .container,
         .container-com-sidebar,
         .app-shell,
-        .layout-sidebar {
+        .layout-sidebar,
+        main {
             margin: 0 !important;
             padding: 0 !important;
             width: 100% !important;
@@ -412,7 +458,9 @@
         }
 
         .relatorio-rendimento-shell {
-            gap: 7px;
+            gap: 6px !important;
+            width: 100% !important;
+            max-width: none !important;
         }
 
         .relatorio-hero,
@@ -421,135 +469,137 @@
         .kpi-rendimento,
         .nota-tecnica-card {
             box-shadow: none !important;
-            break-inside: avoid;
-            page-break-inside: avoid;
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
         }
 
         .relatorio-hero {
-            padding: 10px 14px;
-            border-radius: 10px;
+            padding: 9px 12px !important;
+            border-radius: 9px !important;
         }
 
         .relatorio-hero-topo {
-            margin-bottom: 8px;
+            margin-bottom: 7px !important;
+        }
+
+        .relatorio-icone {
+            width: 30px !important;
+            height: 30px !important;
+            border-radius: 8px !important;
+        }
+
+        .relatorio-icone svg {
+            width: 18px !important;
+            height: 18px !important;
         }
 
         .relatorio-hero h2 {
-            font-size: 20px;
+            font-size: 18px !important;
         }
 
         .relatorio-hero p {
-            font-size: 11px;
-            margin-top: 3px;
+            font-size: 10px !important;
+            margin-top: 2px !important;
         }
 
         .filtros-hero {
-            padding: 8px;
-            border-radius: 10px;
+            padding: 7px 8px !important;
+            border-radius: 8px !important;
         }
 
         .filtros-grid {
-            grid-template-columns: repeat(4, 1fr);
-            gap: 8px;
+            grid-template-columns: repeat(4, 1fr) !important;
+            gap: 8px !important;
         }
 
         .campo-filtro label {
-            font-size: 8px;
-            margin-bottom: 2px;
-            color: rgba(255,255,255,0.78);
+            font-size: 8px !important;
+            margin-bottom: 2px !important;
         }
 
         .campo-filtro input,
         .campo-filtro select {
-            border: 0;
-            padding: 2px 0;
-            min-height: auto;
-            font-size: 10px;
-            appearance: none;
-            background: transparent;
-            color: #fff;
+            border: 0 !important;
+            padding: 0 !important;
+            min-height: auto !important;
+            font-size: 10px !important;
+            appearance: none !important;
+            background: transparent !important;
+            color: #fff !important;
+        }
+
+        .campo-filtro.acao-filtrar {
+            display: none !important;
         }
 
         .kpi-grid-rendimento {
-            grid-template-columns: repeat(4, 1fr);
-            gap: 7px;
+            grid-template-columns: repeat(4, 1fr) !important;
+            gap: 6px !important;
         }
 
         .kpi-rendimento {
-            padding: 8px 9px;
-            border-radius: 10px;
+            padding: 7px 9px !important;
+            border-radius: 9px !important;
         }
 
         .kpi-rendimento span {
-            font-size: 8px;
+            font-size: 8px !important;
+            margin-bottom: 1px !important;
         }
 
         .kpi-rendimento strong {
-            font-size: 16px;
-            margin-top: 3px;
-        }
-
-        .area-grafico-tabela {
-            grid-template-columns: 1.07fr 0.93fr;
-            gap: 8px;
-            align-items: stretch;
+            font-size: 16px !important;
+            margin-top: 2px !important;
         }
 
         .grafico-card,
-        .tabela-card {
-            padding: 10px;
-            border-radius: 10px;
+        .tabela-card,
+        .nota-tecnica-card {
+            padding: 9px 11px !important;
+            border-radius: 9px !important;
         }
 
         .grafico-header,
         .secao-titulo {
-            margin-bottom: 7px;
+            margin-bottom: 6px !important;
         }
 
         .grafico-header h3,
         .tabela-card h3 {
-            font-size: 13px;
+            font-size: 14px !important;
         }
 
-        .grafico-header p,
-        .secao-titulo span {
-            font-size: 8px;
+        .grafico-header p {
+            font-size: 9px !important;
+            margin-top: 1px !important;
         }
 
         .meta-pill {
-            font-size: 9px;
-            padding: 5px 7px;
+            padding: 4px 7px !important;
+            font-size: 9px !important;
         }
 
         .grafico-wrapper {
-            height: 310px;
-        }
-
-        .legenda-impressao {
-            margin-top: 6px;
-            padding: 6px 8px;
-            font-size: 8px;
+            height: 300px !important;
         }
 
         .tabela-scroll {
-            max-height: none !important;
             overflow: hidden !important;
-            border-radius: 8px;
+            border-radius: 7px !important;
         }
 
         .tabela-rendimento {
-            font-size: 8px;
+            font-size: 8px !important;
         }
 
         .tabela-rendimento th,
         .tabela-rendimento td {
-            padding: 5px 4px !important;
-            white-space: nowrap;
+            padding: 4px 5px !important;
         }
 
-        .status-badge {
-            padding: 3px 6px;
-            font-size: 7px;
+        .status-pill {
+            font-size: 7px !important;
+            padding: 3px 5px !important;
         }
 
         .linha-print-ocultar {
@@ -560,10 +610,23 @@
             display: table-row !important;
         }
 
+        .tabela-resumo-rodape {
+            margin-top: 5px !important;
+            font-size: 8px !important;
+        }
+
+        .status-legenda {
+            gap: 10px !important;
+        }
+
+        .status-legenda span::before {
+            width: 6px !important;
+            height: 6px !important;
+        }
+
         .nota-tecnica-card {
-            padding: 7px 9px;
-            border-radius: 10px;
-            font-size: 8px;
+            font-size: 8px !important;
+            line-height: 1.25 !important;
         }
     }
 </style>
@@ -572,17 +635,33 @@
 
     <section class="relatorio-hero">
         <div class="relatorio-hero-topo">
-            <div>
-                <h2>Relatório de Rendimento</h2>
-                <p>Evolução diária por fornecedor, com comparação visual contra a meta do indicador.</p>
+            <div class="relatorio-titulo-area">
+                <span class="relatorio-icone" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M3 3v18h18"></path>
+                        <path d="M7 15l4-4 3 3 5-7"></path>
+                        <path d="M17 7h2v2"></path>
+                    </svg>
+                </span>
+                <div>
+                    <h2>Relatório de Rendimento</h2>
+                    <p>Evolução diária por fornecedor, com comparação visual contra a meta do indicador.</p>
+                </div>
             </div>
 
             <div class="botoes-impressao no-print">
-                <button type="button" class="btn-imprimir-topo" onclick="imprimirRelatorioRendimento()">Gerar PDF / Imprimir</button>
+                <button type="button" class="btn-imprimir-topo" onclick="imprimirRelatorioRendimento()">
+                    <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M6 9V2h12v7"></path>
+                        <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
+                        <path d="M6 14h12v8H6z"></path>
+                    </svg>
+                    Gerar PDF / Imprimir
+                </button>
             </div>
         </div>
 
-        <form method="GET" class="filtros-hero no-print">
+        <form method="GET" class="filtros-hero">
             <div class="filtros-grid">
                 <div class="campo-filtro">
                     <label>SKU</label>
@@ -614,33 +693,17 @@
                     </select>
                 </div>
 
-                <div class="campo-filtro">
+                <div class="campo-filtro acao-filtrar no-print">
                     <label>&nbsp;</label>
-                    <button type="submit" class="btn-filtrar">Aplicar filtros</button>
+                    <button type="submit" class="btn-filtrar">
+                        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M22 3H2l8 9v7l4 2v-9l8-9z"></path>
+                        </svg>
+                        Aplicar filtros
+                    </button>
                 </div>
             </div>
         </form>
-
-        <div class="filtros-hero somente-print">
-            <div class="filtros-grid">
-                <div class="campo-filtro">
-                    <label>SKU</label>
-                    <input type="text" value="{{ sku_filtro }}" readonly>
-                </div>
-                <div class="campo-filtro">
-                    <label>Data inicial</label>
-                    <input type="text" value="{{ data_inicio }}" readonly>
-                </div>
-                <div class="campo-filtro">
-                    <label>Data final</label>
-                    <input type="text" value="{{ data_fim }}" readonly>
-                </div>
-                <div class="campo-filtro">
-                    <label>Fornecedor</label>
-                    <input type="text" value="{{ fornecedor_filtro }}" readonly>
-                </div>
-            </div>
-        </div>
     </section>
 
     <section class="kpi-grid-rendimento">
@@ -662,79 +725,85 @@
         </div>
     </section>
 
-    <section class="area-grafico-tabela">
-        <div class="grafico-card">
-            <div class="grafico-header">
-                <div>
-                    <h3>Evolução diária do rendimento</h3>
-                    <p>Base considerada: OPs encerradas dentro do período filtrado.</p>
-                </div>
-                <div class="meta-pill">Meta: {{ meta_rendimento | br_percentual }}</div>
+    <section class="grafico-card">
+        <div class="grafico-header">
+            <div>
+                <h3>Evolução diária do rendimento</h3>
+                <p>Base considerada: OPs encerradas dentro do período filtrado.</p>
             </div>
-
-            {% if datas %}
-                <div class="grafico-wrapper">
-                    <canvas id="graficoRendimento"></canvas>
-                </div>
-                <div class="legenda-impressao">
-                    A linha tracejada representa a meta do indicador. Valores acima da meta são positivos.
-                </div>
-            {% else %}
-                <div class="sem-dados">Não há OPs encerradas para os filtros aplicados.</div>
-            {% endif %}
+            <div class="meta-pill">Meta: {{ meta_rendimento | br_percentual }}</div>
         </div>
 
-        <div class="tabela-card">
-            <div class="secao-titulo">
-                <h3>Base analítica</h3>
-                <span>Exibindo {{ tabela_linhas|length }} registro(s)</span>
+        {% if datas %}
+            <div class="grafico-wrapper">
+                <canvas id="graficoRendimento"></canvas>
             </div>
+        {% else %}
+            <div class="sem-dados">Não há OPs encerradas para os filtros aplicados.</div>
+        {% endif %}
+    </section>
 
+    <section class="tabela-card">
+        <div class="secao-titulo">
+            <h3>Base analítica</h3>
             {% if tabela_linhas %}
-                <div class="tabela-scroll">
-                    <table class="tabela-rendimento">
-                        <thead>
-                            <tr>
-                                <th>Data</th>
-                                <th>Fornecedor</th>
-                                <th>Kg produzidos</th>
-                                <th>Peso vivo</th>
-                                <th>Rendimento</th>
-                                <th>Desvio</th>
-                                <th>Status</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for linha in tabela_linhas %}
-                                <tr>
-                                    <td>{{ linha.data }}</td>
-                                    <td>{{ linha.fornecedor }}</td>
-                                    <td class="numero">{{ linha.kg_produzidos | br_numero }}</td>
-                                    <td class="numero">{{ linha.peso_vivo | br_numero }}</td>
-                                    <td class="numero">{{ linha.rendimento | br_percentual }}</td>
-                                    <td class="numero {% if linha.desvio_meta >= 0 %}badge-positivo{% else %}badge-negativo{% endif %}">
-                                        {{ linha.desvio_meta | br_percentual }}
-                                    </td>
-                                    <td>
-                                        {% if linha.desvio_meta >= 0 %}
-                                            <span class="status-badge acima">Acima da meta</span>
-                                        {% else %}
-                                            <span class="status-badge abaixo">Abaixo da meta</span>
-                                        {% endif %}
-                                    </td>
-                                </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-            {% else %}
-                <div class="sem-dados">Sem dados analíticos para exibição.</div>
+                <span class="tabela-contador">Exibindo {{ tabela_linhas|length }} registro(s)</span>
             {% endif %}
         </div>
+
+        {% if tabela_linhas %}
+            <div class="tabela-scroll">
+                <table class="tabela-rendimento" id="tabelaRendimento">
+                    <thead>
+                        <tr>
+                            <th>Data</th>
+                            <th>Fornecedor</th>
+                            <th>Kg produzidos</th>
+                            <th>Peso vivo</th>
+                            <th>Rendimento</th>
+                            <th>Desvio</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for linha in tabela_linhas %}
+                            <tr>
+                                <td>{{ linha.data }}</td>
+                                <td>{{ linha.fornecedor }}</td>
+                                <td class="numero">{{ linha.kg_produzidos | br_numero }}</td>
+                                <td class="numero">{{ linha.peso_vivo | br_numero }}</td>
+                                <td class="numero">{{ linha.rendimento | br_percentual }}</td>
+                                <td class="numero {% if linha.desvio_meta >= 0 %}badge-positivo{% else %}badge-negativo{% endif %}">
+                                    {{ linha.desvio_meta | br_percentual }}
+                                </td>
+                                <td>
+                                    {% if linha.desvio_meta >= 0 %}
+                                        <span class="status-pill positivo">Acima da meta</span>
+                                    {% else %}
+                                        <span class="status-pill negativo">Abaixo da meta</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="tabela-resumo-rodape">
+                <span>Exibindo {{ tabela_linhas|length }} de {{ tabela_linhas|length }} registro(s)</span>
+                <div class="status-legenda">
+                    <span class="positivo">Acima da meta</span>
+                    <span class="negativo">Abaixo da meta</span>
+                </div>
+            </div>
+        {% else %}
+            <div class="sem-dados">Sem dados analíticos para exibição.</div>
+        {% endif %}
     </section>
 
     <section class="nota-tecnica-card">
-        Rendimento (%) = (Kg Produzidos / Peso Vivo) × 100. Relatório gerado automaticamente pelo sistema.
+        <strong>Rendimento (%)</strong> = (Kg produzidos / Peso vivo) × 100<br>
+        Relatório gerado automaticamente pelo sistema.
     </section>
 
 </div>
@@ -746,7 +815,7 @@
     const datasetsRendimento = {{ datasets | tojson }};
 
     const formatarPercentual = (valor) => {
-        if (valor === null || valor === undefined || Number.isNaN(Number(valor))) {
+        if (valor === null || valor === undefined || Number.isNaN(valor)) {
             return "";
         }
         return Number(valor).toLocaleString("pt-BR", {
@@ -756,42 +825,39 @@
     };
 
     function prepararTabelaParaImpressao() {
-        const tbody = document.querySelector(".tabela-rendimento tbody");
-        if (!tbody) {
+        const tabela = document.getElementById("tabelaRendimento");
+        if (!tabela) {
             return;
         }
 
-        const reticenciasAnterior = tbody.querySelector(".linha-print-reticencias");
-        if (reticenciasAnterior) {
-            reticenciasAnterior.remove();
-        }
+        const corpo = tabela.querySelector("tbody");
+        const linhas = Array.from(corpo.querySelectorAll("tr")).filter(linha => !linha.classList.contains("linha-print-reticencias"));
+        const limite = 10;
 
-        const linhas = Array.from(tbody.querySelectorAll("tr"));
+        corpo.querySelectorAll(".linha-print-reticencias").forEach(linha => linha.remove());
         linhas.forEach(linha => linha.classList.remove("linha-print-ocultar"));
 
-        const limiteLinhasImpressao = 9;
-        if (linhas.length <= limiteLinhasImpressao) {
-            return;
-        }
+        if (linhas.length > limite) {
+            linhas.forEach((linha, index) => {
+                const manterPrimeiras = index < 4;
+                const manterUltimas = index >= linhas.length - 3;
 
-        linhas.forEach((linha, index) => {
-            const manterInicio = index < 4;
-            const manterFim = index >= linhas.length - 4;
-            if (!manterInicio && !manterFim) {
-                linha.classList.add("linha-print-ocultar");
+                if (!manterPrimeiras && !manterUltimas) {
+                    linha.classList.add("linha-print-ocultar");
+                }
+            });
+
+            const linhaReticencias = document.createElement("tr");
+            linhaReticencias.className = "linha-print-reticencias";
+            linhaReticencias.innerHTML = `
+                <td colspan="7" style="text-align:center; font-weight:800; color:#64748b;">
+                    ... registros intermediários ocultos na impressão ...
+                </td>
+            `;
+
+            if (linhas[3]) {
+                linhas[3].after(linhaReticencias);
             }
-        });
-
-        const linhaReticencias = document.createElement("tr");
-        linhaReticencias.className = "linha-print-reticencias";
-        linhaReticencias.innerHTML = `
-            <td colspan="7" style="text-align:center; font-weight:800; color:#64748b;">
-                ... registros intermediários ocultos na impressão ...
-            </td>
-        `;
-
-        if (linhas[3]) {
-            linhas[3].after(linhaReticencias);
         }
     }
 
@@ -799,6 +865,8 @@
         prepararTabelaParaImpressao();
         window.print();
     }
+
+    window.addEventListener("beforeprint", prepararTabelaParaImpressao);
 
     const rotulosPercentuais = {
         id: "rotulosPercentuais",
@@ -808,7 +876,7 @@
             const limiteRotulosCompletos = 15;
 
             ctx.save();
-            ctx.font = "700 10px Arial";
+            ctx.font = "700 11px Arial";
             ctx.textAlign = "center";
             ctx.textBaseline = "bottom";
             ctx.fillStyle = "#1f2937";
@@ -850,7 +918,7 @@
                     }
 
                     const posicao = element.tooltipPosition();
-                    ctx.fillText(formatarPercentual(valor), posicao.x, posicao.y - 8);
+                    ctx.fillText(formatarPercentual(valor), posicao.x, posicao.y - 9);
                 });
             });
 
@@ -877,12 +945,11 @@
             plugins: {
                 legend: {
                     position: "top",
-                    align: "end",
+                    align: "center",
                     labels: {
                         usePointStyle: true,
                         boxWidth: 8,
-                        boxHeight: 8,
-                        padding: 14
+                        padding: 18
                     }
                 },
                 tooltip: {
@@ -926,15 +993,20 @@
                         text: "Data"
                     },
                     ticks: {
-                        maxRotation: 45,
-                        minRotation: 0,
+                        maxRotation: 0,
                         autoSkip: true,
-                        maxTicksLimit: labelsRendimento.length > 15 ? 10 : 15
+                        maxTicksLimit: 12
                     }
                 }
             }
         }
     });
+</script>
+{% else %}
+<script>
+    function imprimirRelatorioRendimento() {
+        window.print();
+    }
 </script>
 {% endif %}
 
