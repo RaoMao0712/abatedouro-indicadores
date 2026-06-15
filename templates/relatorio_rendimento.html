@@ -65,15 +65,36 @@
         background: #fff;
     }
 
-    .btn-filtrar {
+    .btn-filtrar,
+    .btn-imprimir {
         border: 0;
         border-radius: 10px;
         padding: 11px 16px;
-        background: #f97316;
         color: #fff;
         font-weight: 800;
         cursor: pointer;
         width: 100%;
+        text-decoration: none;
+        text-align: center;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 42px;
+        box-sizing: border-box;
+    }
+
+    .btn-filtrar {
+        background: #f97316;
+    }
+
+    .btn-imprimir {
+        background: #1f3b4d;
+    }
+
+    .acoes-relatorio {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 8px;
     }
 
     .kpi-grid-rendimento {
@@ -104,6 +125,39 @@
         color: #1f3b4d;
         font-size: 24px;
         letter-spacing: -0.03em;
+    }
+
+
+    .relatorio-hero-topo {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 16px;
+    }
+
+    .botoes-impressao {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        flex-wrap: wrap;
+    }
+
+    .btn-imprimir-topo,
+    .btn-imprimir {
+        border: 0;
+        background: #f97316;
+        color: #fff;
+        border-radius: 12px;
+        padding: 12px 16px;
+        font-weight: 800;
+        cursor: pointer;
+        box-shadow: 0 10px 24px rgba(249, 115, 22, 0.22);
+        white-space: nowrap;
+    }
+
+    .btn-imprimir-topo:hover,
+    .btn-imprimir:hover {
+        filter: brightness(0.96);
     }
 
     .grafico-header {
@@ -189,6 +243,98 @@
         border: 1px dashed #cbd5e1;
     }
 
+    @media print {
+        @page {
+            size: A4 landscape;
+            margin: 10mm;
+        }
+
+        body {
+            background: #fff !important;
+        }
+
+        .topo,
+        .sidebar-menu,
+        .no-print,
+        .alerta {
+            display: none !important;
+        }
+
+        .container,
+        .container-com-sidebar,
+        .app-shell,
+        .layout-sidebar {
+            margin: 0 !important;
+            padding: 0 !important;
+            width: 100% !important;
+            max-width: none !important;
+            display: block !important;
+        }
+
+        .relatorio-rendimento-shell {
+            gap: 10px;
+        }
+
+        .relatorio-hero,
+        .filtros-card,
+        .grafico-card,
+        .tabela-card,
+        .kpi-rendimento {
+            box-shadow: none !important;
+            break-inside: avoid;
+        }
+
+        .relatorio-hero {
+            padding: 14px 18px;
+            border-radius: 12px;
+        }
+
+        .relatorio-hero h2 {
+            font-size: 22px;
+        }
+
+        .filtros-card {
+            padding: 10px 14px;
+        }
+
+        .filtros-grid {
+            grid-template-columns: repeat(4, 1fr);
+        }
+
+        .campo-filtro input,
+        .campo-filtro select {
+            border: 0;
+            padding: 2px 0;
+            font-size: 12px;
+            appearance: none;
+        }
+
+        .kpi-grid-rendimento {
+            grid-template-columns: repeat(4, 1fr);
+        }
+
+        .kpi-rendimento {
+            padding: 10px;
+        }
+
+        .kpi-rendimento strong {
+            font-size: 18px;
+        }
+
+        .grafico-wrapper {
+            height: 310px;
+        }
+
+        .tabela-rendimento {
+            font-size: 11px;
+        }
+
+        .tabela-rendimento th,
+        .tabela-rendimento td {
+            padding: 6px;
+        }
+    }
+
     @media (max-width: 1100px) {
         .filtros-grid,
         .kpi-grid-rendimento {
@@ -197,12 +343,54 @@
     }
 
     @media (max-width: 680px) {
+        .relatorio-hero-topo {
+            flex-direction: column;
+        }
+
+        .botoes-impressao,
+        .btn-imprimir-topo {
+            width: 100%;
+        }
+
         .filtros-grid,
         .kpi-grid-rendimento {
             grid-template-columns: 1fr;
         }
 
-        .grafico-header {
+    
+    .relatorio-hero-topo {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 16px;
+    }
+
+    .botoes-impressao {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        flex-wrap: wrap;
+    }
+
+    .btn-imprimir-topo,
+    .btn-imprimir {
+        border: 0;
+        background: #f97316;
+        color: #fff;
+        border-radius: 12px;
+        padding: 12px 16px;
+        font-weight: 800;
+        cursor: pointer;
+        box-shadow: 0 10px 24px rgba(249, 115, 22, 0.22);
+        white-space: nowrap;
+    }
+
+    .btn-imprimir-topo:hover,
+    .btn-imprimir:hover {
+        filter: brightness(0.96);
+    }
+
+    .grafico-header {
             flex-direction: column;
         }
     }
@@ -211,8 +399,16 @@
 <div class="relatorio-rendimento-shell">
 
     <section class="relatorio-hero">
-        <h2>Relatório de Rendimento</h2>
-        <p>Evolução diária por fornecedor, com comparação visual contra a meta do indicador.</p>
+        <div class="relatorio-hero-topo">
+            <div>
+                <h2>Relatório de Rendimento</h2>
+                <p>Evolução diária por fornecedor, com comparação visual contra a meta do indicador.</p>
+            </div>
+
+            <div class="botoes-impressao no-print">
+                <button type="button" class="btn-imprimir-topo" onclick="window.print()">Gerar PDF / Imprimir</button>
+            </div>
+        </div>
     </section>
 
     <section class="filtros-card">
@@ -247,8 +443,9 @@
                 </select>
             </div>
 
-            <div class="campo-filtro">
+            <div class="campo-filtro acoes-relatorio no-print">
                 <button type="submit" class="btn-filtrar">Aplicar filtros</button>
+                <button type="button" class="btn-imprimir" onclick="window.print()">Gerar PDF / Imprimir</button>
             </div>
         </form>
     </section>
