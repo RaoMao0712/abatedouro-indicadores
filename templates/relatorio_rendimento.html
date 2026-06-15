@@ -18,43 +18,42 @@
     .relatorio-rendimento-shell {
         display: flex;
         flex-direction: column;
-        gap: 16px;
+        gap: 14px;
     }
 
     .relatorio-hero {
         background: linear-gradient(135deg, var(--frigo-azul) 0%, var(--frigo-azul-2) 100%);
         color: #fff;
-        border-radius: 18px;
-        padding: 22px 24px;
-        box-shadow: 0 12px 30px rgba(15, 23, 42, 0.16);
+        border-radius: 16px;
+        padding: 18px 20px;
+        box-shadow: 0 12px 30px rgba(15, 23, 42, 0.14);
     }
 
     .relatorio-hero-topo {
         display: flex;
         justify-content: space-between;
-        align-items: center;
+        align-items: flex-start;
         gap: 16px;
+        margin-bottom: 14px;
     }
 
     .relatorio-hero h2 {
         margin: 0;
-        font-size: 28px;
+        font-size: 25px;
         letter-spacing: -0.04em;
         line-height: 1.08;
     }
 
     .relatorio-hero p {
-        margin: 7px 0 0 0;
+        margin: 6px 0 0 0;
         color: rgba(255,255,255,0.82);
-        font-size: 15px;
+        font-size: 14px;
     }
 
     .btn-imprimir-topo,
-    .btn-imprimir,
     .btn-filtrar {
         border: 0;
-        border-radius: 12px;
-        padding: 12px 17px;
+        border-radius: 10px;
         color: #fff;
         font-weight: 850;
         cursor: pointer;
@@ -63,100 +62,68 @@
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        min-height: 44px;
         box-sizing: border-box;
         white-space: nowrap;
         letter-spacing: -0.01em;
     }
 
-    .btn-imprimir-topo,
-    .btn-filtrar {
-        background: var(--frigo-laranja);
-        box-shadow: 0 10px 24px rgba(249, 115, 22, 0.22);
+    .btn-imprimir-topo {
+        background: rgba(249, 115, 22, 0.98);
+        min-height: 36px;
+        padding: 9px 13px;
+        font-size: 13px;
+        box-shadow: 0 10px 22px rgba(249, 115, 22, 0.18);
     }
 
-    .btn-imprimir {
-        background: var(--frigo-azul);
-        box-shadow: 0 10px 24px rgba(31, 59, 77, 0.16);
+    .btn-filtrar {
+        background: var(--frigo-laranja);
+        min-height: 38px;
+        padding: 9px 13px;
+        font-size: 13px;
+        box-shadow: 0 10px 22px rgba(249, 115, 22, 0.18);
         width: 100%;
     }
 
     .btn-imprimir-topo:hover,
-    .btn-imprimir:hover,
     .btn-filtrar:hover {
         filter: brightness(0.96);
     }
 
-    .filtros-card,
-    .grafico-card,
-    .tabela-card,
-    .nota-tecnica-card {
-        background: #fff;
-        border: 1px solid var(--frigo-borda);
-        border-radius: 16px;
-        padding: 18px;
-        box-shadow: 0 10px 26px rgba(15, 23, 42, 0.07);
-    }
-
-    .filtros-card {
-        padding: 18px 20px;
-    }
-
-    .filtros-titulo,
-    .secao-titulo {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 10px;
-        margin-bottom: 12px;
-    }
-
-    .filtros-titulo strong,
-    .secao-titulo h3 {
-        margin: 0;
-        color: var(--frigo-azul);
-        font-size: 18px;
-        letter-spacing: -0.02em;
-    }
-
-    .filtros-titulo span,
-    .secao-titulo span {
-        color: var(--frigo-muted);
-        font-size: 12px;
+    .filtros-hero {
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        border-radius: 14px;
+        padding: 12px;
     }
 
     .filtros-grid {
         display: grid;
-        grid-template-columns: 1fr 1fr 1fr 1.25fr 1fr;
-        gap: 12px;
+        grid-template-columns: 1fr 1fr 1fr 1.25fr 0.72fr;
+        gap: 10px;
         align-items: end;
     }
 
     .campo-filtro label {
         display: block;
-        font-size: 12px;
-        color: var(--frigo-muted);
-        font-weight: 800;
+        font-size: 11px;
+        color: rgba(255,255,255,0.78);
+        font-weight: 850;
         text-transform: uppercase;
-        margin-bottom: 6px;
-        letter-spacing: 0.04em;
+        margin-bottom: 5px;
+        letter-spacing: 0.045em;
     }
 
     .campo-filtro input,
     .campo-filtro select {
         width: 100%;
-        border: 1px solid #cbd5e1;
-        border-radius: 10px;
-        padding: 10px 11px;
-        font-size: 14px;
-        background: #fff;
+        border: 1px solid rgba(255, 255, 255, 0.28);
+        border-radius: 9px;
+        padding: 9px 10px;
+        font-size: 13px;
+        background: rgba(255, 255, 255, 0.96);
+        color: var(--frigo-texto);
         box-sizing: border-box;
-    }
-
-    .acoes-relatorio {
-        display: grid;
-        grid-template-columns: 1fr;
-        gap: 8px;
+        min-height: 38px;
     }
 
     .kpi-grid-rendimento {
@@ -165,12 +132,18 @@
         gap: 12px;
     }
 
-    .kpi-rendimento {
+    .kpi-rendimento,
+    .grafico-card,
+    .tabela-card,
+    .nota-tecnica-card {
         background: #fff;
         border: 1px solid var(--frigo-borda);
-        border-radius: 15px;
-        padding: 15px 16px;
+        border-radius: 16px;
         box-shadow: 0 8px 22px rgba(15, 23, 42, 0.045);
+    }
+
+    .kpi-rendimento {
+        padding: 14px 16px;
     }
 
     .kpi-rendimento span {
@@ -186,7 +159,7 @@
         display: block;
         margin-top: 7px;
         color: var(--frigo-azul);
-        font-size: 27px;
+        font-size: 26px;
         letter-spacing: -0.04em;
         line-height: 1.05;
     }
@@ -201,6 +174,7 @@
     .grafico-card,
     .tabela-card {
         min-width: 0;
+        padding: 16px;
     }
 
     .grafico-header {
@@ -257,14 +231,25 @@
         flex-direction: column;
     }
 
-    .tabela-card .secao-titulo {
-        margin-bottom: 10px;
+    .secao-titulo {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 12px;
+    }
+
+    .secao-titulo span {
+        color: var(--frigo-muted);
+        font-size: 12px;
+        line-height: 1.35;
     }
 
     .tabela-scroll {
         overflow: auto;
-        border: 1px solid var(--frigo-borda);
+        max-height: 432px;
         border-radius: 12px;
+        border: 1px solid var(--frigo-borda);
     }
 
     .tabela-rendimento {
@@ -277,7 +262,7 @@
         background: var(--frigo-azul);
         color: #fff;
         text-align: left;
-        padding: 9px 8px;
+        padding: 9px 10px;
         font-size: 11px;
         text-transform: uppercase;
         letter-spacing: 0.04em;
@@ -288,7 +273,7 @@
 
     .tabela-rendimento td {
         border-bottom: 1px solid #e5e7eb;
-        padding: 9px 8px;
+        padding: 9px 10px;
         color: #334155;
         vertical-align: middle;
     }
@@ -304,62 +289,34 @@
     }
 
     .badge-positivo {
-        color: var(--frigo-verde) !important;
+        color: var(--frigo-verde);
         font-weight: 850;
     }
 
     .badge-negativo {
-        color: var(--frigo-vermelho) !important;
+        color: var(--frigo-vermelho);
         font-weight: 850;
     }
 
-    .tabela-resumo-rodape {
-        display: flex;
-        justify-content: space-between;
-        gap: 10px;
-        align-items: center;
-        margin-top: 10px;
-        color: var(--frigo-muted);
-        font-size: 12px;
-    }
-
-    .status-legenda {
-        display: flex;
-        gap: 14px;
-        align-items: center;
-        flex-wrap: wrap;
-    }
-
-    .status-legenda span {
+    .status-badge {
         display: inline-flex;
         align-items: center;
-        gap: 6px;
-    }
-
-    .status-legenda span::before {
-        content: "";
-        width: 9px;
-        height: 9px;
+        justify-content: center;
         border-radius: 999px;
-        display: inline-block;
-        background: var(--frigo-muted);
+        padding: 4px 8px;
+        font-size: 11px;
+        font-weight: 850;
+        white-space: nowrap;
     }
 
-    .status-legenda .positivo::before {
-        background: var(--frigo-verde);
+    .status-badge.acima {
+        color: #166534;
+        background: #dcfce7;
     }
 
-    .status-legenda .negativo::before {
-        background: var(--frigo-vermelho);
-    }
-
-    .nota-tecnica-card {
-        background: #eff6ff;
-        border-color: #bfdbfe;
-        color: #1e3a8a;
-        font-size: 13px;
-        line-height: 1.45;
-        padding: 12px 16px;
+    .status-badge.abaixo {
+        color: #b91c1c;
+        background: #fee2e2;
     }
 
     .sem-dados {
@@ -371,6 +328,15 @@
         border: 1px dashed #cbd5e1;
     }
 
+    .nota-tecnica-card {
+        padding: 12px 14px;
+        color: #1e3a8a;
+        background: #eff6ff;
+        border-color: #bfdbfe;
+        font-size: 12px;
+        line-height: 1.45;
+    }
+
     .linha-print-reticencias {
         display: none;
     }
@@ -380,8 +346,8 @@
             grid-template-columns: 1fr;
         }
 
-        .tabela-card {
-            min-height: auto;
+        .tabela-scroll {
+            max-height: none;
         }
     }
 
@@ -395,7 +361,6 @@
     @media (max-width: 680px) {
         .relatorio-hero-topo {
             flex-direction: column;
-            align-items: stretch;
         }
 
         .botoes-impressao,
@@ -408,7 +373,8 @@
             grid-template-columns: 1fr;
         }
 
-        .grafico-header {
+        .grafico-header,
+        .secao-titulo {
             flex-direction: column;
         }
     }
@@ -416,20 +382,15 @@
     @media print {
         @page {
             size: A4 landscape;
-            margin: 7mm;
-        }
-
-        * {
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
+            margin: 8mm;
         }
 
         html,
         body {
+            width: 100% !important;
             background: #fff !important;
-            width: 297mm;
-            min-height: 210mm;
-            overflow: hidden !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
         }
 
         .topo,
@@ -442,8 +403,7 @@
         .container,
         .container-com-sidebar,
         .app-shell,
-        .layout-sidebar,
-        main {
+        .layout-sidebar {
             margin: 0 !important;
             padding: 0 !important;
             width: 100% !important;
@@ -452,146 +412,144 @@
         }
 
         .relatorio-rendimento-shell {
-            gap: 7px !important;
-            width: 100% !important;
-            max-width: none !important;
+            gap: 7px;
         }
 
         .relatorio-hero,
-        .filtros-card,
         .grafico-card,
         .tabela-card,
         .kpi-rendimento,
         .nota-tecnica-card {
             box-shadow: none !important;
-            break-inside: avoid !important;
-            page-break-inside: avoid !important;
+            break-inside: avoid;
+            page-break-inside: avoid;
         }
 
         .relatorio-hero {
-            padding: 10px 14px !important;
-            border-radius: 10px !important;
+            padding: 10px 14px;
+            border-radius: 10px;
+        }
+
+        .relatorio-hero-topo {
+            margin-bottom: 8px;
         }
 
         .relatorio-hero h2 {
-            font-size: 20px !important;
+            font-size: 20px;
         }
 
         .relatorio-hero p {
-            font-size: 11px !important;
-            margin-top: 3px !important;
+            font-size: 11px;
+            margin-top: 3px;
         }
 
-        .filtros-card {
-            padding: 8px 10px !important;
-        }
-
-        .filtros-titulo {
-            margin-bottom: 5px !important;
+        .filtros-hero {
+            padding: 8px;
+            border-radius: 10px;
         }
 
         .filtros-grid {
-            grid-template-columns: repeat(4, 1fr) !important;
-            gap: 8px !important;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
         }
 
         .campo-filtro label {
-            font-size: 8px !important;
-            margin-bottom: 2px !important;
+            font-size: 8px;
+            margin-bottom: 2px;
+            color: rgba(255,255,255,0.78);
         }
 
         .campo-filtro input,
         .campo-filtro select {
-            border: 0 !important;
-            padding: 0 !important;
-            font-size: 10px !important;
-            appearance: none !important;
-            color: var(--frigo-texto) !important;
+            border: 0;
+            padding: 2px 0;
+            min-height: auto;
+            font-size: 10px;
+            appearance: none;
+            background: transparent;
+            color: #fff;
         }
 
         .kpi-grid-rendimento {
-            grid-template-columns: repeat(4, 1fr) !important;
-            gap: 7px !important;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 7px;
         }
 
         .kpi-rendimento {
-            padding: 8px 10px !important;
-            border-radius: 10px !important;
+            padding: 8px 9px;
+            border-radius: 10px;
         }
 
         .kpi-rendimento span {
-            font-size: 8px !important;
+            font-size: 8px;
         }
 
         .kpi-rendimento strong {
-            font-size: 17px !important;
-            margin-top: 3px !important;
+            font-size: 16px;
+            margin-top: 3px;
         }
 
         .area-grafico-tabela {
-            display: grid !important;
-            grid-template-columns: 1.08fr 0.92fr !important;
-            gap: 8px !important;
-            align-items: stretch !important;
+            grid-template-columns: 1.07fr 0.93fr;
+            gap: 8px;
+            align-items: stretch;
         }
 
         .grafico-card,
         .tabela-card {
-            padding: 8px !important;
-            border-radius: 10px !important;
+            padding: 10px;
+            border-radius: 10px;
         }
 
         .grafico-header,
-        .tabela-card .secao-titulo {
-            margin-bottom: 5px !important;
+        .secao-titulo {
+            margin-bottom: 7px;
         }
 
         .grafico-header h3,
         .tabela-card h3 {
-            font-size: 13px !important;
+            font-size: 13px;
         }
 
         .grafico-header p,
         .secao-titulo span {
-            font-size: 8px !important;
-            margin-top: 1px !important;
+            font-size: 8px;
         }
 
         .meta-pill {
-            padding: 4px 7px !important;
-            font-size: 9px !important;
+            font-size: 9px;
+            padding: 5px 7px;
         }
 
         .grafico-wrapper {
-            height: 93mm !important;
+            height: 310px;
         }
 
         .legenda-impressao {
-            margin-top: 5px !important;
-            padding: 5px 7px !important;
-            font-size: 8px !important;
-            border-radius: 7px !important;
+            margin-top: 6px;
+            padding: 6px 8px;
+            font-size: 8px;
         }
 
         .tabela-scroll {
+            max-height: none !important;
             overflow: hidden !important;
-            border-radius: 8px !important;
+            border-radius: 8px;
         }
 
         .tabela-rendimento {
-            font-size: 7.3px !important;
+            font-size: 8px;
         }
 
-        .tabela-rendimento th {
-            padding: 5px 4px !important;
-            font-size: 6.7px !important;
-            position: static !important;
-        }
-
+        .tabela-rendimento th,
         .tabela-rendimento td {
-            padding: 4.5px 4px !important;
-            font-size: 7px !important;
-            line-height: 1.2 !important;
+            padding: 5px 4px !important;
+            white-space: nowrap;
+        }
+
+        .status-badge {
+            padding: 3px 6px;
+            font-size: 7px;
         }
 
         .linha-print-ocultar {
@@ -602,31 +560,10 @@
             display: table-row !important;
         }
 
-        .linha-print-reticencias td {
-            text-align: center !important;
-            font-weight: 800 !important;
-            color: var(--frigo-muted) !important;
-            background: #f8fafc !important;
-        }
-
-        .tabela-resumo-rodape {
-            margin-top: 5px !important;
-            font-size: 8px !important;
-        }
-
-        .status-legenda {
-            gap: 8px !important;
-        }
-
-        .status-legenda span::before {
-            width: 6px !important;
-            height: 6px !important;
-        }
-
         .nota-tecnica-card {
-            padding: 6px 8px !important;
-            font-size: 8px !important;
-            border-radius: 8px !important;
+            padding: 7px 9px;
+            border-radius: 10px;
+            font-size: 8px;
         }
     }
 </style>
@@ -644,50 +581,66 @@
                 <button type="button" class="btn-imprimir-topo" onclick="imprimirRelatorioRendimento()">Gerar PDF / Imprimir</button>
             </div>
         </div>
-    </section>
 
-    <section class="filtros-card">
-        <div class="filtros-titulo">
-            <strong>Filtros aplicados</strong>
-            <span>Base considerada: OPs encerradas no período filtrado</span>
-        </div>
+        <form method="GET" class="filtros-hero no-print">
+            <div class="filtros-grid">
+                <div class="campo-filtro">
+                    <label>SKU</label>
+                    <select name="sku">
+                        <option value="Todos" {% if sku_filtro == "Todos" %}selected{% endif %}>Todos</option>
+                        {% for sku in skus %}
+                            <option value="{{ sku }}" {% if sku_filtro == sku %}selected{% endif %}>{{ sku }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
 
-        <form method="GET" class="filtros-grid">
-            <div class="campo-filtro">
-                <label>SKU</label>
-                <select name="sku">
-                    <option value="Todos" {% if sku_filtro == "Todos" %}selected{% endif %}>Todos</option>
-                    {% for sku in skus %}
-                        <option value="{{ sku }}" {% if sku_filtro == sku %}selected{% endif %}>{{ sku }}</option>
-                    {% endfor %}
-                </select>
-            </div>
+                <div class="campo-filtro">
+                    <label>Data inicial</label>
+                    <input type="date" name="data_inicio" value="{{ data_inicio }}">
+                </div>
 
-            <div class="campo-filtro">
-                <label>Data inicial</label>
-                <input type="date" name="data_inicio" value="{{ data_inicio }}">
-            </div>
+                <div class="campo-filtro">
+                    <label>Data final</label>
+                    <input type="date" name="data_fim" value="{{ data_fim }}">
+                </div>
 
-            <div class="campo-filtro">
-                <label>Data final</label>
-                <input type="date" name="data_fim" value="{{ data_fim }}">
-            </div>
+                <div class="campo-filtro">
+                    <label>Fornecedor</label>
+                    <select name="fornecedor">
+                        <option value="Todos" {% if fornecedor_filtro == "Todos" %}selected{% endif %}>Todos</option>
+                        {% for fornecedor in fornecedores %}
+                            <option value="{{ fornecedor['nome'] }}" {% if fornecedor_filtro == fornecedor['nome'] %}selected{% endif %}>{{ fornecedor['nome'] }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
 
-            <div class="campo-filtro">
-                <label>Fornecedor</label>
-                <select name="fornecedor">
-                    <option value="Todos" {% if fornecedor_filtro == "Todos" %}selected{% endif %}>Todos</option>
-                    {% for fornecedor in fornecedores %}
-                        <option value="{{ fornecedor['nome'] }}" {% if fornecedor_filtro == fornecedor['nome'] %}selected{% endif %}>{{ fornecedor['nome'] }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-
-            <div class="campo-filtro acoes-relatorio no-print">
-                <button type="submit" class="btn-filtrar">Aplicar filtros</button>
-                <button type="button" class="btn-imprimir" onclick="imprimirRelatorioRendimento()">Gerar PDF / Imprimir</button>
+                <div class="campo-filtro">
+                    <label>&nbsp;</label>
+                    <button type="submit" class="btn-filtrar">Aplicar filtros</button>
+                </div>
             </div>
         </form>
+
+        <div class="filtros-hero somente-print">
+            <div class="filtros-grid">
+                <div class="campo-filtro">
+                    <label>SKU</label>
+                    <input type="text" value="{{ sku_filtro }}" readonly>
+                </div>
+                <div class="campo-filtro">
+                    <label>Data inicial</label>
+                    <input type="text" value="{{ data_inicio }}" readonly>
+                </div>
+                <div class="campo-filtro">
+                    <label>Data final</label>
+                    <input type="text" value="{{ data_fim }}" readonly>
+                </div>
+                <div class="campo-filtro">
+                    <label>Fornecedor</label>
+                    <input type="text" value="{{ fornecedor_filtro }}" readonly>
+                </div>
+            </div>
+        </div>
     </section>
 
     <section class="kpi-grid-rendimento">
@@ -710,11 +663,11 @@
     </section>
 
     <section class="area-grafico-tabela">
-        <section class="grafico-card">
+        <div class="grafico-card">
             <div class="grafico-header">
                 <div>
                     <h3>Evolução diária do rendimento</h3>
-                    <p>Quando o período tem muitos dias, o gráfico destaca início, fim, maior e menor resultado.</p>
+                    <p>Base considerada: OPs encerradas dentro do período filtrado.</p>
                 </div>
                 <div class="meta-pill">Meta: {{ meta_rendimento | br_percentual }}</div>
             </div>
@@ -729,14 +682,12 @@
             {% else %}
                 <div class="sem-dados">Não há OPs encerradas para os filtros aplicados.</div>
             {% endif %}
-        </section>
+        </div>
 
-        <section class="tabela-card">
+        <div class="tabela-card">
             <div class="secao-titulo">
-                <div>
-                    <h3>Base analítica</h3>
-                    <span>Detalhamento dos registros que formam o gráfico.</span>
-                </div>
+                <h3>Base analítica</h3>
+                <span>Exibindo {{ tabela_linhas|length }} registro(s)</span>
             </div>
 
             {% if tabela_linhas %}
@@ -750,6 +701,7 @@
                                 <th>Peso vivo</th>
                                 <th>Rendimento</th>
                                 <th>Desvio</th>
+                                <th>Status</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -763,27 +715,26 @@
                                     <td class="numero {% if linha.desvio_meta >= 0 %}badge-positivo{% else %}badge-negativo{% endif %}">
                                         {{ linha.desvio_meta | br_percentual }}
                                     </td>
+                                    <td>
+                                        {% if linha.desvio_meta >= 0 %}
+                                            <span class="status-badge acima">Acima da meta</span>
+                                        {% else %}
+                                            <span class="status-badge abaixo">Abaixo da meta</span>
+                                        {% endif %}
+                                    </td>
                                 </tr>
                             {% endfor %}
                         </tbody>
                     </table>
                 </div>
-
-                <div class="tabela-resumo-rodape">
-                    <span>Exibindo {{ tabela_linhas | length }} registro(s)</span>
-                    <div class="status-legenda">
-                        <span class="positivo">Acima da meta</span>
-                        <span class="negativo">Abaixo da meta</span>
-                    </div>
-                </div>
             {% else %}
                 <div class="sem-dados">Sem dados analíticos para exibição.</div>
             {% endif %}
-        </section>
+        </div>
     </section>
 
     <section class="nota-tecnica-card">
-        <strong>Rendimento (%)</strong> = (Kg produzidos / Peso vivo) × 100. Relatório gerado automaticamente pelo sistema.
+        Rendimento (%) = (Kg Produzidos / Peso Vivo) × 100. Relatório gerado automaticamente pelo sistema.
     </section>
 
 </div>
@@ -793,10 +744,9 @@
 <script>
     const labelsRendimento = {{ datas | tojson }};
     const datasetsRendimento = {{ datasets | tojson }};
-    let graficoRendimentoInstance = null;
 
     const formatarPercentual = (valor) => {
-        if (valor === null || valor === undefined || Number.isNaN(valor)) {
+        if (valor === null || valor === undefined || Number.isNaN(Number(valor))) {
             return "";
         }
         return Number(valor).toLocaleString("pt-BR", {
@@ -804,6 +754,51 @@
             maximumFractionDigits: 2
         }) + "%";
     };
+
+    function prepararTabelaParaImpressao() {
+        const tbody = document.querySelector(".tabela-rendimento tbody");
+        if (!tbody) {
+            return;
+        }
+
+        const reticenciasAnterior = tbody.querySelector(".linha-print-reticencias");
+        if (reticenciasAnterior) {
+            reticenciasAnterior.remove();
+        }
+
+        const linhas = Array.from(tbody.querySelectorAll("tr"));
+        linhas.forEach(linha => linha.classList.remove("linha-print-ocultar"));
+
+        const limiteLinhasImpressao = 9;
+        if (linhas.length <= limiteLinhasImpressao) {
+            return;
+        }
+
+        linhas.forEach((linha, index) => {
+            const manterInicio = index < 4;
+            const manterFim = index >= linhas.length - 4;
+            if (!manterInicio && !manterFim) {
+                linha.classList.add("linha-print-ocultar");
+            }
+        });
+
+        const linhaReticencias = document.createElement("tr");
+        linhaReticencias.className = "linha-print-reticencias";
+        linhaReticencias.innerHTML = `
+            <td colspan="7" style="text-align:center; font-weight:800; color:#64748b;">
+                ... registros intermediários ocultos na impressão ...
+            </td>
+        `;
+
+        if (linhas[3]) {
+            linhas[3].after(linhaReticencias);
+        }
+    }
+
+    function imprimirRelatorioRendimento() {
+        prepararTabelaParaImpressao();
+        window.print();
+    }
 
     const rotulosPercentuais = {
         id: "rotulosPercentuais",
@@ -863,203 +858,83 @@
         }
     };
 
-    function criarGraficoRendimento() {
-        const ctxRendimento = document.getElementById("graficoRendimento");
+    const ctxRendimento = document.getElementById("graficoRendimento");
 
-        if (!ctxRendimento) {
-            return;
-        }
-
-        if (graficoRendimentoInstance) {
-            graficoRendimentoInstance.destroy();
-        }
-
-        graficoRendimentoInstance = new Chart(ctxRendimento, {
-            type: "line",
-            data: {
-                labels: labelsRendimento,
-                datasets: datasetsRendimento
+    new Chart(ctxRendimento, {
+        type: "line",
+        data: {
+            labels: labelsRendimento,
+            datasets: datasetsRendimento
+        },
+        plugins: [rotulosPercentuais],
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: {
+                mode: "index",
+                intersect: false
             },
-            plugins: [rotulosPercentuais],
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                animation: false,
-                interaction: {
-                    mode: "index",
-                    intersect: false
-                },
-                elements: {
-                    line: {
-                        tension: 0.18,
-                        borderWidth: 3
-                    },
-                    point: {
-                        radius: 4,
-                        hoverRadius: 5
+            plugins: {
+                legend: {
+                    position: "top",
+                    align: "end",
+                    labels: {
+                        usePointStyle: true,
+                        boxWidth: 8,
+                        boxHeight: 8,
+                        padding: 14
                     }
                 },
-                plugins: {
-                    legend: {
-                        position: "top",
-                        align: "end",
-                        labels: {
-                            boxWidth: 26,
-                            boxHeight: 3,
-                            usePointStyle: false,
-                            padding: 14,
-                            font: {
-                                size: 11,
-                                weight: "700"
-                            }
-                        }
-                    },
-                    tooltip: {
-                        callbacks: {
-                            label(context) {
-                                const dataset = context.dataset;
-                                const valor = context.parsed.y;
+                tooltip: {
+                    callbacks: {
+                        label(context) {
+                            const dataset = context.dataset;
+                            const valor = context.parsed.y;
 
-                                if (dataset.ehMeta) {
-                                    return dataset.label;
-                                }
+                            if (dataset.ehMeta) {
+                                return dataset.label;
+                            }
 
-                                const detalhe = dataset.detalhes ? dataset.detalhes[context.dataIndex] : null;
-                                const partes = [`${dataset.label}: ${formatarPercentual(valor)}`];
+                            const detalhe = dataset.detalhes ? dataset.detalhes[context.dataIndex] : null;
+                            const partes = [`${dataset.label}: ${formatarPercentual(valor)}`];
 
-                                if (detalhe) {
-                                    partes.push(`Kg: ${Number(detalhe.kg_produzidos).toLocaleString("pt-BR", {minimumFractionDigits: 2, maximumFractionDigits: 2})}`);
-                                    partes.push(`Peso vivo: ${Number(detalhe.peso_vivo).toLocaleString("pt-BR", {minimumFractionDigits: 2, maximumFractionDigits: 2})}`);
-                                }
+                            if (detalhe) {
+                                partes.push(`Kg: ${Number(detalhe.kg_produzidos).toLocaleString("pt-BR", {minimumFractionDigits: 2, maximumFractionDigits: 2})}`);
+                                partes.push(`Peso vivo: ${Number(detalhe.peso_vivo).toLocaleString("pt-BR", {minimumFractionDigits: 2, maximumFractionDigits: 2})}`);
+                            }
 
-                                return partes;
-                            }
-                        }
-                    }
-                },
-                scales: {
-                    y: {
-                        title: {
-                            display: true,
-                            text: "Rendimento (%)",
-                            font: {
-                                weight: "700"
-                            }
-                        },
-                        grid: {
-                            color: "rgba(148, 163, 184, 0.28)"
-                        },
-                        ticks: {
-                            callback(value) {
-                                return formatarPercentual(value);
-                            }
-                        }
-                    },
-                    x: {
-                        title: {
-                            display: true,
-                            text: "Data",
-                            font: {
-                                weight: "700"
-                            }
-                        },
-                        grid: {
-                            color: "rgba(148, 163, 184, 0.20)"
-                        },
-                        ticks: {
-                            maxRotation: 45,
-                            minRotation: labelsRendimento.length > 15 ? 45 : 0,
-                            autoSkip: true,
-                            maxTicksLimit: labelsRendimento.length > 15 ? 12 : 15,
-                            font: {
-                                size: labelsRendimento.length > 15 ? 9 : 11
-                            }
+                            return partes;
                         }
                     }
                 }
-            }
-        });
-    }
-
-    function prepararTabelaParaImpressao() {
-        const linhas = Array.from(document.querySelectorAll(".tabela-rendimento tbody tr:not(.linha-print-reticencias)"));
-        const reticenciasExistente = document.querySelector(".linha-print-reticencias");
-
-        if (reticenciasExistente) {
-            reticenciasExistente.remove();
-        }
-
-        linhas.forEach(linha => {
-            linha.classList.remove("linha-print-ocultar");
-        });
-
-        const limiteLinhasImpressao = 9;
-
-        if (linhas.length > limiteLinhasImpressao) {
-            linhas.forEach((linha, index) => {
-                const manterInicio = index < 4;
-                const manterFim = index >= linhas.length - 4;
-
-                if (!manterInicio && !manterFim) {
-                    linha.classList.add("linha-print-ocultar");
+            },
+            scales: {
+                y: {
+                    title: {
+                        display: true,
+                        text: "Rendimento (%)"
+                    },
+                    ticks: {
+                        callback(value) {
+                            return formatarPercentual(value);
+                        }
+                    }
+                },
+                x: {
+                    title: {
+                        display: true,
+                        text: "Data"
+                    },
+                    ticks: {
+                        maxRotation: 45,
+                        minRotation: 0,
+                        autoSkip: true,
+                        maxTicksLimit: labelsRendimento.length > 15 ? 10 : 15
+                    }
                 }
-            });
-
-            const linhaReticencias = document.createElement("tr");
-            linhaReticencias.className = "linha-print-reticencias";
-            linhaReticencias.innerHTML = `
-                <td colspan="6">
-                    ... registros intermediários ocultos na impressão para preservar uma única folha A4 ...
-                </td>
-            `;
-
-            if (linhas[3]) {
-                linhas[3].after(linhaReticencias);
             }
         }
-    }
-
-    function restaurarTabelaAposImpressao() {
-        const reticenciasExistente = document.querySelector(".linha-print-reticencias");
-        if (reticenciasExistente) {
-            reticenciasExistente.remove();
-        }
-
-        document.querySelectorAll(".linha-print-ocultar").forEach(linha => {
-            linha.classList.remove("linha-print-ocultar");
-        });
-    }
-
-    function imprimirRelatorioRendimento() {
-        prepararTabelaParaImpressao();
-
-        if (graficoRendimentoInstance) {
-            graficoRendimentoInstance.resize();
-            graficoRendimentoInstance.update("none");
-        }
-
-        setTimeout(() => {
-            window.print();
-        }, 150);
-    }
-
-    window.addEventListener("beforeprint", () => {
-        prepararTabelaParaImpressao();
-        if (graficoRendimentoInstance) {
-            graficoRendimentoInstance.resize();
-            graficoRendimentoInstance.update("none");
-        }
     });
-
-    window.addEventListener("afterprint", () => {
-        restaurarTabelaAposImpressao();
-        if (graficoRendimentoInstance) {
-            graficoRendimentoInstance.resize();
-            graficoRendimentoInstance.update("none");
-        }
-    });
-
-    criarGraficoRendimento();
 </script>
 {% endif %}
 
