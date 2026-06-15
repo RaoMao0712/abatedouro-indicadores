@@ -1,1111 +1,172 @@
 {% extends "base.html" %}
 
 {% block conteudo %}
-
 <style>
-    :root {
-        --frigo-azul: #1f3b4d;
-        --frigo-azul-escuro: #123047;
-        --frigo-azul-2: #244e67;
-        --frigo-laranja: #f97316;
-        --frigo-texto: #0f172a;
-        --frigo-muted: #64748b;
-        --frigo-borda: #e2e8f0;
-        --frigo-bg: #f8fafc;
-        --frigo-verde: #15803d;
-        --frigo-vermelho: #dc2626;
+    .viabilidade-shell {
+        max-width: 1180px;
+        margin: 0 auto;
+        padding: 28px 24px 48px;
     }
 
-    .relatorio-rendimento-shell {
-        display: flex;
-        flex-direction: column;
-        gap: 14px;
-    }
-
-    .relatorio-hero {
-        background: linear-gradient(135deg, var(--frigo-azul-escuro) 0%, var(--frigo-azul) 100%);
-        color: #fff;
-        border-radius: 16px;
-        padding: 16px 18px;
-        box-shadow: 0 12px 30px rgba(15, 23, 42, 0.14);
-    }
-
-    .relatorio-hero-topo {
+    .viabilidade-hero {
         display: flex;
         justify-content: space-between;
+        gap: 24px;
         align-items: flex-start;
-        gap: 16px;
-        margin-bottom: 14px;
+        background: linear-gradient(135deg, #12324a 0%, #1f5c79 100%);
+        color: #fff;
+        border-radius: 22px;
+        padding: 28px;
+        box-shadow: 0 18px 36px rgba(15, 46, 70, 0.18);
+        margin-bottom: 22px;
     }
 
-    .relatorio-titulo-area {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        min-width: 0;
+    .viabilidade-hero h1 {
+        margin: 0 0 8px;
+        font-size: 28px;
+        line-height: 1.15;
+        letter-spacing: -0.02em;
     }
 
-    .relatorio-icone {
-        width: 42px;
-        height: 42px;
-        border-radius: 12px;
-        border: 1px solid rgba(255, 255, 255, 0.18);
-        background: rgba(255, 255, 255, 0.08);
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        flex: 0 0 auto;
-    }
-
-    .relatorio-icone svg {
-        width: 24px;
-        height: 24px;
-        stroke: #fff;
-    }
-
-    .relatorio-hero h2 {
+    .viabilidade-hero p {
         margin: 0;
-        font-size: 24px;
-        letter-spacing: -0.04em;
-        line-height: 1.08;
+        max-width: 760px;
+        color: rgba(255, 255, 255, 0.82);
+        font-size: 14px;
+        line-height: 1.55;
     }
 
-    .relatorio-hero p {
-        margin: 5px 0 0 0;
-        color: rgba(255,255,255,0.82);
+    .viabilidade-status {
+        white-space: nowrap;
+        background: rgba(255, 255, 255, 0.14);
+        border: 1px solid rgba(255, 255, 255, 0.22);
+        padding: 10px 14px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+    }
+
+    .viabilidade-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 16px;
+        margin-bottom: 18px;
+    }
+
+    .viabilidade-card {
+        background: #fff;
+        border: 1px solid #e6edf3;
+        border-radius: 18px;
+        padding: 20px;
+        box-shadow: 0 10px 28px rgba(15, 46, 70, 0.08);
+    }
+
+    .viabilidade-card span {
+        display: block;
+        color: #6b7c8f;
+        font-size: 12px;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        margin-bottom: 10px;
+    }
+
+    .viabilidade-card strong {
+        display: block;
+        color: #17364f;
+        font-size: 24px;
+        line-height: 1.1;
+    }
+
+    .viabilidade-note {
+        background: #fff;
+        border: 1px solid #e6edf3;
+        border-radius: 18px;
+        padding: 22px;
+        box-shadow: 0 10px 28px rgba(15, 46, 70, 0.08);
+    }
+
+    .viabilidade-note h2 {
+        margin: 0 0 10px;
+        color: #17364f;
+        font-size: 18px;
+    }
+
+    .viabilidade-note p {
+        margin: 0;
+        color: #5f7084;
+        line-height: 1.6;
         font-size: 14px;
     }
 
-    .btn-imprimir-topo,
-    .btn-filtrar {
-        border: 0;
-        border-radius: 10px;
-        color: #fff;
-        font-weight: 850;
-        cursor: pointer;
-        text-decoration: none;
-        text-align: center;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        box-sizing: border-box;
-        white-space: nowrap;
-        letter-spacing: -0.01em;
-        transition: transform 0.12s ease, filter 0.12s ease;
-    }
-
-    .btn-imprimir-topo {
-        background: transparent;
-        border: 1px solid rgba(249, 115, 22, 0.95);
-        min-height: 36px;
-        padding: 8px 13px;
-        font-size: 13px;
-        box-shadow: none;
-        color: #fff;
-        gap: 8px;
-    }
-
-    .btn-imprimir-topo svg {
-        width: 17px;
-        height: 17px;
-        stroke: #fff;
-    }
-
-    .btn-filtrar {
-        background: var(--frigo-laranja);
-        min-height: 39px;
-        padding: 9px 14px;
-        font-size: 13px;
-        box-shadow: 0 10px 22px rgba(249, 115, 22, 0.20);
-        width: 100%;
-        gap: 8px;
-    }
-
-    .btn-filtrar svg {
-        width: 16px;
-        height: 16px;
-        stroke: #fff;
-    }
-
-    .btn-imprimir-topo:hover,
-    .btn-filtrar:hover {
-        filter: brightness(0.96);
-        transform: translateY(-1px);
-    }
-
-    .filtros-hero {
-        background: rgba(255, 255, 255, 0.07);
-        border: 1px solid rgba(255, 255, 255, 0.15);
-        border-radius: 13px;
-        padding: 11px;
-    }
-
-    .filtros-grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr 1fr 1.18fr 1fr 1fr 1fr 0.72fr;
-        gap: 9px;
-        align-items: end;
-    }
-
-    .campo-filtro label {
-        display: block;
-        font-size: 11px;
-        color: rgba(255,255,255,0.80);
-        font-weight: 850;
-        text-transform: uppercase;
-        margin-bottom: 5px;
-        letter-spacing: 0.045em;
-    }
-
-    .campo-filtro input,
-    .campo-filtro select {
-        width: 100%;
-        border: 1px solid rgba(255, 255, 255, 0.28);
-        border-radius: 9px;
-        padding: 9px 10px;
-        font-size: 13px;
-        background: rgba(255, 255, 255, 0.97);
-        color: var(--frigo-texto);
-        box-sizing: border-box;
-        min-height: 39px;
-    }
-
-    .kpi-grid-rendimento {
-        display: grid;
-        grid-template-columns: repeat(4, minmax(150px, 1fr));
-        gap: 12px;
-    }
-
-    .kpi-rendimento,
-    .grafico-card,
-    .tabela-card,
-    .nota-tecnica-card {
-        background: #fff;
-        border: 1px solid var(--frigo-borda);
-        border-radius: 16px;
-        box-shadow: 0 8px 22px rgba(15, 23, 42, 0.045);
-    }
-
-    .kpi-rendimento {
-        padding: 14px 16px;
-    }
-
-    .kpi-rendimento span {
-        display: block;
-        color: var(--frigo-muted);
-        font-size: 12px;
-        text-transform: uppercase;
-        font-weight: 850;
-        letter-spacing: 0.045em;
-    }
-
-    .kpi-rendimento strong {
-        display: block;
-        margin-top: 7px;
-        color: var(--frigo-azul);
-        font-size: 25px;
-        letter-spacing: -0.04em;
-        line-height: 1.05;
-        word-break: break-word;
-    }
-
-    .grafico-card,
-    .tabela-card {
-        min-width: 0;
-        padding: 18px 20px;
-    }
-
-    .grafico-header,
-    .secao-titulo {
-        display: flex;
-        justify-content: space-between;
-        gap: 14px;
-        align-items: flex-start;
-        margin-bottom: 12px;
-    }
-
-    .grafico-header h3,
-    .tabela-card h3 {
-        margin: 0;
-        color: var(--frigo-azul);
-        font-size: 21px;
-        letter-spacing: -0.035em;
-    }
-
-    .grafico-header p {
-        margin: 4px 0 0 0;
-        color: var(--frigo-muted);
-        font-size: 13px;
-    }
-
-    .meta-pill {
-        white-space: nowrap;
-        background: #fff7ed;
-        color: #c2410c;
-        border: 1px solid #fed7aa;
-        border-radius: 999px;
-        padding: 8px 12px;
-        font-weight: 850;
-        font-size: 13px;
-    }
-
-    .grafico-wrapper {
-        position: relative;
-        height: 430px;
-    }
-
-    .tabela-scroll {
-        overflow: auto;
-        border: 1px solid var(--frigo-borda);
-        border-radius: 12px;
-    }
-
-    .tabela-rendimento {
-        width: 100%;
-        border-collapse: collapse;
-        font-size: 13px;
-    }
-
-    .tabela-rendimento th {
-        background: var(--frigo-azul);
-        color: #fff;
-        text-align: left;
-        padding: 10px 10px;
-        font-size: 11px;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-        position: sticky;
-        top: 0;
-        z-index: 1;
-    }
-
-    .tabela-rendimento td {
-        border-bottom: 1px solid #e5e7eb;
-        padding: 10px 10px;
-        color: #334155;
-        vertical-align: middle;
-    }
-
-    .tabela-rendimento tr:last-child td {
-        border-bottom: 0;
-    }
-
-    .tabela-rendimento td.numero {
-        text-align: right;
-        font-variant-numeric: tabular-nums;
-        white-space: nowrap;
-    }
-
-    .badge-positivo {
-        color: var(--frigo-verde) !important;
-        font-weight: 850;
-    }
-
-    .badge-negativo {
-        color: var(--frigo-vermelho) !important;
-        font-weight: 850;
-    }
-
-    .status-pill {
-        border-radius: 999px;
-        padding: 5px 9px;
-        font-weight: 800;
-        font-size: 12px;
-        display: inline-flex;
-        white-space: nowrap;
-    }
-
-    .status-pill.positivo {
-        background: #dcfce7;
-        color: #166534;
-    }
-
-    .status-pill.negativo {
-        background: #fee2e2;
-        color: #b91c1c;
-    }
-
-    .status-pill.neutro {
-        background: #e0f2fe;
-        color: #075985;
-    }
-
-    .tabela-resumo-rodape {
-        display: flex;
-        justify-content: space-between;
-        gap: 10px;
-        align-items: center;
-        margin-top: 12px;
-        color: var(--frigo-muted);
-        font-size: 12px;
-    }
-
-    .status-legenda {
-        display: flex;
-        gap: 16px;
-        align-items: center;
-        flex-wrap: wrap;
-    }
-
-    .status-legenda span {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-    }
-
-    .status-legenda span::before {
-        content: "";
-        width: 9px;
-        height: 9px;
-        border-radius: 999px;
-        display: inline-block;
-        background: var(--frigo-muted);
-    }
-
-    .status-legenda .positivo::before {
-        background: var(--frigo-verde);
-    }
-
-    .status-legenda .negativo::before {
-        background: var(--frigo-vermelho);
-    }
-
-    .nota-tecnica-card {
-        background: #eff6ff;
-        border-color: #bfdbfe;
-        color: #1e3a8a;
-        font-size: 13px;
-        line-height: 1.45;
-        padding: 12px 16px;
-    }
-
-    .sem-dados {
-        padding: 28px;
-        text-align: center;
-        color: var(--frigo-muted);
-        background: var(--frigo-bg);
-        border-radius: 14px;
-        border: 1px dashed #cbd5e1;
-    }
-
-    .linha-print-reticencias {
-        display: none;
-    }
-
-    @media (max-width: 1250px) {
-        .filtros-grid {
-            grid-template-columns: repeat(4, minmax(150px, 1fr));
+    @media (max-width: 980px) {
+        .viabilidade-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
         }
-    }
 
-    @media (max-width: 1100px) {
-        .kpi-grid-rendimento {
-            grid-template-columns: repeat(2, minmax(150px, 1fr));
-        }
-    }
-
-    @media (max-width: 680px) {
-        .relatorio-hero-topo {
+        .viabilidade-hero {
             flex-direction: column;
-            align-items: stretch;
+        }
+    }
+
+    @media (max-width: 640px) {
+        .viabilidade-shell {
+            padding: 18px 14px 36px;
         }
 
-        .relatorio-titulo-area {
-            align-items: flex-start;
-        }
-
-        .botoes-impressao,
-        .btn-imprimir-topo {
-            width: 100%;
-        }
-
-        .filtros-grid,
-        .kpi-grid-rendimento {
+        .viabilidade-grid {
             grid-template-columns: 1fr;
         }
 
-        .grafico-header,
-        .secao-titulo {
-            flex-direction: column;
-        }
-    }
-
-    @media print {
-        @page {
-            size: A4 landscape;
-            margin: 7mm;
-        }
-
-        * {
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
-        }
-
-        html,
-        body {
-            background: #fff !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            width: auto !important;
-            min-width: 0 !important;
-            height: auto !important;
-            min-height: 0 !important;
-            overflow: visible !important;
-        }
-
-        .topo,
-        .sidebar-menu,
-        .no-print,
-        .alerta {
-            display: none !important;
-        }
-
-        .container,
-        .container-com-sidebar,
-        .app-shell,
-        .layout-sidebar,
-        main {
-            margin: 0 !important;
-            padding: 0 !important;
-            width: 100% !important;
-            max-width: none !important;
-            display: block !important;
-        }
-
-        .relatorio-rendimento-shell {
-            gap: 5px !important;
-            width: 100% !important;
-            max-width: none !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            overflow: hidden !important;
-            break-after: avoid !important;
-            page-break-after: avoid !important;
-        }
-
-        .relatorio-hero,
-        .grafico-card,
-        .tabela-card,
-        .kpi-rendimento,
-        .nota-tecnica-card {
-            box-shadow: none !important;
-            break-inside: avoid !important;
-            page-break-inside: avoid !important;
-        }
-
-        .relatorio-hero {
-            padding: 8px 11px !important;
-            border-radius: 9px !important;
-        }
-
-        .relatorio-hero-topo {
-            margin-bottom: 6px !important;
-        }
-
-        .relatorio-icone {
-            width: 28px !important;
-            height: 28px !important;
-            border-radius: 8px !important;
-        }
-
-        .relatorio-icone svg {
-            width: 17px !important;
-            height: 17px !important;
-        }
-
-        .relatorio-hero h2 {
-            font-size: 17px !important;
-        }
-
-        .relatorio-hero p {
-            font-size: 9px !important;
-            margin-top: 2px !important;
-        }
-
-        .filtros-hero {
-            padding: 6px 7px !important;
-            border-radius: 8px !important;
-        }
-
-        .filtros-grid {
-            grid-template-columns: repeat(7, 1fr) !important;
-            gap: 6px !important;
-        }
-
-        .campo-filtro label {
-            font-size: 7px !important;
-            margin-bottom: 1px !important;
-        }
-
-        .campo-filtro input,
-        .campo-filtro select {
-            border: 0 !important;
-            padding: 0 !important;
-            min-height: auto !important;
-            font-size: 8px !important;
-            appearance: none !important;
-            background: transparent !important;
-            color: #fff !important;
-        }
-
-        .campo-filtro.acao-filtrar {
-            display: none !important;
-        }
-
-        .kpi-grid-rendimento {
-            grid-template-columns: repeat(4, 1fr) !important;
-            gap: 5px !important;
-        }
-
-        .kpi-rendimento {
-            padding: 6px 8px !important;
-            border-radius: 9px !important;
-        }
-
-        .kpi-rendimento span {
-            font-size: 7px !important;
-            margin-bottom: 1px !important;
-        }
-
-        .kpi-rendimento strong {
-            font-size: 14px !important;
-            margin-top: 2px !important;
-        }
-
-        .grafico-card,
-        .tabela-card,
-        .nota-tecnica-card {
-            padding: 8px 10px !important;
-            border-radius: 9px !important;
-        }
-
-        .grafico-header,
-        .secao-titulo {
-            margin-bottom: 5px !important;
-        }
-
-        .grafico-header h3,
-        .tabela-card h3 {
-            font-size: 13px !important;
-        }
-
-        .grafico-header p {
-            font-size: 8px !important;
-            margin-top: 1px !important;
-        }
-
-        .meta-pill {
-            padding: 3px 6px !important;
-            font-size: 8px !important;
-        }
-
-        .grafico-wrapper {
-            height: 292px !important;
-        }
-
-        .tabela-scroll {
-            overflow: hidden !important;
-            border-radius: 7px !important;
-        }
-
-        .tabela-rendimento {
-            font-size: 7px !important;
-        }
-
-        .tabela-rendimento th,
-        .tabela-rendimento td {
-            padding: 3px 4px !important;
-        }
-
-        .status-pill {
-            font-size: 6px !important;
-            padding: 2px 4px !important;
-        }
-
-        .linha-print-ocultar {
-            display: none !important;
-        }
-
-        .linha-print-reticencias {
-            display: table-row !important;
-        }
-
-        .tabela-resumo-rodape {
-            margin-top: 4px !important;
-            font-size: 7px !important;
-        }
-
-        .status-legenda {
-            gap: 8px !important;
-        }
-
-        .status-legenda span::before {
-            width: 5px !important;
-            height: 5px !important;
-        }
-
-        .nota-tecnica-card {
-            font-size: 7px !important;
-            line-height: 1.2 !important;
-            padding: 6px 8px !important;
-        }
-
-        body::after {
-            content: none !important;
-            display: none !important;
+        .viabilidade-status {
+            white-space: normal;
         }
     }
 </style>
 
-<div class="relatorio-rendimento-shell">
+<div class="viabilidade-shell">
+    <section class="viabilidade-hero">
+        <div>
+            <h1>Relatório de Viabilidade de Aves</h1>
+            <p>
+                Tela inicial criada em etapa segura para detalhar o indicador de aves viáveis já usado no Dashboard.
+                Neste momento, os valores são fixos apenas para validar rota, menu, template e layout,
+                sem consultar banco de dados e sem alterar regras de negócio.
+            </p>
+        </div>
+        <div class="viabilidade-status">Etapa 2 — tela visível</div>
+    </section>
 
-    <section class="relatorio-hero">
-        <div class="relatorio-hero-topo">
-            <div class="relatorio-titulo-area">
-                <span class="relatorio-icone" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M12 3l8 4v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7l8-4z"></path>
-                        <path d="M8 12l2.5 2.5L16 9"></path>
-                    </svg>
-                </span>
-                <div>
-                    <h2>Relatório de Viabilidade</h2>
-                    <p>Viabilidade industrial, evolução dos motivos de condenação e mapa de origem por período.</p>
-                </div>
-            </div>
-
-            <div class="botoes-impressao no-print">
-                <button type="button" class="btn-imprimir-topo" onclick="imprimirRelatorioViabilidade()">
-                    <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M6 9V2h12v7"></path>
-                        <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
-                        <path d="M6 14h12v8H6z"></path>
-                    </svg>
-                    Gerar PDF / Imprimir
-                </button>
-            </div>
+    <section class="viabilidade-grid">
+        <div class="viabilidade-card">
+            <span>Aves recebidas</span>
+            <strong>0</strong>
         </div>
 
-        <form method="GET" class="filtros-hero">
-            <div class="filtros-grid">
-                <div class="campo-filtro">
-                    <label>Tipo de análise</label>
-                    <select name="tipo_analise">
-                        {% for tipo in tipos_analise %}
-                            <option value="{{ tipo }}" {% if tipo_analise == tipo %}selected{% endif %}>{{ tipo }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-
-                <div class="campo-filtro">
-                    <label>SKU</label>
-                    <select name="sku">
-                        <option value="Todos" {% if sku_filtro == "Todos" %}selected{% endif %}>Todos</option>
-                        {% for sku in skus %}
-                            <option value="{{ sku }}" {% if sku_filtro == sku %}selected{% endif %}>{{ sku }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-
-                <div class="campo-filtro">
-                    <label>Data inicial</label>
-                    <input type="date" name="data_inicio" value="{{ data_inicio }}">
-                </div>
-
-                <div class="campo-filtro">
-                    <label>Data final</label>
-                    <input type="date" name="data_fim" value="{{ data_fim }}">
-                </div>
-
-                <div class="campo-filtro">
-                    <label>Fornecedor</label>
-                    <select name="fornecedor">
-                        <option value="Todos" {% if fornecedor_filtro == "Todos" %}selected{% endif %}>Todos</option>
-                        {% for fornecedor in fornecedores %}
-                            <option value="{{ fornecedor['nome'] }}" {% if fornecedor_filtro == fornecedor['nome'] %}selected{% endif %}>{{ fornecedor['nome'] }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-
-                <div class="campo-filtro">
-                    <label>Setor</label>
-                    <select name="setor">
-                        <option value="Todos" {% if setor_filtro == "Todos" %}selected{% endif %}>Todos</option>
-                        {% for setor in setores %}
-                            <option value="{{ setor }}" {% if setor_filtro == setor %}selected{% endif %}>{{ setor }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-
-                <div class="campo-filtro">
-                    <label>Motivo</label>
-                    <select name="motivo">
-                        <option value="Todos" {% if motivo_filtro == "Todos" %}selected{% endif %}>Todos</option>
-                        {% for motivo in motivos %}
-                            <option value="{{ motivo }}" {% if motivo_filtro == motivo %}selected{% endif %}>{{ motivo }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-
-                <div class="campo-filtro acao-filtrar no-print">
-                    <label>&nbsp;</label>
-                    <button type="submit" class="btn-filtrar">
-                        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M22 3H2l8 9v7l4 2v-9l8-9z"></path>
-                        </svg>
-                        Filtrar
-                    </button>
-                </div>
-            </div>
-        </form>
-    </section>
-
-    <section class="kpi-grid-rendimento">
-        {% for kpi in kpis %}
-            <div class="kpi-rendimento">
-                <span>{{ kpi.titulo }}</span>
-                <strong>{{ kpi.valor }}</strong>
-            </div>
-        {% endfor %}
-    </section>
-
-    <section class="grafico-card">
-        <div class="grafico-header">
-            <div>
-                <h3>{{ grafico_titulo }}</h3>
-                <p>{{ grafico_descricao }}</p>
-            </div>
-            {% if mostrar_meta %}
-                <div class="meta-pill">Meta: {{ meta_label }}</div>
-            {% endif %}
+        <div class="viabilidade-card">
+            <span>Aves descartadas</span>
+            <strong>0</strong>
         </div>
 
-        {% if datas %}
-            <div class="grafico-wrapper">
-                <canvas id="graficoViabilidade"></canvas>
-            </div>
-        {% else %}
-            <div class="sem-dados">Não há dados para os filtros aplicados.</div>
-        {% endif %}
-    </section>
-
-    <section class="tabela-card">
-        <div class="secao-titulo">
-            <h3>Base analítica</h3>
-            {% if tabela_linhas %}
-                <span class="tabela-contador">Exibindo {{ tabela_linhas|length }} registro(s)</span>
-            {% endif %}
+        <div class="viabilidade-card">
+            <span>Aves viáveis</span>
+            <strong>0</strong>
         </div>
 
-        {% if tabela_linhas %}
-            <div class="tabela-scroll">
-                <table class="tabela-rendimento" id="tabelaViabilidade">
-                    <thead>
-                        {% if tipo_analise == "Viabilidade" %}
-                            <tr>
-                                <th>Data</th>
-                                <th>Fornecedor</th>
-                                <th>SKU</th>
-                                <th>Aves recebidas</th>
-                                <th>Mortes</th>
-                                <th>Descartes</th>
-                                <th>Aves viáveis</th>
-                                <th>Viabilidade</th>
-                                <th>Desvio</th>
-                                <th>Status</th>
-                            </tr>
-                        {% else %}
-                            <tr>
-                                <th>Data</th>
-                                <th>Fornecedor</th>
-                                <th>SKU</th>
-                                <th>Setor</th>
-                                <th>Motivo</th>
-                                <th>Série</th>
-                                <th>Quantidade</th>
-                                <th>Participação</th>
-                                <th>Status</th>
-                            </tr>
-                        {% endif %}
-                    </thead>
-                    <tbody>
-                        {% for linha in tabela_linhas %}
-                            {% if tipo_analise == "Viabilidade" %}
-                                <tr>
-                                    <td>{{ linha.data }}</td>
-                                    <td>{{ linha.fornecedor }}</td>
-                                    <td>{{ linha.sku }}</td>
-                                    <td class="numero">{{ linha.aves_recebidas | br_numero }}</td>
-                                    <td class="numero">{{ linha.mortes | br_numero }}</td>
-                                    <td class="numero">{{ linha.descartes | br_numero }}</td>
-                                    <td class="numero">{{ linha.aves_viaveis | br_numero }}</td>
-                                    <td class="numero">{{ linha.viabilidade | br_percentual }}</td>
-                                    <td class="numero {% if linha.desvio_meta >= 0 %}badge-positivo{% else %}badge-negativo{% endif %}">
-                                        {{ linha.desvio_meta | br_percentual }}
-                                    </td>
-                                    <td>
-                                        {% if linha.desvio_meta >= 0 %}
-                                            <span class="status-pill positivo">Acima da meta</span>
-                                        {% else %}
-                                            <span class="status-pill negativo">Abaixo da meta</span>
-                                        {% endif %}
-                                    </td>
-                                </tr>
-                            {% else %}
-                                <tr>
-                                    <td>{{ linha.data }}</td>
-                                    <td>{{ linha.fornecedor }}</td>
-                                    <td>{{ linha.sku }}</td>
-                                    <td>{{ linha.setor }}</td>
-                                    <td>{{ linha.motivo }}</td>
-                                    <td>{{ linha.serie }}</td>
-                                    <td class="numero">{{ linha.quantidade | br_numero }}</td>
-                                    <td class="numero">{{ linha.participacao | br_percentual }}</td>
-                                    <td><span class="status-pill neutro">Ocorrência</span></td>
-                                </tr>
-                            {% endif %}
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-
-            <div class="tabela-resumo-rodape">
-                <span>Exibindo {{ tabela_linhas|length }} de {{ tabela_linhas|length }} registro(s)</span>
-                {% if tipo_analise == "Viabilidade" %}
-                    <div class="status-legenda">
-                        <span class="positivo">Acima da meta</span>
-                        <span class="negativo">Abaixo da meta</span>
-                    </div>
-                {% else %}
-                    <div class="status-legenda">
-                        <span>Ocorrências do período</span>
-                    </div>
-                {% endif %}
-            </div>
-        {% else %}
-            <div class="sem-dados">Sem dados analíticos para exibição.</div>
-        {% endif %}
+        <div class="viabilidade-card">
+            <span>Viabilidade</span>
+            <strong>0,00%</strong>
+        </div>
     </section>
 
-    <section class="nota-tecnica-card">
-        {% if tipo_analise == "Viabilidade" %}
-            <strong>Viabilidade (%)</strong> = ((Aves recebidas - mortes antes da pendura - condenações/descartes) / Aves recebidas) × 100<br>
-            Meta operacional considerada: {{ meta_viabilidade | br_percentual }}.
-        {% elif tipo_analise == "Motivos" %}
-            <strong>Análise por motivo</strong>: evolução diária das condenações e descartes por motivo dentro do período filtrado.
-        {% else %}
-            <strong>Análise por setor</strong>: evolução diária do mapa de origem das condenações e descartes dentro do período filtrado.
-        {% endif %}
+    <section class="viabilidade-note">
+        <h2>Relatório criado com segurança</h2>
+        <p>
+            Próxima etapa: substituir gradualmente estes valores fixos pelos dados reais da operação, começando por
+            uma única informação de cada vez. O relatório de rendimento permanece isolado e não foi alterado nesta etapa.
+        </p>
     </section>
-
 </div>
-
-{% if datas %}
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script>
-    const labelsViabilidade = {{ datas | tojson }};
-    const datasetsViabilidade = {{ datasets | tojson }};
-    const unidadeGrafico = {{ unidade_grafico | tojson }};
-    const tipoAnalise = {{ tipo_analise | tojson }};
-
-    const formatarNumero = (valor, casas = 2) => {
-        if (valor === null || valor === undefined || Number.isNaN(valor)) {
-            return "";
-        }
-        return Number(valor).toLocaleString("pt-BR", {
-            minimumFractionDigits: casas,
-            maximumFractionDigits: casas
-        });
-    };
-
-    const formatarValorGrafico = (valor) => {
-        if (valor === null || valor === undefined || Number.isNaN(valor)) {
-            return "";
-        }
-
-        if (unidadeGrafico === "%") {
-            return formatarNumero(valor, 2) + "%";
-        }
-
-        return formatarNumero(valor, 0);
-    };
-
-    function prepararTabelaParaImpressao() {
-        const tabela = document.getElementById("tabelaViabilidade");
-        if (!tabela) {
-            return;
-        }
-
-        const corpo = tabela.querySelector("tbody");
-        const linhas = Array.from(corpo.querySelectorAll("tr")).filter(linha => !linha.classList.contains("linha-print-reticencias"));
-        const limite = 9;
-
-        corpo.querySelectorAll(".linha-print-reticencias").forEach(linha => linha.remove());
-        linhas.forEach(linha => linha.classList.remove("linha-print-ocultar"));
-
-        if (linhas.length > limite) {
-            linhas.forEach((linha, index) => {
-                const manterPrimeiras = index < 4;
-                const manterUltimas = index >= linhas.length - 3;
-
-                if (!manterPrimeiras && !manterUltimas) {
-                    linha.classList.add("linha-print-ocultar");
-                }
-            });
-
-            const linhaReticencias = document.createElement("tr");
-            linhaReticencias.className = "linha-print-reticencias";
-            linhaReticencias.innerHTML = `
-                <td colspan="10" style="text-align:center; font-weight:800; color:#64748b;">
-                    ... registros intermediários ocultos na impressão ...
-                </td>
-            `;
-
-            if (linhas[3]) {
-                linhas[3].after(linhaReticencias);
-            }
-        }
-    }
-
-    function imprimirRelatorioViabilidade() {
-        prepararTabelaParaImpressao();
-        window.print();
-    }
-
-    window.addEventListener("beforeprint", prepararTabelaParaImpressao);
-
-    const rotulosInteligentes = {
-        id: "rotulosInteligentes",
-        afterDatasetsDraw(chart) {
-            const { ctx } = chart;
-            const totalPontos = Array.isArray(chart.data.labels) ? chart.data.labels.length : 0;
-            const limiteRotulosCompletos = 15;
-
-            ctx.save();
-            ctx.font = "700 11px Arial";
-            ctx.textAlign = "center";
-            ctx.textBaseline = "bottom";
-            ctx.fillStyle = "#1f2937";
-
-            chart.data.datasets.forEach((dataset, datasetIndex) => {
-                if (dataset.ehMeta) {
-                    return;
-                }
-
-                const meta = chart.getDatasetMeta(datasetIndex);
-                const valoresValidos = dataset.data
-                    .map((valor, index) => ({ valor, index }))
-                    .filter(item => item.valor !== null && item.valor !== undefined && !Number.isNaN(Number(item.valor)));
-
-                if (!valoresValidos.length) {
-                    return;
-                }
-
-                let indicesParaRotular = new Set(valoresValidos.map(item => item.index));
-
-                if (totalPontos > limiteRotulosCompletos) {
-                    const primeiro = valoresValidos[0];
-                    const ultimo = valoresValidos[valoresValidos.length - 1];
-                    const maior = valoresValidos.reduce((atual, item) => Number(item.valor) > Number(atual.valor) ? item : atual, valoresValidos[0]);
-                    const menor = valoresValidos.reduce((atual, item) => Number(item.valor) < Number(atual.valor) ? item : atual, valoresValidos[0]);
-
-                    indicesParaRotular = new Set([
-                        primeiro.index,
-                        ultimo.index,
-                        maior.index,
-                        menor.index
-                    ]);
-                }
-
-                meta.data.forEach((element, index) => {
-                    const valor = dataset.data[index];
-                    if (valor === null || valor === undefined || !indicesParaRotular.has(index)) {
-                        return;
-                    }
-
-                    const posicao = element.tooltipPosition();
-                    ctx.fillText(formatarValorGrafico(valor), posicao.x, posicao.y - 9);
-                });
-            });
-
-            ctx.restore();
-        }
-    };
-
-    const ctxViabilidade = document.getElementById("graficoViabilidade");
-
-    new Chart(ctxViabilidade, {
-        type: "line",
-        data: {
-            labels: labelsViabilidade,
-            datasets: datasetsViabilidade
-        },
-        plugins: [rotulosInteligentes],
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            interaction: {
-                mode: "index",
-                intersect: false
-            },
-            plugins: {
-                legend: {
-                    position: "top",
-                    align: "center",
-                    labels: {
-                        usePointStyle: true,
-                        boxWidth: 8,
-                        padding: 18
-                    }
-                },
-                tooltip: {
-                    callbacks: {
-                        label(context) {
-                            const dataset = context.dataset;
-                            const valor = context.parsed.y;
-
-                            if (dataset.ehMeta) {
-                                return dataset.label;
-                            }
-
-                            return `${dataset.label}: ${formatarValorGrafico(valor)}`;
-                        }
-                    }
-                }
-            },
-            scales: {
-                y: {
-                    title: {
-                        display: true,
-                        text: {{ eixo_y_titulo | tojson }}
-                    },
-                    ticks: {
-                        callback(value) {
-                            return formatarValorGrafico(value);
-                        }
-                    }
-                },
-                x: {
-                    title: {
-                        display: true,
-                        text: "Data"
-                    },
-                    ticks: {
-                        maxRotation: 0,
-                        autoSkip: true,
-                        maxTicksLimit: 12
-                    }
-                }
-            }
-        }
-    });
-</script>
-{% else %}
-<script>
-    function imprimirRelatorioViabilidade() {
-        window.print();
-    }
-</script>
-{% endif %}
-
 {% endblock %}

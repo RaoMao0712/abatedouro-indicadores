@@ -6746,6 +6746,17 @@ def relatorio_rendimento():
 
 
 # ============================================================
+# RELATÓRIO DE VIABILIDADE
+# Etapa segura: tela inicial sem cálculo e sem consulta ao banco.
+# ============================================================
+
+@app.route("/relatorio-viabilidade")
+@perfil_permitido("pcp")
+def relatorio_viabilidade():
+    return render_template("relatorio_viabilidade.html")
+
+
+# ============================================================
 # IMPORTAÇÃO OFICIAL DE MAIO/2026
 # Rota temporária para carregar OPs + descartes via Excel.
 # ============================================================
