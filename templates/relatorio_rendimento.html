@@ -433,9 +433,13 @@
         html,
         body {
             background: #fff !important;
-            width: 297mm;
-            min-height: 210mm;
-            overflow: hidden !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            width: auto !important;
+            min-width: 0 !important;
+            height: auto !important;
+            min-height: 0 !important;
+            overflow: visible !important;
         }
 
         .topo,
@@ -458,9 +462,14 @@
         }
 
         .relatorio-rendimento-shell {
-            gap: 6px !important;
+            gap: 5px !important;
             width: 100% !important;
             max-width: none !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            overflow: hidden !important;
+            break-after: avoid !important;
+            page-break-after: avoid !important;
         }
 
         .relatorio-hero,
@@ -580,7 +589,11 @@
         }
 
         .grafico-wrapper {
-            height: 300px !important;
+            height: 288px !important;
+        }
+
+        #graficoRendimento {
+            max-height: 288px !important;
         }
 
         .tabela-scroll {
@@ -625,8 +638,16 @@
         }
 
         .nota-tecnica-card {
-            font-size: 8px !important;
-            line-height: 1.25 !important;
+            font-size: 7.5px !important;
+            line-height: 1.15 !important;
+            padding-top: 6px !important;
+            padding-bottom: 6px !important;
+            margin-bottom: 0 !important;
+        }
+
+        .relatorio-rendimento-shell::after {
+            content: none !important;
+            display: none !important;
         }
     }
 </style>
