@@ -3858,7 +3858,7 @@ def sair():
 
 
 @app.route("/dashboard")
-@perfil_permitido("pcp")
+@perfil_permitido("pcp", "producao", "qualidade")
 def dashboard():
     agora = datetime.now()
     hoje = agora.strftime("%Y-%m-%d")
