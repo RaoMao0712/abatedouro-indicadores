@@ -1,0 +1,563 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+
+<style>
+    .relatorio-rendimento-shell {
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+    }
+
+    .relatorio-hero {
+        background: linear-gradient(135deg, #1f3b4d 0%, #244e67 100%);
+        color: #fff;
+        border-radius: 18px;
+        padding: 22px;
+        box-shadow: 0 12px 30px rgba(15, 23, 42, 0.16);
+    }
+
+    .relatorio-hero h2 {
+        margin: 0;
+        font-size: 26px;
+        letter-spacing: -0.03em;
+    }
+
+    .relatorio-hero p {
+        margin: 6px 0 0 0;
+        color: rgba(255,255,255,0.78);
+    }
+
+    .filtros-card,
+    .grafico-card,
+    .tabela-card {
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-radius: 16px;
+        padding: 18px;
+        box-shadow: 0 10px 26px rgba(15, 23, 42, 0.07);
+    }
+
+    .filtros-grid {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(150px, 1fr));
+        gap: 12px;
+        align-items: end;
+    }
+
+    .campo-filtro label {
+        display: block;
+        font-size: 12px;
+        color: #64748b;
+        font-weight: 700;
+        text-transform: uppercase;
+        margin-bottom: 6px;
+        letter-spacing: 0.04em;
+    }
+
+    .campo-filtro input,
+    .campo-filtro select {
+        width: 100%;
+        border: 1px solid #cbd5e1;
+        border-radius: 10px;
+        padding: 10px 11px;
+        font-size: 14px;
+        background: #fff;
+    }
+
+    .btn-filtrar,
+    .btn-imprimir {
+        border: 0;
+        border-radius: 10px;
+        padding: 11px 16px;
+        color: #fff;
+        font-weight: 800;
+        cursor: pointer;
+        width: 100%;
+        text-decoration: none;
+        text-align: center;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 42px;
+        box-sizing: border-box;
+    }
+
+    .btn-filtrar {
+        background: #f97316;
+    }
+
+    .btn-imprimir {
+        background: #1f3b4d;
+    }
+
+    .acoes-relatorio {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 8px;
+    }
+
+    .kpi-grid-rendimento {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(150px, 1fr));
+        gap: 12px;
+    }
+
+    .kpi-rendimento {
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 14px;
+        padding: 14px;
+    }
+
+    .kpi-rendimento span {
+        display: block;
+        color: #64748b;
+        font-size: 12px;
+        text-transform: uppercase;
+        font-weight: 800;
+        letter-spacing: 0.04em;
+    }
+
+    .kpi-rendimento strong {
+        display: block;
+        margin-top: 6px;
+        color: #1f3b4d;
+        font-size: 24px;
+        letter-spacing: -0.03em;
+    }
+
+    .grafico-header {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        align-items: flex-start;
+        margin-bottom: 12px;
+    }
+
+    .grafico-header h3,
+    .tabela-card h3 {
+        margin: 0;
+        color: #1f3b4d;
+        font-size: 20px;
+    }
+
+    .grafico-header p {
+        margin: 4px 0 0 0;
+        color: #64748b;
+        font-size: 13px;
+    }
+
+    .meta-pill {
+        white-space: nowrap;
+        background: #fff7ed;
+        color: #c2410c;
+        border: 1px solid #fed7aa;
+        border-radius: 999px;
+        padding: 8px 12px;
+        font-weight: 800;
+        font-size: 13px;
+    }
+
+    .grafico-wrapper {
+        position: relative;
+        height: 430px;
+    }
+
+    .tabela-rendimento {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+    }
+
+    .tabela-rendimento th {
+        background: #1f3b4d;
+        color: #fff;
+        text-align: left;
+        padding: 10px;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+    }
+
+    .tabela-rendimento td {
+        border-bottom: 1px solid #e5e7eb;
+        padding: 10px;
+        color: #334155;
+    }
+
+    .tabela-rendimento td.numero {
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .badge-positivo {
+        color: #15803d;
+        font-weight: 800;
+    }
+
+    .badge-negativo {
+        color: #dc2626;
+        font-weight: 800;
+    }
+
+    .sem-dados {
+        padding: 28px;
+        text-align: center;
+        color: #64748b;
+        background: #f8fafc;
+        border-radius: 14px;
+        border: 1px dashed #cbd5e1;
+    }
+
+    @media print {
+        @page {
+            size: A4 landscape;
+            margin: 10mm;
+        }
+
+        body {
+            background: #fff !important;
+        }
+
+        .topo,
+        .sidebar-menu,
+        .no-print,
+        .alerta {
+            display: none !important;
+        }
+
+        .container,
+        .container-com-sidebar,
+        .app-shell,
+        .layout-sidebar {
+            margin: 0 !important;
+            padding: 0 !important;
+            width: 100% !important;
+            max-width: none !important;
+            display: block !important;
+        }
+
+        .relatorio-rendimento-shell {
+            gap: 10px;
+        }
+
+        .relatorio-hero,
+        .filtros-card,
+        .grafico-card,
+        .tabela-card,
+        .kpi-rendimento {
+            box-shadow: none !important;
+            break-inside: avoid;
+        }
+
+        .relatorio-hero {
+            padding: 14px 18px;
+            border-radius: 12px;
+        }
+
+        .relatorio-hero h2 {
+            font-size: 22px;
+        }
+
+        .filtros-card {
+            padding: 10px 14px;
+        }
+
+        .filtros-grid {
+            grid-template-columns: repeat(4, 1fr);
+        }
+
+        .campo-filtro input,
+        .campo-filtro select {
+            border: 0;
+            padding: 2px 0;
+            font-size: 12px;
+            appearance: none;
+        }
+
+        .kpi-grid-rendimento {
+            grid-template-columns: repeat(4, 1fr);
+        }
+
+        .kpi-rendimento {
+            padding: 10px;
+        }
+
+        .kpi-rendimento strong {
+            font-size: 18px;
+        }
+
+        .grafico-wrapper {
+            height: 310px;
+        }
+
+        .tabela-rendimento {
+            font-size: 11px;
+        }
+
+        .tabela-rendimento th,
+        .tabela-rendimento td {
+            padding: 6px;
+        }
+    }
+
+    @media (max-width: 1100px) {
+        .filtros-grid,
+        .kpi-grid-rendimento {
+            grid-template-columns: repeat(2, minmax(150px, 1fr));
+        }
+    }
+
+    @media (max-width: 680px) {
+        .filtros-grid,
+        .kpi-grid-rendimento {
+            grid-template-columns: 1fr;
+        }
+
+        .grafico-header {
+            flex-direction: column;
+        }
+    }
+</style>
+
+<div class="relatorio-rendimento-shell">
+
+    <section class="relatorio-hero">
+        <h2>Relatório de Rendimento</h2>
+        <p>Evolução diária por fornecedor, com comparação visual contra a meta do indicador.</p>
+    </section>
+
+    <section class="filtros-card">
+        <form method="GET" class="filtros-grid">
+            <div class="campo-filtro">
+                <label>SKU</label>
+                <select name="sku">
+                    <option value="Todos" {% if sku_filtro == "Todos" %}selected{% endif %}>Todos</option>
+                    {% for sku in skus %}
+                        <option value="{{ sku }}" {% if sku_filtro == sku %}selected{% endif %}>{{ sku }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="campo-filtro">
+                <label>Data inicial</label>
+                <input type="date" name="data_inicio" value="{{ data_inicio }}">
+            </div>
+
+            <div class="campo-filtro">
+                <label>Data final</label>
+                <input type="date" name="data_fim" value="{{ data_fim }}">
+            </div>
+
+            <div class="campo-filtro">
+                <label>Fornecedor</label>
+                <select name="fornecedor">
+                    <option value="Todos" {% if fornecedor_filtro == "Todos" %}selected{% endif %}>Todos</option>
+                    {% for fornecedor in fornecedores %}
+                        <option value="{{ fornecedor['nome'] }}" {% if fornecedor_filtro == fornecedor['nome'] %}selected{% endif %}>{{ fornecedor['nome'] }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="campo-filtro acoes-relatorio no-print">
+                <button type="submit" class="btn-filtrar">Aplicar filtros</button>
+                <button type="button" class="btn-imprimir" onclick="window.print()">Gerar PDF / Imprimir</button>
+            </div>
+        </form>
+    </section>
+
+    <section class="kpi-grid-rendimento">
+        <div class="kpi-rendimento">
+            <span>Rendimento médio</span>
+            <strong>{{ rendimento_medio | br_percentual }}</strong>
+        </div>
+        <div class="kpi-rendimento">
+            <span>Meta</span>
+            <strong>{{ meta_rendimento | br_percentual }}</strong>
+        </div>
+        <div class="kpi-rendimento">
+            <span>Kg produzidos</span>
+            <strong>{{ total_kg_produzidos | br_numero }}</strong>
+        </div>
+        <div class="kpi-rendimento">
+            <span>Peso vivo</span>
+            <strong>{{ total_peso_vivo | br_numero }}</strong>
+        </div>
+    </section>
+
+    <section class="grafico-card">
+        <div class="grafico-header">
+            <div>
+                <h3>Evolução diária do rendimento</h3>
+                <p>Base considerada: OPs encerradas dentro do período filtrado.</p>
+            </div>
+            <div class="meta-pill">Meta: {{ meta_rendimento | br_percentual }}</div>
+        </div>
+
+        {% if datas %}
+            <div class="grafico-wrapper">
+                <canvas id="graficoRendimento"></canvas>
+            </div>
+        {% else %}
+            <div class="sem-dados">Não há OPs encerradas para os filtros aplicados.</div>
+        {% endif %}
+    </section>
+
+    <section class="tabela-card">
+        <h3>Base analítica</h3>
+
+        {% if tabela_linhas %}
+            <table class="tabela-rendimento">
+                <thead>
+                    <tr>
+                        <th>Data</th>
+                        <th>Fornecedor</th>
+                        <th>Kg produzidos</th>
+                        <th>Peso vivo</th>
+                        <th>Rendimento</th>
+                        <th>Desvio da meta</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for linha in tabela_linhas %}
+                        <tr>
+                            <td>{{ linha.data }}</td>
+                            <td>{{ linha.fornecedor }}</td>
+                            <td class="numero">{{ linha.kg_produzidos | br_numero }}</td>
+                            <td class="numero">{{ linha.peso_vivo | br_numero }}</td>
+                            <td class="numero">{{ linha.rendimento | br_percentual }}</td>
+                            <td class="numero {% if linha.desvio_meta >= 0 %}badge-positivo{% else %}badge-negativo{% endif %}">
+                                {{ linha.desvio_meta | br_percentual }}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <div class="sem-dados">Sem dados analíticos para exibição.</div>
+        {% endif %}
+    </section>
+
+</div>
+
+{% if datas %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    const labelsRendimento = {{ datas | tojson }};
+    const datasetsRendimento = {{ datasets | tojson }};
+
+    const formatarPercentual = (valor) => {
+        if (valor === null || valor === undefined || Number.isNaN(valor)) {
+            return "";
+        }
+        return Number(valor).toLocaleString("pt-BR", {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2
+        }) + "%";
+    };
+
+    const rotulosPercentuais = {
+        id: "rotulosPercentuais",
+        afterDatasetsDraw(chart) {
+            const { ctx } = chart;
+            ctx.save();
+            ctx.font = "700 11px Arial";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "bottom";
+            ctx.fillStyle = "#1f2937";
+
+            chart.data.datasets.forEach((dataset, datasetIndex) => {
+                if (dataset.ehMeta) {
+                    return;
+                }
+
+                const meta = chart.getDatasetMeta(datasetIndex);
+
+                meta.data.forEach((element, index) => {
+                    const valor = dataset.data[index];
+                    if (valor === null || valor === undefined) {
+                        return;
+                    }
+
+                    const posicao = element.tooltipPosition();
+                    ctx.fillText(formatarPercentual(valor), posicao.x, posicao.y - 9);
+                });
+            });
+
+            ctx.restore();
+        }
+    };
+
+    const ctxRendimento = document.getElementById("graficoRendimento");
+
+    new Chart(ctxRendimento, {
+        type: "line",
+        data: {
+            labels: labelsRendimento,
+            datasets: datasetsRendimento
+        },
+        plugins: [rotulosPercentuais],
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: {
+                mode: "index",
+                intersect: false
+            },
+            plugins: {
+                legend: {
+                    position: "bottom"
+                },
+                tooltip: {
+                    callbacks: {
+                        label(context) {
+                            const dataset = context.dataset;
+                            const valor = context.parsed.y;
+
+                            if (dataset.ehMeta) {
+                                return dataset.label;
+                            }
+
+                            const detalhe = dataset.detalhes ? dataset.detalhes[context.dataIndex] : null;
+                            const partes = [`${dataset.label}: ${formatarPercentual(valor)}`];
+
+                            if (detalhe) {
+                                partes.push(`Kg: ${Number(detalhe.kg_produzidos).toLocaleString("pt-BR", {minimumFractionDigits: 2, maximumFractionDigits: 2})}`);
+                                partes.push(`Peso vivo: ${Number(detalhe.peso_vivo).toLocaleString("pt-BR", {minimumFractionDigits: 2, maximumFractionDigits: 2})}`);
+                            }
+
+                            return partes;
+                        }
+                    }
+                }
+            },
+            scales: {
+                y: {
+                    title: {
+                        display: true,
+                        text: "Rendimento (%)"
+                    },
+                    ticks: {
+                        callback(value) {
+                            return formatarPercentual(value);
+                        }
+                    }
+                },
+                x: {
+                    title: {
+                        display: true,
+                        text: "Data"
+                    },
+                    ticks: {
+                        maxRotation: 0,
+                        autoSkip: true
+                    }
+                }
+            }
+        }
+    });
+</script>
+{% endif %}
+
+{% endblock %}
