@@ -1197,7 +1197,7 @@ def listar_competencias_periodo(competencia_inicio, competencia_fim):
     return competencias
 
 
-def buscar_dados_relatorio_custos(competencia_inicio, competencia_fim):
+def buscar_dados_relatorio_custos(competencia_inicio, competencia_fim, categoria_filtro="Todas"):
     criar_tabelas_custos()
 
     competencias = listar_competencias_periodo(
@@ -1205,9 +1205,10 @@ def buscar_dados_relatorio_custos(competencia_inicio, competencia_fim):
         competencia_fim
     )
 
+    categoria_filtro = categoria_filtro or "Todas"
     categorias_padrao = CATEGORIAS_CUSTOS
 
-    dados_por_categoria = {
+    dados_por_categoria_completo = {
         categoria: {competencia: 0 for competencia in competencias}
         for categoria in categorias_padrao
     }
@@ -1232,17 +1233,44 @@ def buscar_dados_relatorio_custos(competencia_inicio, competencia_fim):
     registros = cursor.fetchall()
     conn.close()
 
+    categorias_encontradas = set()
+
     for item in registros:
         competencia = normalizar_competencia(item["competencia"])
         categoria = item["categoria"]
+        categorias_encontradas.add(categoria)
 
-        if categoria not in dados_por_categoria:
-            dados_por_categoria[categoria] = {
+        if categoria not in dados_por_categoria_completo:
+            dados_por_categoria_completo[categoria] = {
                 comp: 0 for comp in competencias
             }
 
-        if competencia in dados_por_categoria[categoria]:
-            dados_por_categoria[categoria][competencia] = float(item["total"] or 0)
+        if competencia in dados_por_categoria_completo[categoria]:
+            dados_por_categoria_completo[categoria][competencia] = float(item["total"] or 0)
+
+    categorias_disponiveis = list(categorias_padrao)
+
+    for categoria in sorted(categorias_encontradas):
+        if categoria not in categorias_disponiveis:
+            categorias_disponiveis.append(categoria)
+
+    if categoria_filtro != "Todas":
+        if categoria_filtro not in dados_por_categoria_completo:
+            dados_por_categoria_completo[categoria_filtro] = {
+                comp: 0 for comp in competencias
+            }
+
+        dados_por_categoria = {
+            categoria_filtro: dados_por_categoria_completo[categoria_filtro]
+        }
+    else:
+        dados_por_categoria = {
+            categoria: dados_por_categoria_completo.get(
+                categoria,
+                {comp: 0 for comp in competencias}
+            )
+            for categoria in categorias_disponiveis
+        }
 
     totais_por_categoria = {
         categoria: sum(valores.values())
@@ -1358,7 +1386,9 @@ def buscar_dados_relatorio_custos(competencia_inicio, competencia_fim):
         "maior_crescimento_categoria": maior_crescimento_categoria,
         "maior_crescimento_valor": round(maior_crescimento_valor, 2),
         "totais_por_competencia": totais_por_competencia,
-        "resumo_categorias": resumo_categorias
+        "resumo_categorias": resumo_categorias,
+        "categorias_disponiveis": categorias_disponiveis,
+        "categoria_filtro": categoria_filtro
     }
 
 
@@ -4842,15 +4872,20 @@ def relatorio_custos():
     if competencia_inicio > competencia_fim:
         competencia_inicio, competencia_fim = competencia_fim, competencia_inicio
 
+    categoria_filtro = request.args.get("categoria") or "Todas"
+
     dados = buscar_dados_relatorio_custos(
         competencia_inicio,
-        competencia_fim
+        competencia_fim,
+        categoria_filtro
     )
 
     return render_template(
         "relatorio_custos.html",
         competencia_inicio=competencia_inicio,
         competencia_fim=competencia_fim,
+        categoria_filtro=categoria_filtro,
+        categorias_custos=dados["categorias_disponiveis"],
         competencias=dados["competencias"],
         datasets=dados["datasets"],
         custo_total=dados["custo_total"],

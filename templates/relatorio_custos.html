@@ -2,6 +2,32 @@
 
 {% block conteudo %}
 
+<style>
+    .relatorio-custos-filtro-hero {
+        grid-template-columns: 1fr 1fr 1fr 86px;
+    }
+
+    @media (max-width: 1250px) {
+        .relatorio-custos-filtro-hero {
+            grid-template-columns: 1fr 1fr;
+        }
+
+        .relatorio-custos-filtro-hero > div:last-child {
+            grid-column: span 2;
+        }
+    }
+
+    @media (max-width: 720px) {
+        .relatorio-custos-filtro-hero {
+            grid-template-columns: 1fr;
+        }
+
+        .relatorio-custos-filtro-hero > div:last-child {
+            grid-column: span 1;
+        }
+    }
+</style>
+
 <section class="hero-dashboard relatorio-custos-hero-compacto">
     <div class="relatorio-custos-hero-titulo">
         <span class="eyebrow">Relatório Gerencial</span>
@@ -10,6 +36,7 @@
         <div class="hero-resumo-inline relatorio-custos-hero-resumo">
             <span><strong>Período:</strong> {{ competencia_inicio }} a {{ competencia_fim }}</span>
             <span><strong>Visão:</strong> mensal por categoria</span>
+            <span><strong>Categoria:</strong> {{ categoria_filtro }}</span>
         </div>
     </div>
 
@@ -35,6 +62,21 @@
         </div>
 
         <div>
+            <label>Categoria</label>
+            <select name="categoria">
+                <option value="Todas" {% if categoria_filtro == "Todas" %}selected{% endif %}>
+                    Todas
+                </option>
+
+                {% for categoria in categorias_custos %}
+                    <option value="{{ categoria }}" {% if categoria_filtro == categoria %}selected{% endif %}>
+                        {{ categoria }}
+                    </option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div>
             <button type="submit" class="botao-hero-filtro">
                 Aplicar
             </button>
@@ -51,7 +93,7 @@
     </div>
 
     <div class="card kpi-card destaque">
-        <span class="kpi-label">Maior categoria</span>
+        <span class="kpi-label">{% if categoria_filtro != "Todas" %}Categoria analisada{% else %}Maior categoria{% endif %}</span>
         <strong>{{ maior_categoria }}</strong>
         <small>R$ {{ "%.2f"|format(valor_maior_categoria or 0) }}</small>
     </div>
@@ -74,7 +116,7 @@
     <div class="section-title-row">
         <div>
             <span class="eyebrow">Gráfico</span>
-            <h2>Evolução mensal por grupo de despesa</h2>
+            <h2>{% if categoria_filtro != "Todas" %}Evolução mensal — {{ categoria_filtro }}{% else %}Evolução mensal por grupo de despesa{% endif %}</h2>
         </div>
     </div>
 
@@ -136,7 +178,7 @@
         </div>
 
         <div class="relatorio-custos-conclusao-destaque">
-            <span>Principal grupo de despesa</span>
+            <span>{% if categoria_filtro != "Todas" %}Categoria analisada{% else %}Principal grupo de despesa{% endif %}</span>
             <strong>{{ maior_categoria }}</strong>
             <small>R$ {{ "%.2f"|format(valor_maior_categoria or 0) }}</small>
         </div>
@@ -165,7 +207,7 @@
         </div>
 
         <p class="obs relatorio-custos-obs-executiva">
-            A análise considera apenas custos mensais lançados por competência. Categorias sem movimentação no período não são exibidas na tabela executiva.
+            A análise considera apenas custos mensais lançados por competência. {% if categoria_filtro != "Todas" %}A visualização está filtrada pela categoria selecionada.{% else %}Categorias sem movimentação no período não são exibidas na tabela executiva.{% endif %}
         </p>
     </div>
 
