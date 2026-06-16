@@ -195,14 +195,17 @@ CATEGORIAS_CUSTOS = [
 
     "Manutenção de Equipamentos",
     "Manutenção Predial",
+    "Manutenção de Veículos",
 
     "Material de Limpeza",
     "Material de Escritório",
+    "Serviços",
 
     "EPIs",
 
     "Marketing",
     "Cursos e Treinamentos",
+    "Despesas com Viagens",
 
     "Consultoria e Responsabilidade Técnica",
 
