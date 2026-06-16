@@ -142,7 +142,7 @@
 
         <div class="dre-tabela-executiva dre-tabela-custos-oficial">
             <div class="dre-tabela-header"><span>Categoria</span><span>Valor (R$)</span><span>% Receita</span></div>
-            {% for item in linhas_custos_executivas %}
+            {% for item in linhas_custos %}
                 {% if item.valor and item.valor != 0 %}
                 <div class="dre-tabela-row">
                     <span>{{ item.categoria }}</span>
