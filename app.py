@@ -1288,13 +1288,44 @@ def buscar_dados_relatorio_custos(competencia_inicio, competencia_fim):
             maior_crescimento_valor = crescimento
             maior_crescimento_categoria = categoria
 
+    # Gráfico executivo: exibe apenas as 5 maiores categorias do período
+    # e agrupa as demais em "Outras Categorias".
+    categorias_com_movimento = [
+        categoria
+        for categoria, total in sorted(
+            totais_por_categoria.items(),
+            key=lambda item: item[1],
+            reverse=True
+        )
+        if float(total or 0) > 0
+    ]
+
+    categorias_principais = categorias_com_movimento[:5]
+    categorias_restantes = categorias_com_movimento[5:]
+
     datasets = []
 
-    for categoria, valores in dados_por_categoria.items():
+    for categoria in categorias_principais:
+        valores = dados_por_categoria.get(categoria, {})
         datasets.append({
             "label": categoria,
             "data": [
                 round(valores.get(competencia, 0), 2)
+                for competencia in competencias
+            ]
+        })
+
+    if categorias_restantes:
+        datasets.append({
+            "label": f"Outras Categorias ({len(categorias_restantes)})",
+            "data": [
+                round(
+                    sum(
+                        dados_por_categoria.get(categoria, {}).get(competencia, 0)
+                        for categoria in categorias_restantes
+                    ),
+                    2
+                )
                 for competencia in competencias
             ]
         })
