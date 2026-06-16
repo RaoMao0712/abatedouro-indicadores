@@ -4767,3 +4767,245 @@ button:hover {
         font-size: 11.5px !important;
     }
 }
+
+/* ============================================================
+   RELATÓRIO DE CUSTOS - SPRINT 1 / RESUMO EXECUTIVO
+   Ajuste visual conservador: não altera lógica, rotas ou cálculos.
+   ============================================================ */
+
+.relatorio-custos-resumo-executivo {
+    align-items: stretch;
+}
+
+.relatorio-custos-card-categorias,
+.relatorio-custos-card-conclusao {
+    border-radius: 20px;
+    box-shadow: 0 10px 28px rgba(15,23,42,0.07);
+}
+
+.relatorio-custos-card-categorias .section-title-row,
+.relatorio-custos-card-conclusao .section-title-row {
+    margin-top: 0;
+}
+
+.relatorio-custos-tabela-categorias {
+    border: 1px solid #e2e8f0;
+    border-radius: 16px;
+    overflow: hidden;
+    background: white;
+}
+
+.relatorio-custos-tabela-header,
+.relatorio-custos-tabela-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 140px 180px;
+    gap: 12px;
+    align-items: center;
+}
+
+.relatorio-custos-tabela-header {
+    background: #f8fafc;
+    color: #334155;
+    font-size: 11px;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0.55px;
+    padding: 10px 12px;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.relatorio-custos-tabela-row {
+    padding: 10px 12px;
+    border-bottom: 1px solid #e5e7eb;
+    font-size: 13px;
+}
+
+.relatorio-custos-tabela-row:last-child {
+    border-bottom: none;
+}
+
+.relatorio-custos-tabela-row:hover {
+    background: #fff7ed;
+}
+
+.relatorio-custos-categoria-nome strong {
+    color: #1f3b4d;
+    font-weight: 900;
+}
+
+.relatorio-custos-valor {
+    color: #1f3b4d;
+    font-weight: 900;
+    text-align: right;
+    white-space: nowrap;
+}
+
+.relatorio-custos-participacao {
+    display: grid;
+    grid-template-columns: minmax(72px, 1fr) 58px;
+    gap: 9px;
+    align-items: center;
+}
+
+.relatorio-custos-participacao strong {
+    color: #f97316;
+    font-size: 12px;
+    font-weight: 900;
+    text-align: right;
+    white-space: nowrap;
+}
+
+.relatorio-custos-barra {
+    height: 9px;
+    background: #e2e8f0;
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+.relatorio-custos-barra span {
+    display: block;
+    height: 100%;
+    min-width: 3px;
+    border-radius: 999px;
+    background: linear-gradient(135deg, #f97316, #fb923c);
+}
+
+.relatorio-custos-conclusao-destaque {
+    position: relative;
+    overflow: hidden;
+    border-radius: 18px;
+    padding: 18px;
+    margin-bottom: 14px;
+    background: linear-gradient(135deg, rgba(31,59,77,0.98), rgba(15,23,42,0.96));
+    color: white;
+    box-shadow: 0 12px 28px rgba(15,23,42,0.14);
+}
+
+.relatorio-custos-conclusao-destaque::after {
+    content: "";
+    position: absolute;
+    width: 118px;
+    height: 118px;
+    right: -38px;
+    top: -38px;
+    border-radius: 999px;
+    background: rgba(249,115,22,0.22);
+}
+
+.relatorio-custos-conclusao-destaque span {
+    display: block;
+    color: #fdba74;
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 0.7px;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+}
+
+.relatorio-custos-conclusao-destaque strong {
+    display: block;
+    color: white;
+    font-size: 24px;
+    line-height: 1.08;
+    letter-spacing: -0.6px;
+    margin-bottom: 6px;
+    position: relative;
+    z-index: 1;
+}
+
+.relatorio-custos-conclusao-destaque small {
+    color: #e2e8f0;
+    font-size: 13px;
+    font-weight: 800;
+    position: relative;
+    z-index: 1;
+}
+
+.relatorio-custos-conclusao-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+
+.relatorio-custos-conclusao-grid div {
+    border: 1px solid #e2e8f0;
+    border-left: 5px solid #f97316;
+    border-radius: 15px;
+    padding: 12px;
+    background: #f8fafc;
+}
+
+.relatorio-custos-conclusao-grid span {
+    display: block;
+    color: #64748b;
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+}
+
+.relatorio-custos-conclusao-grid strong {
+    display: block;
+    color: #1f3b4d;
+    font-size: 15px;
+    line-height: 1.15;
+    font-weight: 900;
+}
+
+.relatorio-custos-conclusao-grid small {
+    display: block;
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 800;
+    margin-top: 4px;
+}
+
+.relatorio-custos-obs-executiva {
+    margin: 14px 0 0;
+    text-align: left;
+    background: #fff7ed;
+    border: 1px solid #fed7aa;
+    border-radius: 14px;
+    padding: 12px;
+    color: #7c2d12;
+}
+
+@media (max-width: 980px) {
+    .relatorio-custos-tabela-header,
+    .relatorio-custos-tabela-row {
+        grid-template-columns: 1fr;
+        gap: 6px;
+    }
+
+    .relatorio-custos-valor {
+        text-align: left;
+    }
+
+    .relatorio-custos-participacao {
+        grid-template-columns: minmax(0, 1fr) 58px;
+    }
+}
+
+@media (max-width: 720px) {
+    .relatorio-custos-conclusao-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media print {
+    .relatorio-custos-card-categorias,
+    .relatorio-custos-card-conclusao {
+        box-shadow: none !important;
+        page-break-inside: avoid;
+    }
+
+    .relatorio-custos-tabela-row {
+        padding: 8px 10px !important;
+    }
+
+    .relatorio-custos-conclusao-destaque {
+        box-shadow: none !important;
+    }
+}
+

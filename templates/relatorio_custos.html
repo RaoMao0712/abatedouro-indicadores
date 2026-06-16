@@ -110,9 +110,9 @@
     </div>
 </div>
 
-<div class="grid-dashboard relatorio-resumo-final">
+<div class="grid-dashboard relatorio-resumo-final relatorio-custos-resumo-executivo">
 
-    <div class="card painel-analitico">
+    <div class="card painel-analitico relatorio-custos-card-categorias">
         <div class="section-title-row">
             <div>
                 <span class="eyebrow">Resumo</span>
@@ -121,21 +121,40 @@
         </div>
 
         {% if resumo_categorias %}
-            {% for item in resumo_categorias %}
-                <div class="linha-info">
-                    <strong>{{ item.categoria }}</strong>
-                    <span>
-                        R$ {{ "%.2f"|format(item.total or 0) }}
-                        — {{ "%.2f"|format(item.percentual or 0) }}%
-                    </span>
+            <div class="relatorio-custos-tabela-categorias">
+                <div class="relatorio-custos-tabela-header">
+                    <span>Categoria</span>
+                    <span>Valor</span>
+                    <span>Participação</span>
                 </div>
-            {% endfor %}
+
+                {% for item in resumo_categorias %}
+                    {% if item.total and item.total != 0 %}
+                    <div class="relatorio-custos-tabela-row">
+                        <div class="relatorio-custos-categoria-nome">
+                            <strong>{{ item.categoria }}</strong>
+                        </div>
+
+                        <div class="relatorio-custos-valor">
+                            R$ {{ "%.2f"|format(item.total or 0) }}
+                        </div>
+
+                        <div class="relatorio-custos-participacao">
+                            <div class="relatorio-custos-barra">
+                                <span style="width: {{ item.percentual if item.percentual <= 100 else 100 }}%;"></span>
+                            </div>
+                            <strong>{{ "%.2f"|format(item.percentual or 0) }}%</strong>
+                        </div>
+                    </div>
+                    {% endif %}
+                {% endfor %}
+            </div>
         {% else %}
             <p class="obs">Nenhum custo lançado no período.</p>
         {% endif %}
     </div>
 
-    <div class="card painel-analitico">
+    <div class="card painel-analitico relatorio-custos-card-conclusao">
         <div class="section-title-row">
             <div>
                 <span class="eyebrow">Leitura Executiva</span>
@@ -143,23 +162,37 @@
             </div>
         </div>
 
-        <div class="linha-info">
-            <strong>Principal grupo de despesa</strong>
-            <span>{{ maior_categoria }}</span>
+        <div class="relatorio-custos-conclusao-destaque">
+            <span>Principal grupo de despesa</span>
+            <strong>{{ maior_categoria }}</strong>
+            <small>R$ {{ "%.2f"|format(valor_maior_categoria or 0) }}</small>
         </div>
 
-        <div class="linha-info">
-            <strong>Custo total analisado</strong>
-            <span>R$ {{ "%.2f"|format(custo_total or 0) }}</span>
+        <div class="relatorio-custos-conclusao-grid">
+            <div>
+                <span>Custo total analisado</span>
+                <strong>R$ {{ "%.2f"|format(custo_total or 0) }}</strong>
+            </div>
+
+            <div>
+                <span>Média mensal</span>
+                <strong>R$ {{ "%.2f"|format(media_mensal or 0) }}</strong>
+            </div>
+
+            <div>
+                <span>Maior crescimento</span>
+                <strong>{{ maior_crescimento_categoria }}</strong>
+                <small>R$ {{ "%.2f"|format(maior_crescimento_valor or 0) }}</small>
+            </div>
+
+            <div>
+                <span>Período analisado</span>
+                <strong>{{ competencia_inicio }} a {{ competencia_fim }}</strong>
+            </div>
         </div>
 
-        <div class="linha-info">
-            <strong>Média mensal</strong>
-            <span>R$ {{ "%.2f"|format(media_mensal or 0) }}</span>
-        </div>
-
-        <p class="obs">
-            A análise considera os custos mensais lançados por competência.
+        <p class="obs relatorio-custos-obs-executiva">
+            A análise considera apenas custos mensais lançados por competência. Categorias sem movimentação no período não são exibidas na tabela executiva.
         </p>
     </div>
 
