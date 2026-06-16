@@ -2,74 +2,47 @@
 
 {% block conteudo %}
 
-<section class="hero-dashboard relatorio-hero">
-    <div>
+<section class="hero-dashboard relatorio-custos-hero-compacto">
+    <div class="relatorio-custos-hero-titulo">
         <span class="eyebrow">Relatório Gerencial</span>
         <h2>Evolução dos Custos</h2>
-        <p>
-            Acompanhamento mensal dos grupos de despesa da operação.
-            Relatório pensado para leitura em tela única ou impressão em A4.
-        </p>
-    </div>
 
-    <div class="hero-meta">
-        <div>
-            <strong>Competência inicial</strong>
-            <span>{{ competencia_inicio }}</span>
-        </div>
-
-        <div>
-            <strong>Competência final</strong>
-            <span>{{ competencia_fim }}</span>
-        </div>
-
-        <div>
-            <strong>Visão</strong>
-            <span>Mensal por categoria</span>
-        </div>
-    </div>
-</section>
-
-<div class="card filtro-executivo relatorio-filtros">
-    <div class="section-title-row">
-        <div>
-            <span class="eyebrow">Filtros</span>
-            <h2>Período da Análise</h2>
+        <div class="hero-resumo-inline relatorio-custos-hero-resumo">
+            <span><strong>Período:</strong> {{ competencia_inicio }} a {{ competencia_fim }}</span>
+            <span><strong>Visão:</strong> mensal por categoria</span>
         </div>
     </div>
 
-    <form method="GET" action="{{ url_for('relatorio_custos') }}">
-        <div class="form-grid-3">
-            <div>
-                <label>Competência inicial</label>
-                <input
-                    type="month"
-                    name="competencia_inicio"
-                    value="{{ competencia_inicio }}"
-                    required
-                >
-            </div>
+    <form method="GET" action="{{ url_for('relatorio_custos') }}" class="relatorio-custos-filtro-hero">
+        <div>
+            <label>Competência inicial</label>
+            <input
+                type="month"
+                name="competencia_inicio"
+                value="{{ competencia_inicio }}"
+                required
+            >
+        </div>
 
-            <div>
-                <label>Competência final</label>
-                <input
-                    type="month"
-                    name="competencia_fim"
-                    value="{{ competencia_fim }}"
-                    required
-                >
-            </div>
+        <div>
+            <label>Competência final</label>
+            <input
+                type="month"
+                name="competencia_fim"
+                value="{{ competencia_fim }}"
+                required
+            >
+        </div>
 
-            <div>
-                <button type="submit" class="botao-filtrar-executivo">
-                    Aplicar filtros
-                </button>
-            </div>
+        <div>
+            <button type="submit" class="botao-hero-filtro">
+                Aplicar
+            </button>
         </div>
     </form>
-</div>
+</section>
 
-<div class="cards-executivos relatorio-kpis">
+<div class="cards-executivos relatorio-kpis relatorio-custos-kpis-compactos">
 
     <div class="card kpi-card">
         <span class="kpi-label">Custo total</span>
