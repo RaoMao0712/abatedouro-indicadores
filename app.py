@@ -890,9 +890,50 @@ def preparar_quantidades_venda(sku, form, quantidade_atual=None, unidade_atual=N
     }
 
 
+def buscar_venda_diaria_por_data_sku(data, sku, ignorar_id=None):
+    """
+    Busca lançamento de venda já existente para a mesma data e SKU.
+
+    Regra de negócio:
+    - A tela de Vendas Diárias registra a receita consolidada do dia por SKU.
+    - Portanto, deve existir no máximo um lançamento para cada combinação Data + SKU.
+    - Se o usuário precisar corrigir valores, deve editar o lançamento existente.
+    """
+    criar_tabela_vendas()
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    if ignorar_id:
+        cursor.execute(q("""
+        SELECT *
+        FROM vendas_diarias
+        WHERE data = ?
+          AND sku = ?
+          AND id <> ?
+        ORDER BY id DESC
+        LIMIT 1
+        """), (data, sku, ignorar_id))
+    else:
+        cursor.execute(q("""
+        SELECT *
+        FROM vendas_diarias
+        WHERE data = ?
+          AND sku = ?
+        ORDER BY id DESC
+        LIMIT 1
+        """), (data, sku))
+
+    venda = cursor.fetchone()
+    conn.close()
+
+    return venda
+
+
 def salvar_venda_diaria(form):
     criar_tabela_vendas()
 
+    data_venda = form["data"]
     sku = form["sku"]
     receita = float(form["receita"])
 
@@ -900,6 +941,14 @@ def salvar_venda_diaria(form):
         raise ValueError("A receita não pode ser negativa.")
 
     quantidades = preparar_quantidades_venda(sku, form)
+
+    venda_existente = buscar_venda_diaria_por_data_sku(data_venda, sku)
+
+    if venda_existente:
+        raise ValueError(
+            "Já existe uma venda lançada para esta data e SKU. "
+            "Edite o lançamento existente em vez de cadastrar novamente."
+        )
 
     conn = conectar()
     cursor = conn.cursor()
@@ -916,7 +965,7 @@ def salvar_venda_diaria(form):
         observacoes
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     """), (
-        form["data"],
+        data_venda,
         sku,
         quantidades["quantidade"],
         quantidades["unidade"],
@@ -4958,6 +5007,18 @@ def editar_venda_diaria(venda_id):
                 quantidade_atual=float(venda["quantidade"] or 0),
                 unidade_atual=venda["unidade"]
             )
+
+            venda_duplicada = buscar_venda_diaria_por_data_sku(
+                request.form["data"],
+                sku,
+                ignorar_id=venda_id
+            )
+
+            if venda_duplicada:
+                raise ValueError(
+                    "Já existe outra venda lançada para esta data e SKU. "
+                    "Ajuste o lançamento existente ou escolha outra data/SKU."
+                )
 
             conn = conectar()
             cursor = conn.cursor()
