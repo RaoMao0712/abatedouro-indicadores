@@ -1689,6 +1689,158 @@ def registrar_caixa_pa_manual(form):
     return codigo_caixa
 
 
+def calcular_fechamento_industrial_op(op_id):
+    """
+    Consolida as validações necessárias para finalizar a Embalagem Secundária
+    e encerrar oficialmente a OP.
+
+    Regras:
+    1) Aves vivas = bandejas apontadas na Embalagem Primária + descartes/condenações + mortes antes da pendura.
+    2) Todas as bandejas apontadas na Embalagem Primária precisam ter sido pesadas na Embalagem Secundária.
+    3) O peso oficial da OP nasce da soma dos pesos líquidos das caixas PA vinculadas à OP.
+    """
+    criar_banco()
+    criar_tabelas_estoque_pi_pa()
+
+    op = buscar_op_por_id(op_id)
+    if not op:
+        raise ValueError("OP não encontrada.")
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q("""
+    SELECT COALESCE(SUM(quantidade_bandejas), 0) AS total
+    FROM embalagem_primaria_apontamentos
+    WHERE op_id = ?
+    """), (op_id,))
+    bandejas_primaria = float(cursor.fetchone()["total"] or 0)
+
+    cursor.execute(q("""
+    SELECT
+        COALESCE(SUM(CASE
+            WHEN LOWER(COALESCE(categoria, '')) LIKE '%conden%' THEN quantidade
+            ELSE 0
+        END), 0) AS condenacoes,
+        COALESCE(SUM(CASE
+            WHEN LOWER(COALESCE(categoria, '')) NOT LIKE '%conden%' THEN quantidade
+            ELSE 0
+        END), 0) AS descartes
+    FROM apontamentos_descartes
+    WHERE op_id = ?
+      AND LOWER(unidade) IN ('aves', 'ave', 'unidade', 'unidades')
+    """), (op_id,))
+    perdas = cursor.fetchone()
+    condenacoes = float(perdas["condenacoes"] or 0)
+    descartes = float(perdas["descartes"] or 0)
+
+    cursor.execute(q("""
+    SELECT
+        COUNT(DISTINCT cx.id) AS caixas,
+        COALESCE(SUM(comp.quantidade_bandejas), 0) AS bandejas_consumidas,
+        COALESCE(SUM(cx.peso_liquido), 0) AS peso_liquido_total,
+        COALESCE(SUM(cx.peso_bruto), 0) AS peso_bruto_total
+    FROM pa_caixa_composicao comp
+    INNER JOIN pa_caixas cx ON cx.id = comp.caixa_id
+    WHERE comp.op_id = ?
+    """), (op_id,))
+    caixas = cursor.fetchone()
+
+    conn.close()
+
+    aves_vivas = float(op["quantidade_aves"] or 0)
+    mortes_antes_pendura = float(op["mortes_antes_pendura"] or 0)
+    caixas_qtd = int(caixas["caixas"] or 0)
+    bandejas_consumidas = float(caixas["bandejas_consumidas"] or 0)
+    peso_liquido_total = float(caixas["peso_liquido_total"] or 0)
+    peso_bruto_total = float(caixas["peso_bruto_total"] or 0)
+
+    total_fechamento_aves = bandejas_primaria + descartes + condenacoes + mortes_antes_pendura
+    saldo_aves = aves_vivas - total_fechamento_aves
+    saldo_pi = bandejas_primaria - bandejas_consumidas
+
+    tolerancia = 0.0001
+    aves_ok = abs(saldo_aves) <= tolerancia
+    pi_ok = abs(saldo_pi) <= tolerancia
+    possui_peso = peso_liquido_total > 0 and caixas_qtd > 0
+    pode_encerrar = aves_ok and pi_ok and possui_peso and op["status"] != "Encerrada"
+
+    pendencias = []
+    if not aves_ok:
+        pendencias.append(
+            f"Balanço de aves divergente em {saldo_aves:g} aves. Revise Embalagem Primária, descartes, condenações ou mortes antes da pendura."
+        )
+    if not pi_ok:
+        if saldo_pi > 0:
+            pendencias.append(
+                f"Existem {saldo_pi:g} bandejas sem pesagem. Lance uma caixa parcial antes de encerrar."
+            )
+        else:
+            pendencias.append(
+                f"A Embalagem Secundária consumiu {-saldo_pi:g} bandejas a mais que o PI produzido. Revise as caixas lançadas."
+            )
+    if not possui_peso:
+        pendencias.append("Nenhuma caixa com peso líquido foi registrada para esta OP.")
+    if op["status"] == "Encerrada":
+        pendencias.append("Esta OP já está encerrada.")
+
+    return {
+        "op": op,
+        "aves_vivas": aves_vivas,
+        "mortes_antes_pendura": mortes_antes_pendura,
+        "bandejas_primaria": bandejas_primaria,
+        "descartes": descartes,
+        "condenacoes": condenacoes,
+        "total_fechamento_aves": total_fechamento_aves,
+        "saldo_aves": saldo_aves,
+        "aves_ok": aves_ok,
+        "caixas": caixas_qtd,
+        "bandejas_consumidas": bandejas_consumidas,
+        "saldo_pi": saldo_pi,
+        "pi_ok": pi_ok,
+        "peso_liquido_total": peso_liquido_total,
+        "peso_bruto_total": peso_bruto_total,
+        "possui_peso": possui_peso,
+        "pode_encerrar": pode_encerrar,
+        "pendencias": pendencias,
+    }
+
+
+def finalizar_embalagem_secundaria_op(op_id):
+    fechamento = calcular_fechamento_industrial_op(op_id)
+
+    if not fechamento["pode_encerrar"]:
+        raise ValueError("Não foi possível encerrar a OP: " + " ".join(fechamento["pendencias"]))
+
+    op = fechamento["op"]
+    unidades_produzidas = fechamento["bandejas_consumidas"]
+    kg_produzidos = fechamento["peso_liquido_total"]
+
+    gerar_producao_automatica_setores(
+        op=op,
+        data_lancamento=op["data"],
+        hora_inicio="N/A",
+        hora_fim="N/A",
+        unidades_produzidas=unidades_produzidas,
+        kg_produzidos=kg_produzidos,
+        descontar_almoco=False
+    )
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q("""
+    UPDATE ordens_producao
+    SET status = ?
+    WHERE id = ?
+    """), ("Encerrada", op_id))
+
+    conn.commit()
+    conn.close()
+
+    return fechamento
+
+
 def calcular_resumo_estoques_pi_pa(saldos_pi, caixas_pa):
     saldo_pi_bandejas = sum(float(item["saldo_bandejas"] or 0) for item in saldos_pi)
     caixas_em_estoque = [c for c in caixas_pa if (c["status"] or "") == "Em estoque"]
@@ -5176,7 +5328,25 @@ def estoque_produtos():
     )
 
 
+@app.route("/embalagem-secundaria/<int:op_id>/finalizar", methods=["POST"])
+@perfil_permitido("pcp")
+def finalizar_embalagem_secundaria(op_id):
+    try:
+        fechamento = finalizar_embalagem_secundaria_op(op_id)
+        flash(
+            "OP encerrada com sucesso. "
+            f"Peso oficial: {fechamento['peso_liquido_total']:.3f} kg | "
+            f"Caixas: {fechamento['caixas']} | "
+            f"Bandejas: {fechamento['bandejas_consumidas']:.0f}."
+        )
+    except ValueError as erro:
+        flash(str(erro))
+
+    return redirect(url_for("embalagem_secundaria", op_id=op_id))
+
+
 @app.route("/embalagem-secundaria", methods=["GET", "POST"])
+
 @perfil_permitido("pcp")
 def embalagem_secundaria():
     if request.method == "POST":
@@ -5194,11 +5364,25 @@ def embalagem_secundaria():
     op_id_selecionada = request.args.get("op_id", "")
     op_selecionada = None
     caixas_op = []
+    fechamento_op = None
 
     if op_id_selecionada:
         try:
             op_id_int = int(op_id_selecionada)
             op_selecionada = next((item for item in saldos_pi if int(item["op_id"]) == op_id_int), None)
+            fechamento_op = calcular_fechamento_industrial_op(op_id_int)
+
+            # Quando o saldo PI chega a zero, a OP deixa de aparecer em saldos_pi.
+            # Ainda assim ela precisa permanecer carregada para conferência e encerramento.
+            if op_selecionada is None and fechamento_op:
+                op_base = fechamento_op["op"]
+                op_selecionada = {
+                    "op_id": op_id_int,
+                    "data_op": op_base["data"],
+                    "sku": op_base["sku"] or "Galinha Cortada",
+                    "saldo_bandejas": fechamento_op["saldo_pi"],
+                }
+
             conn = conectar()
             cursor = conn.cursor()
             cursor.execute(q("""
@@ -5214,6 +5398,7 @@ def embalagem_secundaria():
         except Exception:
             op_selecionada = None
             caixas_op = []
+            fechamento_op = None
 
     return render_template(
         "embalagem_secundaria.html",
@@ -5224,7 +5409,8 @@ def embalagem_secundaria():
         bandejas_por_caixa=BANDEJAS_POR_CAIXA,
         op_id_selecionada=str(op_id_selecionada),
         op_selecionada=op_selecionada,
-        caixas_op=caixas_op
+        caixas_op=caixas_op,
+        fechamento_op=fechamento_op
     )
 
 @app.route("/expedicao")

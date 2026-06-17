@@ -57,6 +57,11 @@
             <label>OP para Embalagem Secundária</label>
             <select name="op_id" required onchange="this.form.submit()">
                 <option value="">Selecione a OP</option>
+                {% if op_selecionada and op_id_selecionada and not saldos_pi|selectattr("op_id", "equalto", op_selecionada.op_id)|list %}
+                    <option value="{{ op_selecionada.op_id }}" selected>
+                        OP #{{ op_selecionada.op_id }} — {{ op_selecionada.sku }} — saldo {{ op_selecionada.saldo_bandejas|br_numero }} bandejas
+                    </option>
+                {% endif %}
                 {% for item in saldos_pi %}
                     <option value="{{ item.op_id }}" {% if op_id_selecionada == item.op_id|string %}selected{% endif %}>
                         OP #{{ item.op_id }} — {{ item.sku }} — saldo {{ item.saldo_bandejas|br_numero }} bandejas
@@ -84,6 +89,109 @@
     {% endif %}
 </div>
 
+{% if op_selecionada and fechamento_op %}
+<div class="card expedicao-card">
+    <div class="section-title-row">
+        <div>
+            <span class="eyebrow">Conferência da OP</span>
+            <h2>Validação para encerramento industrial</h2>
+        </div>
+    </div>
+
+    <div class="expedicao-kpis">
+        <div class="card kpi-card {% if fechamento_op.aves_ok %}destaque{% endif %}">
+            <span class="kpi-label">Balanço de aves</span>
+            <strong>{{ fechamento_op.saldo_aves|br_numero }}</strong>
+            <small>Saldo deve ser zero</small>
+        </div>
+
+        <div class="card kpi-card {% if fechamento_op.pi_ok %}destaque{% endif %}">
+            <span class="kpi-label">Saldo PI</span>
+            <strong>{{ fechamento_op.saldo_pi|br_numero }}</strong>
+            <small>Bandejas sem pesagem</small>
+        </div>
+
+        <div class="card kpi-card">
+            <span class="kpi-label">Peso oficial</span>
+            <strong>{{ fechamento_op.peso_liquido_total|br_numero }}</strong>
+            <small>kg líquidos somados das caixas</small>
+        </div>
+
+        <div class="card kpi-card">
+            <span class="kpi-label">Caixas</span>
+            <strong>{{ fechamento_op.caixas }}</strong>
+            <small>caixas vinculadas à OP</small>
+        </div>
+    </div>
+
+    <div class="tabela-responsiva tabela-executiva expedicao-tabela">
+        <table>
+            <thead>
+                <tr>
+                    <th>Grupo</th>
+                    <th>Valor</th>
+                    <th>Regra</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Aves vivas</td>
+                    <td>{{ fechamento_op.aves_vivas|br_numero }}</td>
+                    <td rowspan="5">Aves vivas = bandejas + descartes + condenações + mortes antes da pendura</td>
+                </tr>
+                <tr>
+                    <td>Bandejas apontadas</td>
+                    <td>{{ fechamento_op.bandejas_primaria|br_numero }}</td>
+                </tr>
+                <tr>
+                    <td>Descartes</td>
+                    <td>{{ fechamento_op.descartes|br_numero }}</td>
+                </tr>
+                <tr>
+                    <td>Condenações</td>
+                    <td>{{ fechamento_op.condenacoes|br_numero }}</td>
+                </tr>
+                <tr>
+                    <td>Mortes antes da pendura</td>
+                    <td>{{ fechamento_op.mortes_antes_pendura|br_numero }}</td>
+                </tr>
+                <tr>
+                    <td>PI produzido</td>
+                    <td>{{ fechamento_op.bandejas_primaria|br_numero }}</td>
+                    <td rowspan="2">PI produzido = bandejas pesadas na Embalagem Secundária</td>
+                </tr>
+                <tr>
+                    <td>PI consumido/pesado</td>
+                    <td>{{ fechamento_op.bandejas_consumidas|br_numero }}</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    {% if fechamento_op.pendencias %}
+        <div class="obs" style="margin-top: 1rem;">
+            <strong>Pendências para encerrar:</strong>
+            <ul>
+                {% for pendencia in fechamento_op.pendencias %}
+                    <li>{{ pendencia }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+    {% endif %}
+
+    <form
+        method="post"
+        action="{{ url_for('finalizar_embalagem_secundaria', op_id=op_selecionada.op_id) }}"
+        onsubmit="return confirm('Confirmar encerramento industrial desta OP?')"
+        style="margin-top: 1rem;"
+    >
+        <button type="submit" class="botao-principal" {% if not fechamento_op.pode_encerrar %}disabled{% endif %}>
+            Finalizar Embalagem Secundária e Encerrar OP
+        </button>
+    </form>
+</div>
+{% endif %}
+
 {% if op_selecionada %}
 <div class="card expedicao-card">
     <div class="section-title-row">
@@ -93,6 +201,7 @@
         </div>
     </div>
 
+    {% if not fechamento_op or (fechamento_op.saldo_pi > 0 and fechamento_op.op.status != "Encerrada") %}
     <form method="post" class="form-grid">
         <input type="hidden" name="op_principal" value="{{ op_selecionada.op_id }}">
         <input type="hidden" name="op_complementar" value="">
@@ -145,6 +254,12 @@
     <p class="obs">
         Após registrar a caixa, a tela permanece nesta mesma OP. O operador só informa o próximo peso e confirma.
     </p>
+    {% else %}
+        <p class="obs">
+            Todas as bandejas apontadas para esta OP já foram pesadas na Embalagem Secundária.
+            Confira o painel de validação e finalize o encerramento industrial.
+        </p>
+    {% endif %}
 </div>
 
 <div class="card expedicao-card">
