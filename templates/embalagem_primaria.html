@@ -1,0 +1,171 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+
+<section class="hero-dashboard expedicao-hero">
+    <div>
+        <span class="eyebrow">Produto Intermediário</span>
+        <h2>Embalagem Primária</h2>
+        <div class="hero-resumo-inline">
+            <span><strong>Aponta:</strong> bandejas produzidas por OP</span>
+            <span><strong>Gera:</strong> Estoque PI</span>
+            <span><strong>Não encerra:</strong> a OP ainda aguarda Embalagem Secundária</span>
+        </div>
+    </div>
+
+    <div class="expedicao-acoes-topo">
+        <a href="{{ url_for('estoque_produtos') }}" class="botao-dre-exportar">Estoque PI/PA</a>
+        <a href="{{ url_for('embalagem_secundaria') }}" class="botao-dre-exportar">Embalagem Secundária</a>
+    </div>
+</section>
+
+<div class="expedicao-kpis">
+    <div class="card kpi-card destaque">
+        <span class="kpi-label">PI em bandejas</span>
+        <strong>{{ resumo.saldo_pi_bandejas|br_numero }}</strong>
+        <small>Bandejas apontadas e ainda não encaixotadas</small>
+    </div>
+
+    <div class="card kpi-card">
+        <span class="kpi-label">OPs com PI</span>
+        <strong>{{ resumo.ops_com_pi }}</strong>
+        <small>Ordens aguardando embalagem secundária</small>
+    </div>
+
+    <div class="card kpi-card">
+        <span class="kpi-label">PA em caixas</span>
+        <strong>{{ resumo.saldo_pa_caixas }}</strong>
+        <small>Caixas já formadas</small>
+    </div>
+
+    <div class="card kpi-card">
+        <span class="kpi-label">PA em kg</span>
+        <strong>{{ resumo.saldo_pa_kg|br_numero }}</strong>
+        <small>Peso líquido já validado</small>
+    </div>
+</div>
+
+<div class="card expedicao-card">
+    <div class="section-title-row">
+        <div>
+            <span class="eyebrow">Apontamento</span>
+            <h2>Registrar Embalagem Primária</h2>
+        </div>
+    </div>
+
+    <form method="post" class="form-grid">
+        <div>
+            <label>OP</label>
+            <select name="op_id" required>
+                <option value="">Selecione</option>
+                {% for op in ops %}
+                    <option value="{{ op.id }}" {% if op_id_selecionada == op.id|string %}selected{% endif %}>
+                        OP #{{ op.id }} — {{ op.data }} — {{ op.sku or "Galinha Cortada" }} — {{ op.status }}
+                    </option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div>
+            <label>Bandejas produzidas</label>
+            <input type="number" name="quantidade_bandejas" min="1" step="1" required placeholder="Ex.: 1200">
+        </div>
+
+        <div class="form-span-2">
+            <label>Observações</label>
+            <textarea name="observacoes" rows="2" placeholder="Ex.: produção do dia enviada para congelamento"></textarea>
+        </div>
+
+        <div class="form-span-2">
+            <button type="submit" class="botao-principal">Registrar PI</button>
+        </div>
+    </form>
+
+    <p class="obs">
+        Esta etapa não encerra a OP e não altera o cálculo de rendimento. Ela apenas registra as bandejas produzidas e mantém todas vinculadas à OP até a Embalagem Secundária formar as caixas e validar o peso real.
+    </p>
+</div>
+
+<div class="card expedicao-card">
+    <div class="section-title-row">
+        <div>
+            <span class="eyebrow">Histórico</span>
+            <h2>Últimos apontamentos de Embalagem Primária</h2>
+        </div>
+    </div>
+
+    {% if apontamentos %}
+    <div class="tabela-responsiva tabela-executiva expedicao-tabela">
+        <table>
+            <thead>
+                <tr>
+                    <th>OP</th>
+                    <th>Data</th>
+                    <th>SKU</th>
+                    <th>Bandejas</th>
+                    <th>Observações</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in apontamentos %}
+                <tr>
+                    <td><strong>#{{ item.op_id }}</strong></td>
+                    <td>{{ item.data_apontamento }}</td>
+                    <td>{{ item.sku }}</td>
+                    <td>{{ item.quantidade_bandejas|br_numero }}</td>
+                    <td>{{ item.observacoes or "-" }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+        <p class="obs">Nenhum apontamento de Embalagem Primária registrado.</p>
+    {% endif %}
+</div>
+
+<div class="card expedicao-card">
+    <div class="section-title-row">
+        <div>
+            <span class="eyebrow">PI disponível</span>
+            <h2>Bandejas pendentes por OP</h2>
+        </div>
+    </div>
+
+    {% if saldos_pi %}
+    <div class="tabela-responsiva tabela-executiva expedicao-tabela">
+        <table>
+            <thead>
+                <tr>
+                    <th>OP</th>
+                    <th>Data OP</th>
+                    <th>SKU</th>
+                    <th>Saldo bandejas</th>
+                    <th>Situação</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in saldos_pi %}
+                <tr>
+                    <td><strong>#{{ item.op_id }}</strong></td>
+                    <td>{{ item.data_op or "-" }}</td>
+                    <td>{{ item.sku }}</td>
+                    <td>{{ item.saldo_bandejas|br_numero }}</td>
+                    <td>
+                        {% if item.saldo_bandejas < 12 %}
+                            <span class="badge-expedicao neutro">Sobra vinculada à OP</span>
+                        {% else %}
+                            <span class="badge-expedicao entrada">Disponível para caixa</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+        <p class="obs">Nenhum PI pendente.</p>
+    {% endif %}
+</div>
+
+{% endblock %}

@@ -59,58 +59,33 @@
 
             {% if session.get("perfil") == "admin" or session.get("perfil") == "pcp" %}
 
-                <form
-                    method="POST"
-                    action="{{ url_for('encerrar_op', op_id=op.id) }}"
-                    onsubmit="return confirm('Deseja realmente encerrar esta OP? A produção será gerada automaticamente e novos apontamentos serão bloqueados.')"
-                    class="form-encerramento-op"
-                >
+                <div class="form-encerramento-op">
 
                     <div class="form-grid">
-                        <div>
-                            <label>Hora inicial</label>
-                            <input type="time" name="hora_inicio" required>
-                        </div>
-
-                        <div>
-                            <label>Hora final</label>
-                            <input type="time" name="hora_fim" required>
-                        </div>
-
-                        <div>
-                            <label>Unidades produzidas</label>
-                            <input type="number" step="1" name="unidades_produzidas" required>
-                        </div>
-
-                        {% if op.sku == "Galinha Cortada" or not op.sku %}
-                        <div>
-                            <label>Kg produzidos</label>
-                            <input type="number" step="0.01" name="kg_produzidos" required>
-                        </div>
-                        {% endif %}
-
-                        <div>
-                            <label>Intervalo de almoço</label>
-                            <label class="checkbox-item">
-                                <input
-                                    type="checkbox"
-                                    name="descontar_almoco"
-                                    value="sim"
-                                    checked
-                                >
-                                Descontar 1h12
-                            </label>
+                        <div class="form-span-2">
+                            <label>Fluxo atual da OP</label>
+                            <p class="obs">
+                                O apontamento de bandejas agora deve ser feito em <strong>Embalagem Primária</strong>.
+                                A OP só deve ser encerrada depois da Embalagem Secundária validar caixas e peso real.
+                            </p>
                         </div>
                     </div>
 
-                    <button
-                        type="submit"
+                    <a
+                        href="{{ url_for('embalagem_primaria', op_id=op.id) }}"
                         class="botao-impressao"
                     >
-                        Encerrar OP
-                    </button>
+                        Apontar Embalagem Primária
+                    </a>
 
-                </form>
+                    <a
+                        href="{{ url_for('embalagem_secundaria') }}"
+                        class="botao-editar"
+                    >
+                        Ir para Embalagem Secundária
+                    </a>
+
+                </div>
 
             {% endif %}
 

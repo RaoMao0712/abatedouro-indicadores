@@ -1146,6 +1146,18 @@ def criar_tabelas_estoque_pi_pa():
         """)
 
         cursor.execute("""
+        CREATE TABLE IF NOT EXISTS embalagem_primaria_apontamentos (
+            id SERIAL PRIMARY KEY,
+            op_id INTEGER NOT NULL,
+            data_apontamento TEXT NOT NULL,
+            sku TEXT NOT NULL,
+            quantidade_bandejas REAL DEFAULT 0,
+            observacoes TEXT,
+            criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
+
+        cursor.execute("""
         CREATE TABLE IF NOT EXISTS pa_caixas (
             id SERIAL PRIMARY KEY,
             codigo_caixa TEXT UNIQUE NOT NULL,
@@ -1181,6 +1193,18 @@ def criar_tabelas_estoque_pi_pa():
             sku TEXT NOT NULL,
             quantidade_bandejas REAL DEFAULT 0,
             origem TEXT,
+            observacoes TEXT,
+            criado_em TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
+
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS embalagem_primaria_apontamentos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            op_id INTEGER NOT NULL,
+            data_apontamento TEXT NOT NULL,
+            sku TEXT NOT NULL,
+            quantidade_bandejas REAL DEFAULT 0,
             observacoes TEXT,
             criado_em TEXT DEFAULT CURRENT_TIMESTAMP
         )
@@ -1226,8 +1250,13 @@ def remover_movimentacoes_estoque_pi_por_op(op_id):
     cursor.execute(q("""
     DELETE FROM estoque_produto_intermediario
     WHERE op_id = ?
-      AND tipo = ?
-    """), (op_id, "ENTRADA_OP"))
+      AND tipo IN (?, ?)
+    """), (op_id, "ENTRADA_OP", "ENTRADA_EMBALAGEM_PRIMARIA"))
+
+    cursor.execute(q("""
+    DELETE FROM embalagem_primaria_apontamentos
+    WHERE op_id = ?
+    """), (op_id,))
 
     conn.commit()
     conn.close()
@@ -1251,14 +1280,14 @@ def op_possui_caixa_pa(op_id):
     return float(linha["total"] or 0) > 0
 
 
-def registrar_entrada_estoque_pi_op(op, unidades_produzidas):
+def registrar_entrada_estoque_pi_op(op, unidades_produzidas, origem="Embalagem Primária", observacoes=None):
     criar_tabelas_estoque_pi_pa()
 
     op_id = op["id"]
     sku = op["sku"] or "Galinha Cortada"
     bandejas = float(unidades_produzidas or 0)
 
-    # Segurança contra duplicidade: se a OP for reprocessada, a entrada anterior é substituída.
+    # Segurança contra duplicidade: se a OP for reapontada, a entrada anterior é substituída.
     remover_movimentacoes_estoque_pi_por_op(op_id)
 
     conn = conectar()
@@ -1276,16 +1305,124 @@ def registrar_entrada_estoque_pi_op(op, unidades_produzidas):
     ) VALUES (?, ?, ?, ?, ?, ?, ?)
     """), (
         op["data"],
-        "ENTRADA_OP",
+        "ENTRADA_EMBALAGEM_PRIMARIA",
         op_id,
         sku,
         bandejas,
-        "Encerramento da OP",
-        "Entrada automática de PI gerada no encerramento da OP. O peso da OP permanece no cálculo de rendimento."
+        origem,
+        observacoes or "Entrada automática de PI gerada no apontamento da Embalagem Primária."
     ))
 
     conn.commit()
     conn.close()
+
+
+def registrar_apontamento_embalagem_primaria(op, quantidade_bandejas, observacoes=""):
+    criar_tabelas_estoque_pi_pa()
+
+    if not op:
+        raise ValueError("OP não encontrada.")
+
+    if op["status"] == "Encerrada":
+        raise ValueError("Esta OP já está encerrada.")
+
+    if op_possui_caixa_pa(op["id"]):
+        raise ValueError("Esta OP já possui caixas PA vinculadas. Não é possível reapontar a Embalagem Primária.")
+
+    bandejas = float(quantidade_bandejas or 0)
+    if bandejas <= 0:
+        raise ValueError("Informe uma quantidade válida de bandejas produzidas.")
+
+    sku = op["sku"] or "Galinha Cortada"
+
+    # Substitui o apontamento anterior da mesma OP, se existir.
+    remover_movimentacoes_estoque_pi_por_op(op["id"])
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q("""
+    INSERT INTO embalagem_primaria_apontamentos (
+        op_id,
+        data_apontamento,
+        sku,
+        quantidade_bandejas,
+        observacoes
+    ) VALUES (?, ?, ?, ?, ?)
+    """), (
+        op["id"],
+        op["data"],
+        sku,
+        bandejas,
+        observacoes or ""
+    ))
+
+    cursor.execute(q("""
+    INSERT INTO estoque_produto_intermediario (
+        data_movimentacao,
+        tipo,
+        op_id,
+        sku,
+        quantidade_bandejas,
+        origem,
+        observacoes
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    """), (
+        op["data"],
+        "ENTRADA_EMBALAGEM_PRIMARIA",
+        op["id"],
+        sku,
+        bandejas,
+        "Embalagem Primária",
+        "PI gerado pelo apontamento da Embalagem Primária. A OP permanece aberta até a validação da Embalagem Secundária."
+    ))
+
+    # A OP ainda não está encerrada. O status apenas sinaliza que há PI aguardando embalagem secundária.
+    cursor.execute(q("""
+    UPDATE ordens_producao
+    SET status = ?
+    WHERE id = ?
+    """), ("Aguardando Embalagem Secundária", op["id"]))
+
+    conn.commit()
+    conn.close()
+
+
+def buscar_apontamentos_embalagem_primaria(limite=50):
+    criar_tabelas_estoque_pi_pa()
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q("""
+    SELECT ep.*, op.data AS data_op, op.fornecedor, op.quantidade_aves
+    FROM embalagem_primaria_apontamentos ep
+    LEFT JOIN ordens_producao op ON op.id = ep.op_id
+    ORDER BY ep.id DESC
+    LIMIT ?
+    """), (limite,))
+
+    linhas = cursor.fetchall()
+    conn.close()
+    return linhas
+
+
+def buscar_ops_para_embalagem_primaria():
+    criar_banco()
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q("""
+    SELECT *
+    FROM ordens_producao
+    WHERE status <> ?
+    ORDER BY data DESC, id DESC
+    """), ("Encerrada",))
+
+    ops = cursor.fetchall()
+    conn.close()
+    return ops
 
 
 def buscar_saldos_estoque_pi():
@@ -4987,6 +5124,41 @@ def dashboard():
 
 
 
+@app.route("/embalagem-primaria", methods=["GET", "POST"])
+@perfil_permitido("pcp", "producao")
+def embalagem_primaria():
+    if request.method == "POST":
+        try:
+            op_id = int(request.form.get("op_id") or 0)
+            op = buscar_op_por_id(op_id)
+            registrar_apontamento_embalagem_primaria(
+                op=op,
+                quantidade_bandejas=request.form.get("quantidade_bandejas"),
+                observacoes=request.form.get("observacoes") or ""
+            )
+            flash("Embalagem Primária apontada com sucesso. O Estoque PI foi atualizado e a OP permanece pendente para Embalagem Secundária.")
+        except ValueError as erro:
+            flash(str(erro))
+
+        return redirect(url_for("embalagem_primaria", op_id=request.form.get("op_id") or ""))
+
+    op_id_selecionada = request.args.get("op_id", "")
+    ops = buscar_ops_para_embalagem_primaria()
+    apontamentos = buscar_apontamentos_embalagem_primaria()
+    saldos_pi = buscar_saldos_estoque_pi()
+    caixas_pa = buscar_caixas_pa()
+    resumo = calcular_resumo_estoques_pi_pa(saldos_pi, caixas_pa)
+
+    return render_template(
+        "embalagem_primaria.html",
+        ops=ops,
+        apontamentos=apontamentos,
+        saldos_pi=saldos_pi,
+        resumo=resumo,
+        op_id_selecionada=str(op_id_selecionada)
+    )
+
+
 @app.route("/estoque-produtos")
 @perfil_permitido("pcp")
 def estoque_produtos():
@@ -6657,11 +6829,6 @@ def encerrar_op(op_id):
             descontar_almoco=descontar_almoco
         )
 
-        registrar_entrada_estoque_pi_op(
-            op=op,
-            unidades_produzidas=unidades_produzidas
-        )
-
         conn = conectar()
         cursor = conn.cursor()
 
@@ -6674,7 +6841,7 @@ def encerrar_op(op_id):
         conn.commit()
         conn.close()
 
-        flash("OP encerrada com sucesso. A produção foi gerada automaticamente e a entrada em PI foi registrada.")
+        flash("OP encerrada com sucesso. A produção final foi gerada automaticamente.")
 
     except ValueError as erro:
         flash(str(erro))
