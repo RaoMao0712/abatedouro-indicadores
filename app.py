@@ -1106,55 +1106,109 @@ def criar_tabelas_expedicao():
 
 
 # ============================================================
-# ESTOQUE DE PRODUTO ACABADO - SPRINT PA-1
+# ESTOQUE PI / PA - ARQUITETURA RASTREÁVEL
 # ============================================================
 
-def criar_tabela_estoque_produto_acabado():
-    """
-    Cria a tabela de movimentações do Estoque de Produto Acabado.
+BANDEJAS_POR_CAIXA = 12
 
-    Regra do Sprint PA-1:
-    - O estoque nasce por movimentação, não por saldo gravado.
-    - ENTRADA_OP é gerada automaticamente no encerramento da OP.
-    - Ao reabrir uma OP, a entrada automática da OP é removida.
-    - Saídas por romaneio serão implementadas em sprint posterior.
+
+def criar_tabelas_estoque_pi_pa():
+    """
+    Cria a estrutura de estoque em duas etapas:
+
+    1) Produto Intermediário (PI)
+       - nasce no encerramento da OP;
+       - controla bandejas por OP/lote;
+       - nenhuma bandeja fica sem vínculo com OP.
+
+    2) Produto Acabado (PA)
+       - nasce na Embalagem Secundária;
+       - controla caixas físicas;
+       - permite composição da caixa por uma ou mais OPs;
+       - preparado para integração futura com balança, Zebra e leitor.
     """
     conn = conectar()
     cursor = conn.cursor()
 
     if DATABASE_URL:
         cursor.execute("""
-        CREATE TABLE IF NOT EXISTS estoque_produto_acabado (
+        CREATE TABLE IF NOT EXISTS estoque_produto_intermediario (
             id SERIAL PRIMARY KEY,
             data_movimentacao TEXT NOT NULL,
             tipo TEXT NOT NULL,
             op_id INTEGER,
-            romaneio_id INTEGER,
             sku TEXT NOT NULL,
-            tipo_produto TEXT NOT NULL DEFAULT 'Produto Acabado',
-            quantidade_unidades REAL DEFAULT 0,
-            quantidade_kg REAL DEFAULT 0,
+            quantidade_bandejas REAL DEFAULT 0,
             origem TEXT,
-            destinatario_nome TEXT,
             observacoes TEXT,
+            criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
+
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS pa_caixas (
+            id SERIAL PRIMARY KEY,
+            codigo_caixa TEXT UNIQUE NOT NULL,
+            sku TEXT NOT NULL,
+            data_fabricacao TEXT,
+            data_validade TEXT,
+            peso_bruto REAL DEFAULT 0,
+            peso_liquido REAL DEFAULT 0,
+            quantidade_bandejas REAL DEFAULT 0,
+            status TEXT DEFAULT 'Em estoque',
+            origem TEXT,
+            observacoes TEXT,
+            criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
+
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS pa_caixa_composicao (
+            id SERIAL PRIMARY KEY,
+            caixa_id INTEGER NOT NULL,
+            op_id INTEGER NOT NULL,
+            quantidade_bandejas REAL DEFAULT 0,
             criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         """)
     else:
         cursor.execute("""
-        CREATE TABLE IF NOT EXISTS estoque_produto_acabado (
+        CREATE TABLE IF NOT EXISTS estoque_produto_intermediario (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             data_movimentacao TEXT NOT NULL,
             tipo TEXT NOT NULL,
             op_id INTEGER,
-            romaneio_id INTEGER,
             sku TEXT NOT NULL,
-            tipo_produto TEXT NOT NULL DEFAULT 'Produto Acabado',
-            quantidade_unidades REAL DEFAULT 0,
-            quantidade_kg REAL DEFAULT 0,
+            quantidade_bandejas REAL DEFAULT 0,
             origem TEXT,
-            destinatario_nome TEXT,
             observacoes TEXT,
+            criado_em TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
+
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS pa_caixas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            codigo_caixa TEXT UNIQUE NOT NULL,
+            sku TEXT NOT NULL,
+            data_fabricacao TEXT,
+            data_validade TEXT,
+            peso_bruto REAL DEFAULT 0,
+            peso_liquido REAL DEFAULT 0,
+            quantidade_bandejas REAL DEFAULT 0,
+            status TEXT DEFAULT 'Em estoque',
+            origem TEXT,
+            observacoes TEXT,
+            criado_em TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
+
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS pa_caixa_composicao (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            caixa_id INTEGER NOT NULL,
+            op_id INTEGER NOT NULL,
+            quantidade_bandejas REAL DEFAULT 0,
             criado_em TEXT DEFAULT CURRENT_TIMESTAMP
         )
         """)
@@ -1163,14 +1217,14 @@ def criar_tabela_estoque_produto_acabado():
     conn.close()
 
 
-def remover_movimentacoes_estoque_pa_por_op(op_id):
-    criar_tabela_estoque_produto_acabado()
+def remover_movimentacoes_estoque_pi_por_op(op_id):
+    criar_tabelas_estoque_pi_pa()
 
     conn = conectar()
     cursor = conn.cursor()
 
     cursor.execute(q("""
-    DELETE FROM estoque_produto_acabado
+    DELETE FROM estoque_produto_intermediario
     WHERE op_id = ?
       AND tipo = ?
     """), (op_id, "ENTRADA_OP"))
@@ -1179,95 +1233,90 @@ def remover_movimentacoes_estoque_pa_por_op(op_id):
     conn.close()
 
 
-def registrar_entrada_estoque_pa_op(op, unidades_produzidas, kg_produzidos=None):
-    criar_tabela_estoque_produto_acabado()
-
-    op_id = op["id"]
-    sku = op["sku"] or "Galinha Cortada"
-    unidades = float(unidades_produzidas or 0)
-    kg = float(kg_produzidos or 0)
-
-    # Segurança contra duplicidade: se a OP for reprocessada, a entrada anterior é substituída.
-    remover_movimentacoes_estoque_pa_por_op(op_id)
+def op_possui_caixa_pa(op_id):
+    criar_tabelas_estoque_pi_pa()
 
     conn = conectar()
     cursor = conn.cursor()
 
     cursor.execute(q("""
-    INSERT INTO estoque_produto_acabado (
+    SELECT COUNT(*) AS total
+    FROM pa_caixa_composicao
+    WHERE op_id = ?
+    """), (op_id,))
+
+    linha = cursor.fetchone()
+    conn.close()
+
+    return float(linha["total"] or 0) > 0
+
+
+def registrar_entrada_estoque_pi_op(op, unidades_produzidas):
+    criar_tabelas_estoque_pi_pa()
+
+    op_id = op["id"]
+    sku = op["sku"] or "Galinha Cortada"
+    bandejas = float(unidades_produzidas or 0)
+
+    # Segurança contra duplicidade: se a OP for reprocessada, a entrada anterior é substituída.
+    remover_movimentacoes_estoque_pi_por_op(op_id)
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q("""
+    INSERT INTO estoque_produto_intermediario (
         data_movimentacao,
         tipo,
         op_id,
-        romaneio_id,
         sku,
-        tipo_produto,
-        quantidade_unidades,
-        quantidade_kg,
+        quantidade_bandejas,
         origem,
-        destinatario_nome,
         observacoes
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)
     """), (
         op["data"],
         "ENTRADA_OP",
         op_id,
-        None,
         sku,
-        "Produto Acabado",
-        unidades,
-        kg,
+        bandejas,
         "Encerramento da OP",
-        None,
-        "Entrada automática gerada no encerramento da OP."
+        "Entrada automática de PI gerada no encerramento da OP. O peso da OP permanece no cálculo de rendimento."
     ))
 
     conn.commit()
     conn.close()
 
 
-def buscar_saldos_estoque_pa():
-    criar_tabela_estoque_produto_acabado()
+def buscar_saldos_estoque_pi():
+    criar_tabelas_estoque_pi_pa()
 
     conn = conectar()
     cursor = conn.cursor()
 
     cursor.execute(q("""
     SELECT
-        sku,
-        tipo_produto,
+        pi.op_id,
+        op.data AS data_op,
+        pi.sku,
         COALESCE(SUM(
             CASE
-                WHEN tipo LIKE 'ENTRADA%' THEN quantidade_unidades
-                WHEN tipo LIKE 'SAIDA%' THEN -quantidade_unidades
-                ELSE quantidade_unidades
+                WHEN pi.tipo LIKE 'ENTRADA%' THEN pi.quantidade_bandejas
+                WHEN pi.tipo LIKE 'SAIDA%' THEN -pi.quantidade_bandejas
+                ELSE pi.quantidade_bandejas
             END
-        ), 0) AS saldo_unidades,
-        COALESCE(SUM(
+        ), 0) AS saldo_bandejas
+    FROM estoque_produto_intermediario pi
+    LEFT JOIN ordens_producao op ON op.id = pi.op_id
+    GROUP BY pi.op_id, op.data, pi.sku
+    HAVING COALESCE(SUM(
             CASE
-                WHEN tipo LIKE 'ENTRADA%' THEN quantidade_kg
-                WHEN tipo LIKE 'SAIDA%' THEN -quantidade_kg
-                ELSE quantidade_kg
-            END
-        ), 0) AS saldo_kg
-    FROM estoque_produto_acabado
-    GROUP BY sku, tipo_produto
-    HAVING
-        COALESCE(SUM(
-            CASE
-                WHEN tipo LIKE 'ENTRADA%' THEN quantidade_unidades
-                WHEN tipo LIKE 'SAIDA%' THEN -quantidade_unidades
-                ELSE quantidade_unidades
+                WHEN pi.tipo LIKE 'ENTRADA%' THEN pi.quantidade_bandejas
+                WHEN pi.tipo LIKE 'SAIDA%' THEN -pi.quantidade_bandejas
+                ELSE pi.quantidade_bandejas
             END
         ), 0) <> 0
-        OR
-        COALESCE(SUM(
-            CASE
-                WHEN tipo LIKE 'ENTRADA%' THEN quantidade_kg
-                WHEN tipo LIKE 'SAIDA%' THEN -quantidade_kg
-                ELSE quantidade_kg
-            END
-        ), 0) <> 0
-    ORDER BY sku, tipo_produto
+    ORDER BY op.data ASC, pi.op_id ASC
     """))
 
     saldos = cursor.fetchall()
@@ -1275,15 +1324,15 @@ def buscar_saldos_estoque_pa():
     return saldos
 
 
-def buscar_movimentacoes_estoque_pa(limite=50):
-    criar_tabela_estoque_produto_acabado()
+def buscar_movimentacoes_estoque_pi(limite=50):
+    criar_tabelas_estoque_pi_pa()
 
     conn = conectar()
     cursor = conn.cursor()
 
     cursor.execute(q("""
     SELECT *
-    FROM estoque_produto_acabado
+    FROM estoque_produto_intermediario
     ORDER BY data_movimentacao DESC, id DESC
     LIMIT ?
     """), (limite,))
@@ -1293,17 +1342,257 @@ def buscar_movimentacoes_estoque_pa(limite=50):
     return movimentacoes
 
 
-def calcular_resumo_estoque_pa(saldos):
-    saldo_unidades = sum(float(item["saldo_unidades"] or 0) for item in saldos)
-    saldo_kg = sum(float(item["saldo_kg"] or 0) for item in saldos)
-    skus_com_saldo = len({item["sku"] for item in saldos})
+def buscar_caixas_pa(limite=80):
+    criar_tabelas_estoque_pi_pa()
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q("""
+    SELECT *
+    FROM pa_caixas
+    ORDER BY id DESC
+    LIMIT ?
+    """), (limite,))
+
+    caixas = cursor.fetchall()
+    conn.close()
+    return caixas
+
+
+def buscar_ops_com_saldo_pi():
+    return buscar_saldos_estoque_pi()
+
+
+def gerar_codigo_caixa():
+    criar_tabelas_estoque_pi_pa()
+
+    hoje = datetime.now().strftime("%Y%m%d")
+    prefixo = f"CX-{hoje}-"
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q("""
+    SELECT codigo_caixa
+    FROM pa_caixas
+    WHERE codigo_caixa LIKE ?
+    ORDER BY codigo_caixa DESC
+    LIMIT 1
+    """), (f"{prefixo}%",))
+
+    ultima = cursor.fetchone()
+    conn.close()
+
+    if not ultima:
+        return f"{prefixo}001"
+
+    try:
+        sequencia = int(str(ultima["codigo_caixa"]).split("-")[-1]) + 1
+    except Exception:
+        sequencia = 1
+
+    return f"{prefixo}{sequencia:03d}"
+
+
+def obter_sku_op(op_id):
+    op = buscar_op_por_id(op_id)
+    if not op:
+        return None
+    return op["sku"] or "Galinha Cortada"
+
+
+def registrar_saida_pi_por_caixa(cursor, op_id, sku, bandejas, caixa_id):
+    cursor.execute(q("""
+    INSERT INTO estoque_produto_intermediario (
+        data_movimentacao,
+        tipo,
+        op_id,
+        sku,
+        quantidade_bandejas,
+        origem,
+        observacoes
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    """), (
+        datetime.now().strftime("%Y-%m-%d"),
+        "SAIDA_EMBALAGEM_SECUNDARIA",
+        op_id,
+        sku,
+        float(bandejas or 0),
+        "Embalagem Secundária",
+        f"Bandejas consumidas na formação da caixa PA #{caixa_id}."
+    ))
+
+
+def registrar_caixa_pa_manual(form):
+    criar_tabelas_estoque_pi_pa()
+
+    op_principal = int(form.get("op_principal") or 0)
+    bandejas_principal = float(form.get("bandejas_principal") or 0)
+    op_complementar_raw = form.get("op_complementar") or ""
+    bandejas_complementar = float(form.get("bandejas_complementar") or 0)
+
+    composicao = []
+
+    if op_principal and bandejas_principal > 0:
+        composicao.append((op_principal, bandejas_principal))
+
+    if op_complementar_raw and bandejas_complementar > 0:
+        op_complementar = int(op_complementar_raw)
+        if op_complementar == op_principal:
+            raise ValueError("A OP complementar deve ser diferente da OP principal.")
+        composicao.append((op_complementar, bandejas_complementar))
+
+    if not composicao:
+        raise ValueError("Informe ao menos uma OP e a quantidade de bandejas utilizadas.")
+
+    total_bandejas = sum(qtd for _, qtd in composicao)
+
+    if total_bandejas != BANDEJAS_POR_CAIXA:
+        raise ValueError(f"A caixa padrão deve conter exatamente {BANDEJAS_POR_CAIXA} bandejas.")
+
+    skus = {obter_sku_op(op_id) for op_id, _ in composicao}
+    skus.discard(None)
+
+    if not skus:
+        raise ValueError("Não foi possível identificar o SKU das OPs informadas.")
+
+    if len(skus) > 1:
+        raise ValueError("Não é permitido formar uma caixa com SKUs diferentes.")
+
+    sku = list(skus)[0]
+
+    saldos = {int(item["op_id"]): float(item["saldo_bandejas"] or 0) for item in buscar_saldos_estoque_pi()}
+    for op_id, qtd in composicao:
+        saldo_disponivel = saldos.get(op_id, 0)
+        if qtd > saldo_disponivel:
+            raise ValueError(f"A OP #{op_id} possui apenas {saldo_disponivel:g} bandejas disponíveis em PI.")
+
+    peso_bruto = float(form.get("peso_bruto") or 0)
+    peso_liquido = float(form.get("peso_liquido") or 0)
+
+    if peso_liquido <= 0:
+        raise ValueError("Informe o peso líquido da caixa.")
+
+    codigo_caixa = form.get("codigo_caixa") or gerar_codigo_caixa()
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    if DATABASE_URL:
+        cursor.execute(q("""
+        INSERT INTO pa_caixas (
+            codigo_caixa,
+            sku,
+            data_fabricacao,
+            data_validade,
+            peso_bruto,
+            peso_liquido,
+            quantidade_bandejas,
+            status,
+            origem,
+            observacoes
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        RETURNING id
+        """), (
+            codigo_caixa,
+            sku,
+            form.get("data_fabricacao") or "",
+            form.get("data_validade") or "",
+            peso_bruto,
+            peso_liquido,
+            total_bandejas,
+            "Em estoque",
+            "Embalagem Secundária",
+            form.get("observacoes") or ""
+        ))
+        caixa_id = cursor.fetchone()["id"]
+    else:
+        cursor.execute(q("""
+        INSERT INTO pa_caixas (
+            codigo_caixa,
+            sku,
+            data_fabricacao,
+            data_validade,
+            peso_bruto,
+            peso_liquido,
+            quantidade_bandejas,
+            status,
+            origem,
+            observacoes
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """), (
+            codigo_caixa,
+            sku,
+            form.get("data_fabricacao") or "",
+            form.get("data_validade") or "",
+            peso_bruto,
+            peso_liquido,
+            total_bandejas,
+            "Em estoque",
+            "Embalagem Secundária",
+            form.get("observacoes") or ""
+        ))
+        caixa_id = cursor.lastrowid
+
+    for op_id, qtd in composicao:
+        cursor.execute(q("""
+        INSERT INTO pa_caixa_composicao (
+            caixa_id,
+            op_id,
+            quantidade_bandejas
+        ) VALUES (?, ?, ?)
+        """), (caixa_id, op_id, qtd))
+
+        registrar_saida_pi_por_caixa(cursor, op_id, sku, qtd, caixa_id)
+
+    conn.commit()
+    conn.close()
+
+    return codigo_caixa
+
+
+def calcular_resumo_estoques_pi_pa(saldos_pi, caixas_pa):
+    saldo_pi_bandejas = sum(float(item["saldo_bandejas"] or 0) for item in saldos_pi)
+    caixas_em_estoque = [c for c in caixas_pa if (c["status"] or "") == "Em estoque"]
+    saldo_pa_caixas = len(caixas_em_estoque)
+    saldo_pa_bandejas = sum(float(c["quantidade_bandejas"] or 0) for c in caixas_em_estoque)
+    saldo_pa_kg = sum(float(c["peso_liquido"] or 0) for c in caixas_em_estoque)
 
     return {
-        "saldo_unidades": saldo_unidades,
-        "saldo_kg": saldo_kg,
-        "skus_com_saldo": skus_com_saldo,
-        "linhas": len(saldos)
+        "saldo_pi_bandejas": saldo_pi_bandejas,
+        "ops_com_pi": len({item["op_id"] for item in saldos_pi}),
+        "saldo_pa_caixas": saldo_pa_caixas,
+        "saldo_pa_bandejas": saldo_pa_bandejas,
+        "saldo_pa_kg": saldo_pa_kg,
     }
+
+
+# Compatibilidade temporária com chamadas antigas do Sprint PA-1.
+def criar_tabela_estoque_produto_acabado():
+    criar_tabelas_estoque_pi_pa()
+
+
+def remover_movimentacoes_estoque_pa_por_op(op_id):
+    remover_movimentacoes_estoque_pi_por_op(op_id)
+
+
+def registrar_entrada_estoque_pa_op(op, unidades_produzidas, kg_produzidos=None):
+    registrar_entrada_estoque_pi_op(op, unidades_produzidas)
+
+
+def buscar_saldos_estoque_pa():
+    return buscar_saldos_estoque_pi()
+
+
+def buscar_movimentacoes_estoque_pa(limite=50):
+    return buscar_movimentacoes_estoque_pi(limite)
+
+
+def calcular_resumo_estoque_pa(saldos):
+    caixas = buscar_caixas_pa()
+    return calcular_resumo_estoques_pi_pa(saldos, caixas)
+
 
 def buscar_expedicoes(data_inicio=None, data_fim=None, status=None):
     criar_tabelas_expedicao()
@@ -4701,15 +4990,43 @@ def dashboard():
 @app.route("/estoque-produtos")
 @perfil_permitido("pcp")
 def estoque_produtos():
-    saldos = buscar_saldos_estoque_pa()
-    movimentacoes = buscar_movimentacoes_estoque_pa()
-    resumo = calcular_resumo_estoque_pa(saldos)
+    saldos_pi = buscar_saldos_estoque_pi()
+    movimentacoes_pi = buscar_movimentacoes_estoque_pi()
+    caixas_pa = buscar_caixas_pa()
+    resumo = calcular_resumo_estoques_pi_pa(saldos_pi, caixas_pa)
 
     return render_template(
         "estoque_produtos.html",
-        saldos=saldos,
-        movimentacoes=movimentacoes,
+        saldos_pi=saldos_pi,
+        movimentacoes_pi=movimentacoes_pi,
+        caixas_pa=caixas_pa,
         resumo=resumo
+    )
+
+
+@app.route("/embalagem-secundaria", methods=["GET", "POST"])
+@perfil_permitido("pcp")
+def embalagem_secundaria():
+    if request.method == "POST":
+        try:
+            codigo_caixa = registrar_caixa_pa_manual(request.form)
+            flash(f"Caixa {codigo_caixa} registrada no Estoque PA com sucesso.")
+        except ValueError as erro:
+            flash(str(erro))
+
+        return redirect(url_for("embalagem_secundaria"))
+
+    saldos_pi = buscar_ops_com_saldo_pi()
+    caixas_pa = buscar_caixas_pa()
+    resumo = calcular_resumo_estoques_pi_pa(saldos_pi, caixas_pa)
+
+    return render_template(
+        "embalagem_secundaria.html",
+        saldos_pi=saldos_pi,
+        caixas_pa=caixas_pa,
+        resumo=resumo,
+        hoje=datetime.now().strftime("%Y-%m-%d"),
+        bandejas_por_caixa=BANDEJAS_POR_CAIXA
     )
 
 @app.route("/expedicao")
@@ -6340,10 +6657,9 @@ def encerrar_op(op_id):
             descontar_almoco=descontar_almoco
         )
 
-        registrar_entrada_estoque_pa_op(
+        registrar_entrada_estoque_pi_op(
             op=op,
-            unidades_produzidas=unidades_produzidas,
-            kg_produzidos=kg_produzidos
+            unidades_produzidas=unidades_produzidas
         )
 
         conn = conectar()
@@ -6358,7 +6674,7 @@ def encerrar_op(op_id):
         conn.commit()
         conn.close()
 
-        flash("OP encerrada com sucesso. A produção foi gerada automaticamente.")
+        flash("OP encerrada com sucesso. A produção foi gerada automaticamente e a entrada em PI foi registrada.")
 
     except ValueError as erro:
         flash(str(erro))
@@ -6375,7 +6691,11 @@ def reabrir_op(op_id):
         flash("OP não encontrada.")
         return redirect(url_for("consultar_op"))
 
-    remover_movimentacoes_estoque_pa_por_op(op_id)
+    if op_possui_caixa_pa(op_id):
+        flash("Esta OP já possui bandejas vinculadas a caixas de PA. Reabertura bloqueada para preservar a rastreabilidade.")
+        return redirect(url_for("consultar_op", op_id=op_id))
+
+    remover_movimentacoes_estoque_pi_por_op(op_id)
 
     conn = conectar()
     cursor = conn.cursor()
@@ -6389,7 +6709,7 @@ def reabrir_op(op_id):
     conn.commit()
     conn.close()
 
-    flash("OP reaberta com sucesso. A entrada automática no Estoque PA foi estornada.")
+    flash("OP reaberta com sucesso. A entrada automática no Estoque PI foi estornada.")
     return redirect(url_for("consultar_op", op_id=op_id))
 
 

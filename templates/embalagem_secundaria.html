@@ -1,0 +1,203 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+
+<section class="hero-dashboard expedicao-hero">
+    <div>
+        <span class="eyebrow">Produto Acabado</span>
+        <h2>Embalagem Secundária</h2>
+        <div class="hero-resumo-inline">
+            <span><strong>Regra:</strong> {{ bandejas_por_caixa }} bandejas por caixa</span>
+            <span><strong>Rastreabilidade:</strong> toda bandeja permanece vinculada à OP</span>
+        </div>
+    </div>
+
+    <div class="expedicao-acoes-topo">
+        <a href="{{ url_for('estoque_produtos') }}" class="botao-dre-exportar">Estoque PI/PA</a>
+        <a href="{{ url_for('expedicao') }}" class="botao-dre-exportar">Romaneios</a>
+    </div>
+</section>
+
+<div class="expedicao-kpis">
+    <div class="card kpi-card">
+        <span class="kpi-label">PI disponível</span>
+        <strong>{{ resumo.saldo_pi_bandejas|br_numero }}</strong>
+        <small>Bandejas aguardando embalagem secundária</small>
+    </div>
+
+    <div class="card kpi-card destaque">
+        <span class="kpi-label">PA em caixas</span>
+        <strong>{{ resumo.saldo_pa_caixas }}</strong>
+        <small>Caixas já formadas</small>
+    </div>
+
+    <div class="card kpi-card">
+        <span class="kpi-label">PA em kg</span>
+        <strong>{{ resumo.saldo_pa_kg|br_numero }}</strong>
+        <small>Peso líquido em estoque</small>
+    </div>
+
+    <div class="card kpi-card">
+        <span class="kpi-label">OPs com PI</span>
+        <strong>{{ resumo.ops_com_pi }}</strong>
+        <small>Ordens com bandejas pendentes</small>
+    </div>
+</div>
+
+<div class="card expedicao-card">
+    <div class="section-title-row">
+        <div>
+            <span class="eyebrow">Registrar caixa</span>
+            <h2>Formar caixa de Produto Acabado</h2>
+        </div>
+    </div>
+
+    <form method="post" class="form-grid">
+        <div>
+            <label>OP principal</label>
+            <select name="op_principal" required>
+                <option value="">Selecione</option>
+                {% for item in saldos_pi %}
+                    <option value="{{ item.op_id }}">OP #{{ item.op_id }} — {{ item.sku }} — saldo {{ item.saldo_bandejas|br_numero }} bandejas</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div>
+            <label>Bandejas da OP principal</label>
+            <input type="number" name="bandejas_principal" min="1" max="12" step="1" required>
+        </div>
+
+        <div>
+            <label>OP complementar (opcional)</label>
+            <select name="op_complementar">
+                <option value="">Sem complementar</option>
+                {% for item in saldos_pi %}
+                    <option value="{{ item.op_id }}">OP #{{ item.op_id }} — {{ item.sku }} — saldo {{ item.saldo_bandejas|br_numero }} bandejas</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div>
+            <label>Bandejas da OP complementar</label>
+            <input type="number" name="bandejas_complementar" min="0" max="12" step="1" value="0">
+        </div>
+
+        <div>
+            <label>Peso bruto da caixa</label>
+            <input type="number" name="peso_bruto" min="0" step="0.001" placeholder="Ex.: 11.250">
+        </div>
+
+        <div>
+            <label>Peso líquido da caixa</label>
+            <input type="number" name="peso_liquido" min="0" step="0.001" required placeholder="Ex.: 10.850">
+        </div>
+
+        <div>
+            <label>Data de fabricação</label>
+            <input type="date" name="data_fabricacao" value="{{ hoje }}">
+        </div>
+
+        <div>
+            <label>Data de validade</label>
+            <input type="date" name="data_validade">
+        </div>
+
+        <div class="form-span-2">
+            <label>Observações</label>
+            <textarea name="observacoes" rows="2" placeholder="Ex.: caixa formada com sobra de OP anterior"></textarea>
+        </div>
+
+        <div class="form-span-2">
+            <button type="submit" class="botao-principal">Registrar caixa PA</button>
+        </div>
+    </form>
+
+    <p class="obs">
+        A tela exige exatamente {{ bandejas_por_caixa }} bandejas por caixa. Se uma OP tiver sobra fora do múltiplo de 12, mantenha a sobra em PI e use-a como OP principal ou complementar na próxima caixa compatível.
+    </p>
+</div>
+
+<div class="card expedicao-card">
+    <div class="section-title-row">
+        <div>
+            <span class="eyebrow">PI disponível</span>
+            <h2>Bandejas pendentes por OP</h2>
+        </div>
+    </div>
+
+    {% if saldos_pi %}
+    <div class="tabela-responsiva tabela-executiva expedicao-tabela">
+        <table>
+            <thead>
+                <tr>
+                    <th>OP</th>
+                    <th>Data</th>
+                    <th>SKU</th>
+                    <th>Saldo bandejas</th>
+                    <th>Orientação</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in saldos_pi %}
+                <tr>
+                    <td><strong>#{{ item.op_id }}</strong></td>
+                    <td>{{ item.data_op or "-" }}</td>
+                    <td>{{ item.sku }}</td>
+                    <td>{{ item.saldo_bandejas|br_numero }}</td>
+                    <td>
+                        {% if item.saldo_bandejas < 12 %}
+                            Completar com OP compatível ou manter pendente em PI.
+                        {% else %}
+                            Disponível para formar caixa completa.
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+        <p class="obs">Nenhuma bandeja pendente em PI.</p>
+    {% endif %}
+</div>
+
+<div class="card expedicao-card">
+    <div class="section-title-row">
+        <div>
+            <span class="eyebrow">PA recente</span>
+            <h2>Últimas caixas formadas</h2>
+        </div>
+    </div>
+
+    {% if caixas_pa %}
+    <div class="tabela-responsiva tabela-executiva expedicao-tabela">
+        <table>
+            <thead>
+                <tr>
+                    <th>Código</th>
+                    <th>SKU</th>
+                    <th>Bandejas</th>
+                    <th>Peso líquido</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for caixa in caixas_pa %}
+                <tr>
+                    <td><strong>{{ caixa.codigo_caixa }}</strong></td>
+                    <td>{{ caixa.sku }}</td>
+                    <td>{{ caixa.quantidade_bandejas|br_numero }}</td>
+                    <td>{{ caixa.peso_liquido|br_numero }}</td>
+                    <td>{{ caixa.status }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+        <p class="obs">Nenhuma caixa PA registrada ainda.</p>
+    {% endif %}
+</div>
+
+{% endblock %}

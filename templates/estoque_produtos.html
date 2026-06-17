@@ -4,129 +4,177 @@
 
 <section class="hero-dashboard expedicao-hero">
     <div>
-        <span class="eyebrow">Expedição</span>
-        <h2>Estoque de Produto Acabado / Intermediário</h2>
+        <span class="eyebrow">Estoque</span>
+        <h2>Estoque PI / PA</h2>
         <div class="hero-resumo-inline">
-            <span><strong>Entrada:</strong> automática no encerramento da OP</span>
-            <span><strong>Saída:</strong> baixa por romaneio de expedição</span>
+            <span><strong>PI:</strong> bandejas por OP</span>
+            <span><strong>PA:</strong> caixas rastreáveis por composição</span>
         </div>
     </div>
 
     <div class="expedicao-acoes-topo">
+        <a href="{{ url_for('embalagem_secundaria') }}" class="botao-dre-exportar">Embalagem Secundária</a>
         <a href="{{ url_for('expedicao') }}" class="botao-dre-exportar">Romaneios</a>
-        <a href="{{ url_for('novo_romaneio_expedicao') }}" class="botao-dre-exportar">Novo Romaneio</a>
     </div>
 </section>
 
 <div class="expedicao-kpis">
     <div class="card kpi-card">
-        <span class="kpi-label">Saldo em unidades</span>
-        <strong>{{ resumo.saldo_unidades|br_numero }}</strong>
-        <small>Total físico em unidades no estoque</small>
+        <span class="kpi-label">PI em bandejas</span>
+        <strong>{{ resumo.saldo_pi_bandejas|br_numero }}</strong>
+        <small>Bandejas ainda pendentes para embalagem secundária</small>
+    </div>
+
+    <div class="card kpi-card">
+        <span class="kpi-label">OPs com PI</span>
+        <strong>{{ resumo.ops_com_pi }}</strong>
+        <small>Ordens com saldo intermediário</small>
     </div>
 
     <div class="card kpi-card destaque">
-        <span class="kpi-label">Saldo em kg</span>
-        <strong>{{ resumo.saldo_kg|br_numero }}</strong>
-        <small>Total físico em kg no estoque</small>
+        <span class="kpi-label">PA em caixas</span>
+        <strong>{{ resumo.saldo_pa_caixas }}</strong>
+        <small>Caixas disponíveis para expedição</small>
     </div>
 
     <div class="card kpi-card">
-        <span class="kpi-label">SKUs com saldo</span>
-        <strong>{{ resumo.skus_com_saldo }}</strong>
-        <small>SKU/tipo com saldo positivo</small>
-    </div>
-
-    <div class="card kpi-card">
-        <span class="kpi-label">Linhas de estoque</span>
-        <strong>{{ resumo.linhas }}</strong>
-        <small>Combinações de SKU e tipo</small>
+        <span class="kpi-label">PA em kg</span>
+        <strong>{{ resumo.saldo_pa_kg|br_numero }}</strong>
+        <small>Peso líquido disponível em PA</small>
     </div>
 </div>
 
 <div class="card expedicao-card">
     <div class="section-title-row">
         <div>
-            <span class="eyebrow">Saldo</span>
-            <h2>Saldo atual por SKU</h2>
+            <span class="eyebrow">Produto Intermediário</span>
+            <h2>Saldo de PI por OP</h2>
         </div>
     </div>
 
-    {% if saldos %}
+    {% if saldos_pi %}
     <div class="tabela-responsiva tabela-executiva expedicao-tabela">
         <table>
             <thead>
                 <tr>
+                    <th>OP</th>
+                    <th>Data OP</th>
                     <th>SKU</th>
-                    <th>Tipo de produto</th>
-                    <th>Saldo unidades</th>
-                    <th>Saldo kg</th>
+                    <th>Saldo bandejas</th>
+                    <th>Situação operacional</th>
                 </tr>
             </thead>
             <tbody>
-                {% for item in saldos %}
+                {% for item in saldos_pi %}
                 <tr>
-                    <td><strong>{{ item.sku }}</strong></td>
-                    <td>{{ item.tipo_produto }}</td>
-                    <td>{{ item.saldo_unidades|br_numero }}</td>
-                    <td>{{ item.saldo_kg|br_numero }}</td>
+                    <td><strong>#{{ item.op_id }}</strong></td>
+                    <td>{{ item.data_op or "-" }}</td>
+                    <td>{{ item.sku }}</td>
+                    <td>{{ item.saldo_bandejas|br_numero }}</td>
+                    <td>
+                        {% if item.saldo_bandejas < 12 %}
+                            <span class="badge-expedicao neutro">Pendente para completar caixa</span>
+                        {% else %}
+                            <span class="badge-expedicao entrada">Disponível para embalagem secundária</span>
+                        {% endif %}
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
     </div>
     {% else %}
-        <p class="obs">Nenhuma movimentação de produto registrada ainda.</p>
+        <p class="obs">Nenhum produto intermediário pendente.</p>
     {% endif %}
 </div>
 
 <div class="card expedicao-card">
     <div class="section-title-row">
         <div>
-            <span class="eyebrow">Movimentações</span>
-            <h2>Últimas movimentações</h2>
+            <span class="eyebrow">Produto Acabado</span>
+            <h2>Caixas PA disponíveis</h2>
         </div>
     </div>
 
-    {% if movimentacoes %}
+    {% if caixas_pa %}
+    <div class="tabela-responsiva tabela-executiva expedicao-tabela">
+        <table>
+            <thead>
+                <tr>
+                    <th>Código</th>
+                    <th>SKU</th>
+                    <th>Fabricação</th>
+                    <th>Validade</th>
+                    <th>Bandejas</th>
+                    <th>Peso líquido</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for caixa in caixas_pa %}
+                <tr>
+                    <td><strong>{{ caixa.codigo_caixa }}</strong></td>
+                    <td>{{ caixa.sku }}</td>
+                    <td>{{ caixa.data_fabricacao or "-" }}</td>
+                    <td>{{ caixa.data_validade or "-" }}</td>
+                    <td>{{ caixa.quantidade_bandejas|br_numero }}</td>
+                    <td>{{ caixa.peso_liquido|br_numero }}</td>
+                    <td>
+                        {% if caixa.status == "Em estoque" %}
+                            <span class="badge-expedicao entrada">{{ caixa.status }}</span>
+                        {% else %}
+                            <span class="badge-expedicao saida">{{ caixa.status }}</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+        <p class="obs">Nenhuma caixa de PA formada ainda.</p>
+    {% endif %}
+</div>
+
+<div class="card expedicao-card">
+    <div class="section-title-row">
+        <div>
+            <span class="eyebrow">Movimentações PI</span>
+            <h2>Últimas movimentações do produto intermediário</h2>
+        </div>
+    </div>
+
+    {% if movimentacoes_pi %}
     <div class="tabela-responsiva tabela-executiva expedicao-tabela">
         <table>
             <thead>
                 <tr>
                     <th>Data</th>
                     <th>Tipo</th>
-                    <th>SKU</th>
-                    <th>Tipo produto</th>
-                    <th>Unidades</th>
-                    <th>Kg</th>
-                    <th>Origem</th>
                     <th>OP</th>
-                    <th>Romaneio</th>
-                    <th>Destino</th>
+                    <th>SKU</th>
+                    <th>Bandejas</th>
+                    <th>Origem</th>
                     <th>Observações</th>
                 </tr>
             </thead>
             <tbody>
-                {% for item in movimentacoes %}
+                {% for item in movimentacoes_pi %}
                 <tr>
                     <td>{{ item.data_movimentacao }}</td>
                     <td>
-                        {% if item.tipo == "ENTRADA_OP" %}
+                        {% if item.tipo.startswith("ENTRADA") %}
                             <span class="badge-expedicao entrada">{{ item.tipo }}</span>
-                        {% elif item.tipo == "SAIDA_ROMANEIO" %}
+                        {% elif item.tipo.startswith("SAIDA") %}
                             <span class="badge-expedicao saida">{{ item.tipo }}</span>
                         {% else %}
                             <span class="badge-expedicao neutro">{{ item.tipo }}</span>
                         {% endif %}
                     </td>
-                    <td>{{ item.sku }}</td>
-                    <td>{{ item.tipo_produto }}</td>
-                    <td>{{ item.quantidade_unidades|br_numero }}</td>
-                    <td>{{ item.quantidade_kg|br_numero }}</td>
-                    <td>{{ item.origem or "-" }}</td>
                     <td>{% if item.op_id %}#{{ item.op_id }}{% else %}-{% endif %}</td>
-                    <td>{% if item.romaneio_id %}#{{ item.romaneio_id }}{% else %}-{% endif %}</td>
-                    <td>{{ item.destinatario_nome or "-" }}</td>
+                    <td>{{ item.sku }}</td>
+                    <td>{{ item.quantidade_bandejas|br_numero }}</td>
+                    <td>{{ item.origem or "-" }}</td>
                     <td>{{ item.observacoes or "-" }}</td>
                 </tr>
                 {% endfor %}
@@ -134,7 +182,7 @@
         </table>
     </div>
     {% else %}
-        <p class="obs">Nenhuma movimentação registrada.</p>
+        <p class="obs">Nenhuma movimentação de PI registrada.</p>
     {% endif %}
 </div>
 
