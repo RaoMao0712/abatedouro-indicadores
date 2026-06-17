@@ -5369,8 +5369,18 @@ def embalagem_secundaria():
     if op_id_selecionada:
         try:
             op_id_int = int(op_id_selecionada)
+        except Exception:
+            op_id_int = None
+
+        if op_id_int:
+            # A OP deve abrir para lançamento contínuo sempre que houver PI disponível.
+            # O painel de fechamento é complementar e não pode impedir a abertura da tela de caixas.
             op_selecionada = next((item for item in saldos_pi if int(item["op_id"]) == op_id_int), None)
-            fechamento_op = calcular_fechamento_industrial_op(op_id_int)
+
+            try:
+                fechamento_op = calcular_fechamento_industrial_op(op_id_int)
+            except Exception:
+                fechamento_op = None
 
             # Quando o saldo PI chega a zero, a OP deixa de aparecer em saldos_pi.
             # Ainda assim ela precisa permanecer carregada para conferência e encerramento.
@@ -5383,22 +5393,21 @@ def embalagem_secundaria():
                     "saldo_bandejas": fechamento_op["saldo_pi"],
                 }
 
-            conn = conectar()
-            cursor = conn.cursor()
-            cursor.execute(q("""
-            SELECT cx.*
-            FROM pa_caixas cx
-            INNER JOIN pa_caixa_composicao comp ON comp.caixa_id = cx.id
-            WHERE comp.op_id = ?
-            ORDER BY cx.id DESC
-            LIMIT 80
-            """), (op_id_int,))
-            caixas_op = cursor.fetchall()
-            conn.close()
-        except Exception:
-            op_selecionada = None
-            caixas_op = []
-            fechamento_op = None
+            try:
+                conn = conectar()
+                cursor = conn.cursor()
+                cursor.execute(q("""
+                SELECT cx.*
+                FROM pa_caixas cx
+                INNER JOIN pa_caixa_composicao comp ON comp.caixa_id = cx.id
+                WHERE comp.op_id = ?
+                ORDER BY cx.id DESC
+                LIMIT 80
+                """), (op_id_int,))
+                caixas_op = cursor.fetchall()
+                conn.close()
+            except Exception:
+                caixas_op = []
 
     return render_template(
         "embalagem_secundaria.html",
