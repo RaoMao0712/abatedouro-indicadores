@@ -60,7 +60,6 @@
             {% if perfil == "admin" or perfil == "pcp" %}
                 <a href="{{ url_for('custos') }}">Custos</a>
                 <a href="{{ url_for('vendas') }}">Vendas</a>
-                <a href="{{ url_for('relatorio') }}">Relatório</a>
                 <a href="{{ url_for('relatorio_rendimento') }}">Rendimento</a>
                 <a href="{{ url_for('relatorio_viabilidade') }}">Viabilidade</a>
                 <a href="{{ url_for('relatorio_custos') }}">Evolução Custos</a>
@@ -79,7 +78,6 @@
             {% endif %}
 
             {% if perfil == "admin" or perfil == "producao" %}
-                <a href="{{ url_for('apontamento_producao') }}">Produção</a>
                 <a href="{{ url_for('apontamento_mao_obra') }}">Mão de Obra</a>
                 <a href="{{ url_for('apontamento_paradas') }}">Paradas</a>
                 <a href="{{ url_for('tempos_setor') }}">Tempos</a>

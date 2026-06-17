@@ -20,7 +20,7 @@ def destino_por_perfil(perfil):
         return "apontamento_descartes"
 
     if perfil == "producao":
-        return "apontamento_producao"
+        return "consultar_op"
 
     return "login"
 
