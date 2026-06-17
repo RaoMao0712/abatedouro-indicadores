@@ -1407,6 +1407,26 @@ def buscar_apontamentos_embalagem_primaria(limite=50):
     return linhas
 
 
+def buscar_apontamento_embalagem_primaria_por_op(op_id):
+    criar_tabelas_estoque_pi_pa()
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q("""
+    SELECT ep.*, op.data AS data_op, op.fornecedor, op.quantidade_aves
+    FROM embalagem_primaria_apontamentos ep
+    LEFT JOIN ordens_producao op ON op.id = ep.op_id
+    WHERE ep.op_id = ?
+    ORDER BY ep.id DESC
+    LIMIT 1
+    """), (op_id,))
+
+    linha = cursor.fetchone()
+    conn.close()
+    return linha
+
+
 def buscar_ops_para_embalagem_primaria():
     criar_banco()
 
@@ -5295,6 +5315,15 @@ def embalagem_primaria():
         return redirect(url_for("embalagem_primaria", op_id=request.form.get("op_id") or ""))
 
     op_id_selecionada = request.args.get("op_id", "")
+    modo_edicao = request.args.get("editar") == "1"
+    apontamento_edicao = None
+
+    if modo_edicao and op_id_selecionada:
+        try:
+            apontamento_edicao = buscar_apontamento_embalagem_primaria_por_op(int(op_id_selecionada))
+        except (TypeError, ValueError):
+            apontamento_edicao = None
+
     ops = buscar_ops_para_embalagem_primaria()
     apontamentos = buscar_apontamentos_embalagem_primaria()
     saldos_pi = buscar_saldos_estoque_pi()
@@ -5307,7 +5336,9 @@ def embalagem_primaria():
         apontamentos=apontamentos,
         saldos_pi=saldos_pi,
         resumo=resumo,
-        op_id_selecionada=str(op_id_selecionada)
+        op_id_selecionada=str(op_id_selecionada),
+        apontamento_edicao=apontamento_edicao,
+        modo_edicao=modo_edicao
     )
 
 
