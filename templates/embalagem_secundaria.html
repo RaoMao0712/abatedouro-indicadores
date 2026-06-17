@@ -7,8 +7,8 @@
         <span class="eyebrow">Produto Acabado</span>
         <h2>Embalagem Secundária</h2>
         <div class="hero-resumo-inline">
-            <span><strong>Regra:</strong> {{ bandejas_por_caixa }} bandejas por caixa</span>
-            <span><strong>Rastreabilidade:</strong> toda bandeja permanece vinculada à OP</span>
+            <span><strong>Regra padrão:</strong> {{ bandejas_por_caixa }} bandejas por caixa</span>
+            <span><strong>Exceção controlada:</strong> caixa parcial permitida para sobra final</span>
         </div>
     </div>
 
@@ -47,40 +47,60 @@
 <div class="card expedicao-card">
     <div class="section-title-row">
         <div>
+            <span class="eyebrow">Selecionar OP</span>
+            <h2>Trabalhar em modo contínuo</h2>
+        </div>
+    </div>
+
+    <form method="get" action="{{ url_for('embalagem_secundaria') }}" class="form-grid">
+        <div class="form-span-2">
+            <label>OP para Embalagem Secundária</label>
+            <select name="op_id" required onchange="this.form.submit()">
+                <option value="">Selecione a OP</option>
+                {% for item in saldos_pi %}
+                    <option value="{{ item.op_id }}" {% if op_id_selecionada == item.op_id|string %}selected{% endif %}>
+                        OP #{{ item.op_id }} — {{ item.sku }} — saldo {{ item.saldo_bandejas|br_numero }} bandejas
+                    </option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div>
+            <button type="submit" class="botao-dre-exportar">Carregar OP</button>
+        </div>
+    </form>
+
+    {% if op_selecionada %}
+    <div class="hero-resumo-inline" style="margin-top: 1rem;">
+        <span><strong>OP:</strong> #{{ op_selecionada.op_id }}</span>
+        <span><strong>SKU:</strong> {{ op_selecionada.sku }}</span>
+        <span><strong>Saldo PI:</strong> {{ op_selecionada.saldo_bandejas|br_numero }} bandejas</span>
+        {% if op_selecionada.saldo_bandejas < bandejas_por_caixa %}
+            <span><strong>Orientação:</strong> caixa parcial permitida</span>
+        {% endif %}
+    </div>
+    {% else %}
+        <p class="obs">Selecione uma OP para iniciar o lançamento contínuo das caixas.</p>
+    {% endif %}
+</div>
+
+{% if op_selecionada %}
+<div class="card expedicao-card">
+    <div class="section-title-row">
+        <div>
             <span class="eyebrow">Registrar caixa</span>
-            <h2>Formar caixa de Produto Acabado</h2>
+            <h2>Adicionar caixa da OP #{{ op_selecionada.op_id }}</h2>
         </div>
     </div>
 
     <form method="post" class="form-grid">
-        <div>
-            <label>OP principal</label>
-            <select name="op_principal" required>
-                <option value="">Selecione</option>
-                {% for item in saldos_pi %}
-                    <option value="{{ item.op_id }}">OP #{{ item.op_id }} — {{ item.sku }} — saldo {{ item.saldo_bandejas|br_numero }} bandejas</option>
-                {% endfor %}
-            </select>
-        </div>
+        <input type="hidden" name="op_principal" value="{{ op_selecionada.op_id }}">
+        <input type="hidden" name="op_complementar" value="">
+        <input type="hidden" name="bandejas_complementar" value="0">
 
         <div>
-            <label>Bandejas da OP principal</label>
-            <input type="number" name="bandejas_principal" min="1" max="12" step="1" required>
-        </div>
-
-        <div>
-            <label>OP complementar (opcional)</label>
-            <select name="op_complementar">
-                <option value="">Sem complementar</option>
-                {% for item in saldos_pi %}
-                    <option value="{{ item.op_id }}">OP #{{ item.op_id }} — {{ item.sku }} — saldo {{ item.saldo_bandejas|br_numero }} bandejas</option>
-                {% endfor %}
-            </select>
-        </div>
-
-        <div>
-            <label>Bandejas da OP complementar</label>
-            <input type="number" name="bandejas_complementar" min="0" max="12" step="1" value="0">
+            <label>Peso líquido da caixa</label>
+            <input type="number" name="peso_liquido" min="0" step="0.001" required placeholder="Ex.: 10.850" autofocus>
         </div>
 
         <div>
@@ -89,8 +109,17 @@
         </div>
 
         <div>
-            <label>Peso líquido da caixa</label>
-            <input type="number" name="peso_liquido" min="0" step="0.001" required placeholder="Ex.: 10.850">
+            <label>Bandejas na caixa</label>
+            <input
+                type="number"
+                name="bandejas_principal"
+                min="1"
+                max="{{ bandejas_por_caixa }}"
+                step="1"
+                required
+                value="{% if op_selecionada.saldo_bandejas < bandejas_por_caixa %}{{ op_selecionada.saldo_bandejas|int }}{% else %}{{ bandejas_por_caixa }}{% endif %}"
+            >
+            <small class="obs">Use {{ bandejas_por_caixa }} para caixa padrão. Use 1 a {{ bandejas_por_caixa - 1 }} para caixa parcial.</small>
         </div>
 
         <div>
@@ -105,18 +134,57 @@
 
         <div class="form-span-2">
             <label>Observações</label>
-            <textarea name="observacoes" rows="2" placeholder="Ex.: caixa formada com sobra de OP anterior"></textarea>
+            <textarea name="observacoes" rows="2" placeholder="Ex.: caixa parcial de encerramento da OP"></textarea>
         </div>
 
         <div class="form-span-2">
-            <button type="submit" class="botao-principal">Registrar caixa PA</button>
+            <button type="submit" class="botao-principal">Adicionar Caixa PA</button>
         </div>
     </form>
 
     <p class="obs">
-        A tela exige exatamente {{ bandejas_por_caixa }} bandejas por caixa. Se uma OP tiver sobra fora do múltiplo de 12, mantenha a sobra em PI e use-a como OP principal ou complementar na próxima caixa compatível.
+        Após registrar a caixa, a tela permanece nesta mesma OP. O operador só informa o próximo peso e confirma.
     </p>
 </div>
+
+<div class="card expedicao-card">
+    <div class="section-title-row">
+        <div>
+            <span class="eyebrow">OP selecionada</span>
+            <h2>Caixas lançadas para a OP #{{ op_selecionada.op_id }}</h2>
+        </div>
+    </div>
+
+    {% if caixas_op %}
+    <div class="tabela-responsiva tabela-executiva expedicao-tabela">
+        <table>
+            <thead>
+                <tr>
+                    <th>Código</th>
+                    <th>Bandejas</th>
+                    <th>Peso líquido</th>
+                    <th>Tipo</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for caixa in caixas_op %}
+                <tr>
+                    <td><strong>{{ caixa.codigo_caixa }}</strong></td>
+                    <td>{{ caixa.quantidade_bandejas|br_numero }}</td>
+                    <td>{{ caixa.peso_liquido|br_numero }}</td>
+                    <td>{% if caixa.quantidade_bandejas < bandejas_por_caixa %}Parcial{% else %}Padrão{% endif %}</td>
+                    <td>{{ caixa.status }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+        <p class="obs">Nenhuma caixa registrada para esta OP ainda.</p>
+    {% endif %}
+</div>
+{% endif %}
 
 <div class="card expedicao-card">
     <div class="section-title-row">
@@ -146,10 +214,10 @@
                     <td>{{ item.sku }}</td>
                     <td>{{ item.saldo_bandejas|br_numero }}</td>
                     <td>
-                        {% if item.saldo_bandejas < 12 %}
-                            Completar com OP compatível ou manter pendente em PI.
+                        {% if item.saldo_bandejas < bandejas_por_caixa %}
+                            Disponível para caixa parcial.
                         {% else %}
-                            Disponível para formar caixa completa.
+                            Disponível para caixa padrão.
                         {% endif %}
                     </td>
                 </tr>

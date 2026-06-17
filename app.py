@@ -1585,8 +1585,8 @@ def registrar_caixa_pa_manual(form):
 
     total_bandejas = sum(qtd for _, qtd in composicao)
 
-    if total_bandejas != BANDEJAS_POR_CAIXA:
-        raise ValueError(f"A caixa padrão deve conter exatamente {BANDEJAS_POR_CAIXA} bandejas.")
+    if total_bandejas <= 0 or total_bandejas > BANDEJAS_POR_CAIXA:
+        raise ValueError(f"A caixa deve conter entre 1 e {BANDEJAS_POR_CAIXA} bandejas.")
 
     skus = {obter_sku_op(op_id) for op_id, _ in composicao}
     skus.discard(None)
@@ -5186,11 +5186,34 @@ def embalagem_secundaria():
         except ValueError as erro:
             flash(str(erro))
 
-        return redirect(url_for("embalagem_secundaria"))
+        return redirect(url_for("embalagem_secundaria", op_id=request.form.get("op_principal") or ""))
 
     saldos_pi = buscar_ops_com_saldo_pi()
     caixas_pa = buscar_caixas_pa()
     resumo = calcular_resumo_estoques_pi_pa(saldos_pi, caixas_pa)
+    op_id_selecionada = request.args.get("op_id", "")
+    op_selecionada = None
+    caixas_op = []
+
+    if op_id_selecionada:
+        try:
+            op_id_int = int(op_id_selecionada)
+            op_selecionada = next((item for item in saldos_pi if int(item["op_id"]) == op_id_int), None)
+            conn = conectar()
+            cursor = conn.cursor()
+            cursor.execute(q("""
+            SELECT cx.*
+            FROM pa_caixas cx
+            INNER JOIN pa_caixa_composicao comp ON comp.caixa_id = cx.id
+            WHERE comp.op_id = ?
+            ORDER BY cx.id DESC
+            LIMIT 80
+            """), (op_id_int,))
+            caixas_op = cursor.fetchall()
+            conn.close()
+        except Exception:
+            op_selecionada = None
+            caixas_op = []
 
     return render_template(
         "embalagem_secundaria.html",
@@ -5198,7 +5221,10 @@ def embalagem_secundaria():
         caixas_pa=caixas_pa,
         resumo=resumo,
         hoje=datetime.now().strftime("%Y-%m-%d"),
-        bandejas_por_caixa=BANDEJAS_POR_CAIXA
+        bandejas_por_caixa=BANDEJAS_POR_CAIXA,
+        op_id_selecionada=str(op_id_selecionada),
+        op_selecionada=op_selecionada,
+        caixas_op=caixas_op
     )
 
 @app.route("/expedicao")
