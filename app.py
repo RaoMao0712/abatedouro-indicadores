@@ -1104,6 +1104,207 @@ def criar_tabelas_expedicao():
     conn.close()
 
 
+
+# ============================================================
+# ESTOQUE DE PRODUTO ACABADO - SPRINT PA-1
+# ============================================================
+
+def criar_tabela_estoque_produto_acabado():
+    """
+    Cria a tabela de movimentações do Estoque de Produto Acabado.
+
+    Regra do Sprint PA-1:
+    - O estoque nasce por movimentação, não por saldo gravado.
+    - ENTRADA_OP é gerada automaticamente no encerramento da OP.
+    - Ao reabrir uma OP, a entrada automática da OP é removida.
+    - Saídas por romaneio serão implementadas em sprint posterior.
+    """
+    conn = conectar()
+    cursor = conn.cursor()
+
+    if DATABASE_URL:
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS estoque_produto_acabado (
+            id SERIAL PRIMARY KEY,
+            data_movimentacao TEXT NOT NULL,
+            tipo TEXT NOT NULL,
+            op_id INTEGER,
+            romaneio_id INTEGER,
+            sku TEXT NOT NULL,
+            tipo_produto TEXT NOT NULL DEFAULT 'Produto Acabado',
+            quantidade_unidades REAL DEFAULT 0,
+            quantidade_kg REAL DEFAULT 0,
+            origem TEXT,
+            destinatario_nome TEXT,
+            observacoes TEXT,
+            criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
+    else:
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS estoque_produto_acabado (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            data_movimentacao TEXT NOT NULL,
+            tipo TEXT NOT NULL,
+            op_id INTEGER,
+            romaneio_id INTEGER,
+            sku TEXT NOT NULL,
+            tipo_produto TEXT NOT NULL DEFAULT 'Produto Acabado',
+            quantidade_unidades REAL DEFAULT 0,
+            quantidade_kg REAL DEFAULT 0,
+            origem TEXT,
+            destinatario_nome TEXT,
+            observacoes TEXT,
+            criado_em TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
+
+    conn.commit()
+    conn.close()
+
+
+def remover_movimentacoes_estoque_pa_por_op(op_id):
+    criar_tabela_estoque_produto_acabado()
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q("""
+    DELETE FROM estoque_produto_acabado
+    WHERE op_id = ?
+      AND tipo = ?
+    """), (op_id, "ENTRADA_OP"))
+
+    conn.commit()
+    conn.close()
+
+
+def registrar_entrada_estoque_pa_op(op, unidades_produzidas, kg_produzidos=None):
+    criar_tabela_estoque_produto_acabado()
+
+    op_id = op["id"]
+    sku = op["sku"] or "Galinha Cortada"
+    unidades = float(unidades_produzidas or 0)
+    kg = float(kg_produzidos or 0)
+
+    # Segurança contra duplicidade: se a OP for reprocessada, a entrada anterior é substituída.
+    remover_movimentacoes_estoque_pa_por_op(op_id)
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q("""
+    INSERT INTO estoque_produto_acabado (
+        data_movimentacao,
+        tipo,
+        op_id,
+        romaneio_id,
+        sku,
+        tipo_produto,
+        quantidade_unidades,
+        quantidade_kg,
+        origem,
+        destinatario_nome,
+        observacoes
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """), (
+        op["data"],
+        "ENTRADA_OP",
+        op_id,
+        None,
+        sku,
+        "Produto Acabado",
+        unidades,
+        kg,
+        "Encerramento da OP",
+        None,
+        "Entrada automática gerada no encerramento da OP."
+    ))
+
+    conn.commit()
+    conn.close()
+
+
+def buscar_saldos_estoque_pa():
+    criar_tabela_estoque_produto_acabado()
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q("""
+    SELECT
+        sku,
+        tipo_produto,
+        COALESCE(SUM(
+            CASE
+                WHEN tipo LIKE 'ENTRADA%' THEN quantidade_unidades
+                WHEN tipo LIKE 'SAIDA%' THEN -quantidade_unidades
+                ELSE quantidade_unidades
+            END
+        ), 0) AS saldo_unidades,
+        COALESCE(SUM(
+            CASE
+                WHEN tipo LIKE 'ENTRADA%' THEN quantidade_kg
+                WHEN tipo LIKE 'SAIDA%' THEN -quantidade_kg
+                ELSE quantidade_kg
+            END
+        ), 0) AS saldo_kg
+    FROM estoque_produto_acabado
+    GROUP BY sku, tipo_produto
+    HAVING
+        COALESCE(SUM(
+            CASE
+                WHEN tipo LIKE 'ENTRADA%' THEN quantidade_unidades
+                WHEN tipo LIKE 'SAIDA%' THEN -quantidade_unidades
+                ELSE quantidade_unidades
+            END
+        ), 0) <> 0
+        OR
+        COALESCE(SUM(
+            CASE
+                WHEN tipo LIKE 'ENTRADA%' THEN quantidade_kg
+                WHEN tipo LIKE 'SAIDA%' THEN -quantidade_kg
+                ELSE quantidade_kg
+            END
+        ), 0) <> 0
+    ORDER BY sku, tipo_produto
+    """))
+
+    saldos = cursor.fetchall()
+    conn.close()
+    return saldos
+
+
+def buscar_movimentacoes_estoque_pa(limite=50):
+    criar_tabela_estoque_produto_acabado()
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q("""
+    SELECT *
+    FROM estoque_produto_acabado
+    ORDER BY data_movimentacao DESC, id DESC
+    LIMIT ?
+    """), (limite,))
+
+    movimentacoes = cursor.fetchall()
+    conn.close()
+    return movimentacoes
+
+
+def calcular_resumo_estoque_pa(saldos):
+    saldo_unidades = sum(float(item["saldo_unidades"] or 0) for item in saldos)
+    saldo_kg = sum(float(item["saldo_kg"] or 0) for item in saldos)
+    skus_com_saldo = len({item["sku"] for item in saldos})
+
+    return {
+        "saldo_unidades": saldo_unidades,
+        "saldo_kg": saldo_kg,
+        "skus_com_saldo": skus_com_saldo,
+        "linhas": len(saldos)
+    }
+
 def buscar_expedicoes(data_inicio=None, data_fim=None, status=None):
     criar_tabelas_expedicao()
 
@@ -4496,6 +4697,21 @@ def dashboard():
 
 
 
+
+@app.route("/estoque-produtos")
+@perfil_permitido("pcp")
+def estoque_produtos():
+    saldos = buscar_saldos_estoque_pa()
+    movimentacoes = buscar_movimentacoes_estoque_pa()
+    resumo = calcular_resumo_estoque_pa(saldos)
+
+    return render_template(
+        "estoque_produtos.html",
+        saldos=saldos,
+        movimentacoes=movimentacoes,
+        resumo=resumo
+    )
+
 @app.route("/expedicao")
 @perfil_permitido("pcp")
 def expedicao():
@@ -6124,6 +6340,12 @@ def encerrar_op(op_id):
             descontar_almoco=descontar_almoco
         )
 
+        registrar_entrada_estoque_pa_op(
+            op=op,
+            unidades_produzidas=unidades_produzidas,
+            kg_produzidos=kg_produzidos
+        )
+
         conn = conectar()
         cursor = conn.cursor()
 
@@ -6147,6 +6369,14 @@ def encerrar_op(op_id):
 @app.route("/op/<int:op_id>/reabrir", methods=["POST"])
 @perfil_permitido("admin")
 def reabrir_op(op_id):
+    op = buscar_op_por_id(op_id)
+
+    if not op:
+        flash("OP não encontrada.")
+        return redirect(url_for("consultar_op"))
+
+    remover_movimentacoes_estoque_pa_por_op(op_id)
+
     conn = conectar()
     cursor = conn.cursor()
 
@@ -6159,7 +6389,7 @@ def reabrir_op(op_id):
     conn.commit()
     conn.close()
 
-    flash("OP reaberta com sucesso.")
+    flash("OP reaberta com sucesso. A entrada automática no Estoque PA foi estornada.")
     return redirect(url_for("consultar_op", op_id=op_id))
 
 
