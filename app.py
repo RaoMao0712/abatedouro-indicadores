@@ -1581,13 +1581,46 @@ def registrar_saida_pi_por_caixa(cursor, op_id, sku, bandejas, caixa_id):
     ))
 
 
-def registrar_caixa_pa_manual(form):
-    criar_tabelas_estoque_pi_pa()
+def parse_numero_form(valor):
+    if valor is None:
+        return 0.0
 
+    texto = str(valor).strip()
+    if not texto:
+        return 0.0
+
+    texto = texto.replace(" ", "")
+    if "," in texto and "." in texto:
+        texto = texto.replace(".", "").replace(",", ".")
+    else:
+        texto = texto.replace(",", ".")
+
+    try:
+        return float(texto)
+    except ValueError:
+        raise ValueError(f"Valor numérico inválido: {valor}")
+
+
+def calcular_validade_padrao(data_fabricacao):
+    if not data_fabricacao:
+        return ""
+
+    try:
+        data_base = datetime.strptime(data_fabricacao, "%Y-%m-%d")
+        try:
+            validade = data_base.replace(year=data_base.year + 1)
+        except ValueError:
+            validade = data_base + timedelta(days=365)
+        return validade.strftime("%Y-%m-%d")
+    except Exception:
+        return ""
+
+
+def preparar_composicao_caixa(form):
     op_principal = int(form.get("op_principal") or 0)
-    bandejas_principal = float(form.get("bandejas_principal") or 0)
+    bandejas_principal = parse_numero_form(form.get("bandejas_principal") or 0)
     op_complementar_raw = form.get("op_complementar") or ""
-    bandejas_complementar = float(form.get("bandejas_complementar") or 0)
+    bandejas_complementar = parse_numero_form(form.get("bandejas_complementar") or 0)
 
     composicao = []
 
@@ -1617,25 +1650,26 @@ def registrar_caixa_pa_manual(form):
     if len(skus) > 1:
         raise ValueError("Não é permitido formar uma caixa com SKUs diferentes.")
 
-    sku = list(skus)[0]
+    return composicao, total_bandejas, list(skus)[0]
+
+
+def validar_saldo_pi_para_composicoes(composicoes):
+    consumo_por_op = {}
+    for composicao in composicoes:
+        for op_id, qtd in composicao:
+            consumo_por_op[op_id] = consumo_por_op.get(op_id, 0) + float(qtd or 0)
 
     saldos = {int(item["op_id"]): float(item["saldo_bandejas"] or 0) for item in buscar_saldos_estoque_pi()}
-    for op_id, qtd in composicao:
+    for op_id, qtd_total in consumo_por_op.items():
         saldo_disponivel = saldos.get(op_id, 0)
-        if qtd > saldo_disponivel:
-            raise ValueError(f"A OP #{op_id} possui apenas {saldo_disponivel:g} bandejas disponíveis em PI.")
+        if qtd_total > saldo_disponivel:
+            raise ValueError(
+                f"A OP #{op_id} possui apenas {saldo_disponivel:g} bandejas disponíveis em PI. "
+                f"O lançamento tentaria consumir {qtd_total:g}."
+            )
 
-    peso_bruto = float(form.get("peso_bruto") or 0)
-    peso_liquido = float(form.get("peso_liquido") or 0)
 
-    if peso_liquido <= 0:
-        raise ValueError("Informe o peso líquido da caixa.")
-
-    codigo_caixa = form.get("codigo_caixa") or gerar_codigo_caixa()
-
-    conn = conectar()
-    cursor = conn.cursor()
-
+def inserir_caixa_pa(cursor, codigo_caixa, sku, data_fabricacao, data_validade, peso_bruto, peso_liquido, total_bandejas, observacoes, composicao):
     if DATABASE_URL:
         cursor.execute(q("""
         INSERT INTO pa_caixas (
@@ -1654,14 +1688,14 @@ def registrar_caixa_pa_manual(form):
         """), (
             codigo_caixa,
             sku,
-            form.get("data_fabricacao") or "",
-            form.get("data_validade") or "",
+            data_fabricacao or "",
+            data_validade or "",
             peso_bruto,
             peso_liquido,
             total_bandejas,
             "Em estoque",
             "Embalagem Secundária",
-            form.get("observacoes") or ""
+            observacoes or ""
         ))
         caixa_id = cursor.fetchone()["id"]
     else:
@@ -1681,14 +1715,14 @@ def registrar_caixa_pa_manual(form):
         """), (
             codigo_caixa,
             sku,
-            form.get("data_fabricacao") or "",
-            form.get("data_validade") or "",
+            data_fabricacao or "",
+            data_validade or "",
             peso_bruto,
             peso_liquido,
             total_bandejas,
             "Em estoque",
             "Embalagem Secundária",
-            form.get("observacoes") or ""
+            observacoes or ""
         ))
         caixa_id = cursor.lastrowid
 
@@ -1703,10 +1737,121 @@ def registrar_caixa_pa_manual(form):
 
         registrar_saida_pi_por_caixa(cursor, op_id, sku, qtd, caixa_id)
 
+    return caixa_id
+
+
+def registrar_caixa_pa_manual(form):
+    criar_tabelas_estoque_pi_pa()
+
+    composicao, total_bandejas, sku = preparar_composicao_caixa(form)
+    validar_saldo_pi_para_composicoes([composicao])
+
+    peso_bruto = parse_numero_form(form.get("peso_bruto") or 0)
+    peso_liquido = parse_numero_form(form.get("peso_liquido") or 0)
+
+    if peso_bruto <= 0:
+        raise ValueError("Informe o peso bruto da caixa.")
+
+    if peso_liquido <= 0:
+        peso_liquido = peso_bruto - 0.5
+
+    if peso_liquido <= 0:
+        raise ValueError("O peso líquido calculado precisa ser maior que zero.")
+
+    data_fabricacao = form.get("data_fabricacao") or datetime.now().strftime("%Y-%m-%d")
+    data_validade = form.get("data_validade") or calcular_validade_padrao(data_fabricacao)
+    codigo_caixa = form.get("codigo_caixa") or gerar_codigo_caixa()
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    inserir_caixa_pa(
+        cursor,
+        codigo_caixa,
+        sku,
+        data_fabricacao,
+        data_validade,
+        peso_bruto,
+        peso_liquido,
+        total_bandejas,
+        form.get("observacoes") or "",
+        composicao
+    )
+
     conn.commit()
     conn.close()
 
     return codigo_caixa
+
+
+def registrar_caixas_pa_lote(form):
+    criar_tabelas_estoque_pi_pa()
+
+    composicao, total_bandejas, sku = preparar_composicao_caixa(form)
+    linhas = [linha.strip() for linha in (form.get("pesos_brutos_lote") or "").splitlines() if linha.strip()]
+
+    if not linhas:
+        raise ValueError("Informe ao menos um peso bruto no lançamento em lote.")
+
+    pesos_brutos = [parse_numero_form(linha) for linha in linhas]
+    pesos_liquidos_raw = [linha.strip() for linha in (form.get("pesos_liquidos_lote") or "").splitlines() if linha.strip()]
+
+    if pesos_liquidos_raw and len(pesos_liquidos_raw) != len(pesos_brutos):
+        raise ValueError("A lista de pesos líquidos editados deve ter a mesma quantidade de linhas da lista de pesos brutos.")
+
+    pesos_liquidos = []
+    for indice, peso_bruto in enumerate(pesos_brutos):
+        if peso_bruto <= 0:
+            raise ValueError("Todos os pesos brutos do lote precisam ser maiores que zero.")
+
+        if pesos_liquidos_raw:
+            peso_liquido = parse_numero_form(pesos_liquidos_raw[indice])
+        else:
+            peso_liquido = peso_bruto - 0.5
+
+        if peso_liquido <= 0:
+            raise ValueError("Todos os pesos líquidos do lote precisam ser maiores que zero.")
+        pesos_liquidos.append(peso_liquido)
+
+    validar_saldo_pi_para_composicoes([composicao for _ in pesos_brutos])
+
+    data_fabricacao = form.get("data_fabricacao") or datetime.now().strftime("%Y-%m-%d")
+    data_validade = form.get("data_validade") or calcular_validade_padrao(data_fabricacao)
+    observacoes = form.get("observacoes") or "Lançamento em lote na Embalagem Secundária"
+
+    codigos = []
+    primeiro_codigo = gerar_codigo_caixa()
+    try:
+        prefixo_codigo = "-".join(primeiro_codigo.split("-")[:-1])
+        sequencia_codigo = int(primeiro_codigo.split("-")[-1])
+    except Exception:
+        prefixo_codigo = f"CX-{datetime.now().strftime('%Y%m%d')}"
+        sequencia_codigo = 1
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    for peso_bruto, peso_liquido in zip(pesos_brutos, pesos_liquidos):
+        codigo_caixa = f"{prefixo_codigo}-{sequencia_codigo:03d}"
+        sequencia_codigo += 1
+        inserir_caixa_pa(
+            cursor,
+            codigo_caixa,
+            sku,
+            data_fabricacao,
+            data_validade,
+            peso_bruto,
+            peso_liquido,
+            total_bandejas,
+            observacoes,
+            composicao
+        )
+        codigos.append(codigo_caixa)
+
+    conn.commit()
+    conn.close()
+
+    return codigos
 
 
 def calcular_fechamento_industrial_op(op_id):
@@ -5382,8 +5527,12 @@ def finalizar_embalagem_secundaria(op_id):
 def embalagem_secundaria():
     if request.method == "POST":
         try:
-            codigo_caixa = registrar_caixa_pa_manual(request.form)
-            flash(f"Caixa {codigo_caixa} registrada no Estoque PA com sucesso.")
+            if request.form.get("modo_lancamento") == "lote":
+                codigos = registrar_caixas_pa_lote(request.form)
+                flash(f"{len(codigos)} caixas registradas no Estoque PA com sucesso.")
+            else:
+                codigo_caixa = registrar_caixa_pa_manual(request.form)
+                flash(f"Caixa {codigo_caixa} registrada no Estoque PA com sucesso.")
         except ValueError as erro:
             flash(str(erro))
 

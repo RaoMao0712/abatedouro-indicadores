@@ -202,19 +202,22 @@
     </div>
 
     {% if not fechamento_op or (fechamento_op.saldo_pi > 0 and fechamento_op.op.status != "Encerrada") %}
-    <form method="post" class="form-grid">
+    <form method="post" class="form-grid" id="form-caixa-individual">
         <input type="hidden" name="op_principal" value="{{ op_selecionada.op_id }}">
         <input type="hidden" name="op_complementar" value="">
         <input type="hidden" name="bandejas_complementar" value="0">
-
-        <div>
-            <label>Peso líquido da caixa</label>
-            <input type="number" name="peso_liquido" min="0" step="0.001" required placeholder="Ex.: 10.850" autofocus>
-        </div>
+        <input type="hidden" name="modo_lancamento" value="individual">
 
         <div>
             <label>Peso bruto da caixa</label>
-            <input type="number" name="peso_bruto" min="0" step="0.001" placeholder="Ex.: 11.250">
+            <input type="number" name="peso_bruto" min="0" step="0.001" required placeholder="Ex.: 11.250" autofocus data-peso-bruto>
+            <small class="obs">Informe o peso bruto. O peso líquido será sugerido automaticamente.</small>
+        </div>
+
+        <div>
+            <label>Peso líquido da caixa</label>
+            <input type="number" name="peso_liquido" min="0" step="0.001" required placeholder="Ex.: 10.750" data-peso-liquido>
+            <small class="obs">Sugestão: peso bruto - 0,500 kg. Pode ser editado se necessário.</small>
         </div>
 
         <div>
@@ -233,12 +236,13 @@
 
         <div>
             <label>Data de fabricação</label>
-            <input type="date" name="data_fabricacao" value="{{ hoje }}">
+            <input type="date" name="data_fabricacao" value="{{ hoje }}" data-fabricacao>
         </div>
 
         <div>
             <label>Data de validade</label>
-            <input type="date" name="data_validade">
+            <input type="date" name="data_validade" data-validade>
+            <small class="obs">Sugestão: 1 ano após a fabricação. Pode ser editada.</small>
         </div>
 
         <div class="form-span-2">
@@ -254,6 +258,69 @@
     <p class="obs">
         Após registrar a caixa, a tela permanece nesta mesma OP. O operador só informa o próximo peso e confirma.
     </p>
+
+    <div class="section-title-row" style="margin-top: 2rem;">
+        <div>
+            <span class="eyebrow">Lançamento em lote</span>
+            <h2>Adicionar várias caixas da OP #{{ op_selecionada.op_id }}</h2>
+        </div>
+    </div>
+
+    <form method="post" class="form-grid" id="form-caixa-lote">
+        <input type="hidden" name="op_principal" value="{{ op_selecionada.op_id }}">
+        <input type="hidden" name="op_complementar" value="">
+        <input type="hidden" name="bandejas_complementar" value="0">
+        <input type="hidden" name="modo_lancamento" value="lote">
+
+        <div>
+            <label>Data de fabricação</label>
+            <input type="date" name="data_fabricacao" value="{{ hoje }}" data-fabricacao>
+        </div>
+
+        <div>
+            <label>Data de validade</label>
+            <input type="date" name="data_validade" data-validade>
+            <small class="obs">Calculada automaticamente e editável.</small>
+        </div>
+
+        <div>
+            <label>Bandejas por caixa</label>
+            <input
+                type="number"
+                name="bandejas_principal"
+                min="1"
+                max="{{ bandejas_por_caixa }}"
+                step="1"
+                required
+                value="{% if op_selecionada.saldo_bandejas < bandejas_por_caixa %}{{ op_selecionada.saldo_bandejas|int }}{% else %}{{ bandejas_por_caixa }}{% endif %}"
+            >
+            <small class="obs">Para caixa parcial, lance um lote separado com a quantidade exata de bandejas.</small>
+        </div>
+
+        <div class="form-span-2">
+            <label>Pesos brutos das caixas</label>
+            <textarea name="pesos_brutos_lote" rows="8" required data-pesos-brutos-lote placeholder="Digite ou cole um peso bruto por linha. Ex.:
+11,250
+11,180
+11,320"></textarea>
+            <small class="obs">Aceita vírgula ou ponto. Cada linha gera uma caixa PA.</small>
+        </div>
+
+        <div class="form-span-2">
+            <label>Pesos líquidos calculados/editáveis</label>
+            <textarea name="pesos_liquidos_lote" rows="8" data-pesos-liquidos-lote placeholder="Preenchido automaticamente como bruto - 0,500 kg. Pode editar se necessário."></textarea>
+            <small class="obs">Se este campo ficar vazio, o sistema calculará automaticamente no salvamento.</small>
+        </div>
+
+        <div class="form-span-2">
+            <label>Observações</label>
+            <textarea name="observacoes" rows="2" placeholder="Ex.: lançamento em lote após pesagem manual da OP"></textarea>
+        </div>
+
+        <div class="form-span-2">
+            <button type="submit" class="botao-principal">Salvar Caixas em Lote</button>
+        </div>
+    </form>
     {% else %}
         <p class="obs">
             Todas as bandejas apontadas para esta OP já foram pesadas na Embalagem Secundária.
@@ -382,5 +449,97 @@
         <p class="obs">Nenhuma caixa PA registrada ainda.</p>
     {% endif %}
 </div>
+
+
+<script>
+(function () {
+    const TARA_CAIXA = 0.5;
+
+    function somarUmAno(dataIso) {
+        if (!dataIso) return "";
+        const partes = dataIso.split("-").map(Number);
+        if (partes.length !== 3) return "";
+        const data = new Date(partes[0], partes[1] - 1, partes[2]);
+        data.setFullYear(data.getFullYear() + 1);
+        return data.toISOString().slice(0, 10);
+    }
+
+    function parseNumero(texto) {
+        if (!texto) return NaN;
+        return Number(String(texto).trim().replace(/\./g, "").replace(",", "."));
+    }
+
+    function formatarNumero(numero) {
+        if (!Number.isFinite(numero)) return "";
+        return numero.toFixed(3).replace(".", ",");
+    }
+
+    document.querySelectorAll("form").forEach(function (form) {
+        const fabricacao = form.querySelector("[data-fabricacao]");
+        const validade = form.querySelector("[data-validade]");
+        let validadeEditada = false;
+
+        if (validade) {
+            validade.addEventListener("input", function () {
+                validadeEditada = true;
+            });
+        }
+
+        function atualizarValidade() {
+            if (fabricacao && validade && !validadeEditada) {
+                validade.value = somarUmAno(fabricacao.value);
+            }
+        }
+
+        if (fabricacao) {
+            fabricacao.addEventListener("change", atualizarValidade);
+            atualizarValidade();
+        }
+
+        const pesoBruto = form.querySelector("[data-peso-bruto]");
+        const pesoLiquido = form.querySelector("[data-peso-liquido]");
+        let pesoLiquidoEditado = false;
+
+        if (pesoLiquido) {
+            pesoLiquido.addEventListener("input", function () {
+                pesoLiquidoEditado = true;
+            });
+        }
+
+        if (pesoBruto && pesoLiquido) {
+            pesoBruto.addEventListener("input", function () {
+                if (pesoLiquidoEditado) return;
+                const bruto = Number(pesoBruto.value || 0);
+                if (bruto > TARA_CAIXA) {
+                    pesoLiquido.value = (bruto - TARA_CAIXA).toFixed(3);
+                }
+            });
+        }
+
+        const pesosBrutosLote = form.querySelector("[data-pesos-brutos-lote]");
+        const pesosLiquidosLote = form.querySelector("[data-pesos-liquidos-lote]");
+        let loteLiquidoEditado = false;
+
+        if (pesosLiquidosLote) {
+            pesosLiquidosLote.addEventListener("input", function () {
+                loteLiquidoEditado = true;
+            });
+        }
+
+        if (pesosBrutosLote && pesosLiquidosLote) {
+            pesosBrutosLote.addEventListener("input", function () {
+                if (loteLiquidoEditado) return;
+                const linhas = pesosBrutosLote.value.split(/\r?\n/);
+                const liquidos = linhas.map(function (linha) {
+                    const bruto = parseNumero(linha);
+                    if (!Number.isFinite(bruto) || bruto <= TARA_CAIXA) return "";
+                    return formatarNumero(bruto - TARA_CAIXA);
+                });
+                pesosLiquidosLote.value = liquidos.join("\n");
+            });
+        }
+    });
+})();
+</script>
 
 {% endblock %}
