@@ -1739,11 +1739,11 @@ def calcular_fechamento_industrial_op(op_id):
     cursor.execute(q("""
     SELECT
         COALESCE(SUM(CASE
-            WHEN LOWER(COALESCE(categoria, '')) LIKE '%conden%' THEN quantidade
+            WHEN LOWER(COALESCE(categoria, '')) LIKE '%%conden%%' THEN quantidade
             ELSE 0
         END), 0) AS condenacoes,
         COALESCE(SUM(CASE
-            WHEN LOWER(COALESCE(categoria, '')) NOT LIKE '%conden%' THEN quantidade
+            WHEN LOWER(COALESCE(categoria, '')) NOT LIKE '%%conden%%' THEN quantidade
             ELSE 0
         END), 0) AS descartes
     FROM apontamentos_descartes
@@ -7561,12 +7561,12 @@ def buscar_dados_relatorio_viabilidade(data_inicio, data_fim, fornecedor_filtro=
     cursor.execute(q(f"""
     SELECT
         COALESCE(SUM(CASE
-            WHEN LOWER(COALESCE(d.categoria, '')) LIKE '%conden%'
-              OR LOWER(COALESCE(d.motivo, '')) LIKE '%conden%'
+            WHEN LOWER(COALESCE(d.categoria, '')) LIKE '%%conden%%'
+              OR LOWER(COALESCE(d.motivo, '')) LIKE '%%conden%%'
             THEN d.quantidade ELSE 0 END), 0) AS condenacoes,
         COALESCE(SUM(CASE
-            WHEN LOWER(COALESCE(d.categoria, '')) LIKE '%conden%'
-              OR LOWER(COALESCE(d.motivo, '')) LIKE '%conden%'
+            WHEN LOWER(COALESCE(d.categoria, '')) LIKE '%%conden%%'
+              OR LOWER(COALESCE(d.motivo, '')) LIKE '%%conden%%'
             THEN 0 ELSE d.quantidade END), 0) AS descartes
     FROM apontamentos_descartes d
     JOIN ordens_producao o ON o.id = d.op_id
@@ -7602,12 +7602,12 @@ def buscar_dados_relatorio_viabilidade(data_inicio, data_fim, fornecedor_filtro=
     SELECT
         o.data,
         COALESCE(SUM(CASE
-            WHEN LOWER(COALESCE(d.categoria, '')) LIKE '%conden%'
-              OR LOWER(COALESCE(d.motivo, '')) LIKE '%conden%'
+            WHEN LOWER(COALESCE(d.categoria, '')) LIKE '%%conden%%'
+              OR LOWER(COALESCE(d.motivo, '')) LIKE '%%conden%%'
             THEN d.quantidade ELSE 0 END), 0) AS condenacoes,
         COALESCE(SUM(CASE
-            WHEN LOWER(COALESCE(d.categoria, '')) LIKE '%conden%'
-              OR LOWER(COALESCE(d.motivo, '')) LIKE '%conden%'
+            WHEN LOWER(COALESCE(d.categoria, '')) LIKE '%%conden%%'
+              OR LOWER(COALESCE(d.motivo, '')) LIKE '%%conden%%'
             THEN 0 ELSE d.quantidade END), 0) AS descartes
     FROM apontamentos_descartes d
     JOIN ordens_producao o ON o.id = d.op_id
@@ -7669,12 +7669,12 @@ def buscar_dados_relatorio_viabilidade(data_inicio, data_fim, fornecedor_filtro=
     SELECT
         COALESCE(NULLIF(d.setor, ''), 'Sem setor') AS setor,
         COALESCE(SUM(CASE
-            WHEN LOWER(COALESCE(d.categoria, '')) LIKE '%conden%'
-              OR LOWER(COALESCE(d.motivo, '')) LIKE '%conden%'
+            WHEN LOWER(COALESCE(d.categoria, '')) LIKE '%%conden%%'
+              OR LOWER(COALESCE(d.motivo, '')) LIKE '%%conden%%'
             THEN d.quantidade ELSE 0 END), 0) AS condenacoes,
         COALESCE(SUM(CASE
-            WHEN LOWER(COALESCE(d.categoria, '')) LIKE '%conden%'
-              OR LOWER(COALESCE(d.motivo, '')) LIKE '%conden%'
+            WHEN LOWER(COALESCE(d.categoria, '')) LIKE '%%conden%%'
+              OR LOWER(COALESCE(d.motivo, '')) LIKE '%%conden%%'
             THEN 0 ELSE d.quantidade END), 0) AS descartes,
         COALESCE(SUM(d.quantidade), 0) AS total
     FROM apontamentos_descartes d
@@ -7742,12 +7742,12 @@ def buscar_dados_relatorio_viabilidade(data_inicio, data_fim, fornecedor_filtro=
     SELECT
         o.fornecedor,
         COALESCE(SUM(CASE
-            WHEN LOWER(COALESCE(d.categoria, '')) LIKE '%conden%'
-              OR LOWER(COALESCE(d.motivo, '')) LIKE '%conden%'
+            WHEN LOWER(COALESCE(d.categoria, '')) LIKE '%%conden%%'
+              OR LOWER(COALESCE(d.motivo, '')) LIKE '%%conden%%'
             THEN d.quantidade ELSE 0 END), 0) AS condenacoes,
         COALESCE(SUM(CASE
-            WHEN LOWER(COALESCE(d.categoria, '')) LIKE '%conden%'
-              OR LOWER(COALESCE(d.motivo, '')) LIKE '%conden%'
+            WHEN LOWER(COALESCE(d.categoria, '')) LIKE '%%conden%%'
+              OR LOWER(COALESCE(d.motivo, '')) LIKE '%%conden%%'
             THEN 0 ELSE d.quantidade END), 0) AS descartes
     FROM apontamentos_descartes d
     JOIN ordens_producao o ON o.id = d.op_id
