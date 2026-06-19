@@ -3,7 +3,7 @@
 {% block conteudo %}
 <style>
     .viabilidade-shell {
-        max-width: 1180px;
+        max-width: 1240px;
         margin: 0 auto;
         padding: 28px 24px 48px;
     }
@@ -16,9 +16,9 @@
         background: linear-gradient(135deg, #12324a 0%, #1f5c79 100%);
         color: #fff;
         border-radius: 22px;
-        padding: 28px;
+        padding: 26px 28px;
         box-shadow: 0 18px 36px rgba(15, 46, 70, 0.18);
-        margin-bottom: 22px;
+        margin-bottom: 18px;
     }
 
     .viabilidade-hero h1 {
@@ -30,8 +30,8 @@
 
     .viabilidade-hero p {
         margin: 0;
-        max-width: 760px;
-        color: rgba(255, 255, 255, 0.82);
+        max-width: 780px;
+        color: rgba(255, 255, 255, 0.84);
         font-size: 14px;
         line-height: 1.55;
     }
@@ -43,15 +43,79 @@
         padding: 10px 14px;
         border-radius: 999px;
         font-size: 12px;
-        font-weight: 700;
+        font-weight: 800;
         text-transform: uppercase;
         letter-spacing: 0.06em;
     }
 
+    .viabilidade-filtros,
+    .viabilidade-bloco {
+        background: #fff;
+        border: 1px solid #e6edf3;
+        border-radius: 18px;
+        padding: 18px;
+        box-shadow: 0 10px 28px rgba(15, 46, 70, 0.08);
+        margin-bottom: 18px;
+    }
+
+    .viabilidade-filtros form {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr)) auto;
+        gap: 12px;
+        align-items: end;
+    }
+
+    .viabilidade-campo label {
+        display: block;
+        margin-bottom: 6px;
+        color: #607085;
+        font-size: 12px;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    .viabilidade-campo input,
+    .viabilidade-campo select {
+        width: 100%;
+        height: 42px;
+        border: 1px solid #d9e3ec;
+        border-radius: 12px;
+        padding: 0 12px;
+        color: #17364f;
+        background: #f8fafc;
+        font-size: 14px;
+    }
+
+    .viabilidade-botoes {
+        display: flex;
+        gap: 8px;
+    }
+
+    .viabilidade-btn {
+        height: 42px;
+        border: 0;
+        border-radius: 12px;
+        padding: 0 16px;
+        background: #17364f;
+        color: #fff;
+        font-weight: 800;
+        cursor: pointer;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .viabilidade-btn.secundario {
+        background: #eef4f8;
+        color: #17364f;
+    }
+
     .viabilidade-grid {
         display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
-        gap: 16px;
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+        gap: 14px;
         margin-bottom: 18px;
     }
 
@@ -59,18 +123,20 @@
         background: #fff;
         border: 1px solid #e6edf3;
         border-radius: 18px;
-        padding: 20px;
+        padding: 18px;
         box-shadow: 0 10px 28px rgba(15, 46, 70, 0.08);
+        min-height: 112px;
     }
 
     .viabilidade-card span {
         display: block;
         color: #6b7c8f;
-        font-size: 12px;
+        font-size: 11px;
         font-weight: 800;
         text-transform: uppercase;
         letter-spacing: 0.06em;
         margin-bottom: 10px;
+        line-height: 1.3;
     }
 
     .viabilidade-card strong {
@@ -80,48 +146,145 @@
         line-height: 1.1;
     }
 
-    .viabilidade-note {
-        background: #fff;
-        border: 1px solid #e6edf3;
-        border-radius: 18px;
-        padding: 22px;
-        box-shadow: 0 10px 28px rgba(15, 46, 70, 0.08);
+    .viabilidade-card small {
+        display: block;
+        margin-top: 8px;
+        color: #8392a5;
+        font-size: 12px;
     }
 
-    .viabilidade-note h2 {
-        margin: 0 0 10px;
+    .viabilidade-card.destaque strong {
+        font-size: 28px;
+    }
+
+    .viabilidade-section-title {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        align-items: flex-start;
+        margin-bottom: 14px;
+    }
+
+    .viabilidade-section-title h2 {
+        margin: 0 0 6px;
         color: #17364f;
         font-size: 18px;
     }
 
-    .viabilidade-note p {
+    .viabilidade-section-title p {
         margin: 0;
-        color: #5f7084;
-        line-height: 1.6;
+        color: #65778c;
+        font-size: 13px;
+        line-height: 1.5;
+    }
+
+    .viabilidade-chart-box {
+        height: 330px;
+        position: relative;
+    }
+
+    .viabilidade-duas-colunas {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 18px;
+    }
+
+    .viabilidade-tabela {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+    }
+
+    .viabilidade-tabela th,
+    .viabilidade-tabela td {
+        padding: 11px 10px;
+        border-bottom: 1px solid #edf2f7;
+        text-align: left;
+        color: #24384f;
+        vertical-align: top;
+    }
+
+    .viabilidade-tabela th {
+        color: #65778c;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        background: #f8fafc;
+    }
+
+    .viabilidade-tabela td.numero,
+    .viabilidade-tabela th.numero {
+        text-align: right;
+        white-space: nowrap;
+    }
+
+    .viabilidade-vazio {
+        margin: 0;
+        padding: 18px;
+        border: 1px dashed #cbd7e2;
+        border-radius: 14px;
+        color: #65778c;
+        background: #f8fafc;
         font-size: 14px;
     }
 
-    @media (max-width: 980px) {
+    .viabilidade-note {
+        background: #f8fafc;
+        border: 1px solid #e6edf3;
+        border-radius: 14px;
+        padding: 14px;
+        color: #607085;
+        font-size: 13px;
+        line-height: 1.5;
+        margin-top: 14px;
+    }
+
+    @media (max-width: 1180px) {
         .viabilidade-grid {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
+            grid-template-columns: repeat(3, minmax(0, 1fr));
         }
 
-        .viabilidade-hero {
-            flex-direction: column;
+        .viabilidade-filtros form {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
         }
     }
 
-    @media (max-width: 640px) {
-        .viabilidade-shell {
-            padding: 18px 14px 36px;
+    @media (max-width: 860px) {
+        .viabilidade-hero,
+        .viabilidade-section-title {
+            flex-direction: column;
         }
 
-        .viabilidade-grid {
+        .viabilidade-grid,
+        .viabilidade-duas-colunas,
+        .viabilidade-filtros form {
             grid-template-columns: 1fr;
         }
 
         .viabilidade-status {
             white-space: normal;
+        }
+    }
+
+    @media print {
+        .sidebar-menu,
+        .topo,
+        .viabilidade-filtros,
+        .viabilidade-botoes {
+            display: none !important;
+        }
+
+        .app-shell,
+        .viabilidade-shell {
+            padding: 0 !important;
+            margin: 0 !important;
+            max-width: 100% !important;
+        }
+
+        .viabilidade-hero,
+        .viabilidade-card,
+        .viabilidade-bloco {
+            box-shadow: none !important;
         }
     }
 </style>
@@ -131,42 +294,314 @@
         <div>
             <h1>Relatório de Viabilidade de Aves</h1>
             <p>
-                Tela inicial criada em etapa segura para detalhar o indicador de aves viáveis já usado no Dashboard.
-                Neste momento, os valores são fixos apenas para validar rota, menu, template e layout,
-                sem consultar banco de dados e sem alterar regras de negócio.
+                Visão executiva das aves recebidas, perdas operacionais e viabilidade do processo.
+                Use os filtros de motivo e setor para acompanhar a evolução diária de uma causa específica
+                e avaliar o desempenho operacional de cada etapa produtiva.
             </p>
         </div>
-        <div class="viabilidade-status">Etapa 2 — tela visível</div>
+        <div class="viabilidade-status">Relatório operacional</div>
+    </section>
+
+    <section class="viabilidade-filtros">
+        <form method="get" action="{{ url_for('relatorio_viabilidade') }}">
+            <div class="viabilidade-campo">
+                <label for="data_inicio">Data inicial</label>
+                <input type="date" id="data_inicio" name="data_inicio" value="{{ data_inicio }}">
+            </div>
+
+            <div class="viabilidade-campo">
+                <label for="data_fim">Data final</label>
+                <input type="date" id="data_fim" name="data_fim" value="{{ data_fim }}">
+            </div>
+
+            <div class="viabilidade-campo">
+                <label for="fornecedor">Fornecedor</label>
+                <select id="fornecedor" name="fornecedor">
+                    <option value="Todos" {% if fornecedor_filtro == "Todos" %}selected{% endif %}>Todos</option>
+                    {% for fornecedor in fornecedores %}
+                        <option value="{{ fornecedor }}" {% if fornecedor_filtro == fornecedor %}selected{% endif %}>{{ fornecedor }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="viabilidade-campo">
+                <label for="motivo">Motivo</label>
+                <select id="motivo" name="motivo">
+                    <option value="Todos" {% if motivo_filtro == "Todos" %}selected{% endif %}>Todos</option>
+                    {% for motivo in motivos %}
+                        <option value="{{ motivo }}" {% if motivo_filtro == motivo %}selected{% endif %}>{{ motivo }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="viabilidade-campo">
+                <label for="setor">Setor</label>
+                <select id="setor" name="setor">
+                    <option value="Todos" {% if setor_filtro == "Todos" %}selected{% endif %}>Todos</option>
+                    {% for setor in setores %}
+                        <option value="{{ setor }}" {% if setor_filtro == setor %}selected{% endif %}>{{ setor }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="viabilidade-botoes">
+                <button class="viabilidade-btn" type="submit">Filtrar</button>
+                <a class="viabilidade-btn secundario" href="{{ url_for('relatorio_viabilidade') }}">Limpar</a>
+            </div>
+        </form>
     </section>
 
     <section class="viabilidade-grid">
         <div class="viabilidade-card">
             <span>Aves recebidas</span>
-            <strong>0</strong>
+            <strong>{{ resumo.aves_recebidas|br_numero(0) }}</strong>
+            <small>{{ resumo.total_ops }} OP(s)</small>
         </div>
 
         <div class="viabilidade-card">
-            <span>Aves descartadas</span>
-            <strong>0</strong>
+            <span>Mortes antes da pendura</span>
+            <strong>{{ resumo.mortes_antes_pendura|br_numero(0) }}</strong>
         </div>
 
         <div class="viabilidade-card">
-            <span>Aves viáveis</span>
-            <strong>0</strong>
+            <span>Condenações</span>
+            <strong>{{ resumo.condenacoes|br_numero(0) }}</strong>
         </div>
 
         <div class="viabilidade-card">
+            <span>Descartes</span>
+            <strong>{{ resumo.descartes|br_numero(0) }}</strong>
+        </div>
+
+        <div class="viabilidade-card">
+            <span>Total de perdas</span>
+            <strong>{{ resumo.total_perdas|br_numero(0) }}</strong>
+        </div>
+
+        <div class="viabilidade-card destaque">
             <span>Viabilidade</span>
-            <strong>0,00%</strong>
+            <strong>{{ resumo.viabilidade_percentual|br_percentual }}</strong>
+            <small>{{ resumo.aves_viaveis|br_numero(0) }} aves viáveis</small>
         </div>
     </section>
 
-    <section class="viabilidade-note">
-        <h2>Relatório criado com segurança</h2>
-        <p>
-            Próxima etapa: substituir gradualmente estes valores fixos pelos dados reais da operação, começando por
-            uma única informação de cada vez. O relatório de rendimento permanece isolado e não foi alterado nesta etapa.
-        </p>
+    <section class="viabilidade-bloco">
+        <div class="viabilidade-section-title">
+            <div>
+                <h2>Evolução diária da viabilidade</h2>
+                <p>
+                    A linha considera aves recebidas, mortes antes da pendura e perdas filtradas por motivo/setor.
+                </p>
+            </div>
+            <div class="viabilidade-botoes">
+                <button type="button" class="viabilidade-btn secundario" onclick="window.print()">Imprimir</button>
+            </div>
+        </div>
+
+        {% if evolucao_diaria %}
+            <div class="viabilidade-chart-box">
+                <canvas id="graficoViabilidade"></canvas>
+            </div>
+        {% else %}
+            <p class="viabilidade-vazio">Nenhum dado encontrado para os filtros selecionados.</p>
+        {% endif %}
+
+        <div class="viabilidade-note">
+            Fórmula usada: (Aves recebidas - Mortes antes da pendura - Condenações - Descartes) ÷ Aves recebidas × 100.
+            Os filtros de motivo e setor atuam sobre os apontamentos de perdas; as mortes antes da pendura continuam vinculadas à OP do período.
+        </div>
+    </section>
+
+    <section class="viabilidade-duas-colunas">
+        <div class="viabilidade-bloco">
+            <div class="viabilidade-section-title">
+                <div>
+                    <h2>Perdas por setor</h2>
+                    <p>Ajuda a enxergar onde a perda operacional está concentrada.</p>
+                </div>
+            </div>
+
+            {% if perdas_por_setor %}
+                <table class="viabilidade-tabela">
+                    <thead>
+                        <tr>
+                            <th>Setor</th>
+                            <th class="numero">Cond.</th>
+                            <th class="numero">Desc.</th>
+                            <th class="numero">Total</th>
+                            <th class="numero">%</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in perdas_por_setor %}
+                        <tr>
+                            <td><strong>{{ item.setor }}</strong></td>
+                            <td class="numero">{{ item.condenacoes|br_numero(0) }}</td>
+                            <td class="numero">{{ item.descartes|br_numero(0) }}</td>
+                            <td class="numero">{{ item.total|br_numero(0) }}</td>
+                            <td class="numero">{{ item.percentual|br_percentual }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            {% else %}
+                <p class="viabilidade-vazio">Sem perdas por setor nos filtros selecionados.</p>
+            {% endif %}
+        </div>
+
+        <div class="viabilidade-bloco">
+            <div class="viabilidade-section-title">
+                <div>
+                    <h2>Ranking de motivos</h2>
+                    <p>Principais motivos de perda no período filtrado.</p>
+                </div>
+            </div>
+
+            {% if ranking_motivos %}
+                <table class="viabilidade-tabela">
+                    <thead>
+                        <tr>
+                            <th>Motivo</th>
+                            <th>Setor</th>
+                            <th class="numero">Total</th>
+                            <th class="numero">%</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in ranking_motivos %}
+                        <tr>
+                            <td><strong>{{ item.motivo }}</strong></td>
+                            <td>{{ item.setor }}</td>
+                            <td class="numero">{{ item.total|br_numero(0) }}</td>
+                            <td class="numero">{{ item.percentual|br_percentual }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            {% else %}
+                <p class="viabilidade-vazio">Sem motivos de perda nos filtros selecionados.</p>
+            {% endif %}
+        </div>
+    </section>
+
+    <section class="viabilidade-bloco">
+        <div class="viabilidade-section-title">
+            <div>
+                <h2>Comparativo por fornecedor</h2>
+                <p>Permite avaliar a viabilidade por origem das aves dentro dos filtros aplicados.</p>
+            </div>
+        </div>
+
+        {% if comparativo_fornecedores %}
+            <table class="viabilidade-tabela">
+                <thead>
+                    <tr>
+                        <th>Fornecedor</th>
+                        <th class="numero">Aves recebidas</th>
+                        <th class="numero">Mortes</th>
+                        <th class="numero">Cond.</th>
+                        <th class="numero">Desc.</th>
+                        <th class="numero">Total perdas</th>
+                        <th class="numero">Viabilidade</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in comparativo_fornecedores %}
+                    <tr>
+                        <td><strong>{{ item.fornecedor }}</strong></td>
+                        <td class="numero">{{ item.aves_recebidas|br_numero(0) }}</td>
+                        <td class="numero">{{ item.mortes_antes_pendura|br_numero(0) }}</td>
+                        <td class="numero">{{ item.condenacoes|br_numero(0) }}</td>
+                        <td class="numero">{{ item.descartes|br_numero(0) }}</td>
+                        <td class="numero">{{ item.total_perdas|br_numero(0) }}</td>
+                        <td class="numero"><strong>{{ item.viabilidade_percentual|br_percentual }}</strong></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <p class="viabilidade-vazio">Sem fornecedores para o período selecionado.</p>
+        {% endif %}
     </section>
 </div>
+
+{% if evolucao_diaria %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    const labelsViabilidade = {{ evolucao_diaria | map(attribute='data_formatada') | list | tojson }};
+    const valoresViabilidade = {{ evolucao_diaria | map(attribute='viabilidade_percentual') | list | tojson }};
+    const perdasViabilidade = {{ evolucao_diaria | map(attribute='total_perdas') | list | tojson }};
+
+    const ctxViabilidade = document.getElementById("graficoViabilidade");
+
+    new Chart(ctxViabilidade, {
+        type: "line",
+        data: {
+            labels: labelsViabilidade,
+            datasets: [
+                {
+                    label: "Viabilidade (%)",
+                    data: valoresViabilidade,
+                    tension: 0.25,
+                    borderWidth: 3,
+                    pointRadius: 3,
+                    yAxisID: "y"
+                },
+                {
+                    label: "Perdas (aves)",
+                    data: perdasViabilidade,
+                    tension: 0.25,
+                    borderWidth: 2,
+                    pointRadius: 3,
+                    yAxisID: "y1"
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: {
+                mode: "index",
+                intersect: false
+            },
+            plugins: {
+                legend: {
+                    position: "top"
+                },
+                tooltip: {
+                    callbacks: {
+                        label(context) {
+                            if (context.dataset.yAxisID === "y") {
+                                return `${context.dataset.label}: ${Number(context.parsed.y).toLocaleString("pt-BR", {minimumFractionDigits: 2, maximumFractionDigits: 2})}%`;
+                            }
+
+                            return `${context.dataset.label}: ${Number(context.parsed.y).toLocaleString("pt-BR", {maximumFractionDigits: 0})}`;
+                        }
+                    }
+                }
+            },
+            scales: {
+                y: {
+                    type: "linear",
+                    position: "left",
+                    min: 0,
+                    max: 100,
+                    ticks: {
+                        callback(value) {
+                            return `${value}%`;
+                        }
+                    }
+                },
+                y1: {
+                    type: "linear",
+                    position: "right",
+                    grid: {
+                        drawOnChartArea: false
+                    }
+                }
+            }
+        }
+    });
+</script>
+{% endif %}
 {% endblock %}
