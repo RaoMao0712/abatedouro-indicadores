@@ -189,6 +189,33 @@
             Finalizar Embalagem Secundária e Encerrar OP
         </button>
     </form>
+
+    {% if fechamento_op.op.status != "Encerrada" %}
+    <div class="obs" style="margin-top: 1.5rem; border: 1px solid #f1c6c6; background: #fff7f7; padding: 1rem; border-radius: 12px;">
+        <strong>Reset operacional da OP</strong>
+        <p style="margin: 0.4rem 0 0.8rem;">
+            Use apenas para desfazer testes ou lançamentos incorretos antes do encerramento.
+            Esta ação remove Embalagem Primária, PI, caixas PA e devolve a OP para Aberta.
+        </p>
+        <form
+            method="post"
+            action="{{ url_for('resetar_embalagem_secundaria_op', op_id=op_selecionada.op_id) }}"
+            onsubmit="return confirm('Esta ação vai remover todos os lançamentos PI/PA desta OP e voltar a OP para Aberta. Confirmar reset?')"
+            class="form-grid"
+        >
+            <div>
+                <label>Confirmação</label>
+                <input type="text" name="confirmacao_reset" placeholder="Digite RESETAR" required>
+                <small class="obs">Digite RESETAR para liberar a ação.</small>
+            </div>
+            <div>
+                <button type="submit" class="botao-dre-exportar" style="background: #b42318; color: #fff; border-color: #b42318;">
+                    Resetar OP
+                </button>
+            </div>
+        </form>
+    </div>
+    {% endif %}
 </div>
 {% endif %}
 

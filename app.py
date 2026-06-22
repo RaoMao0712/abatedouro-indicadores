@@ -2006,6 +2006,116 @@ def finalizar_embalagem_secundaria_op(op_id):
     return fechamento
 
 
+def validar_reset_processamento_op(op_id):
+    """
+    Valida se a OP pode voltar ao estado anterior à Embalagem Primária.
+
+    Esta rotina não é uma reabertura de OP encerrada. Ela serve para desfazer
+    processamento operacional parcial: Embalagem Primária, PI, Embalagem
+    Secundária e caixas PA ainda não expedidas.
+    """
+    criar_banco()
+    criar_tabelas_estoque_pi_pa()
+
+    op = buscar_op_por_id(op_id)
+    if not op:
+        raise ValueError("OP não encontrada.")
+
+    if (op["status"] or "") == "Encerrada":
+        raise ValueError("Esta OP já está encerrada. O reset operacional só é permitido antes do encerramento.")
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q("""
+    SELECT DISTINCT caixa_id
+    FROM pa_caixa_composicao
+    WHERE op_id = ?
+    """), (op_id,))
+    caixas_ids = [linha["caixa_id"] for linha in cursor.fetchall()]
+
+    if caixas_ids:
+        placeholders = ",".join(["?"] * len(caixas_ids))
+
+        cursor.execute(q(f"""
+        SELECT caixa_id, COUNT(DISTINCT op_id) AS total_ops
+        FROM pa_caixa_composicao
+        WHERE caixa_id IN ({placeholders})
+        GROUP BY caixa_id
+        HAVING COUNT(DISTINCT op_id) > 1
+        """), tuple(caixas_ids))
+        caixas_mistas = cursor.fetchall()
+        if caixas_mistas:
+            conn.close()
+            raise ValueError("Não é possível resetar esta OP porque existem caixas mistas vinculadas a outras OPs.")
+
+        cursor.execute(q(f"""
+        SELECT codigo_caixa, status
+        FROM pa_caixas
+        WHERE id IN ({placeholders})
+          AND COALESCE(status, '') <> ?
+        """), tuple(caixas_ids) + ("Em estoque",))
+        caixas_indisponiveis = cursor.fetchall()
+        if caixas_indisponiveis:
+            conn.close()
+            raise ValueError("Não é possível resetar esta OP porque existem caixas que não estão mais em estoque.")
+
+    conn.close()
+    return op, caixas_ids
+
+
+def resetar_processamento_op(op_id, confirmacao):
+    if str(confirmacao or "").strip().upper() != "RESETAR":
+        raise ValueError("Digite RESETAR para confirmar o reset da OP.")
+
+    op, caixas_ids = validar_reset_processamento_op(op_id)
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    try:
+        if caixas_ids:
+            placeholders = ",".join(["?"] * len(caixas_ids))
+
+            cursor.execute(q(f"""
+            DELETE FROM pa_caixa_composicao
+            WHERE caixa_id IN ({placeholders})
+            """), tuple(caixas_ids))
+
+            cursor.execute(q(f"""
+            DELETE FROM pa_caixas
+            WHERE id IN ({placeholders})
+            """), tuple(caixas_ids))
+
+        cursor.execute(q("""
+        DELETE FROM estoque_produto_intermediario
+        WHERE op_id = ?
+        """), (op_id,))
+
+        cursor.execute(q("""
+        DELETE FROM embalagem_primaria_apontamentos
+        WHERE op_id = ?
+        """), (op_id,))
+
+        cursor.execute(q("""
+        UPDATE ordens_producao
+        SET status = ?
+        WHERE id = ?
+        """), ("Aberta", op_id))
+
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+    return {
+        "op": op,
+        "caixas_removidas": len(caixas_ids),
+    }
+
+
 def calcular_resumo_estoques_pi_pa(saldos_pi, caixas_pa):
     saldo_pi_bandejas = sum(float(item["saldo_bandejas"] or 0) for item in saldos_pi)
     caixas_em_estoque = [c for c in caixas_pa if (c["status"] or "") == "Em estoque"]
@@ -5519,6 +5629,22 @@ def finalizar_embalagem_secundaria(op_id):
         flash(str(erro))
 
     return redirect(url_for("embalagem_secundaria", op_id=op_id))
+
+
+@app.route("/embalagem-secundaria/<int:op_id>/resetar", methods=["POST"])
+@perfil_permitido("pcp")
+def resetar_embalagem_secundaria_op(op_id):
+    try:
+        resultado = resetar_processamento_op(op_id, request.form.get("confirmacao_reset"))
+        flash(
+            "OP resetada com sucesso. "
+            f"Caixas removidas: {resultado['caixas_removidas']}. "
+            "A OP voltou para Aberta e pode ser reapontada desde a Embalagem Primária."
+        )
+        return redirect(url_for("embalagem_primaria", op_id=op_id))
+    except ValueError as erro:
+        flash(str(erro))
+        return redirect(url_for("embalagem_secundaria", op_id=op_id))
 
 
 @app.route("/embalagem-secundaria", methods=["GET", "POST"])
