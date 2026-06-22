@@ -2116,19 +2116,47 @@ def resetar_processamento_op(op_id, confirmacao):
     }
 
 
-def calcular_resumo_estoques_pi_pa(saldos_pi, caixas_pa):
+def buscar_resumo_pa_completo():
+    """
+    Calcula o resumo de Produto Acabado usando a base completa de caixas.
+
+    Importante: a listagem visual de caixas pode continuar limitada, mas os
+    cards de saldo não podem depender da lista exibida na tela. Por isso o
+    resumo é apurado diretamente em pa_caixas, sem LIMIT.
+    """
+    criar_tabelas_estoque_pi_pa()
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q("""
+    SELECT
+        COALESCE(COUNT(CASE WHEN status = ? THEN 1 END), 0) AS saldo_pa_caixas,
+        COALESCE(SUM(CASE WHEN status = ? THEN quantidade_bandejas ELSE 0 END), 0) AS saldo_pa_bandejas,
+        COALESCE(SUM(CASE WHEN status = ? THEN peso_liquido ELSE 0 END), 0) AS saldo_pa_kg
+    FROM pa_caixas
+    """), ("Em estoque", "Em estoque", "Em estoque"))
+
+    resumo = cursor.fetchone()
+    conn.close()
+
+    return {
+        "saldo_pa_caixas": int(resumo["saldo_pa_caixas"] or 0),
+        "saldo_pa_bandejas": float(resumo["saldo_pa_bandejas"] or 0),
+        "saldo_pa_kg": float(resumo["saldo_pa_kg"] or 0),
+    }
+
+
+def calcular_resumo_estoques_pi_pa(saldos_pi, caixas_pa=None):
     saldo_pi_bandejas = sum(float(item["saldo_bandejas"] or 0) for item in saldos_pi)
-    caixas_em_estoque = [c for c in caixas_pa if (c["status"] or "") == "Em estoque"]
-    saldo_pa_caixas = len(caixas_em_estoque)
-    saldo_pa_bandejas = sum(float(c["quantidade_bandejas"] or 0) for c in caixas_em_estoque)
-    saldo_pa_kg = sum(float(c["peso_liquido"] or 0) for c in caixas_em_estoque)
+    resumo_pa = buscar_resumo_pa_completo()
 
     return {
         "saldo_pi_bandejas": saldo_pi_bandejas,
         "ops_com_pi": len({item["op_id"] for item in saldos_pi}),
-        "saldo_pa_caixas": saldo_pa_caixas,
-        "saldo_pa_bandejas": saldo_pa_bandejas,
-        "saldo_pa_kg": saldo_pa_kg,
+        "saldo_pa_caixas": resumo_pa["saldo_pa_caixas"],
+        "saldo_pa_bandejas": resumo_pa["saldo_pa_bandejas"],
+        "saldo_pa_kg": resumo_pa["saldo_pa_kg"],
     }
 
 
