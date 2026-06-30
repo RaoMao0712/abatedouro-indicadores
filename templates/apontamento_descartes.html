@@ -1,125 +1,223 @@
 {% extends "base.html" %}
 
 {% block conteudo %}
+<div class="launch-page">
 
 {% set lista_setores = [
-    "Recepção e Pendura",
+    "Recep&ccedil;&atilde;o e Pendura",
     "Escalda e Depenagem",
-    "Evisceração",
+    "Eviscera&ccedil;&atilde;o",
     "Corte",
     "Embalagem",
-    "Expedição"
+    "Expedi&ccedil;&atilde;o"
 ] %}
 
 {% set lista_motivos_descarte = [
     "Morte na gaiola",
     "Hematomas",
-    "Contaminação no processo",
+    "Contamina&ccedil;&atilde;o no processo",
     "Aspecto Repugnante",
-    "Doença",
+    "Doen&ccedil;a",
     "Cozimento",
     "Caquexia",
     "Fratura",
-    "Carcaça incompleta",
+    "Carca&ccedil;a incompleta",
     "Outra"
 ] %}
 
-<div class="card">
-    <h2>Apontamento de Descartes e Condenações</h2>
+<section class="hero-dashboard launch-hero">
+    <div class="hero-dashboard-titulo">
+        <span class="eyebrow">Lancamento</span>
+        <h2>Descartes e Condenacoes</h2>
+        <div class="hero-resumo-inline">
+            <span><strong>Fluxo:</strong> carregue a OP, monte as linhas e confirme no final</span>
+            <span><strong>Registro:</strong> quantidade de aves por motivo e setor</span>
+        </div>
+    </div>
+</section>
 
-    <p class="obs">
-        Registre perdas, descartes e condenações identificadas durante o processo.
-    </p>
-</div>
+<div class="card ficha launch-card descarte-lote-card">
+    <div class="section-title-row">
+        <div>
+            <span class="eyebrow">OP</span>
+            <h2>Carregar Ordem de Producao</h2>
+        </div>
+    </div>
 
-<div class="card ficha">
-
-    <h3>Descartes / Condenações</h3>
-
-    <form method="POST">
-
-        <input type="hidden" name="tipo_apontamento" value="descarte">
-
-        <div class="form-grid">
-
-            <div>
-                <label>OP</label>
-
-                <select name="op_id" required>
-                    {% for op in ordens %}
-                    <option value="{{ op.id }}">
-                        OP {{ op.id }} | {{ op.fornecedor }}
-                    </option>
-                    {% endfor %}
-                </select>
-            </div>
-
-            <div>
-                <label>Data</label>
-                <input type="date" name="data" value="{{ hoje }}" required>
-            </div>
-
-            <div>
-                <label>Quantidade</label>
-                <input type="number" step="0.01" name="quantidade" required>
-            </div>
-
-            <div>
-                <label>Unidade</label>
-
-                <select name="unidade" required>
-                    <option value="aves">aves</option>
-                    <option value="kg">kg</option>
-                    <option value="unidades">unidades</option>
-                </select>
-            </div>
-
-            <div>
-                <label>Setor</label>
-
-                <select name="setor" required>
-                    {% for setor in lista_setores %}
-                    <option value="{{ setor }}">
-                        {{ setor }}
-                    </option>
-                    {% endfor %}
-                </select>
-            </div>
-
-            <div>
-                <label>Categoria</label>
-
-                <select name="categoria" required>
-                    <option value="Descarte">Descarte</option>
-                    <option value="Condenação">Condenação</option>
-                </select>
-            </div>
-
-            <div>
-                <label>Motivo</label>
-
-                <select name="motivo" required>
-                    {% for motivo in lista_motivos_descarte %}
-                    <option value="{{ motivo }}">
-                        {{ motivo }}
-                    </option>
-                    {% endfor %}
-                </select>
-            </div>
-
-            <div>
-                <label>Observações</label>
-                <input type="text" name="observacoes">
-            </div>
-
+    <div class="descarte-carregar-grid">
+        <div>
+            <label>OP</label>
+            <select id="descarte-op-select" required>
+                <option value="">Selecione</option>
+                {% for op in ordens %}
+                <option value="{{ op.id }}" data-fornecedor="{{ op.fornecedor }}" data-data="{{ op.data }}">
+                    OP {{ op.id }} | {{ op.fornecedor }}
+                </option>
+                {% endfor %}
+            </select>
         </div>
 
-        <button type="submit">
-            Salvar Descarte / Condenação
-        </button>
+        <div>
+            <label>Data do lancamento</label>
+            <input type="date" id="descarte-data-input" value="{{ hoje }}" required>
+        </div>
 
-    </form>
+        <div class="descarte-carregar-acao">
+            <button type="button" id="btn-carregar-op">Carregar OP</button>
+        </div>
+    </div>
+
+    <div id="descarte-op-resumo" class="descarte-op-resumo" hidden>
+        <strong id="descarte-op-titulo"></strong>
+        <span id="descarte-op-detalhe"></span>
+    </div>
+</div>
+
+<form method="POST" id="form-descartes-lote" class="card ficha launch-card descarte-lote-card" hidden>
+    <input type="hidden" name="tipo_apontamento" value="descarte_lote">
+    <input type="hidden" name="op_id" id="descarte-op-id">
+    <input type="hidden" name="data" id="descarte-data-hidden">
+
+    <div class="section-title-row">
+        <div>
+            <span class="eyebrow">Linhas temporarias</span>
+            <h2>Descartes da OP</h2>
+        </div>
+
+        <button type="button" class="botao-secundario-financeiro" id="btn-adicionar-descarte">
+            Adicionar linha
+        </button>
+    </div>
+
+    <div class="descarte-linhas-header">
+        <span>Quantidade de aves</span>
+        <span>Motivo</span>
+        <span>Setor</span>
+        <span></span>
+    </div>
+
+    <div id="descarte-linhas"></div>
+
+    <div class="descarte-confirmacao">
+        <div>
+            <span>Total de aves</span>
+            <strong id="descarte-total-aves">0</strong>
+        </div>
+
+        <div>
+            <label>Observacoes gerais</label>
+            <input type="text" name="observacoes" placeholder="Opcional">
+        </div>
+
+        <button type="submit" id="btn-confirmar-descartes">
+            Confirmar descartes
+        </button>
+    </div>
+</form>
+
+<template id="template-linha-descarte">
+    <div class="descarte-linha">
+        <input type="number" step="1" min="1" name="quantidade[]" placeholder="0" required>
+
+        <select name="motivo[]" required>
+            {% for motivo in lista_motivos_descarte %}
+            <option value="{{ motivo|safe }}">{{ motivo|safe }}</option>
+            {% endfor %}
+        </select>
+
+        <select name="setor[]" required>
+            {% for setor in lista_setores %}
+            <option value="{{ setor|safe }}">{{ setor|safe }}</option>
+            {% endfor %}
+        </select>
+
+        <button type="button" class="botao-remover-parcela" data-remover-linha>
+            Remover
+        </button>
+    </div>
+</template>
 
 </div>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    const selectOp = document.getElementById("descarte-op-select");
+    const dataInput = document.getElementById("descarte-data-input");
+    const btnCarregar = document.getElementById("btn-carregar-op");
+    const form = document.getElementById("form-descartes-lote");
+    const opIdHidden = document.getElementById("descarte-op-id");
+    const dataHidden = document.getElementById("descarte-data-hidden");
+    const resumo = document.getElementById("descarte-op-resumo");
+    const resumoTitulo = document.getElementById("descarte-op-titulo");
+    const resumoDetalhe = document.getElementById("descarte-op-detalhe");
+    const linhas = document.getElementById("descarte-linhas");
+    const template = document.getElementById("template-linha-descarte");
+    const btnAdicionar = document.getElementById("btn-adicionar-descarte");
+    const totalAves = document.getElementById("descarte-total-aves");
+
+    function atualizarTotal() {
+        let total = 0;
+        linhas.querySelectorAll('input[name="quantidade[]"]').forEach(function (input) {
+            total += Number(input.value || 0);
+        });
+        totalAves.textContent = total.toLocaleString("pt-BR");
+    }
+
+    function adicionarLinha() {
+        const linha = template.content.firstElementChild.cloneNode(true);
+        linha.querySelector('input[name="quantidade[]"]').addEventListener("input", atualizarTotal);
+        linha.querySelector("[data-remover-linha]").addEventListener("click", function () {
+            if (linhas.children.length > 1) {
+                linha.remove();
+                atualizarTotal();
+            }
+        });
+        linhas.appendChild(linha);
+        atualizarTotal();
+    }
+
+    btnCarregar.addEventListener("click", function () {
+        const option = selectOp.options[selectOp.selectedIndex];
+
+        if (!selectOp.value) {
+            alert("Selecione uma OP para carregar.");
+            return;
+        }
+
+        if (!dataInput.value) {
+            alert("Informe a data do lancamento.");
+            return;
+        }
+
+        opIdHidden.value = selectOp.value;
+        dataHidden.value = dataInput.value;
+        resumoTitulo.textContent = option.textContent.trim();
+        resumoDetalhe.textContent = "Lancamento em " + dataInput.value;
+        resumo.hidden = false;
+        form.hidden = false;
+
+        linhas.innerHTML = "";
+        adicionarLinha();
+    });
+
+    btnAdicionar.addEventListener("click", adicionarLinha);
+
+    form.addEventListener("submit", function (event) {
+        if (!opIdHidden.value || linhas.children.length === 0) {
+            event.preventDefault();
+            alert("Carregue uma OP e adicione pelo menos uma linha.");
+            return;
+        }
+
+        const possuiQuantidade = Array.from(linhas.querySelectorAll('input[name="quantidade[]"]'))
+            .some(function (input) { return Number(input.value || 0) > 0; });
+
+        if (!possuiQuantidade) {
+            event.preventDefault();
+            alert("Informe a quantidade de aves em pelo menos uma linha.");
+        }
+    });
+});
+</script>
 
 {% endblock %}

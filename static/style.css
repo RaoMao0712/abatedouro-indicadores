@@ -2274,6 +2274,131 @@ button:hover {
     box-shadow: none;
 }
 
+.descarte-lote-card {
+    overflow: visible;
+}
+
+.descarte-carregar-grid {
+    display: grid;
+    grid-template-columns: minmax(280px, 1.3fr) minmax(180px, 0.7fr) auto;
+    gap: 12px;
+    align-items: end;
+}
+
+.descarte-carregar-acao button,
+#btn-adicionar-descarte {
+    width: auto;
+    min-width: 138px;
+    min-height: 38px;
+    margin: 0;
+    padding: 0 14px;
+}
+
+.descarte-op-resumo {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 12px;
+    padding: 10px 12px;
+    border: 1px solid #bfdbfe;
+    border-radius: 8px;
+    background: #eff6ff;
+    color: var(--brand-ink, #0f172a);
+}
+
+.descarte-op-resumo strong,
+.descarte-op-resumo span {
+    font-size: 13px;
+}
+
+.descarte-linhas-header,
+.descarte-linha {
+    display: grid;
+    grid-template-columns: minmax(150px, 0.65fr) minmax(220px, 1fr) minmax(200px, 0.9fr) 96px;
+    gap: 8px;
+    align-items: center;
+}
+
+.descarte-linhas-header {
+    margin-top: 8px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: #eef3f8;
+    color: var(--brand-ink, #0f172a);
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 0.45px;
+    text-transform: uppercase;
+}
+
+.descarte-linha {
+    margin-top: 8px;
+    padding: 8px;
+    border: 1px solid var(--brand-line, #dbe4ef);
+    border-radius: 8px;
+    background: #f8fafc;
+}
+
+.descarte-linha input,
+.descarte-linha select {
+    min-height: 36px;
+}
+
+.descarte-confirmacao {
+    display: grid;
+    grid-template-columns: 140px minmax(240px, 1fr) auto;
+    gap: 12px;
+    align-items: end;
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid var(--brand-line, #dbe4ef);
+}
+
+.descarte-confirmacao > div:first-child {
+    min-height: 54px;
+    padding: 9px 12px;
+    border-radius: 8px;
+    background: #172a45;
+    color: #ffffff;
+}
+
+.descarte-confirmacao span {
+    display: block;
+    color: #bfdbfe;
+    font-size: 10px;
+    font-weight: 900;
+    letter-spacing: 0.55px;
+    text-transform: uppercase;
+}
+
+.descarte-confirmacao strong {
+    display: block;
+    margin-top: 2px;
+    font-size: 22px;
+    line-height: 1;
+}
+
+#btn-confirmar-descartes {
+    min-width: 180px;
+}
+
+@media (max-width: 760px) {
+    .descarte-carregar-grid,
+    .descarte-linhas-header,
+    .descarte-linha,
+    .descarte-confirmacao {
+        grid-template-columns: 1fr;
+    }
+
+    .descarte-linhas-header {
+        display: none;
+    }
+
+    .descarte-op-resumo {
+        flex-direction: column;
+    }
+}
+
 .resumo-parcelas {
     display: grid;
     grid-template-columns: repeat(3, 1fr);

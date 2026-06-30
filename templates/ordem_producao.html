@@ -52,11 +52,6 @@
                 </div>
 
                 <div>
-                    <label>Mortes antes da pendura</label>
-                    <input type="number" name="mortes_antes_pendura" value="0" min="0">
-                </div>
-
-                <div>
                     <label>Peso vivo total (kg)</label>
                     <input type="number" step="0.01" name="peso_vivo" required>
                 </div>
@@ -82,8 +77,6 @@
                 <p><strong>GTA:</strong> {{ op.gta or "-" }}</p>
                 <p><strong>NF:</strong> {{ op.nota_fiscal or "-" }}</p>
                 <p><strong>Aves recebidas:</strong> {{ op.quantidade_aves }}</p>
-                <p><strong>Mortes antes da pendura:</strong> {{ op.mortes_antes_pendura }}</p>
-                <p><strong>Aves abatidas:</strong> {{ op.quantidade_aves - op.mortes_antes_pendura }}</p>
                 <p><strong>Peso vivo:</strong> {{ op.peso_vivo }} kg</p>
                 <p><strong>Peso médio:</strong> {{ "%.3f"|format(op.peso_medio) }} kg</p>
             </div>

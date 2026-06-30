@@ -359,7 +359,7 @@
         </div>
 
         <div class="viabilidade-card">
-            <span>Mortes antes da pendura</span>
+            <span>Mortes na gaiola</span>
             <strong>{{ resumo.mortes_antes_pendura|br_numero(0) }}</strong>
         </div>
 
@@ -390,7 +390,7 @@
             <div>
                 <h2>Evolução diária da viabilidade</h2>
                 <p>
-                    A linha considera aves recebidas, mortes antes da pendura e perdas filtradas por motivo/setor.
+                    A linha considera aves recebidas, mortes na gaiola e perdas filtradas por motivo/setor.
                 </p>
             </div>
             <div class="viabilidade-botoes">
@@ -407,8 +407,8 @@
         {% endif %}
 
         <div class="viabilidade-note">
-            Fórmula usada: (Aves recebidas - Mortes antes da pendura - Condenações - Descartes) ÷ Aves recebidas × 100.
-            Os filtros de motivo e setor atuam sobre os apontamentos de perdas; as mortes antes da pendura continuam vinculadas à OP do período.
+            Fórmula usada: (Aves recebidas - Mortes na gaiola - Condenações - Descartes) ÷ Aves recebidas × 100.
+            Os filtros de motivo e setor atuam sobre os apontamentos de perdas; as Mortes na gaiola continuam vinculadas à OP do período.
         </div>
     </section>
 

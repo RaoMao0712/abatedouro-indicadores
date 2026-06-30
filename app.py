@@ -1860,7 +1860,7 @@ def calcular_fechamento_industrial_op(op_id):
     e encerrar oficialmente a OP.
 
     Regras:
-    1) Aves vivas = bandejas apontadas na Embalagem Primária + descartes/condenações + mortes antes da pendura.
+    1) Aves vivas = bandejas apontadas na Embalagem Primária + descartes/condenações + mortes na gaiola.
     2) Todas as bandejas apontadas na Embalagem Primária precisam ter sido pesadas na Embalagem Secundária.
     3) O peso oficial da OP nasce da soma dos pesos líquidos das caixas PA vinculadas à OP.
     """
@@ -1888,9 +1888,14 @@ def calcular_fechamento_industrial_op(op_id):
             ELSE 0
         END), 0) AS condenacoes,
         COALESCE(SUM(CASE
-            WHEN LOWER(COALESCE(categoria, '')) NOT LIKE '%%conden%%' THEN quantidade
+            WHEN LOWER(COALESCE(categoria, '')) NOT LIKE '%%conden%%'
+             AND LOWER(TRIM(COALESCE(motivo, ''))) <> 'morte na gaiola' THEN quantidade
             ELSE 0
-        END), 0) AS descartes
+        END), 0) AS descartes,
+        COALESCE(SUM(CASE
+            WHEN LOWER(TRIM(COALESCE(motivo, ''))) = 'morte na gaiola' THEN quantidade
+            ELSE 0
+        END), 0) AS mortes_na_gaiola
     FROM apontamentos_descartes
     WHERE op_id = ?
       AND LOWER(unidade) IN ('aves', 'ave', 'unidade', 'unidades')
@@ -1898,6 +1903,7 @@ def calcular_fechamento_industrial_op(op_id):
     perdas = cursor.fetchone()
     condenacoes = float(perdas["condenacoes"] or 0)
     descartes = float(perdas["descartes"] or 0)
+    mortes_na_gaiola_descartes = float(perdas["mortes_na_gaiola"] or 0)
 
     cursor.execute(q("""
     SELECT
@@ -1914,7 +1920,7 @@ def calcular_fechamento_industrial_op(op_id):
     conn.close()
 
     aves_vivas = float(op["quantidade_aves"] or 0)
-    mortes_antes_pendura = float(op["mortes_antes_pendura"] or 0)
+    mortes_antes_pendura = float(op["mortes_antes_pendura"] or 0) + mortes_na_gaiola_descartes
     caixas_qtd = int(caixas["caixas"] or 0)
     bandejas_consumidas = float(caixas["bandejas_consumidas"] or 0)
     peso_liquido_total = float(caixas["peso_liquido_total"] or 0)
@@ -1933,7 +1939,7 @@ def calcular_fechamento_industrial_op(op_id):
     pendencias = []
     if not aves_ok:
         pendencias.append(
-            f"Balanço de aves divergente em {saldo_aves:g} aves. Revise Embalagem Primária, descartes, condenações ou mortes antes da pendura."
+            f"Balanço de aves divergente em {saldo_aves:g} aves. Revise Embalagem Primária, descartes, condenações ou mortes na gaiola."
         )
     if not pi_ok:
         if saldo_pi > 0:
@@ -4576,6 +4582,14 @@ def calcular_resumo_op(op, producoes, descartes):
         if item["unidade"].lower() in ["aves", "ave", "unidade", "unidades"]
     )
 
+    mortes_na_gaiola_descartes = sum(
+        item["quantidade"] for item in descartes
+        if item["unidade"].lower() in ["aves", "ave", "unidade", "unidades"]
+        and str(item["motivo"] or "").strip().lower() == "morte na gaiola"
+    )
+
+    mortes_na_gaiola = mortes_na_gaiola_descartes + float(op["mortes_antes_pendura"] or 0)
+
     total_descartes_kg = sum(
         item["quantidade"] for item in descartes
         if item["unidade"].lower() == "kg"
@@ -4586,8 +4600,8 @@ def calcular_resumo_op(op, producoes, descartes):
         if item["unidade"].lower() == "kg"
     )
 
-    aves_abatidas = op["quantidade_aves"] - op["mortes_antes_pendura"]
-    descartes_aves = op["mortes_antes_pendura"] + total_descartes_aves
+    aves_abatidas = op["quantidade_aves"] - mortes_na_gaiola
+    descartes_aves = total_descartes_aves + float(op["mortes_antes_pendura"] or 0)
     viabilidade = op["quantidade_aves"] - descartes_aves
 
     viabilidade_percentual = 0
@@ -4602,6 +4616,7 @@ def calcular_resumo_op(op, producoes, descartes):
         "aves_abatidas": aves_abatidas,
         "descartes_aves": total_descartes_aves,
         "descartes_kg": total_descartes_kg,
+        "mortes_na_gaiola": mortes_na_gaiola,
         "kg_produzidos": kg_produzidos,
         "viabilidade": viabilidade,
         "viabilidade_percentual": round(viabilidade_percentual, 2),
@@ -4759,6 +4774,55 @@ def salvar_apontamento_descarte(form):
     conn.close()
 
 
+def salvar_apontamentos_descartes_lote(form):
+    op_id = int(form["op_id"])
+    validar_op_aberta(op_id)
+
+    data = form["data"]
+    observacoes = form.get("observacoes", "")
+    quantidades = form.getlist("quantidade[]")
+    motivos = form.getlist("motivo[]")
+    setores = form.getlist("setor[]")
+
+    if not quantidades:
+        raise ValueError("Adicione pelo menos uma linha de descarte antes de confirmar.")
+
+    if not (len(quantidades) == len(motivos) == len(setores)):
+        raise ValueError("As linhas de descarte estao incompletas. Revise quantidades, motivos e setores.")
+
+    linhas = []
+    for indice, quantidade_raw in enumerate(quantidades, start=1):
+        try:
+            quantidade = float(quantidade_raw)
+        except (TypeError, ValueError):
+            raise ValueError(f"Informe uma quantidade valida na linha {indice}.")
+
+        if quantidade <= 0:
+            raise ValueError(f"A quantidade da linha {indice} precisa ser maior que zero.")
+
+        motivo = motivos[indice - 1]
+        setor = setores[indice - 1]
+
+        if not motivo or not setor:
+            raise ValueError(f"Selecione motivo e setor na linha {indice}.")
+
+        linhas.append((op_id, data, setor, "Descarte", motivo, quantidade, "aves", observacoes))
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.executemany(q("""
+    INSERT INTO apontamentos_descartes (
+        op_id, data, setor, categoria, motivo, quantidade, unidade, observacoes
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """), linhas)
+
+    conn.commit()
+    conn.close()
+
+    return len(linhas)
+
+
 
 def gerar_producao_automatica_setores(op, data_lancamento, hora_inicio, hora_fim, unidades_produzidas, kg_produzidos=None, descontar_almoco=False):
     setores_por_sku = {
@@ -4795,6 +4859,7 @@ def gerar_producao_automatica_setores(op, data_lancamento, hora_inicio, hora_fim
     FROM apontamentos_descartes
     WHERE op_id = ?
       AND LOWER(unidade) IN ('aves', 'ave', 'unidade', 'unidades')
+      AND LOWER(TRIM(motivo)) <> 'morte na gaiola'
     GROUP BY setor
     """), (op["id"],))
 
@@ -4804,7 +4869,16 @@ def gerar_producao_automatica_setores(op, data_lancamento, hora_inicio, hora_fim
         for item in descartes
     }
 
-    entrada_setor = float((op["quantidade_aves"] or 0) - (op["mortes_antes_pendura"] or 0))
+    cursor.execute(q("""
+    SELECT COALESCE(SUM(quantidade), 0) as total
+    FROM apontamentos_descartes
+    WHERE op_id = ?
+      AND LOWER(unidade) IN ('aves', 'ave', 'unidade', 'unidades')
+      AND LOWER(TRIM(motivo)) = 'morte na gaiola'
+    """), (op["id"],))
+
+    mortes_na_gaiola = float(cursor.fetchone()["total"] or 0) + float(op["mortes_antes_pendura"] or 0)
+    entrada_setor = float((op["quantidade_aves"] or 0) - mortes_na_gaiola)
 
     for setor in setores:
         quantidade_setor = max(0, entrada_setor)
@@ -5097,9 +5171,8 @@ def dashboard():
     horas_programadas = jornada_padrao * dias_periodo
 
     aves_recebidas = sum(op["quantidade_aves"] or 0 for op in ordens_periodo)
-    mortes_antes_pendura = sum(op["mortes_antes_pendura"] or 0 for op in ordens_periodo)
+    mortes_antes_pendura_legado = sum(op["mortes_antes_pendura"] or 0 for op in ordens_periodo)
     peso_entrada = sum(op["peso_vivo"] or 0 for op in ordens_periodo)
-    aves_abatidas = aves_recebidas - mortes_antes_pendura
 
     cursor.execute(q(f"""
     SELECT COALESCE(SUM(d.quantidade), 0) as descartes_aves
@@ -5112,6 +5185,22 @@ def dashboard():
     """), (data_inicio, data_fim) + parametros_filtros)
 
     descartes_aves = cursor.fetchone()["descartes_aves"] or 0
+
+    cursor.execute(q(f"""
+    SELECT COALESCE(SUM(d.quantidade), 0) as mortes_na_gaiola
+    FROM apontamentos_descartes d
+    JOIN ordens_producao o ON o.id = d.op_id
+    WHERE o.data BETWEEN ? AND ?
+      AND LOWER(d.unidade) IN ('aves', 'ave', 'unidade', 'unidades')
+      AND LOWER(TRIM(d.motivo)) = 'morte na gaiola'
+      {status_condicao_alias}
+      {sku_condicao_alias}
+    """), (data_inicio, data_fim) + parametros_filtros)
+
+    mortes_na_gaiola_descartes = cursor.fetchone()["mortes_na_gaiola"] or 0
+    mortes_antes_pendura = mortes_antes_pendura_legado + mortes_na_gaiola_descartes
+    descartes_aves_sem_morte_gaiola = max(0, descartes_aves - mortes_na_gaiola_descartes)
+    aves_abatidas = aves_recebidas - mortes_antes_pendura
 
     cursor.execute(q(f"""
     SELECT COALESCE(SUM(d.quantidade), 0) as descartes_kg
@@ -5225,7 +5314,7 @@ def dashboard():
             "kg_produzidos": round(kg_por_sku_mix.get(sku_mix, 0), 2)
         })
 
-    total_problemas_aves = mortes_antes_pendura + descartes_aves
+    total_problemas_aves = mortes_antes_pendura + descartes_aves_sem_morte_gaiola
 
     cursor.execute(q(f"""
     SELECT d.setor, COALESCE(SUM(d.quantidade), 0) as quantidade
@@ -5233,6 +5322,7 @@ def dashboard():
     JOIN ordens_producao o ON o.id = d.op_id
     WHERE o.data BETWEEN ? AND ?
       AND LOWER(d.unidade) IN ('aves', 'ave', 'unidade', 'unidades')
+      AND LOWER(TRIM(d.motivo)) <> 'morte na gaiola'
       {status_condicao_alias}
     GROUP BY d.setor
     ORDER BY quantidade DESC
@@ -5250,7 +5340,7 @@ def dashboard():
             percentual_transporte = (mortes_antes_pendura / total_problemas_aves) * 100
 
         descartes_por_setor.append({
-            "setor": "Transporte",
+            "setor": "Morte na gaiola",
             "quantidade": round(mortes_antes_pendura, 2),
             "percentual": round(percentual_transporte, 2)
         })
@@ -5281,6 +5371,7 @@ def dashboard():
     JOIN ordens_producao o ON o.id = d.op_id
     WHERE o.data BETWEEN ? AND ?
       AND LOWER(d.unidade) IN ('aves', 'ave', 'unidade', 'unidades')
+      AND LOWER(TRIM(d.motivo)) <> 'morte na gaiola'
       {status_condicao_alias}
       {sku_condicao_alias}
     GROUP BY d.motivo
@@ -5297,7 +5388,7 @@ def dashboard():
             percentual_morte_gaiola = (mortes_antes_pendura / total_problemas_aves) * 100
 
         descartes_por_motivo.append({
-            "motivo": "Morte na gaiola / antes da pendura",
+            "motivo": "Morte na gaiola",
             "quantidade": round(mortes_antes_pendura, 2),
             "percentual": round(percentual_morte_gaiola, 2)
         })
@@ -5453,7 +5544,7 @@ def dashboard():
             sum(mao_obra_direta_por_op.values()) / len(mao_obra_direta_por_op)
         )
 
-    viabilidade = aves_recebidas - mortes_antes_pendura - descartes_aves
+    viabilidade = aves_recebidas - mortes_antes_pendura - descartes_aves_sem_morte_gaiola
     viabilidade_percentual = 0
 
     if aves_recebidas > 0:
@@ -5551,7 +5642,7 @@ def dashboard():
         variacao_viabilidade=round(variacao_viabilidade, 2),
         variacao_rendimento=round(variacao_rendimento, 2),
         mortes_antes_pendura=round(mortes_antes_pendura, 2),
-        total_condenacoes=round(descartes_aves, 2),
+        total_condenacoes=round(descartes_aves_sem_morte_gaiola, 2),
         total_perdas=round(descartes_kg, 2),
         total_problemas_aves=round(total_problemas_aves, 2),
         jornada_padrao=round(jornada_padrao, 2),
@@ -6525,7 +6616,7 @@ def ordem_producao():
         gta = request.form["gta"]
         nota_fiscal = request.form["nota_fiscal"]
         quantidade_aves = int(request.form["quantidade_aves"])
-        mortes_antes_pendura = int(request.form["mortes_antes_pendura"])
+        mortes_antes_pendura = 0
         peso_vivo = float(request.form["peso_vivo"])
         observacoes = request.form["observacoes"]
 
@@ -6580,7 +6671,10 @@ def apontamento_setor():
             flash("Apontamento de parada salvo.")
 
         elif tipo == "descarte":
-            salvar_apontamento_descarte(request.form)
+            if request.form.get("tipo_apontamento") == "descarte_lote":
+                salvar_apontamentos_descartes_lote(request.form)
+            else:
+                salvar_apontamento_descarte(request.form)
             flash("Apontamento de descarte/condenação salvo.")
 
         return redirect(url_for("apontamento_setor"))
@@ -6697,7 +6791,10 @@ def apontamento_descartes():
 
     if request.method == "POST":
         try:
-            salvar_apontamento_descarte(request.form)
+            if request.form.get("tipo_apontamento") == "descarte_lote":
+                salvar_apontamentos_descartes_lote(request.form)
+            else:
+                salvar_apontamento_descarte(request.form)
             flash("Apontamento de descarte/condenação salvo.")
         except ValueError as erro:
             flash(str(erro))
@@ -6733,7 +6830,7 @@ def editar_op(op_id):
         gta = request.form["gta"]
         nota_fiscal = request.form["nota_fiscal"]
         quantidade_aves = int(request.form["quantidade_aves"])
-        mortes_antes_pendura = int(request.form["mortes_antes_pendura"])
+        mortes_antes_pendura = 0
         peso_vivo = float(request.form["peso_vivo"])
         observacoes = request.form["observacoes"]
         peso_medio = peso_vivo / quantidade_aves if quantidade_aves else 0
@@ -7844,7 +7941,10 @@ def buscar_dados_relatorio_viabilidade(data_inicio, data_fim, fornecedor_filtro=
     resumo_op = cursor.fetchone()
 
     aves_recebidas = float(resumo_op["aves_recebidas"] or 0)
-    mortes_antes_pendura = float(resumo_op["mortes_antes_pendura"] or 0)
+    mortes_legado_base = float(resumo_op["mortes_antes_pendura"] or 0)
+    motivo_normalizado = str(motivo_filtro or "").strip().lower()
+    mortes_legado_aplicavel = motivo_normalizado in ["", "todos", "morte na gaiola"]
+    mortes_antes_pendura = mortes_legado_base if mortes_legado_aplicavel else 0
     total_ops = int(resumo_op["total_ops"] or 0)
 
     filtros_perdas = list(filtros_op)
@@ -7870,7 +7970,16 @@ def buscar_dados_relatorio_viabilidade(data_inicio, data_fim, fornecedor_filtro=
         COALESCE(SUM(CASE
             WHEN LOWER(COALESCE(d.categoria, '')) LIKE '%%conden%%'
               OR LOWER(COALESCE(d.motivo, '')) LIKE '%%conden%%'
+              OR LOWER(TRIM(COALESCE(d.motivo, ''))) = 'morte na gaiola'
             THEN 0 ELSE d.quantidade END), 0) AS descartes
+        ,
+        COALESCE(SUM(CASE
+            WHEN LOWER(TRIM(COALESCE(d.motivo, ''))) = 'morte na gaiola'
+            THEN d.quantidade ELSE 0 END), 0) AS mortes_na_gaiola
+        ,
+        COALESCE(SUM(CASE
+            WHEN LOWER(TRIM(COALESCE(d.motivo, ''))) = 'morte na gaiola'
+            THEN d.quantidade ELSE 0 END), 0) AS mortes_na_gaiola
     FROM apontamentos_descartes d
     JOIN ordens_producao o ON o.id = d.op_id
     WHERE {where_perdas}
@@ -7879,6 +7988,7 @@ def buscar_dados_relatorio_viabilidade(data_inicio, data_fim, fornecedor_filtro=
 
     condenacoes = float(perdas["condenacoes"] or 0)
     descartes = float(perdas["descartes"] or 0)
+    mortes_antes_pendura += float(perdas["mortes_na_gaiola"] or 0)
     total_perdas = mortes_antes_pendura + condenacoes + descartes
     aves_viaveis = max(0, aves_recebidas - total_perdas)
     viabilidade_percentual = (aves_viaveis / aves_recebidas * 100) if aves_recebidas > 0 else 0
@@ -7911,7 +8021,12 @@ def buscar_dados_relatorio_viabilidade(data_inicio, data_fim, fornecedor_filtro=
         COALESCE(SUM(CASE
             WHEN LOWER(COALESCE(d.categoria, '')) LIKE '%%conden%%'
               OR LOWER(COALESCE(d.motivo, '')) LIKE '%%conden%%'
+              OR LOWER(TRIM(COALESCE(d.motivo, ''))) = 'morte na gaiola'
             THEN 0 ELSE d.quantidade END), 0) AS descartes
+        ,
+        COALESCE(SUM(CASE
+            WHEN LOWER(TRIM(COALESCE(d.motivo, ''))) = 'morte na gaiola'
+            THEN d.quantidade ELSE 0 END), 0) AS mortes_na_gaiola
     FROM apontamentos_descartes d
     JOIN ordens_producao o ON o.id = d.op_id
     WHERE {where_perdas}
@@ -7921,7 +8036,8 @@ def buscar_dados_relatorio_viabilidade(data_inicio, data_fim, fornecedor_filtro=
     perdas_por_data = {
         item["data"]: {
             "condenacoes": float(item["condenacoes"] or 0),
-            "descartes": float(item["descartes"] or 0)
+            "descartes": float(item["descartes"] or 0),
+            "mortes_na_gaiola": float(item["mortes_na_gaiola"] or 0)
         }
         for item in cursor.fetchall()
     }
@@ -7931,7 +8047,8 @@ def buscar_dados_relatorio_viabilidade(data_inicio, data_fim, fornecedor_filtro=
         base = ops_por_data.get(data, {})
         perda = perdas_por_data.get(data, {})
         aves_dia = float(base.get("aves_recebidas", 0) or 0)
-        mortes_dia = float(base.get("mortes_antes_pendura", 0) or 0)
+        mortes_dia = float(base.get("mortes_antes_pendura", 0) or 0) if mortes_legado_aplicavel else 0
+        mortes_dia += float(perda.get("mortes_na_gaiola", 0) or 0)
         condenacoes_dia = float(perda.get("condenacoes", 0) or 0)
         descartes_dia = float(perda.get("descartes", 0) or 0)
         total_perdas_dia = mortes_dia + condenacoes_dia + descartes_dia
@@ -7978,6 +8095,7 @@ def buscar_dados_relatorio_viabilidade(data_inicio, data_fim, fornecedor_filtro=
         COALESCE(SUM(CASE
             WHEN LOWER(COALESCE(d.categoria, '')) LIKE '%%conden%%'
               OR LOWER(COALESCE(d.motivo, '')) LIKE '%%conden%%'
+              OR LOWER(TRIM(COALESCE(d.motivo, ''))) = 'morte na gaiola'
             THEN 0 ELSE d.quantidade END), 0) AS descartes,
         COALESCE(SUM(d.quantidade), 0) AS total
     FROM apontamentos_descartes d
@@ -8051,6 +8169,7 @@ def buscar_dados_relatorio_viabilidade(data_inicio, data_fim, fornecedor_filtro=
         COALESCE(SUM(CASE
             WHEN LOWER(COALESCE(d.categoria, '')) LIKE '%%conden%%'
               OR LOWER(COALESCE(d.motivo, '')) LIKE '%%conden%%'
+              OR LOWER(TRIM(COALESCE(d.motivo, ''))) = 'morte na gaiola'
             THEN 0 ELSE d.quantidade END), 0) AS descartes
     FROM apontamentos_descartes d
     JOIN ordens_producao o ON o.id = d.op_id
@@ -8061,7 +8180,8 @@ def buscar_dados_relatorio_viabilidade(data_inicio, data_fim, fornecedor_filtro=
     fornecedores_perdas = {
         item["fornecedor"]: {
             "condenacoes": float(item["condenacoes"] or 0),
-            "descartes": float(item["descartes"] or 0)
+            "descartes": float(item["descartes"] or 0),
+            "mortes_na_gaiola": float(item["mortes_na_gaiola"] or 0)
         }
         for item in cursor.fetchall()
     }
@@ -8070,7 +8190,8 @@ def buscar_dados_relatorio_viabilidade(data_inicio, data_fim, fornecedor_filtro=
     for fornecedor, base in fornecedores_base.items():
         perdas_fornecedor = fornecedores_perdas.get(fornecedor, {})
         aves_fornecedor = float(base.get("aves_recebidas", 0) or 0)
-        mortes_fornecedor = float(base.get("mortes_antes_pendura", 0) or 0)
+        mortes_fornecedor = float(base.get("mortes_antes_pendura", 0) or 0) if mortes_legado_aplicavel else 0
+        mortes_fornecedor += float(perdas_fornecedor.get("mortes_na_gaiola", 0) or 0)
         condenacoes_fornecedor = float(perdas_fornecedor.get("condenacoes", 0) or 0)
         descartes_fornecedor = float(perdas_fornecedor.get("descartes", 0) or 0)
         total_perdas_fornecedor = mortes_fornecedor + condenacoes_fornecedor + descartes_fornecedor
@@ -8256,7 +8377,7 @@ def ler_planilha_importacao_maio(arquivo_excel):
         "gta": localizar_coluna(cab, ["gta"]),
         "nota_fiscal": localizar_coluna(cab, ["nota fiscal", "nf", "nota_fiscal"]),
         "quantidade_aves": localizar_coluna(cab, ["quantidade de aves", "aves", "quantidade_aves"]),
-        "mortes_antes_pendura": localizar_coluna(cab, ["mortes antes da pendura", "mortes_antes_pendura"]),
+        "mortes_antes_pendura": localizar_coluna(cab, ["mortes na gaiola", "mortes_antes_pendura"]),
         "peso_vivo": localizar_coluna(cab, ["peso vivo", "peso_vivo"]),
         "unidades_produzidas": localizar_coluna(cab, ["unidades produzidas", "unidades_produzidas"]),
         "kg_produzidos": localizar_coluna(cab, ["kg produzidos", "kg_produzidos"]),
