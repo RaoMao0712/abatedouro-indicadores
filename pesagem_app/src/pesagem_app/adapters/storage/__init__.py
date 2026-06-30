@@ -1,0 +1,2 @@
+"""Adaptadores de persistencia local."""
+
