@@ -7,9 +7,9 @@
         <span class="eyebrow">Produto Intermediário</span>
         <h2>Embalagem Primária</h2>
         <div class="hero-resumo-inline">
-            <span><strong>Aponta:</strong> bandejas produzidas por OP</span>
+            <span><strong>Aponta:</strong> bandejas ou aves embaladas por OP</span>
             <span><strong>Gera:</strong> Estoque PI</span>
-            <span><strong>Não encerra:</strong> a OP ainda aguarda Embalagem Secundária</span>
+            <span><strong>Fluxo:</strong> Cortada gera PI; Inteira encerra na primaria</span>
         </div>
     </div>
 
@@ -33,9 +33,9 @@
     </div>
 
     <div class="card kpi-card">
-        <span class="kpi-label">PA em caixas</span>
+        <span class="kpi-label">PA em lotes/caixas</span>
         <strong>{{ resumo.saldo_pa_caixas }}</strong>
-        <small>Caixas já formadas</small>
+        <small>Lotes ou caixas ja formados</small>
     </div>
 
     <div class="card kpi-card">
@@ -59,7 +59,7 @@
             <select name="op_id" required>
                 <option value="">Selecione</option>
                 {% for op in ops %}
-                    <option value="{{ op.id }}" {% if op_id_selecionada == op.id|string %}selected{% endif %}>
+                    <option value="{{ op.id }}" data-sku="{{ op.sku or 'Galinha Cortada' }}" {% if op_id_selecionada == op.id|string %}selected{% endif %}>
                         OP #{{ op.id }} — {{ op.data }} — {{ op.sku or "Galinha Cortada" }} — {{ op.status }}
                     </option>
                 {% endfor %}
@@ -67,8 +67,25 @@
         </div>
 
         <div>
-            <label>Bandejas produzidas</label>
-            <input type="number" name="quantidade_bandejas" min="1" step="1" required placeholder="Ex.: 1200" value="{{ apontamento_edicao.quantidade_bandejas|int if apontamento_edicao else '' }}">
+            <label id="label-quantidade-primaria">Bandejas produzidas</label>
+            <input type="number" name="quantidade_bandejas" min="0" step="1" required placeholder="Ex.: 1200" value="{{ apontamento_edicao.quantidade_bandejas|int if apontamento_edicao else '' }}">
+            <small class="obs" id="ajuda-quantidade-primaria">Para Galinha Cortada, informe as bandejas que seguirao para a Embalagem Secundaria.</small>
+        </div>
+
+        <div class="campo-galinha-inteira">
+            <label>Pacotes com 1 ave</label>
+            <input type="number" name="pacotes_1_ave" min="0" step="1" placeholder="Ex.: 300">
+        </div>
+
+        <div class="campo-galinha-inteira">
+            <label>Pacotes com 2 aves</label>
+            <input type="number" name="pacotes_2_aves" min="0" step="1" placeholder="Ex.: 150">
+        </div>
+
+        <div class="campo-galinha-inteira">
+            <label>Peso liquido produzido (kg)</label>
+            <input type="number" name="kg_produzidos" min="0" step="0.001" placeholder="Ex.: 720.500">
+            <small class="obs">Usado somente para rendimento. A venda da Galinha Inteira permanece por unidade.</small>
         </div>
 
         <div class="form-span-2">
@@ -77,7 +94,7 @@
         </div>
 
         <div class="form-span-2">
-            <button type="submit" class="botao-principal">{% if modo_edicao and apontamento_edicao %}Atualizar PI{% else %}Registrar PI{% endif %}</button>
+            <button type="submit" class="botao-principal" id="botao-embalagem-primaria">{% if modo_edicao and apontamento_edicao %}Atualizar PI{% else %}Registrar PI{% endif %}</button>
             {% if modo_edicao and apontamento_edicao %}
                 <a href="{{ url_for('embalagem_primaria') }}" class="botao-secundario" style="margin-left: 10px;">Cancelar edição</a>
             {% endif %}
@@ -85,7 +102,7 @@
     </form>
 
     <p class="obs">
-        Esta etapa não encerra a OP e não altera o cálculo de rendimento. Ela apenas registra as bandejas produzidas e mantém todas vinculadas à OP até a Embalagem Secundária formar as caixas e validar o peso real.
+        Para Galinha Cortada, esta etapa gera PI e a OP segue para Embalagem Secundaria. Para Galinha Inteira, a OP encerra na Embalagem Primaria, gera PA em unidades vendaveis e registra kg apenas para rendimento.
     </p>
 </div>
 
@@ -105,7 +122,7 @@
                     <th>OP</th>
                     <th>Data</th>
                     <th>SKU</th>
-                    <th>Bandejas</th>
+                    <th>Aves/Bandejas</th>
                     <th>Observações</th>
                     <th>Ações</th>
                 </tr>
@@ -174,5 +191,62 @@
         <p class="obs">Nenhum PI pendente.</p>
     {% endif %}
 </div>
+
+<style>
+    .campo-galinha-inteira {
+        display: none;
+    }
+</style>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    const selectOp = document.querySelector('select[name="op_id"]');
+    const quantidade = document.querySelector('input[name="quantidade_bandejas"]');
+    const labelQuantidade = document.getElementById("label-quantidade-primaria");
+    const ajudaQuantidade = document.getElementById("ajuda-quantidade-primaria");
+    const camposInteira = document.querySelectorAll(".campo-galinha-inteira");
+    const botao = document.getElementById("botao-embalagem-primaria");
+
+    function skuSelecionado() {
+        if (!selectOp || !selectOp.selectedOptions || !selectOp.selectedOptions.length) {
+            return "";
+        }
+        return selectOp.selectedOptions[0].dataset.sku || "";
+    }
+
+    function atualizarTela() {
+        const inteira = skuSelecionado() === "Galinha Inteira";
+
+        camposInteira.forEach(function (campo) {
+            campo.style.display = inteira ? "block" : "none";
+        });
+
+        if (quantidade) {
+            quantidade.required = !inteira;
+            quantidade.placeholder = inteira ? "Opcional: aves embaladas" : "Ex.: 1200";
+        }
+
+        if (labelQuantidade) {
+            labelQuantidade.textContent = inteira ? "Aves embaladas (opcional)" : "Bandejas produzidas";
+        }
+
+        if (ajudaQuantidade) {
+            ajudaQuantidade.textContent = inteira
+                ? "Se informar pacotes 1/2 aves, o sistema calcula as aves embaladas automaticamente."
+                : "Para Galinha Cortada, informe as bandejas que seguirao para a Embalagem Secundaria.";
+        }
+
+        if (botao) {
+            botao.textContent = inteira ? "Encerrar OP na Embalagem Primaria" : "Registrar PI";
+        }
+    }
+
+    if (selectOp) {
+        selectOp.addEventListener("change", atualizarTela);
+    }
+
+    atualizarTela();
+});
+</script>
 
 {% endblock %}

@@ -1112,6 +1112,10 @@ def criar_tabelas_expedicao():
 BANDEJAS_POR_CAIXA = 12
 
 
+def sku_sem_embalagem_secundaria(sku):
+    return (sku or "").strip().lower() == "galinha inteira"
+
+
 def criar_tabelas_estoque_pi_pa():
     """
     Cria a estrutura de estoque em duas etapas:
@@ -1317,7 +1321,124 @@ def registrar_entrada_estoque_pi_op(op, unidades_produzidas, origem="Embalagem P
     conn.close()
 
 
-def registrar_apontamento_embalagem_primaria(op, quantidade_bandejas, observacoes=""):
+def calcular_perdas_aves_op(cursor, op_id):
+    cursor.execute(q("""
+    SELECT
+        COALESCE(SUM(CASE
+            WHEN LOWER(COALESCE(categoria, '')) LIKE '%%conden%%' THEN quantidade
+            ELSE 0
+        END), 0) AS condenacoes,
+        COALESCE(SUM(CASE
+            WHEN LOWER(COALESCE(categoria, '')) NOT LIKE '%%conden%%'
+             AND LOWER(TRIM(COALESCE(motivo, ''))) <> 'morte na gaiola' THEN quantidade
+            ELSE 0
+        END), 0) AS descartes,
+        COALESCE(SUM(CASE
+            WHEN LOWER(TRIM(COALESCE(motivo, ''))) = 'morte na gaiola' THEN quantidade
+            ELSE 0
+        END), 0) AS mortes_na_gaiola
+    FROM apontamentos_descartes
+    WHERE op_id = ?
+      AND LOWER(unidade) IN ('aves', 'ave', 'unidade', 'unidades')
+    """), (op_id,))
+
+    perdas = cursor.fetchone()
+    return {
+        "condenacoes": float(perdas["condenacoes"] or 0),
+        "descartes": float(perdas["descartes"] or 0),
+        "mortes_na_gaiola": float(perdas["mortes_na_gaiola"] or 0),
+    }
+
+
+def validar_balanco_aves_op(op, aves_produzidas, perdas):
+    aves_vivas = float(op["quantidade_aves"] or 0)
+    mortes_na_gaiola = float(op["mortes_antes_pendura"] or 0) + float(perdas["mortes_na_gaiola"] or 0)
+    total_fechamento = float(aves_produzidas or 0) + float(perdas["descartes"] or 0) + float(perdas["condenacoes"] or 0) + mortes_na_gaiola
+    saldo_aves = aves_vivas - total_fechamento
+
+    if abs(saldo_aves) > 0.0001:
+        raise ValueError(
+            f"Balanco de aves divergente em {saldo_aves:g} aves. "
+            "Revise Embalagem Primaria, descartes, condenacoes ou mortes na gaiola."
+        )
+
+    return saldo_aves
+
+
+def registrar_lote_pa_galinha_inteira(cursor, op, unidades_vendaveis, aves_embaladas, kg_produzidos, observacoes):
+    codigo_lote = f"GI-OP-{int(op['id']):05d}"
+    data_fabricacao = op["data"] or datetime.now().strftime("%Y-%m-%d")
+    data_validade = calcular_validade_padrao(data_fabricacao)
+    observacao_lote = observacoes or f"Lote Galinha Inteira. Aves embaladas: {aves_embaladas:g}."
+
+    if DATABASE_URL:
+        cursor.execute(q("""
+        INSERT INTO pa_caixas (
+            codigo_caixa,
+            sku,
+            data_fabricacao,
+            data_validade,
+            peso_bruto,
+            peso_liquido,
+            quantidade_bandejas,
+            status,
+            origem,
+            observacoes
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        RETURNING id
+        """), (
+            codigo_lote,
+            op["sku"] or "Galinha Inteira",
+            data_fabricacao,
+            data_validade,
+            kg_produzidos,
+            kg_produzidos,
+            unidades_vendaveis,
+            "Em estoque",
+            "Embalagem Primaria",
+            observacao_lote
+        ))
+        caixa_id = cursor.fetchone()["id"]
+    else:
+        cursor.execute(q("""
+        INSERT INTO pa_caixas (
+            codigo_caixa,
+            sku,
+            data_fabricacao,
+            data_validade,
+            peso_bruto,
+            peso_liquido,
+            quantidade_bandejas,
+            status,
+            origem,
+            observacoes
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """), (
+            codigo_lote,
+            op["sku"] or "Galinha Inteira",
+            data_fabricacao,
+            data_validade,
+            kg_produzidos,
+            kg_produzidos,
+            unidades_vendaveis,
+            "Em estoque",
+            "Embalagem Primaria",
+            observacao_lote
+        ))
+        caixa_id = cursor.lastrowid
+
+    cursor.execute(q("""
+    INSERT INTO pa_caixa_composicao (
+        caixa_id,
+        op_id,
+        quantidade_bandejas
+    ) VALUES (?, ?, ?)
+    """), (caixa_id, op["id"], unidades_vendaveis))
+
+    return codigo_lote
+
+
+def registrar_apontamento_embalagem_primaria(op, quantidade_bandejas, observacoes="", kg_produzidos=None, pacotes_1_ave=0, pacotes_2_aves=0):
     criar_tabelas_estoque_pi_pa()
 
     if not op:
@@ -1329,11 +1450,95 @@ def registrar_apontamento_embalagem_primaria(op, quantidade_bandejas, observacoe
     if op_possui_caixa_pa(op["id"]):
         raise ValueError("Esta OP já possui caixas PA vinculadas. Não é possível reapontar a Embalagem Primária.")
 
+    sku = op["sku"] or "Galinha Cortada"
     bandejas = float(quantidade_bandejas or 0)
-    if bandejas <= 0:
+    if bandejas <= 0 and not sku_sem_embalagem_secundaria(sku):
         raise ValueError("Informe uma quantidade válida de bandejas produzidas.")
 
-    sku = op["sku"] or "Galinha Cortada"
+    if sku_sem_embalagem_secundaria(sku):
+        pacotes_1 = parse_numero_form(pacotes_1_ave or 0)
+        pacotes_2 = parse_numero_form(pacotes_2_aves or 0)
+        aves_embaladas = pacotes_1 + (pacotes_2 * 2)
+        unidades_vendaveis = pacotes_1 + pacotes_2
+        kg_final = parse_numero_form(kg_produzidos or 0)
+
+        if aves_embaladas <= 0:
+            aves_embaladas = bandejas
+            unidades_vendaveis = bandejas
+
+        if aves_embaladas <= 0:
+            raise ValueError("Informe as aves embaladas ou os pacotes de Galinha Inteira.")
+
+        if unidades_vendaveis <= 0:
+            raise ValueError("Informe uma quantidade valida de unidades vendaveis.")
+
+        if kg_final <= 0:
+            raise ValueError("Informe o peso liquido produzido em kg para calcular o rendimento da OP.")
+
+        conn = conectar()
+        cursor = conn.cursor()
+        perdas = calcular_perdas_aves_op(cursor, op["id"])
+        conn.close()
+
+        validar_balanco_aves_op(op, aves_embaladas, perdas)
+        remover_movimentacoes_estoque_pi_por_op(op["id"])
+
+        observacao_final = observacoes or f"Pacotes 1 ave: {pacotes_1:g} | Pacotes 2 aves: {pacotes_2:g}"
+
+        conn = conectar()
+        cursor = conn.cursor()
+
+        cursor.execute(q("""
+        INSERT INTO embalagem_primaria_apontamentos (
+            op_id,
+            data_apontamento,
+            sku,
+            quantidade_bandejas,
+            observacoes
+        ) VALUES (?, ?, ?, ?, ?)
+        """), (
+            op["id"],
+            op["data"],
+            sku,
+            aves_embaladas,
+            observacao_final
+        ))
+
+        codigo_lote = registrar_lote_pa_galinha_inteira(
+            cursor,
+            op,
+            unidades_vendaveis,
+            aves_embaladas,
+            kg_final,
+            observacao_final
+        )
+
+        cursor.execute(q("""
+        UPDATE ordens_producao
+        SET status = ?
+        WHERE id = ?
+        """), ("Encerrada", op["id"]))
+
+        conn.commit()
+        conn.close()
+
+        gerar_producao_automatica_setores(
+            op=op,
+            data_lancamento=op["data"],
+            hora_inicio="N/A",
+            hora_fim="N/A",
+            unidades_produzidas=unidades_vendaveis,
+            kg_produzidos=kg_final,
+            descontar_almoco=False
+        )
+
+        return {
+            "tipo": "encerramento_primaria",
+            "codigo_lote": codigo_lote,
+            "aves_embaladas": aves_embaladas,
+            "unidades_vendaveis": unidades_vendaveis,
+            "kg_produzidos": kg_final,
+        }
 
     # Substitui o apontamento anterior da mesma OP, se existir.
     remover_movimentacoes_estoque_pi_por_op(op["id"])
@@ -1386,6 +1591,11 @@ def registrar_apontamento_embalagem_primaria(op, quantidade_bandejas, observacoe
 
     conn.commit()
     conn.close()
+
+    return {
+        "tipo": "pi",
+        "bandejas": bandejas,
+    }
 
 
 def buscar_apontamentos_embalagem_primaria(limite=50):
@@ -4911,7 +5121,7 @@ def gerar_producao_automatica_setores(op, data_lancamento, hora_inicio, hora_fim
         f"Produção final informada no encerramento da OP | Início: {hora_inicio} | Fim: {hora_fim} | Descontar almoço 1h12: {texto_almoco}"
     ))
 
-    if sku == "Galinha Cortada" and kg_produzidos is not None:
+    if kg_produzidos is not None and float(kg_produzidos or 0) > 0:
         cursor.execute(q("""
         INSERT INTO apontamentos_producao (
             op_id, data, setor, quantidade, unidade, observacoes
@@ -5677,12 +5887,23 @@ def embalagem_primaria():
         try:
             op_id = int(request.form.get("op_id") or 0)
             op = buscar_op_por_id(op_id)
-            registrar_apontamento_embalagem_primaria(
+            resultado = registrar_apontamento_embalagem_primaria(
                 op=op,
                 quantidade_bandejas=request.form.get("quantidade_bandejas"),
-                observacoes=request.form.get("observacoes") or ""
+                observacoes=request.form.get("observacoes") or "",
+                kg_produzidos=request.form.get("kg_produzidos"),
+                pacotes_1_ave=request.form.get("pacotes_1_ave"),
+                pacotes_2_aves=request.form.get("pacotes_2_aves")
             )
-            flash("Embalagem Primária apontada com sucesso. O Estoque PI foi atualizado e a OP permanece pendente para Embalagem Secundária.")
+            if resultado.get("tipo") == "encerramento_primaria":
+                flash(
+                    "Galinha Inteira encerrada na Embalagem Primaria. "
+                    f"Lote PA: {resultado['codigo_lote']} | "
+                    f"Unidades vendaveis: {resultado['unidades_vendaveis']:.0f} | "
+                    f"Peso produzido: {resultado['kg_produzidos']:.3f} kg."
+                )
+            else:
+                flash("Embalagem Primária apontada com sucesso. O Estoque PI foi atualizado e a OP permanece pendente para Embalagem Secundária.")
         except ValueError as erro:
             flash(str(erro))
 
