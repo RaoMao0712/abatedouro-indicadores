@@ -790,6 +790,65 @@ def salvar_custo_mensal(form):
     conn.close()
 
 
+def salvar_custos_mensais_lote(form):
+    criar_tabelas_custos()
+
+    competencia = form["competencia"]
+    observacoes_gerais = form.get("observacoes_gerais", "")
+    categorias = form.getlist("categoria[]")
+    valores = form.getlist("valor[]")
+    observacoes = form.getlist("observacoes[]")
+
+    if not categorias:
+        raise ValueError("Adicione pelo menos uma linha de custo antes de confirmar.")
+
+    if not (len(categorias) == len(valores) == len(observacoes)):
+        raise ValueError("As linhas de custo estao incompletas. Revise categorias, valores e observacoes.")
+
+    linhas = []
+    for indice, valor_raw in enumerate(valores, start=1):
+        categoria = categorias[indice - 1]
+        observacao = observacoes[indice - 1].strip()
+
+        if not categoria:
+            raise ValueError(f"Selecione uma categoria na linha {indice}.")
+
+        if categoria not in CATEGORIAS_CUSTOS:
+            raise ValueError(f"A categoria da linha {indice} nao e valida.")
+
+        try:
+            valor = float(str(valor_raw).replace(",", "."))
+        except (TypeError, ValueError):
+            raise ValueError(f"Informe um valor valido na linha {indice}.")
+
+        if valor <= 0:
+            raise ValueError(f"O valor da linha {indice} precisa ser maior que zero.")
+
+        if observacoes_gerais and observacao:
+            observacao_final = f"{observacao} | {observacoes_gerais}"
+        else:
+            observacao_final = observacao or observacoes_gerais
+
+        linhas.append((competencia, categoria, valor, observacao_final))
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.executemany(q("""
+    INSERT INTO custos_mensais (
+        competencia,
+        categoria,
+        valor,
+        observacoes
+    ) VALUES (?, ?, ?, ?)
+    """), linhas)
+
+    conn.commit()
+    conn.close()
+
+    return len(linhas)
+
+
 
 
 
@@ -6466,8 +6525,12 @@ def custos():
                 salvar_custo_mensal(request.form)
                 flash("Custo mensal cadastrado com sucesso.")
 
-        except ValueError:
-            flash("Verifique os valores informados. Use apenas números nos campos de custo.")
+            elif acao == "salvar_custos_lote":
+                total_linhas = salvar_custos_mensais_lote(request.form)
+                flash(f"{total_linhas} custos mensais cadastrados com sucesso.")
+
+        except ValueError as erro:
+            flash(str(erro) or "Verifique os valores informados. Use apenas números nos campos de custo.")
 
         return redirect(url_for("custos"))
 

@@ -2286,7 +2286,8 @@ button:hover {
 }
 
 .descarte-carregar-acao button,
-#btn-adicionar-descarte {
+#btn-adicionar-descarte,
+#btn-adicionar-custo {
     width: auto;
     min-width: 138px;
     min-height: 38px;
@@ -2380,6 +2381,15 @@ button:hover {
 
 #btn-confirmar-descartes {
     min-width: 180px;
+}
+
+.custos-linhas-header,
+.custo-linha {
+    grid-template-columns: minmax(220px, 1fr) minmax(150px, 0.55fr) minmax(220px, 1fr) 96px;
+}
+
+#btn-confirmar-custos {
+    min-width: 168px;
 }
 
 @media (max-width: 760px) {

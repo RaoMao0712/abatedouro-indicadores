@@ -5,11 +5,11 @@
 <section class="hero-dashboard hero-custos hero-custos-compacto">
     <div class="hero-dashboard-titulo hero-custos-titulo">
         <span class="eyebrow">Custos</span>
-        <h2>Parâmetros de CMV</h2>
+        <h2>Parametros de CMV</h2>
 
         <div class="hero-resumo-inline">
-            <span><strong>Objetivo:</strong> parametrizar CMV e registrar custos da operação</span>
-            <span><strong>Aplicação:</strong> DRE, Dashboard Econômico e relatórios gerenciais</span>
+            <span><strong>Objetivo:</strong> parametrizar CMV e registrar custos da operacao</span>
+            <span><strong>Aplicacao:</strong> DRE, Dashboard Economico e relatorios gerenciais</span>
         </div>
     </div>
 
@@ -79,64 +79,77 @@
 
 <div class="grid-dashboard custos-grid-principal">
 
-    <div class="card custos-card-form">
+    <div class="card custos-card-form descarte-lote-card">
         <div class="section-title-row">
             <div>
-                <span class="eyebrow">Lançamento</span>
-                <h2>Novo Custo Mensal</h2>
+                <span class="eyebrow">Competencia</span>
+                <h2>Carregar Lancamento de Custos</h2>
             </div>
         </div>
 
-        <form method="POST">
-            <input type="hidden" name="acao" value="salvar_custo_mensal">
-
-            <div class="form-grid">
-                <div>
-                    <label>Competência</label>
-                    <input
-                        type="month"
-                        name="competencia"
-                        value="{{ competencia_atual }}"
-                        required
-                    >
-                </div>
-
-                <div>
-                    <label>Categoria</label>
-                    <select name="categoria" required>
-                        {% for categoria in categorias_custos %}
-                        <option value="{{ categoria }}">
-                            {{ categoria }}
-                        </option>
-                        {% endfor %}
-                    </select>
-                </div>
-
-                <div>
-                    <label>Valor (R$)</label>
-                    <input
-                        type="number"
-                        step="0.01"
-                        name="valor"
-                        required
-                    >
-                </div>
-
-                <div>
-                    <label>Observações</label>
-                    <input type="text" name="observacoes">
-                </div>
+        <div class="descarte-carregar-grid">
+            <div>
+                <label>Competencia</label>
+                <input type="month" id="custo-competencia-input" value="{{ competencia_atual }}" required>
             </div>
 
-            <button type="submit">Salvar Custo Mensal</button>
-        </form>
+            <div class="descarte-carregar-acao">
+                <button type="button" id="btn-carregar-custos">Carregar competencia</button>
+            </div>
+        </div>
+
+        <div id="custo-competencia-resumo" class="descarte-op-resumo" hidden>
+            <strong id="custo-competencia-titulo"></strong>
+            <span>Monte as linhas e confirme no final.</span>
+        </div>
     </div>
+
+    <form method="POST" id="form-custos-lote" class="card custos-card-form descarte-lote-card" hidden>
+        <input type="hidden" name="acao" value="salvar_custos_lote">
+        <input type="hidden" name="competencia" id="custo-competencia-hidden">
+
+        <div class="section-title-row">
+            <div>
+                <span class="eyebrow">Linhas temporarias</span>
+                <h2>Custos da competencia</h2>
+            </div>
+
+            <button type="button" class="botao-secundario-financeiro" id="btn-adicionar-custo">
+                Adicionar linha
+            </button>
+        </div>
+
+        <div class="descarte-linhas-header custos-linhas-header">
+            <span>Categoria</span>
+            <span>Valor (R$)</span>
+            <span>Observacoes</span>
+            <span></span>
+        </div>
+
+        <div id="custo-linhas"></div>
+
+        <div class="descarte-confirmacao">
+            <div>
+                <span>Total de custos</span>
+                <strong id="custo-total-valor">R$ 0,00</strong>
+            </div>
+
+            <div>
+                <label>Observacoes gerais</label>
+                <input type="text" name="observacoes_gerais" placeholder="Opcional">
+            </div>
+
+            <button type="submit" id="btn-confirmar-custos">
+                Confirmar custos
+            </button>
+        </div>
+    </form>
 
     <div class="card custos-card-lista">
         <div class="section-title-row">
             <div>
-                <span class="eyebrow">Histórico</span>
-                <h2>Custos Mensais Lançados</h2>
+                <span class="eyebrow">Historico</span>
+                <h2>Custos Mensais Lancados</h2>
             </div>
         </div>
 
@@ -172,6 +185,24 @@
     </div>
 
 </div>
+
+<template id="template-linha-custo">
+    <div class="descarte-linha custo-linha">
+        <select name="categoria[]" required>
+            {% for categoria in categorias_custos %}
+            <option value="{{ categoria }}">{{ categoria }}</option>
+            {% endfor %}
+        </select>
+
+        <input type="number" step="0.01" min="0.01" name="valor[]" placeholder="0,00" required>
+
+        <input type="text" name="observacoes[]" placeholder="Opcional">
+
+        <button type="button" class="botao-remover-parcela" data-remover-linha>
+            Remover
+        </button>
+    </div>
+</template>
 
 <script>
 document.addEventListener("DOMContentLoaded", function () {
@@ -231,6 +262,71 @@ document.addEventListener("DOMContentLoaded", function () {
     });
 
     atualizarCmv();
+
+    const competenciaInput = document.getElementById("custo-competencia-input");
+    const btnCarregar = document.getElementById("btn-carregar-custos");
+    const form = document.getElementById("form-custos-lote");
+    const competenciaHidden = document.getElementById("custo-competencia-hidden");
+    const resumo = document.getElementById("custo-competencia-resumo");
+    const resumoTitulo = document.getElementById("custo-competencia-titulo");
+    const linhas = document.getElementById("custo-linhas");
+    const template = document.getElementById("template-linha-custo");
+    const btnAdicionar = document.getElementById("btn-adicionar-custo");
+    const totalCustos = document.getElementById("custo-total-valor");
+
+    function atualizarTotalCustos() {
+        let total = 0;
+        linhas.querySelectorAll('input[name="valor[]"]').forEach(function (input) {
+            total += parseFloat((input.value || "0").replace(",", ".")) || 0;
+        });
+        totalCustos.textContent = moeda(total);
+    }
+
+    function adicionarLinhaCusto() {
+        const linha = template.content.firstElementChild.cloneNode(true);
+        linha.querySelector('input[name="valor[]"]').addEventListener("input", atualizarTotalCustos);
+        linha.querySelector("[data-remover-linha]").addEventListener("click", function () {
+            if (linhas.children.length > 1) {
+                linha.remove();
+                atualizarTotalCustos();
+            }
+        });
+        linhas.appendChild(linha);
+        atualizarTotalCustos();
+    }
+
+    btnCarregar.addEventListener("click", function () {
+        if (!competenciaInput.value) {
+            alert("Informe a competencia do lancamento.");
+            return;
+        }
+
+        competenciaHidden.value = competenciaInput.value;
+        resumoTitulo.textContent = "Competencia " + competenciaInput.value;
+        resumo.hidden = false;
+        form.hidden = false;
+
+        linhas.innerHTML = "";
+        adicionarLinhaCusto();
+    });
+
+    btnAdicionar.addEventListener("click", adicionarLinhaCusto);
+
+    form.addEventListener("submit", function (event) {
+        if (!competenciaHidden.value || linhas.children.length === 0) {
+            event.preventDefault();
+            alert("Carregue uma competencia e adicione pelo menos uma linha.");
+            return;
+        }
+
+        const possuiValor = Array.from(linhas.querySelectorAll('input[name="valor[]"]'))
+            .some(function (input) { return Number(input.value || 0) > 0; });
+
+        if (!possuiValor) {
+            event.preventDefault();
+            alert("Informe o valor em pelo menos uma linha.");
+        }
+    });
 });
 </script>
 
