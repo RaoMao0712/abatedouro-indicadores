@@ -700,17 +700,35 @@ def buscar_parametros_custos():
     return parametros
 
 
-def buscar_custos_mensais():
+def buscar_custos_mensais(competencia_inicio=None, competencia_fim=None, categoria=None):
     criar_tabelas_custos()
 
     conn = conectar()
     cursor = conn.cursor()
 
-    cursor.execute("""
+    filtros = []
+    parametros = []
+
+    if competencia_inicio:
+        filtros.append("competencia >= ?")
+        parametros.append(competencia_inicio)
+
+    if competencia_fim:
+        filtros.append("competencia <= ?")
+        parametros.append(competencia_fim)
+
+    if categoria and categoria != "Todas":
+        filtros.append("categoria = ?")
+        parametros.append(categoria)
+
+    where_sql = f"WHERE {' AND '.join(filtros)}" if filtros else ""
+
+    cursor.execute(q(f"""
     SELECT *
     FROM custos_mensais
+    {where_sql}
     ORDER BY competencia DESC, categoria ASC
-    """)
+    """), parametros)
 
     custos = cursor.fetchall()
     conn.close()
@@ -6537,13 +6555,26 @@ def custos():
     categorias_custos = CATEGORIAS_CUSTOS
 
     competencia_atual = datetime.now().strftime("%Y-%m")
+    competencia_inicio = request.args.get("competencia_inicio") or competencia_atual
+    competencia_fim = request.args.get("competencia_fim") or competencia_atual
+    categoria_filtro = request.args.get("categoria") or "Todas"
+    custos_filtrados = buscar_custos_mensais(
+        competencia_inicio=competencia_inicio,
+        competencia_fim=competencia_fim,
+        categoria=categoria_filtro
+    )
+    total_custos_filtrados = sum(float(item["valor"] or 0) for item in custos_filtrados)
 
     return render_template(
         "custos.html",
         parametros=buscar_parametros_custos(),
-        custos_mensais=buscar_custos_mensais(),
+        custos_mensais=custos_filtrados,
         categorias_custos=categorias_custos,
-        competencia_atual=competencia_atual
+        competencia_atual=competencia_atual,
+        competencia_inicio=competencia_inicio,
+        competencia_fim=competencia_fim,
+        categoria_filtro=categoria_filtro,
+        total_custos_filtrados=total_custos_filtrados
     )
 
 

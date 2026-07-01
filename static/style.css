@@ -2400,8 +2400,23 @@ button:hover {
         grid-template-columns: 1fr;
     }
 
+    .custos-filtro-form,
+    .custos-tabela-header,
+    .custos-tabela-row {
+        grid-template-columns: 1fr;
+    }
+
     .descarte-linhas-header {
         display: none;
+    }
+
+    .custos-tabela-header {
+        display: none;
+    }
+
+    .custos-tabela-row .botao-editar {
+        justify-self: stretch;
+        text-align: center;
     }
 
     .descarte-op-resumo {
@@ -2754,6 +2769,82 @@ button:hover {
 .custos-card-lista .section-title-row h2 {
     font-size: 20px;
     margin-top: 5px;
+}
+
+.custos-card-pesquisa {
+    grid-column: 1 / -1;
+}
+
+.custos-filtro-form {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(160px, 1fr)) auto;
+    gap: 12px;
+    align-items: end;
+}
+
+.custos-filtro-form button {
+    min-height: 38px;
+    margin: 0;
+}
+
+.custos-resultado-resumo {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 14px 0 10px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: #eff6ff;
+    color: var(--brand-ink, #0f172a);
+}
+
+.custos-resultado-resumo span {
+    font-size: 13px;
+    font-weight: 800;
+}
+
+.custos-resultado-resumo strong {
+    font-size: 16px;
+    font-weight: 900;
+}
+
+.custos-tabela-consulta {
+    border: 1px solid var(--brand-line, #dbe4ef);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.custos-tabela-header,
+.custos-tabela-row {
+    display: grid;
+    grid-template-columns: 120px minmax(180px, 0.8fr) 130px minmax(220px, 1fr) 150px;
+    gap: 10px;
+    align-items: center;
+    padding: 10px 12px;
+}
+
+.custos-tabela-header {
+    background: #eef3f8;
+    color: var(--brand-ink, #0f172a);
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 0.45px;
+    text-transform: uppercase;
+}
+
+.custos-tabela-row {
+    border-top: 1px solid var(--brand-line, #dbe4ef);
+    background: #fff;
+}
+
+.custos-tabela-row small {
+    color: #64748b;
+    font-size: 12px;
+}
+
+.custos-tabela-row .botao-editar {
+    justify-self: end;
+    white-space: nowrap;
 }
 
 @media (max-width: 1350px) {

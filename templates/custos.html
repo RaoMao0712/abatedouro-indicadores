@@ -145,42 +145,72 @@
         </div>
     </form>
 
-    <div class="card custos-card-lista">
+    <div class="card custos-card-lista custos-card-pesquisa">
         <div class="section-title-row">
             <div>
-                <span class="eyebrow">Historico</span>
-                <h2>Custos Mensais Lancados</h2>
+                <span class="eyebrow">Pesquisa</span>
+                <h2>Consultar custos lancados</h2>
             </div>
         </div>
 
+        <form method="GET" action="{{ url_for('custos') }}" class="custos-filtro-form">
+            <div>
+                <label>Competencia inicial</label>
+                <input type="month" name="competencia_inicio" value="{{ competencia_inicio }}" required>
+            </div>
+
+            <div>
+                <label>Competencia final</label>
+                <input type="month" name="competencia_fim" value="{{ competencia_fim }}" required>
+            </div>
+
+            <div>
+                <label>Categoria</label>
+                <select name="categoria">
+                    <option value="Todas" {% if categoria_filtro == "Todas" %}selected{% endif %}>Todas</option>
+                    {% for categoria in categorias_custos %}
+                    <option value="{{ categoria }}" {% if categoria_filtro == categoria %}selected{% endif %}>
+                        {{ categoria }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <button type="submit">Pesquisar</button>
+        </form>
+
+        <div class="custos-resultado-resumo">
+            <span>{{ custos_mensais|length }} lancamentos encontrados</span>
+            <strong>R$ {{ "%.2f"|format(total_custos_filtrados or 0) }}</strong>
+        </div>
+
         {% if custos_mensais %}
-            <div class="custos-lista-compacta">
+            <div class="custos-tabela-consulta">
+                <div class="custos-tabela-header">
+                    <span>Competencia</span>
+                    <span>Categoria</span>
+                    <span>Valor</span>
+                    <span>Observacoes</span>
+                    <span></span>
+                </div>
+
                 {% for item in custos_mensais %}
-                <div class="history-item custo-item-compacto">
-                    <div>
-                        <strong>{{ item.competencia }}</strong>
-                        <span>{{ item.categoria }}</span>
-                    </div>
-
-                    <div>
-                        <strong>R$ {{ "%.2f"|format(item.valor or 0) }}</strong>
-
-                        {% if item.observacoes %}
-                        <small>{{ item.observacoes }}</small>
-                        {% endif %}
-                    </div>
-
+                <div class="custos-tabela-row">
+                    <span>{{ item.competencia }}</span>
+                    <strong>{{ item.categoria }}</strong>
+                    <span>R$ {{ "%.2f"|format(item.valor or 0) }}</span>
+                    <small>{{ item.observacoes or "-" }}</small>
                     <a
                         href="{{ url_for('editar_custo_mensal', custo_id=item.id) }}"
                         class="botao-editar"
                     >
-                        Editar
+                        Abrir detalhes
                     </a>
                 </div>
                 {% endfor %}
             </div>
         {% else %}
-            <p class="obs">Nenhum custo mensal cadastrado ainda.</p>
+            <p class="obs">Nenhum custo encontrado para os filtros selecionados.</p>
         {% endif %}
     </div>
 
