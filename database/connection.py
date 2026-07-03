@@ -1,3 +1,6 @@
+"""Conexões e helpers transacionais do banco de dados."""
+
+from contextlib import contextmanager
 import os
 import sqlite3
 from urllib.parse import urlparse
@@ -13,10 +16,11 @@ DB_NAME = os.getenv("DB_NAME", "abatedouro.db")
 def q(sql):
     if DATABASE_URL:
         return sql.replace("?", "%s")
+
     return sql
 
 
-def conectar():
+def get_connection():
     if DATABASE_URL:
         result = urlparse(DATABASE_URL)
         return psycopg2.connect(
@@ -31,3 +35,20 @@ def conectar():
     conn = sqlite3.connect(DB_NAME)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def conectar():
+    return get_connection()
+
+
+@contextmanager
+def transaction():
+    conn = get_connection()
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()

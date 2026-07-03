@@ -4,16 +4,15 @@ from datetime import datetime, timedelta
 from functools import wraps
 import calendar
 from io import BytesIO
-from urllib.parse import urlparse
 import os
 import uuid
 import sqlite3
 import threading
-import psycopg2
-import psycopg2.extras
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
+from database import DATABASE_URL, DB_NAME, conectar, inicializar_schema_uma_vez, q
+from database.migrations import executar_alteracao_segura
 from modules.auth import register_auth_routes
 from modules.auth.decorators import perfil_permitido
 from modules.auth.services import nome_usuario_atual, usuario_eh_admin
@@ -187,9 +186,6 @@ def preparar_linhas_custos_executivas(linhas_custos, limite=6):
     })
     return principais
 
-DATABASE_URL = os.getenv("DATABASE_URL")
-DB_NAME = "abatedouro.db"
-
 ROTINAS_ESTRUTURAIS_EXECUTADAS = set()
 ROTINAS_ESTRUTURAIS_LOCK = threading.RLock()
 
@@ -247,35 +243,8 @@ CATEGORIAS_CUSTOS = [
 ]
 
 
-def q(sql):
-    if DATABASE_URL:
-        return sql.replace("?", "%s")
-    return sql
-
-
-def conectar():
-    if DATABASE_URL:
-        result = urlparse(DATABASE_URL)
-        return psycopg2.connect(
-            database=result.path[1:],
-            user=result.username,
-            password=result.password,
-            host=result.hostname,
-            port=result.port,
-            cursor_factory=psycopg2.extras.RealDictCursor
-        )
-
-    conn = sqlite3.connect(DB_NAME)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
 def tentar_alter_table(cursor, conn, comando):
-    try:
-        cursor.execute(comando)
-        conn.commit()
-    except Exception:
-        conn.rollback()
+    executar_alteracao_segura(cursor, conn, comando)
 
 
 @executar_rotina_estrutural_uma_vez
@@ -3870,8 +3839,6 @@ def calcular_resumo_almoxarifado(insumos):
 @app.route("/almoxarifado", methods=["GET", "POST"])
 @perfil_permitido("pcp")
 def almoxarifado():
-    criar_tabelas_almoxarifado()
-
     categoria_filtro = request.args.get("categoria") or "Todas"
     status_filtro = request.args.get("status") or "Todos"
     termo = request.args.get("termo") or ""
@@ -3927,8 +3894,6 @@ def editar_insumo_almoxarifado(insumo_id):
 @app.route("/almoxarifado/entrada", methods=["GET", "POST"])
 @perfil_permitido("pcp")
 def entrada_estoque_almoxarifado():
-    criar_tabelas_estoque_almoxarifado()
-
     if request.method == "POST":
         try:
             salvar_entrada_estoque_almoxarifado(request.form)
@@ -3959,8 +3924,6 @@ def entrada_estoque_almoxarifado():
 @app.route("/almoxarifado/saldo")
 @perfil_permitido("pcp")
 def saldo_almoxarifado():
-    criar_tabelas_estoque_almoxarifado()
-
     categoria_filtro = request.args.get("categoria") or "Todas"
     termo = request.args.get("termo") or ""
 
@@ -3980,8 +3943,6 @@ def saldo_almoxarifado():
 @app.route("/almoxarifado/movimentacoes")
 @perfil_permitido("pcp")
 def movimentacoes_almoxarifado():
-    criar_tabelas_estoque_almoxarifado()
-
     agora = datetime.now()
     hoje = agora.strftime("%Y-%m-%d")
     primeiro_dia_mes = agora.replace(day=1).strftime("%Y-%m-%d")
@@ -4022,8 +3983,6 @@ def movimentacoes_almoxarifado():
 @app.route("/almoxarifado/rastreabilidade")
 @perfil_permitido("pcp")
 def rastreabilidade_almoxarifado():
-    criar_tabelas_estoque_almoxarifado()
-
     insumo_id = request.args.get("insumo_id") or ""
     status_filtro = request.args.get("status") or "Todos"
     termo = request.args.get("termo") or ""
@@ -4306,8 +4265,6 @@ def calcular_resumo_receitas_sku(skus, receitas):
 @app.route("/receitas-sku", methods=["GET", "POST"])
 @perfil_permitido("pcp")
 def receitas_sku():
-    criar_tabelas_receitas_sku()
-
     if request.method == "POST":
         acao = request.form.get("acao")
 
@@ -6288,8 +6245,6 @@ def embalagem_secundaria():
 @app.route("/expedicao")
 @perfil_permitido("pcp")
 def expedicao():
-    criar_tabelas_expedicao()
-
     hoje = datetime.now()
     primeiro_dia_mes = hoje.replace(day=1).strftime("%Y-%m-%d")
     data_inicio = request.args.get("data_inicio") or primeiro_dia_mes
@@ -6402,8 +6357,6 @@ def salvar_romaneio_expedicao(form):
 @app.route("/expedicao/novo", methods=["GET", "POST"])
 @perfil_permitido("pcp")
 def novo_romaneio_expedicao():
-    criar_tabelas_expedicao()
-
     hoje = datetime.now().strftime("%Y-%m-%d")
 
     if request.method == "POST":
@@ -6530,8 +6483,6 @@ def salvar_item_expedicao(expedicao_id, form):
 @app.route("/expedicao/<int:expedicao_id>", methods=["GET", "POST"])
 @perfil_permitido("pcp")
 def detalhe_romaneio_expedicao(expedicao_id):
-    criar_tabelas_expedicao()
-
     expedicao = buscar_expedicao_por_id(expedicao_id)
 
     if not expedicao:
@@ -6560,10 +6511,6 @@ def detalhe_romaneio_expedicao(expedicao_id):
 @app.route("/dre-gerencial/exportar-excel")
 @perfil_permitido("pcp")
 def exportar_dre_gerencial_excel():
-    criar_banco()
-    criar_tabelas_custos()
-    criar_tabela_vendas()
-
     competencia = request.args.get("competencia") or datetime.now().strftime("%Y-%m")
     dados = buscar_dados_dre_gerencial(competencia)
     arquivo = gerar_excel_dre_gerencial(competencia, dados)
@@ -6580,10 +6527,6 @@ def exportar_dre_gerencial_excel():
 @app.route("/dre-gerencial")
 @perfil_permitido("pcp")
 def dre_gerencial():
-    criar_banco()
-    criar_tabelas_custos()
-    criar_tabela_vendas()
-
     competencia = request.args.get("competencia") or datetime.now().strftime("%Y-%m")
     dados = buscar_dados_dre_gerencial(competencia)
 
@@ -6611,9 +6554,6 @@ def dre_gerencial():
 @app.route("/relatorio-custos")
 @perfil_permitido("pcp")
 def relatorio_custos():
-    criar_banco()
-    criar_tabelas_custos()
-
     agora = datetime.now()
     competencia_fim = request.args.get("competencia_fim") or agora.strftime("%Y-%m")
 
@@ -6668,9 +6608,6 @@ def relatorio_custos():
 @app.route("/custos", methods=["GET", "POST"])
 @perfil_permitido("pcp")
 def custos():
-    criar_banco()
-    criar_tabelas_custos()
-
     if request.method == "POST":
         acao = request.form.get("acao")
 
@@ -6723,9 +6660,6 @@ def custos():
 @app.route("/vendas", methods=["GET", "POST"])
 @perfil_permitido("pcp")
 def vendas():
-    criar_banco()
-    criar_tabela_vendas()
-
     if request.method == "POST":
         try:
             salvar_venda_diaria(request.form)
@@ -6748,9 +6682,6 @@ def vendas():
 @app.route("/custos/mensal/<int:custo_id>/editar", methods=["GET", "POST"])
 @perfil_permitido("pcp")
 def editar_custo_mensal(custo_id):
-    criar_banco()
-    criar_tabelas_custos()
-
     custo = buscar_custo_mensal_por_id(custo_id)
 
     if not custo:
@@ -6794,9 +6725,6 @@ def editar_custo_mensal(custo_id):
 @app.route("/custos/mensal/<int:custo_id>/excluir", methods=["POST"])
 @perfil_permitido("pcp")
 def excluir_custo_mensal(custo_id):
-    criar_banco()
-    criar_tabelas_custos()
-
     if not buscar_custo_mensal_por_id(custo_id):
         flash("Custo mensal não encontrado.")
         return redirect(url_for("custos"))
@@ -6817,9 +6745,6 @@ def excluir_custo_mensal(custo_id):
 @app.route("/vendas/<int:venda_id>/editar", methods=["GET", "POST"])
 @perfil_permitido("pcp")
 def editar_venda_diaria(venda_id):
-    criar_banco()
-    criar_tabela_vendas()
-
     venda = buscar_venda_diaria_por_id(venda_id)
 
     if not venda:
@@ -6910,9 +6835,6 @@ def editar_venda_diaria(venda_id):
 @app.route("/vendas/<int:venda_id>/excluir", methods=["POST"])
 @perfil_permitido("pcp")
 def excluir_venda_diaria(venda_id):
-    criar_banco()
-    criar_tabela_vendas()
-
     if not buscar_venda_diaria_por_id(venda_id):
         flash("Venda diária não encontrada.")
         return redirect(url_for("vendas"))
@@ -7074,9 +6996,6 @@ def excluir_movimentacao_financeira_rota(movimentacao_id):
 @app.route("/fornecedores", methods=["GET", "POST"])
 @perfil_permitido("pcp")
 def fornecedores():
-    criar_banco()
-    criar_tabela_fornecedores()
-
     conn = conectar()
     cursor = conn.cursor()
 
@@ -7117,8 +7036,6 @@ def fornecedores():
 @app.route("/ordem-producao", methods=["GET", "POST"])
 @perfil_permitido("pcp")
 def ordem_producao():
-    criar_banco()
-
     if request.method == "POST":
         data = request.form["data"]
         sku = request.form.get("sku", "Galinha Cortada")
@@ -7167,8 +7084,6 @@ def ordem_producao():
 @app.route("/apontamento-setor", methods=["GET", "POST"])
 @perfil_permitido("admin")
 def apontamento_setor():
-    criar_banco()
-
     if request.method == "POST":
         tipo = request.form.get("tipo_apontamento")
 
@@ -7196,8 +7111,6 @@ def apontamento_setor():
 @app.route("/apontamento-mao-obra", methods=["GET", "POST"])
 @perfil_permitido("producao")
 def apontamento_mao_obra():
-    criar_banco()
-
     if request.method == "POST":
         tipo = request.form.get("tipo_apontamento")
 
@@ -7236,8 +7149,6 @@ def apontamento_mao_obra():
 @app.route("/cadastros/equipamentos", methods=["GET", "POST"])
 @perfil_permitido("pcp", "producao")
 def cadastro_equipamentos_manutencao():
-    manutencao_service.criar_tabelas_manutencao()
-
     if request.method == "POST":
         try:
             manutencao_service.salvar_equipamento_manutencao(request.form)
@@ -7280,8 +7191,6 @@ def excluir_equipamento_manutencao(equipamento_id):
 @app.route("/manutencao", methods=["GET", "POST"])
 @perfil_permitido("pcp", "producao")
 def manutencao():
-    manutencao_service.criar_tabelas_manutencao()
-
     if request.method == "POST":
         try:
             manutencao_service.salvar_ordem_manutencao(request.form)
@@ -7328,8 +7237,6 @@ def salvar_recursos_ordem_manutencao_rota(ordem_id):
 @app.route("/apontamento-paradas", methods=["GET", "POST"])
 @perfil_permitido("producao")
 def apontamento_paradas():
-    criar_banco()
-
     if request.method == "POST":
         try:
             salvar_apontamento_parada(request.form)
@@ -7347,9 +7254,6 @@ def apontamento_paradas():
 @app.route("/tempos-setor", methods=["GET", "POST"])
 @perfil_permitido("producao")
 def tempos_setor():
-    criar_banco()
-    criar_tabela_tempos_setor()
-
     if request.method == "POST":
         try:
             salvar_tempos_setor(request.form)
@@ -7390,8 +7294,6 @@ def tempos_setor():
 @app.route("/apontamento-descartes", methods=["GET", "POST"])
 @perfil_permitido("qualidade")
 def apontamento_descartes():
-    criar_banco()
-
     if request.method == "POST":
         try:
             if request.form.get("tipo_apontamento") == "descarte_lote":
@@ -8138,9 +8040,6 @@ def reabrir_op(op_id):
 @app.route("/consultar-op")
 @perfil_permitido("pcp", "qualidade", "producao")
 def consultar_op():
-    criar_banco()
-    criar_tabela_tempos_setor()
-
     op_id = request.args.get("op_id")
     ordens = buscar_ordens()
 
@@ -8235,8 +8134,6 @@ def imprimir_op(op_id):
 @app.route("/relatorio-rendimento")
 @perfil_permitido("pcp")
 def relatorio_rendimento():
-    criar_banco()
-
     agora = datetime.now()
     hoje = agora.strftime("%Y-%m-%d")
     primeiro_dia_mes = agora.replace(day=1).strftime("%Y-%m-%d")
@@ -9156,7 +9053,26 @@ def importar_maio():
     return render_template("importar_maio.html", resumo=resumo, erros=erros, avisos=avisos, resultado=resultado, importado=importado)
 
 
+def inicializar_schema_aplicacao():
+    inicializar_schema_uma_vez([
+        criar_banco,
+        criar_tabela_tempos_setor,
+        criar_tabelas_custos,
+        criar_tabela_vendas,
+        criar_tabelas_expedicao,
+        criar_tabelas_estoque_pi_pa,
+        criar_tabelas_almoxarifado,
+        criar_tabelas_estoque_almoxarifado,
+        criar_tabelas_receitas_sku,
+        criar_tabela_movimentacoes_financeiras,
+        criar_tabela_fornecedores,
+        manutencao_service.criar_tabelas_manutencao,
+    ])
+
+
+inicializar_schema_aplicacao()
+
+
 if __name__ == "__main__":
-    criar_banco()
     port = int(os.getenv("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=True)
