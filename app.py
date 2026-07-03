@@ -5043,6 +5043,51 @@ def salvar_apontamento_parada(form):
     op_id = int(form["op_id"])
     validar_op_aberta(op_id)
 
+    setores_form = form.getlist("setores") if hasattr(form, "getlist") else form.get("setores", [])
+    if isinstance(setores_form, str):
+        setores_form = [setores_form]
+
+    if not form.get("equipamento_id") and (setores_form or form.get("horas_paradas")):
+        setores_impactados = setores_form
+
+        if not setores_impactados and form.get("setor"):
+            setores_impactados = [form.get("setor")]
+
+        if not setores_impactados:
+            raise ValueError("Selecione pelo menos um setor impactado pela parada.")
+
+        conn = conectar()
+        cursor = conn.cursor()
+        evento_id = uuid.uuid4().hex
+        horas_paradas = float(form.get("horas_paradas") or 0)
+
+        if horas_paradas <= 0 and form.get("hora_inicio") and form.get("hora_fim"):
+            horas_paradas = calcular_horas_programadas(
+                form["hora_inicio"],
+                form["hora_fim"]
+            )
+
+        for setor_legado in setores_impactados:
+            cursor.execute(q("""
+            INSERT INTO apontamentos_paradas (
+                evento_id, op_id, data, setor, motivo, hora_inicio, hora_fim, horas_paradas, observacoes
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """), (
+                evento_id,
+                op_id,
+                form["data"],
+                setor_legado,
+                form["motivo"],
+                form.get("hora_inicio", ""),
+                form.get("hora_fim", ""),
+                horas_paradas,
+                form.get("observacoes", "")
+            ))
+
+        conn.commit()
+        conn.close()
+        return
+
     equipamento_id = int(form.get("equipamento_id") or 0)
     equipamento_texto = form.get("equipamento", "").strip()
     setor = (form.get("setor") or "Linha de producao").strip()
