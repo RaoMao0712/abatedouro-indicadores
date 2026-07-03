@@ -212,6 +212,7 @@
                         <td>{{ ordem.horas_paradas|br_numero }}</td>
                         <td>{{ ordem.custo_real|br_moeda }}</td>
                         <td>
+                            <div class="manutencao-ordem-acoes">
                             <details>
                                 <summary class="botao-tabela-almoxarifado manutencao-btn-tabela">Atualizar</summary>
                                 <form method="POST" action="{{ url_for('atualizar_ordem_manutencao_rota', ordem_id=ordem.id) }}" class="form-grid manutencao-update-form">
@@ -264,6 +265,79 @@
                                     </div>
                                 </form>
                             </details>
+                            <details>
+                                <summary class="botao-tabela-almoxarifado manutencao-btn-tabela manutencao-btn-recursos">Materiais / terceiros</summary>
+                                <form method="POST" action="{{ url_for('salvar_recursos_ordem_manutencao_rota', ordem_id=ordem.id) }}" class="manutencao-recursos-form">
+                                    <input type="hidden" name="status_filtro" value="{{ status_filtro }}">
+                                    <input type="hidden" name="equipamento_filtro" value="{{ equipamento_filtro }}">
+
+                                    <div class="manutencao-recursos-lista" data-recursos-lista>
+                                        {% set recursos_ordem = recursos_por_ordem.get(ordem.id|string, []) %}
+                                        {% for recurso in recursos_ordem %}
+                                            <div class="manutencao-recurso-linha" data-recurso-linha>
+                                                <input type="hidden" name="recurso_id[]" value="{{ recurso.id }}">
+                                                <input type="hidden" name="remover[]" value="Nao" data-recurso-remover>
+
+                                                <div>
+                                                    <label>Tipo</label>
+                                                    <select name="recurso_tipo[]">
+                                                        {% for tipo_recurso in tipos_recurso %}
+                                                            <option value="{{ tipo_recurso }}" {% if recurso.tipo == tipo_recurso %}selected{% endif %}>{{ tipo_recurso }}</option>
+                                                        {% endfor %}
+                                                    </select>
+                                                </div>
+
+                                                <div class="manutencao-recurso-descricao">
+                                                    <label>Descricao</label>
+                                                    <input type="text" name="recurso_descricao[]" value="{{ recurso.descricao }}" placeholder="Material ou servico necessario">
+                                                </div>
+
+                                                <div>
+                                                    <label>Qtd.</label>
+                                                    <input type="number" step="0.01" min="0" name="recurso_quantidade[]" value="{{ recurso.quantidade or 0 }}">
+                                                </div>
+
+                                                <div>
+                                                    <label>Un.</label>
+                                                    <input type="text" name="recurso_unidade[]" value="{{ recurso.unidade or '' }}" placeholder="un, h, kg">
+                                                </div>
+
+                                                <div>
+                                                    <label>Fornecedor</label>
+                                                    <input type="text" name="recurso_fornecedor[]" value="{{ recurso.fornecedor or '' }}">
+                                                </div>
+
+                                                <div>
+                                                    <label>Valor estimado</label>
+                                                    <input type="number" step="0.01" min="0" name="recurso_valor_estimado[]" value="{{ recurso.valor_estimado or 0 }}">
+                                                </div>
+
+                                                <div>
+                                                    <label>Status</label>
+                                                    <select name="recurso_status[]">
+                                                        {% for status_item in status_recurso %}
+                                                            <option value="{{ status_item }}" {% if recurso.status == status_item %}selected{% endif %}>{{ status_item }}</option>
+                                                        {% endfor %}
+                                                    </select>
+                                                </div>
+
+                                                <div>
+                                                    <label>Obs.</label>
+                                                    <input type="text" name="recurso_observacoes[]" value="{{ recurso.observacoes or '' }}">
+                                                </div>
+
+                                                <button type="button" class="botao-tabela-almoxarifado manutencao-btn-tabela manutencao-btn-remover" data-remover-recurso>Remover</button>
+                                            </div>
+                                        {% endfor %}
+                                    </div>
+
+                                    <div class="manutencao-recursos-toolbar">
+                                        <button type="button" class="botao-dre-exportar manutencao-btn secundario" data-adicionar-recurso>Adicionar linha</button>
+                                        <button type="submit" class="botao-principal manutencao-btn">Salvar lista</button>
+                                    </div>
+                                </form>
+                            </details>
+                            </div>
                         </td>
                     </tr>
                     {% endfor %}
@@ -276,5 +350,80 @@
 </div>
 
 </div>
+
+<script>
+const tiposRecursoOrdem = {{ tipos_recurso|tojson }};
+const statusRecursoOrdem = {{ status_recurso|tojson }};
+
+function criarOpcaoRecurso(valor) {
+    return `<option value="${valor}">${valor}</option>`;
+}
+
+function criarLinhaRecurso() {
+    const linha = document.createElement("div");
+    linha.className = "manutencao-recurso-linha";
+    linha.setAttribute("data-recurso-linha", "");
+    linha.innerHTML = `
+        <input type="hidden" name="recurso_id[]" value="">
+        <input type="hidden" name="remover[]" value="Nao" data-recurso-remover>
+        <div>
+            <label>Tipo</label>
+            <select name="recurso_tipo[]">${tiposRecursoOrdem.map(criarOpcaoRecurso).join("")}</select>
+        </div>
+        <div class="manutencao-recurso-descricao">
+            <label>Descricao</label>
+            <input type="text" name="recurso_descricao[]" placeholder="Material ou servico necessario">
+        </div>
+        <div>
+            <label>Qtd.</label>
+            <input type="number" step="0.01" min="0" name="recurso_quantidade[]" value="0">
+        </div>
+        <div>
+            <label>Un.</label>
+            <input type="text" name="recurso_unidade[]" placeholder="un, h, kg">
+        </div>
+        <div>
+            <label>Fornecedor</label>
+            <input type="text" name="recurso_fornecedor[]">
+        </div>
+        <div>
+            <label>Valor estimado</label>
+            <input type="number" step="0.01" min="0" name="recurso_valor_estimado[]" value="0">
+        </div>
+        <div>
+            <label>Status</label>
+            <select name="recurso_status[]">${statusRecursoOrdem.map(criarOpcaoRecurso).join("")}</select>
+        </div>
+        <div>
+            <label>Obs.</label>
+            <input type="text" name="recurso_observacoes[]">
+        </div>
+        <button type="button" class="botao-tabela-almoxarifado manutencao-btn-tabela manutencao-btn-remover" data-remover-recurso>Remover</button>
+    `;
+    return linha;
+}
+
+document.addEventListener("click", function (evento) {
+    const adicionar = evento.target.closest("[data-adicionar-recurso]");
+    if (adicionar) {
+        const form = adicionar.closest("form");
+        const lista = form.querySelector("[data-recursos-lista]");
+        lista.appendChild(criarLinhaRecurso());
+        return;
+    }
+
+    const remover = evento.target.closest("[data-remover-recurso]");
+    if (remover) {
+        const linha = remover.closest("[data-recurso-linha]");
+        const id = linha.querySelector("input[name='recurso_id[]']").value;
+        if (id) {
+            linha.querySelector("[data-recurso-remover]").value = "Sim";
+            linha.classList.add("removida");
+        } else {
+            linha.remove();
+        }
+    }
+});
+</script>
 
 {% endblock %}

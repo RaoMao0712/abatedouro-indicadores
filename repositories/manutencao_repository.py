@@ -74,6 +74,22 @@ def criar_tabelas_manutencao():
             criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         """)
+
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS manutencao_ordem_recursos (
+            id SERIAL PRIMARY KEY,
+            ordem_id INTEGER NOT NULL,
+            tipo TEXT NOT NULL,
+            descricao TEXT NOT NULL,
+            quantidade REAL DEFAULT 0,
+            unidade TEXT,
+            fornecedor TEXT,
+            valor_estimado REAL DEFAULT 0,
+            status TEXT DEFAULT 'Pendente',
+            observacoes TEXT,
+            criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
     else:
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS manutencao_equipamentos (
@@ -109,6 +125,22 @@ def criar_tabelas_manutencao():
             horas_paradas REAL DEFAULT 0,
             custo_estimado REAL DEFAULT 0,
             custo_real REAL DEFAULT 0,
+            criado_em TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
+
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS manutencao_ordem_recursos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ordem_id INTEGER NOT NULL,
+            tipo TEXT NOT NULL,
+            descricao TEXT NOT NULL,
+            quantidade REAL DEFAULT 0,
+            unidade TEXT,
+            fornecedor TEXT,
+            valor_estimado REAL DEFAULT 0,
+            status TEXT DEFAULT 'Pendente',
+            observacoes TEXT,
             criado_em TEXT DEFAULT CURRENT_TIMESTAMP
         )
         """)
@@ -455,3 +487,92 @@ def listar_ordens(status_filtro="Todos", equipamento_id=""):
     ordens = cursor.fetchall()
     conn.close()
     return ordens
+
+
+def listar_recursos_por_ordens(ordem_ids):
+    criar_tabelas_manutencao()
+    if not ordem_ids:
+        return {}
+
+    placeholders = ", ".join(["?"] * len(ordem_ids))
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute(q(f"""
+    SELECT *
+    FROM manutencao_ordem_recursos
+    WHERE ordem_id IN ({placeholders})
+    ORDER BY id ASC
+    """), tuple(ordem_ids))
+    recursos = cursor.fetchall()
+    conn.close()
+
+    recursos_por_ordem = {}
+    for recurso in recursos:
+        chave = str(recurso["ordem_id"])
+        recursos_por_ordem.setdefault(chave, []).append(recurso)
+    return recursos_por_ordem
+
+
+def salvar_recursos_ordem(ordem_id, linhas):
+    criar_tabelas_manutencao()
+    conn = conectar()
+    cursor = conn.cursor()
+
+    for linha in linhas:
+        recurso_id = int(linha.get("id") or 0)
+
+        if linha.get("remover") == "Sim":
+            if recurso_id:
+                cursor.execute(q("""
+                DELETE FROM manutencao_ordem_recursos
+                WHERE id = ? AND ordem_id = ?
+                """), (recurso_id, ordem_id))
+            continue
+
+        descricao = (linha.get("descricao") or "").strip()
+        if not descricao:
+            continue
+
+        dados = (
+            ordem_id,
+            linha.get("tipo") or "Material",
+            descricao,
+            float(linha.get("quantidade") or 0),
+            (linha.get("unidade") or "").strip(),
+            (linha.get("fornecedor") or "").strip(),
+            float(linha.get("valor_estimado") or 0),
+            linha.get("status") or "Pendente",
+            (linha.get("observacoes") or "").strip(),
+        )
+
+        if recurso_id:
+            cursor.execute(q("""
+            UPDATE manutencao_ordem_recursos
+            SET
+                tipo = ?,
+                descricao = ?,
+                quantidade = ?,
+                unidade = ?,
+                fornecedor = ?,
+                valor_estimado = ?,
+                status = ?,
+                observacoes = ?
+            WHERE id = ? AND ordem_id = ?
+            """), (*dados[1:], recurso_id, ordem_id))
+        else:
+            cursor.execute(q("""
+            INSERT INTO manutencao_ordem_recursos (
+                ordem_id,
+                tipo,
+                descricao,
+                quantidade,
+                unidade,
+                fornecedor,
+                valor_estimado,
+                status,
+                observacoes
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """), dados)
+
+    conn.commit()
+    conn.close()

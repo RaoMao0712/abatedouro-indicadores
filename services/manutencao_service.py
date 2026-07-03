@@ -8,6 +8,8 @@ PRIORIDADES_MANUTENCAO = repo.PRIORIDADES_MANUTENCAO
 STATUS_MANUTENCAO = repo.STATUS_MANUTENCAO
 MOTIVOS_MANUTENCAO = ["Mecanica", "Eletrica", "Pneumatica", "Hidraulica", "Instrumentacao"]
 MOTIVOS_OPERACIONAIS = ["Falta de materia-prima", "Falta de embalagem", "Setup", "Limpeza", "Espera", "Outros"]
+TIPOS_RECURSO_ORDEM = ["Material", "Mao de obra externa"]
+STATUS_RECURSO_ORDEM = ["Pendente", "Solicitado", "Comprado/Contratado", "Recebido", "Cancelado"]
 
 
 def criar_tabelas_manutencao():
@@ -147,6 +149,67 @@ def buscar_ordens_manutencao(status_filtro="Todos", equipamento_id=""):
     return repo.listar_ordens(status_filtro, equipamento_id)
 
 
+def salvar_recursos_ordem_manutencao(ordem_id, form):
+    ordem_id = int(ordem_id or 0)
+    if not ordem_id or not repo.buscar_ordem_por_id(ordem_id):
+        raise ValueError("Ordem de manutencao nao encontrada.")
+
+    recurso_ids = form.getlist("recurso_id[]")
+    remover = form.getlist("remover[]")
+    tipos = form.getlist("recurso_tipo[]")
+    descricoes = form.getlist("recurso_descricao[]")
+    quantidades = form.getlist("recurso_quantidade[]")
+    unidades = form.getlist("recurso_unidade[]")
+    fornecedores = form.getlist("recurso_fornecedor[]")
+    valores = form.getlist("recurso_valor_estimado[]")
+    status = form.getlist("recurso_status[]")
+    observacoes = form.getlist("recurso_observacoes[]")
+
+    total_linhas = max(
+        len(recurso_ids),
+        len(remover),
+        len(tipos),
+        len(descricoes),
+        len(quantidades),
+        len(unidades),
+        len(fornecedores),
+        len(valores),
+        len(status),
+        len(observacoes),
+    )
+
+    linhas = []
+    for indice in range(total_linhas):
+        tipo = _item_lista(tipos, indice) or "Material"
+        if tipo not in TIPOS_RECURSO_ORDEM:
+            raise ValueError("Tipo de recurso invalido.")
+
+        status_linha = _item_lista(status, indice) or "Pendente"
+        if status_linha not in STATUS_RECURSO_ORDEM:
+            raise ValueError("Status de recurso invalido.")
+
+        linhas.append({
+            "id": _item_lista(recurso_ids, indice),
+            "remover": _item_lista(remover, indice) or "Nao",
+            "tipo": tipo,
+            "descricao": _item_lista(descricoes, indice),
+            "quantidade": _item_lista(quantidades, indice),
+            "unidade": _item_lista(unidades, indice),
+            "fornecedor": _item_lista(fornecedores, indice),
+            "valor_estimado": _item_lista(valores, indice),
+            "status": status_linha,
+            "observacoes": _item_lista(observacoes, indice),
+        })
+
+    repo.salvar_recursos_ordem(ordem_id, linhas)
+
+
+def _item_lista(lista, indice):
+    if indice < len(lista):
+        return lista[indice]
+    return ""
+
+
 def calcular_resumo_manutencao(equipamentos, ordens):
     abertas = sum(1 for item in ordens if item["status"] == "Aberta")
     andamento = sum(1 for item in ordens if item["status"] == "Em andamento")
@@ -183,13 +246,17 @@ def preparar_contexto_manutencao(args):
     equipamento_filtro = args.get("equipamento_id") or ""
     equipamentos = buscar_equipamentos_manutencao()
     ordens = buscar_ordens_manutencao(status_filtro, equipamento_filtro)
+    recursos_por_ordem = repo.listar_recursos_por_ordens([item["id"] for item in ordens])
     return {
         "equipamentos": equipamentos,
         "ordens": ordens,
+        "recursos_por_ordem": recursos_por_ordem,
         "resumo": calcular_resumo_manutencao(equipamentos, ordens),
         "tipos": TIPOS_MANUTENCAO,
         "prioridades": PRIORIDADES_MANUTENCAO,
         "status_opcoes": STATUS_MANUTENCAO,
+        "tipos_recurso": TIPOS_RECURSO_ORDEM,
+        "status_recurso": STATUS_RECURSO_ORDEM,
         "status_filtro": status_filtro,
         "equipamento_filtro": equipamento_filtro,
         "hoje": datetime.now().strftime("%Y-%m-%d"),

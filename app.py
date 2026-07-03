@@ -7257,6 +7257,22 @@ def atualizar_ordem_manutencao_rota(ordem_id):
     return redirect(url_for("manutencao"))
 
 
+@app.route("/manutencao/ordem/<int:ordem_id>/recursos", methods=["POST"])
+@perfil_permitido("pcp", "producao")
+def salvar_recursos_ordem_manutencao_rota(ordem_id):
+    try:
+        manutencao_service.salvar_recursos_ordem_manutencao(ordem_id, request.form)
+        flash("Lista de materiais e terceiros atualizada com sucesso.")
+    except Exception as erro:
+        flash(str(erro))
+
+    return redirect(url_for(
+        "manutencao",
+        status=request.form.get("status_filtro", "Todos"),
+        equipamento_id=request.form.get("equipamento_filtro", ""),
+    ))
+
+
 @app.route("/apontamento-paradas", methods=["GET", "POST"])
 @perfil_permitido("producao")
 def apontamento_paradas():
