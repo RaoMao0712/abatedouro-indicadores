@@ -13,6 +13,7 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from auth import login_obrigatorio, destino_por_perfil, perfil_permitido
+from services import manutencao_service
 from utils import calcular_horas_programadas, calcular_produtividade, setores_padrao, normalizar_chave_setor
 
 app = Flask(__name__)
@@ -396,6 +397,15 @@ def criar_banco():
         tentar_alter_table(cursor, conn, "ALTER TABLE apontamentos_paradas ADD COLUMN evento_id TEXT")
         conn = conectar()
         cursor = conn.cursor()
+        tentar_alter_table(cursor, conn, "ALTER TABLE apontamentos_paradas ADD COLUMN manutencao_ordem_id INTEGER")
+        conn = conectar()
+        cursor = conn.cursor()
+        tentar_alter_table(cursor, conn, "ALTER TABLE apontamentos_paradas ADD COLUMN manutencao_aberta TEXT DEFAULT 'Nao'")
+        conn = conectar()
+        cursor = conn.cursor()
+        tentar_alter_table(cursor, conn, "ALTER TABLE apontamentos_paradas ADD COLUMN encerrada_por_manutencao TEXT DEFAULT 'Nao'")
+        conn = conectar()
+        cursor = conn.cursor()
 
     else:
         cursor.execute("""
@@ -541,6 +551,21 @@ def criar_banco():
 
         try:
             cursor.execute("ALTER TABLE apontamentos_paradas ADD COLUMN evento_id TEXT")
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            cursor.execute("ALTER TABLE apontamentos_paradas ADD COLUMN manutencao_ordem_id INTEGER")
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            cursor.execute("ALTER TABLE apontamentos_paradas ADD COLUMN manutencao_aberta TEXT DEFAULT 'Nao'")
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            cursor.execute("ALTER TABLE apontamentos_paradas ADD COLUMN encerrada_por_manutencao TEXT DEFAULT 'Nao'")
         except sqlite3.OperationalError:
             pass
 
@@ -7036,6 +7061,59 @@ def apontamento_mao_obra():
         "apontamento_mao_obra.html",
         **contexto
     )
+
+
+@app.route("/cadastros/equipamentos", methods=["GET", "POST"])
+@perfil_permitido("pcp", "producao")
+def cadastro_equipamentos_manutencao():
+    manutencao_service.criar_tabelas_manutencao()
+
+    if request.method == "POST":
+        try:
+            manutencao_service.salvar_equipamento_manutencao(request.form)
+            flash("Equipamento cadastrado com sucesso.")
+        except Exception as erro:
+            flash(str(erro))
+
+        return redirect(url_for("cadastro_equipamentos_manutencao"))
+
+    return render_template(
+        "cadastro_equipamentos.html",
+        **manutencao_service.preparar_contexto_cadastro_equipamentos()
+    )
+
+
+@app.route("/manutencao", methods=["GET", "POST"])
+@perfil_permitido("pcp", "producao")
+def manutencao():
+    manutencao_service.criar_tabelas_manutencao()
+
+    if request.method == "POST":
+        try:
+            manutencao_service.salvar_ordem_manutencao(request.form)
+            flash("Ordem de manutencao aberta com sucesso.")
+        except Exception as erro:
+            flash(str(erro))
+
+        return redirect(url_for("manutencao"))
+
+    return render_template(
+        "manutencao.html",
+        **manutencao_service.preparar_contexto_manutencao(request.args)
+    )
+
+
+@app.route("/manutencao/ordem/<int:ordem_id>/atualizar", methods=["POST"])
+@perfil_permitido("pcp", "producao")
+def atualizar_ordem_manutencao_rota(ordem_id):
+    try:
+        manutencao_service.atualizar_ordem_manutencao(ordem_id, request.form)
+        flash("Ordem de manutencao atualizada com sucesso.")
+    except Exception as erro:
+        flash(str(erro))
+
+    return redirect(url_for("manutencao"))
+
 
 @app.route("/apontamento-paradas", methods=["GET", "POST"])
 @perfil_permitido("producao")

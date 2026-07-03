@@ -1,0 +1,272 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+
+<section class="hero-dashboard expedicao-hero">
+    <div>
+        <span class="eyebrow">Manutencao</span>
+        <h2>Ordens de Manutencao</h2>
+        <div class="hero-resumo-inline">
+            <span><strong>Controla:</strong> corretivas, preventivas e melhorias</span>
+            <span><strong>Monitora:</strong> prioridade, status e horas paradas</span>
+            <span><strong>Integra:</strong> confiabilidade da linha e custos operacionais</span>
+        </div>
+    </div>
+</section>
+
+<div class="expedicao-kpis">
+    <div class="card kpi-card destaque">
+        <span class="kpi-label">Equipamentos</span>
+        <strong>{{ resumo.equipamentos }}</strong>
+        <small>ativos cadastrados no modulo</small>
+    </div>
+
+    <div class="card kpi-card">
+        <span class="kpi-label">Abertas</span>
+        <strong>{{ resumo.abertas }}</strong>
+        <small>ordens aguardando inicio</small>
+    </div>
+
+    <div class="card kpi-card">
+        <span class="kpi-label">Em andamento</span>
+        <strong>{{ resumo.andamento }}</strong>
+        <small>execucao em curso</small>
+    </div>
+
+    <div class="card kpi-card">
+        <span class="kpi-label">Criticas</span>
+        <strong>{{ resumo.criticas }}</strong>
+        <small>prioridade critica em aberto</small>
+    </div>
+
+    <div class="card kpi-card">
+        <span class="kpi-label">Horas paradas</span>
+        <strong>{{ resumo.horas_paradas|br_numero }}</strong>
+        <small>total apontado nas ordens filtradas</small>
+    </div>
+
+    <div class="card kpi-card">
+        <span class="kpi-label">Custo real</span>
+        <strong>{{ resumo.custo_real|br_moeda }}</strong>
+        <small>realizado nas ordens filtradas</small>
+    </div>
+</div>
+
+<div class="card expedicao-card">
+    <div class="section-title-row">
+        <div>
+            <span class="eyebrow">Ordem</span>
+            <h2>Abrir ordem de manutencao</h2>
+        </div>
+    </div>
+
+    <form method="POST" class="form-grid">
+        <div>
+            <label>Equipamento</label>
+            <select name="equipamento_id" required>
+                <option value="">Selecione</option>
+                {% for equipamento in equipamentos %}
+                    <option value="{{ equipamento.id }}">
+                        {{ equipamento.codigo }} - {{ equipamento.nome }} | {{ equipamento.setor }}
+                    </option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div>
+            <label>Tipo</label>
+            <select name="tipo">
+                {% for tipo in tipos %}
+                    <option value="{{ tipo }}">{{ tipo }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div>
+            <label>Prioridade</label>
+            <select name="prioridade">
+                {% for prioridade in prioridades %}
+                    <option value="{{ prioridade }}" {% if prioridade == "Media" %}selected{% endif %}>{{ prioridade }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div>
+            <label>Data abertura</label>
+            <input type="date" name="data_abertura" value="{{ hoje }}">
+        </div>
+
+        <div>
+            <label>Previsao</label>
+            <input type="date" name="data_prevista">
+        </div>
+
+        <div>
+            <label>Solicitante</label>
+            <input type="text" name="solicitante" value="{{ session.get('nome', '') }}">
+        </div>
+
+        <div>
+            <label>Responsavel</label>
+            <input type="text" name="responsavel">
+        </div>
+
+        <div>
+            <label>Custo estimado</label>
+            <input type="number" name="custo_estimado" step="0.01" min="0" placeholder="0,00">
+        </div>
+
+        <div class="form-span-2">
+            <label>Descricao da ocorrencia ou servico</label>
+            <textarea name="descricao" rows="3" required></textarea>
+        </div>
+
+        <div class="form-span-2">
+            <button type="submit" class="botao-principal">Abrir ordem</button>
+        </div>
+    </form>
+</div>
+
+<div class="card expedicao-card">
+    <div class="section-title-row">
+        <div>
+            <span class="eyebrow">Consulta</span>
+            <h2>Ordens de manutencao</h2>
+        </div>
+    </div>
+
+    <form method="GET" action="{{ url_for('manutencao') }}" class="form-grid">
+        <div>
+            <label>Status</label>
+            <select name="status">
+                <option value="Todos" {% if status_filtro == "Todos" %}selected{% endif %}>Todos</option>
+                {% for status in status_opcoes %}
+                    <option value="{{ status }}" {% if status_filtro == status %}selected{% endif %}>{{ status }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div>
+            <label>Equipamento</label>
+            <select name="equipamento_id">
+                <option value="">Todos</option>
+                {% for equipamento in equipamentos %}
+                    <option value="{{ equipamento.id }}" {% if equipamento_filtro == equipamento.id|string %}selected{% endif %}>
+                        {{ equipamento.codigo }} - {{ equipamento.nome }}
+                    </option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div>
+            <button type="submit" class="botao-dre-exportar">Filtrar</button>
+        </div>
+    </form>
+
+    {% if ordens %}
+        <div class="tabela-responsiva tabela-executiva expedicao-tabela">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Ordem</th>
+                        <th>Equipamento</th>
+                        <th>Tipo</th>
+                        <th>Prioridade</th>
+                        <th>Status</th>
+                        <th>Abertura</th>
+                        <th>Responsavel</th>
+                        <th>Horas</th>
+                        <th>Custo</th>
+                        <th>Atualizar</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for ordem in ordens %}
+                    <tr>
+                        <td>
+                            <strong>#{{ ordem.id }}</strong><br>
+                            <small>{{ ordem.descricao }}</small>
+                            {% if ordem.op_id %}
+                                <br><small>OP {{ ordem.op_id }}{% if ordem.motivo_parada %} | {{ ordem.motivo_parada }}{% endif %}</small>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <strong>{{ ordem.equipamento_codigo }}</strong><br>
+                            <small>{{ ordem.equipamento_nome }} | {{ ordem.equipamento_setor }}</small>
+                        </td>
+                        <td>{{ ordem.tipo }}</td>
+                        <td>
+                            <span class="badge-almoxarifado {% if ordem.prioridade in ['Alta', 'Critica'] %}inativo{% else %}ativo{% endif %}">
+                                {{ ordem.prioridade }}
+                            </span>
+                        </td>
+                        <td>{{ ordem.status }}</td>
+                        <td>{{ ordem.data_abertura }}</td>
+                        <td>{{ ordem.responsavel or "-" }}</td>
+                        <td>{{ ordem.horas_paradas|br_numero }}</td>
+                        <td>{{ ordem.custo_real|br_moeda }}</td>
+                        <td>
+                            <details>
+                                <summary class="botao-tabela-almoxarifado">Atualizar</summary>
+                                <form method="POST" action="{{ url_for('atualizar_ordem_manutencao_rota', ordem_id=ordem.id) }}" class="form-grid manutencao-update-form">
+                                    <div>
+                                        <label>Status</label>
+                                        <select name="status">
+                                            {% for status in status_opcoes %}
+                                                <option value="{{ status }}" {% if ordem.status == status %}selected{% endif %}>{{ status }}</option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label>Conclusao</label>
+                                        <input type="date" name="data_conclusao" value="{{ ordem.data_conclusao or '' }}">
+                                    </div>
+                                    <div>
+                                        <label>Hora conclusao</label>
+                                        <input type="time" name="hora_conclusao" value="{{ ordem.hora_conclusao or '' }}">
+                                    </div>
+                                    <div>
+                                        <label>Responsavel</label>
+                                        <input type="text" name="responsavel" value="{{ ordem.responsavel or '' }}">
+                                    </div>
+                                    <div>
+                                        <label>Horas paradas</label>
+                                        <input type="number" name="horas_paradas" step="0.01" min="0" value="{{ ordem.horas_paradas or 0 }}">
+                                    </div>
+                                    <div>
+                                        <label>Custo real</label>
+                                        <input type="number" name="custo_real" step="0.01" min="0" value="{{ ordem.custo_real or 0 }}">
+                                    </div>
+                                    <div class="form-span-2">
+                                        <label>Diagnostico</label>
+                                        <textarea name="diagnostico" rows="2">{{ ordem.diagnostico or '' }}</textarea>
+                                    </div>
+                                    <div class="form-span-2">
+                                        <label>Solucao aplicada</label>
+                                        <textarea name="solucao" rows="2">{{ ordem.solucao or '' }}</textarea>
+                                    </div>
+                                    <div class="form-span-2">
+                                        <label>Pecas utilizadas</label>
+                                        <textarea name="pecas_utilizadas" rows="2">{{ ordem.pecas_utilizadas or '' }}</textarea>
+                                    </div>
+                                    <div class="form-span-2">
+                                        <label>Observacoes finais</label>
+                                        <textarea name="observacoes_finais" rows="2">{{ ordem.observacoes_finais or '' }}</textarea>
+                                    </div>
+                                    <div class="form-span-2">
+                                        <button type="submit" class="botao-principal">Salvar</button>
+                                    </div>
+                                </form>
+                            </details>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% else %}
+        <p class="obs">Nenhuma ordem de manutencao encontrada para os filtros aplicados.</p>
+    {% endif %}
+</div>
+
+{% endblock %}

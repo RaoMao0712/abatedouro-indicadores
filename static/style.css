@@ -120,6 +120,26 @@ body {
     padding-left: 0;
 }
 
+.manutencao-update-form {
+    min-width: 520px;
+    margin-top: 12px;
+    padding: 12px;
+    border: 1px solid #d8e0e8;
+    border-radius: 8px;
+    background: #f8fafc;
+}
+
+.manutencao-update-form textarea,
+.manutencao-update-form input,
+.manutencao-update-form select {
+    font-size: 13px;
+}
+
+.expedicao-tabela details summary {
+    cursor: pointer;
+    list-style: none;
+}
+
 label {
     display: block;
     font-weight: bold;

@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+
+<section class="hero-dashboard expedicao-hero">
+    <div>
+        <span class="eyebrow">Cadastros</span>
+        <h2>Cadastro de Equipamentos</h2>
+        <div class="hero-resumo-inline">
+            <span><strong>Base:</strong> ativos industriais da fabrica</span>
+            <span><strong>Uso:</strong> ordens de manutencao e confiabilidade</span>
+            <span><strong>Origem:</strong> central de cadastros</span>
+        </div>
+    </div>
+
+    <div class="expedicao-acoes-topo">
+        <a href="{{ url_for('fornecedores') }}" class="botao-dre-exportar">Fornecedores</a>
+        <a href="{{ url_for('manutencao') }}" class="botao-dre-exportar">Ordens de Manutencao</a>
+    </div>
+</section>
+
+<div class="card expedicao-card">
+    <div class="section-title-row">
+        <div>
+            <span class="eyebrow">Equipamento</span>
+            <h2>Novo equipamento</h2>
+        </div>
+    </div>
+
+    <form method="POST" class="form-grid">
+        <div>
+            <label>Codigo</label>
+            <input type="text" name="codigo" placeholder="Ex.: TUN-001" required>
+        </div>
+
+        <div>
+            <label>Nome</label>
+            <input type="text" name="nome" placeholder="Ex.: Tunel de congelamento 01" required>
+        </div>
+
+        <div>
+            <label>Setor</label>
+            <input type="text" name="setor" placeholder="Ex.: Embalagem secundaria" required>
+        </div>
+
+        <div>
+            <label>Criticidade</label>
+            <select name="criticidade">
+                {% for prioridade in prioridades %}
+                    <option value="{{ prioridade }}" {% if prioridade == "Media" %}selected{% endif %}>{{ prioridade }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div>
+            <label>Fabricante</label>
+            <input type="text" name="fabricante">
+        </div>
+
+        <div>
+            <label>Modelo</label>
+            <input type="text" name="modelo">
+        </div>
+
+        <div>
+            <label>Numero de serie</label>
+            <input type="text" name="numero_serie">
+        </div>
+
+        <div>
+            <label>Status</label>
+            <select name="status">
+                <option value="Ativo">Ativo</option>
+                <option value="Inativo">Inativo</option>
+            </select>
+        </div>
+
+        <div class="form-span-2">
+            <label>Observacoes</label>
+            <textarea name="observacoes" rows="2"></textarea>
+        </div>
+
+        <div class="form-span-2">
+            <button type="submit" class="botao-principal">Cadastrar equipamento</button>
+        </div>
+    </form>
+</div>
+
+<div class="card expedicao-card">
+    <div class="section-title-row">
+        <div>
+            <span class="eyebrow">Ativos</span>
+            <h2>Equipamentos cadastrados</h2>
+        </div>
+    </div>
+
+    {% if equipamentos %}
+        <div class="tabela-responsiva tabela-executiva expedicao-tabela">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Codigo</th>
+                        <th>Nome</th>
+                        <th>Setor</th>
+                        <th>Criticidade</th>
+                        <th>Status</th>
+                        <th>Fabricante / Modelo</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for equipamento in equipamentos %}
+                    <tr>
+                        <td><strong>{{ equipamento.codigo }}</strong></td>
+                        <td>{{ equipamento.nome }}</td>
+                        <td>{{ equipamento.setor }}</td>
+                        <td>{{ equipamento.criticidade }}</td>
+                        <td>{{ equipamento.status }}</td>
+                        <td>{{ equipamento.fabricante or "-" }} {{ equipamento.modelo or "" }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% else %}
+        <p class="obs">Nenhum equipamento cadastrado.</p>
+    {% endif %}
+</div>
+
+{% endblock %}

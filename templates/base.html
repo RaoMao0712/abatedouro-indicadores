@@ -83,6 +83,7 @@
             {% if perfil == "admin" or perfil == "producao" %}
                 <a href="{{ url_for('apontamento_mao_obra') }}">Mão de Obra</a>
                 <a href="{{ url_for('apontamento_paradas') }}">Paradas</a>
+                <a href="{{ url_for('manutencao') }}">Manutencao</a>
                 <a href="{{ url_for('tempos_setor') }}">Tempos</a>
             {% endif %}
 
@@ -100,6 +101,7 @@
 
             {% if perfil == "admin" or perfil == "pcp" %}
                 <a href="{{ url_for('fornecedores') }}">Fornecedores</a>
+                <a href="{{ url_for('cadastro_equipamentos_manutencao') }}">Equipamentos</a>
             {% endif %}
 
             {% if perfil == "admin" %}
