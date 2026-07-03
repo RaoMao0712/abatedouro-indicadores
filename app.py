@@ -1,12 +1,14 @@
 from flask import Flask, render_template, request, redirect, url_for, session, flash, send_file
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, timedelta
+from functools import wraps
 import calendar
 from io import BytesIO
 from urllib.parse import urlparse
 import os
 import uuid
 import sqlite3
+import threading
 import psycopg2
 import psycopg2.extras
 from openpyxl import Workbook, load_workbook
@@ -186,6 +188,26 @@ def preparar_linhas_custos_executivas(linhas_custos, limite=6):
 DATABASE_URL = os.getenv("DATABASE_URL")
 DB_NAME = "abatedouro.db"
 
+ROTINAS_ESTRUTURAIS_EXECUTADAS = set()
+ROTINAS_ESTRUTURAIS_LOCK = threading.RLock()
+
+
+def executar_rotina_estrutural_uma_vez(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        destino_banco = DATABASE_URL or os.path.abspath(DB_NAME)
+        chave = (func.__name__, destino_banco)
+
+        with ROTINAS_ESTRUTURAIS_LOCK:
+            if chave in ROTINAS_ESTRUTURAIS_EXECUTADAS:
+                return None
+
+            resultado = func(*args, **kwargs)
+            ROTINAS_ESTRUTURAIS_EXECUTADAS.add(chave)
+            return resultado
+
+    return wrapper
+
 
 CATEGORIAS_CUSTOS = [
     "Mão de obra",
@@ -254,6 +276,7 @@ def tentar_alter_table(cursor, conn, comando):
         conn.rollback()
 
 
+@executar_rotina_estrutural_uma_vez
 def criar_banco():
     conn = conectar()
     cursor = conn.cursor()
@@ -617,6 +640,7 @@ def criar_banco():
     conn.close()
 
 
+@executar_rotina_estrutural_uma_vez
 def criar_tabela_tempos_setor():
     conn = conectar()
     cursor = conn.cursor()
@@ -655,6 +679,7 @@ def criar_tabela_tempos_setor():
 
 
 
+@executar_rotina_estrutural_uma_vez
 def criar_tabelas_custos():
     conn = conectar()
     cursor = conn.cursor()
@@ -919,6 +944,7 @@ def salvar_custos_mensais_lote(form):
 
 
 
+@executar_rotina_estrutural_uma_vez
 def criar_tabela_vendas():
     conn = conectar()
     cursor = conn.cursor()
@@ -1160,6 +1186,7 @@ def buscar_venda_diaria_por_id(venda_id):
 # EXPEDIÇÃO - SPRINT 1.0
 # ============================================================
 
+@executar_rotina_estrutural_uma_vez
 def criar_tabelas_expedicao():
     """
     Cria a fundação do módulo de Expedição.
@@ -1242,6 +1269,7 @@ def sku_sem_embalagem_secundaria(sku):
     return (sku or "").strip().lower() == "galinha inteira"
 
 
+@executar_rotina_estrutural_uma_vez
 def criar_tabelas_estoque_pi_pa():
     """
     Cria a estrutura de estoque em duas etapas:
@@ -2503,6 +2531,7 @@ def calcular_resumo_estoques_pi_pa(saldos_pi, caixas_pa=None):
 
 
 # Compatibilidade temporária com chamadas antigas do Sprint PA-1.
+@executar_rotina_estrutural_uma_vez
 def criar_tabela_estoque_produto_acabado():
     criar_tabelas_estoque_pi_pa()
 
@@ -3265,6 +3294,7 @@ UNIDADES_ALMOXARIFADO = [
 ]
 
 
+@executar_rotina_estrutural_uma_vez
 def criar_tabelas_almoxarifado():
     conn = conectar()
     cursor = conn.cursor()
@@ -3414,6 +3444,7 @@ def atualizar_insumo_almoxarifado(insumo_id, form):
 
 
 
+@executar_rotina_estrutural_uma_vez
 def criar_tabelas_estoque_almoxarifado():
     criar_tabelas_almoxarifado()
 
@@ -4025,6 +4056,7 @@ TIPOS_CONSUMO_RECEITA = [
 ]
 
 
+@executar_rotina_estrutural_uma_vez
 def criar_tabelas_receitas_sku():
     criar_tabelas_estoque_almoxarifado()
 
@@ -4441,6 +4473,7 @@ def preparar_movimentacoes_financeiras_para_tela(movimentacoes, status_filtro="T
     return resultado
 
 
+@executar_rotina_estrutural_uma_vez
 def criar_tabela_movimentacoes_financeiras():
     conn = conectar()
     cursor = conn.cursor()
@@ -4820,6 +4853,7 @@ def agrupar_fluxo_por_dia(movimentacoes):
 
 
 
+@executar_rotina_estrutural_uma_vez
 def criar_tabela_fornecedores():
     conn = conectar()
     cursor = conn.cursor()

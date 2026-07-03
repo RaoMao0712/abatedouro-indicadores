@@ -1,4 +1,30 @@
+from functools import wraps
+import os
+import threading
+
+import database
 from database import DATABASE_URL, conectar, q
+
+
+ROTINAS_ESTRUTURAIS_EXECUTADAS = set()
+ROTINAS_ESTRUTURAIS_LOCK = threading.RLock()
+
+
+def executar_rotina_estrutural_uma_vez(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        destino_banco = database.DATABASE_URL or os.path.abspath(database.DB_NAME)
+        chave = (func.__name__, destino_banco)
+
+        with ROTINAS_ESTRUTURAIS_LOCK:
+            if chave in ROTINAS_ESTRUTURAIS_EXECUTADAS:
+                return None
+
+            resultado = func(*args, **kwargs)
+            ROTINAS_ESTRUTURAIS_EXECUTADAS.add(chave)
+            return resultado
+
+    return wrapper
 
 
 TIPOS_MANUTENCAO = [
@@ -32,6 +58,7 @@ def _executar_alteracao(cursor, conn, comando):
         conn.rollback()
 
 
+@executar_rotina_estrutural_uma_vez
 def criar_tabelas_manutencao():
     conn = conectar()
     cursor = conn.cursor()
