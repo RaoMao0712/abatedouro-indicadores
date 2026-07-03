@@ -1,0 +1,1 @@
+"""Módulo futuro de usuários."""
