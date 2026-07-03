@@ -1,35 +1,28 @@
 {% extends "base.html" %}
 
 {% block conteudo %}
+<div class="launch-page">
 
-{% set lista_setores = [
-    "Recepção e Pendura",
-    "Escalda e Depenagem",
-    "Evisceração",
-    "Corte",
-    "Embalagem",
-    "Expedição"
-] %}
+<section class="hero-dashboard launch-hero">
+    <div class="hero-dashboard-titulo">
+        <span class="eyebrow">Confiabilidade</span>
+        <h2>Confiabilidade da Linha</h2>
+        <div class="hero-resumo-inline">
+            <span><strong>Indicador:</strong> quebras de equipamento</span>
+            <span><strong>Base:</strong> quantidade de paradas e tempo total parado</span>
+        </div>
+    </div>
+</section>
 
-{% set lista_motivos_parada = [
-    "Falta de matéria prima",
-    "Falta de insumos",
-    "Setup entre produtos",
-    "Falta de energia",
-    "Falta de mão de obra",
-    "Quebra de equipamento"
-] %}
-
-<div class="card">
-    <h2>Apontamento de Horas Paradas</h2>
+<div class="card launch-intro-card">
+    <h2>Apontamento de Quebra</h2>
     <p class="obs">
-        Registre um único evento de parada e selecione todos os setores impactados.
-        O sistema lançará o mesmo tempo de parada para cada setor selecionado.
+        Registre apenas paradas originadas por quebra de equipamento. O tempo parado sera calculado pela hora de parada e hora de retorno.
     </p>
 </div>
 
-<div class="card ficha">
-    <h3>Horas Paradas</h3>
+<div class="card ficha launch-card">
+    <h3>Evento de Confiabilidade</h3>
 
     <form method="POST">
         <input type="hidden" name="tipo_apontamento" value="parada">
@@ -39,7 +32,7 @@
                 <label>OP</label>
                 <select name="op_id" required>
                     {% for op in ordens %}
-                    <option value="{{ op.id }}">OP {{ op.id }} | {{ op.fornecedor }}</option>
+                    <option value="{{ op.id }}">OP {{ op.id }} | {{ op.fornecedor }} | {{ op.sku or "Galinha Cortada" }}</option>
                     {% endfor %}
                 </select>
             </div>
@@ -50,48 +43,84 @@
             </div>
 
             <div>
-                <label>Quantidade de horas paradas</label>
-                <input type="number" step="0.01" name="horas_paradas" required>
-            </div>
-
-            <div>
-                <label>Motivo</label>
-                <select name="motivo" required>
-                    {% for motivo in lista_motivos_parada %}
-                    <option value="{{ motivo }}">{{ motivo }}</option>
+                <label>Setor</label>
+                <select name="setor" required>
+                    {% for setor in setores %}
+                        <option value="{{ setor }}">{{ setor }}</option>
                     {% endfor %}
                 </select>
             </div>
 
             <div>
-                <label>Setores impactados</label>
-
-                <div class="checkbox-lista">
-                    {% for setor in lista_setores %}
-                    <label class="checkbox-item">
-                        <input
-                            type="checkbox"
-                            name="setores"
-                            value="{{ setor }}"
-                        >
-                        {{ setor }}
-                    </label>
+                <label>Equipamento</label>
+                <select name="equipamento_id" required>
+                    <option value="">Selecione</option>
+                    {% for equipamento in equipamentos_manutencao %}
+                        <option value="{{ equipamento.id }}">
+                            {{ equipamento.codigo }} - {{ equipamento.nome }} | {{ equipamento.setor }}
+                        </option>
                     {% endfor %}
-                </div>
-
-                <p class="obs">
-                    Marque todos os setores que ficaram parados pelo mesmo evento.
-                </p>
+                </select>
             </div>
 
             <div>
-                <label>Observações</label>
-                <input type="text" name="observacoes">
+                <label>Motivo</label>
+                <select name="motivo" id="motivo-parada" required>
+                    <optgroup label="Manutencao">
+                        {% for motivo in motivos_manutencao %}
+                            <option value="{{ motivo }}">{{ motivo }}</option>
+                        {% endfor %}
+                    </optgroup>
+                    <optgroup label="Operacionais">
+                        {% for motivo in motivos_operacionais %}
+                            <option value="{{ motivo }}">{{ motivo }}</option>
+                        {% endfor %}
+                    </optgroup>
+                </select>
+            </div>
+
+            <div>
+                <label>Hora que parou</label>
+                <input type="time" name="hora_inicio" required>
+            </div>
+
+            <div>
+                <label>Hora que voltou a funcionar</label>
+                <input type="time" name="hora_fim">
+            </div>
+
+            <div>
+                <label>Abrir Ordem de Servico?</label>
+                <select name="abrir_os" id="abrir-os-parada">
+                    <option value="Nao">Nao</option>
+                    <option value="Sim">Sim</option>
+                </select>
+            </div>
+
+            <div>
+                <label>Observacoes</label>
+                <input type="text" name="observacoes" placeholder="Causa aparente, acao tomada ou responsavel">
             </div>
         </div>
 
-        <button type="submit">Salvar Horas Paradas</button>
+        <button type="submit">Salvar quebra de equipamento</button>
     </form>
 </div>
+</div>
+<script>
+const motivosManutencao = {{ motivos_manutencao|tojson }};
+const motivoParada = document.getElementById("motivo-parada");
+const abrirOsParada = document.getElementById("abrir-os-parada");
 
+function atualizarAberturaOs() {
+    const permiteOs = motivosManutencao.includes(motivoParada.value);
+    abrirOsParada.disabled = !permiteOs;
+    if (!permiteOs) {
+        abrirOsParada.value = "Nao";
+    }
+}
+
+motivoParada.addEventListener("change", atualizarAberturaOs);
+atualizarAberturaOs();
+</script>
 {% endblock %}

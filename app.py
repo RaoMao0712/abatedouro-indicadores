@@ -406,6 +406,15 @@ def criar_banco():
         tentar_alter_table(cursor, conn, "ALTER TABLE apontamentos_paradas ADD COLUMN encerrada_por_manutencao TEXT DEFAULT 'Nao'")
         conn = conectar()
         cursor = conn.cursor()
+        tentar_alter_table(cursor, conn, "ALTER TABLE apontamentos_paradas ADD COLUMN data_fim TEXT")
+        conn = conectar()
+        cursor = conn.cursor()
+        tentar_alter_table(cursor, conn, "ALTER TABLE apontamentos_paradas ADD COLUMN equipamento TEXT")
+        conn = conectar()
+        cursor = conn.cursor()
+        tentar_alter_table(cursor, conn, "ALTER TABLE apontamentos_paradas ADD COLUMN equipamento_id INTEGER")
+        conn = conectar()
+        cursor = conn.cursor()
 
     else:
         cursor.execute("""
@@ -566,6 +575,21 @@ def criar_banco():
 
         try:
             cursor.execute("ALTER TABLE apontamentos_paradas ADD COLUMN encerrada_por_manutencao TEXT DEFAULT 'Nao'")
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            cursor.execute("ALTER TABLE apontamentos_paradas ADD COLUMN data_fim TEXT")
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            cursor.execute("ALTER TABLE apontamentos_paradas ADD COLUMN equipamento TEXT")
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            cursor.execute("ALTER TABLE apontamentos_paradas ADD COLUMN equipamento_id INTEGER")
         except sqlite3.OperationalError:
             pass
 
@@ -5019,13 +5043,36 @@ def salvar_apontamento_parada(form):
     op_id = int(form["op_id"])
     validar_op_aberta(op_id)
 
-    setores_impactados = form.getlist("setores")
+    equipamento_id = int(form.get("equipamento_id") or 0)
+    equipamento_texto = form.get("equipamento", "").strip()
+    setor = (form.get("setor") or "Linha de producao").strip()
+    motivo = (form.get("motivo") or "Quebra de equipamento").strip()
+    abrir_os = form.get("abrir_os") == "Sim"
+    hora_inicio = form.get("hora_inicio", "").strip()
+    hora_fim = form.get("hora_fim", "").strip()
 
-    if not setores_impactados and form.get("setor"):
-        setores_impactados = [form.get("setor")]
+    motivos_manutencao = manutencao_service.MOTIVOS_MANUTENCAO
 
-    if not setores_impactados:
-        raise ValueError("Selecione pelo menos um setor impactado pela parada.")
+    if not equipamento_id and not equipamento_texto:
+        raise ValueError("Informe o equipamento onde se originou o problema.")
+
+    if not hora_inicio:
+        raise ValueError("Informe a hora que parou.")
+
+    if motivo not in motivos_manutencao:
+        abrir_os = False
+
+    if not abrir_os and not hora_fim:
+        raise ValueError("Informe a hora que voltou a funcionar ou abra uma ordem de servico.")
+
+    if equipamento_id:
+        equipamento = next(
+            (item for item in manutencao_service.buscar_equipamentos_manutencao() if int(item["id"]) == equipamento_id),
+            None
+        )
+        if not equipamento:
+            raise ValueError("Equipamento nao encontrado.")
+        equipamento_texto = f"{equipamento['codigo']} - {equipamento['nome']}"
 
     conn = conectar()
     cursor = conn.cursor()
@@ -5034,31 +5081,54 @@ def salvar_apontamento_parada(form):
 
     horas_paradas = float(form.get("horas_paradas") or 0)
 
-    if horas_paradas <= 0 and form.get("hora_inicio") and form.get("hora_fim"):
+    if horas_paradas <= 0 and hora_fim:
         horas_paradas = calcular_horas_programadas(
-            form["hora_inicio"],
-            form["hora_fim"]
+            hora_inicio,
+            hora_fim
         )
 
-    for setor in setores_impactados:
-        cursor.execute(q("""
-        INSERT INTO apontamentos_paradas (
-            evento_id, op_id, data, setor, motivo, hora_inicio, hora_fim, horas_paradas, observacoes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """), (
-            evento_id,
-            op_id,
-            form["data"],
-            setor,
-            form["motivo"],
-            form.get("hora_inicio", ""),
-            form.get("hora_fim", ""),
-            horas_paradas,
-            form.get("observacoes", "")
-        ))
+    if horas_paradas <= 0 and not abrir_os:
+        conn.close()
+        raise ValueError("O tempo parado precisa ser maior que zero.")
+
+    cursor.execute(q("""
+    INSERT INTO apontamentos_paradas (
+        evento_id, op_id, data, data_fim, setor, motivo, equipamento, equipamento_id,
+        hora_inicio, hora_fim, horas_paradas, observacoes, manutencao_aberta
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """), (
+        evento_id,
+        op_id,
+        form["data"],
+        form["data"] if hora_fim else "",
+        setor,
+        motivo,
+        equipamento_texto,
+        equipamento_id or None,
+        hora_inicio,
+        hora_fim or "",
+        horas_paradas,
+        form.get("observacoes", ""),
+        "Sim" if abrir_os else "Nao"
+    ))
 
     conn.commit()
+    cursor.execute("SELECT LASTVAL() as id" if DATABASE_URL else "SELECT last_insert_rowid() as id")
+    parada_id = cursor.fetchone()["id"]
     conn.close()
+
+    if abrir_os:
+        manutencao_service.criar_ordem_por_parada(
+            parada_id=parada_id,
+            op_id=op_id,
+            equipamento_id=equipamento_id,
+            setor=setor,
+            motivo=motivo,
+            data=form["data"],
+            hora_inicio=hora_inicio,
+            usuario=session.get("nome", ""),
+            observacoes=form.get("observacoes", ""),
+        )
 
 def salvar_apontamento_descarte(form):
     op_id = int(form["op_id"])
@@ -5369,7 +5439,10 @@ def contexto_apontamento():
     return {
         "hoje": datetime.now().strftime("%Y-%m-%d"),
         "ordens": buscar_ordens_abertas(),
-        "setores": setores_padrao()
+        "setores": setores_padrao(),
+        "equipamentos_manutencao": manutencao_service.buscar_equipamentos_manutencao(),
+        "motivos_manutencao": manutencao_service.MOTIVOS_MANUTENCAO,
+        "motivos_operacionais": manutencao_service.MOTIVOS_OPERACIONAIS,
     }
 
 

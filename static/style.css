@@ -5441,6 +5441,74 @@ button:hover {
     color: #23313f;
 }
 
+.launch-page {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
+.launch-hero {
+    min-height: 0;
+    padding: 16px 18px;
+}
+
+.launch-hero h2 {
+    margin: 3px 0 8px;
+}
+
+.launch-intro-card {
+    padding: 12px 14px;
+    margin-bottom: 10px;
+    border-radius: 8px;
+}
+
+.launch-intro-card h2 {
+    margin-bottom: 8px;
+    font-size: 16px;
+}
+
+.launch-card {
+    padding: 15px;
+    border-radius: 8px;
+}
+
+.launch-card h2,
+.launch-card h3 {
+    margin-top: 0;
+    margin-bottom: 12px;
+    color: #1f3b4d;
+}
+
+.launch-card h3 {
+    padding-left: 10px;
+    border-left: 4px solid #f97316;
+    font-size: 16px;
+}
+
+.launch-card .form-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.launch-card form > button[type="submit"] {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: auto;
+    min-width: 210px;
+    height: 38px;
+    margin-top: 14px;
+    padding: 0 18px;
+    border-radius: 7px;
+    background: #1f5f8b;
+    box-shadow: none;
+    font-size: 13px;
+    font-weight: 800;
+}
+
+.launch-card form > button[type="submit"]:hover {
+    background: #174b70;
+}
+
 .manutencao-page .manutencao-hero {
     grid-template-columns: minmax(280px, 1fr) auto;
     padding: 14px 18px;
@@ -5795,7 +5863,8 @@ button:hover {
         grid-template-columns: repeat(3, minmax(0, 1fr));
     }
 
-    .manutencao-form {
+    .manutencao-form,
+    .launch-card .form-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
@@ -5818,8 +5887,13 @@ button:hover {
     }
 
     .manutencao-btn,
-    .manutencao-link-btn {
+    .manutencao-link-btn,
+    .launch-card form > button[type="submit"] {
         width: 100%;
+    }
+
+    .launch-card .form-grid {
+        grid-template-columns: 1fr;
     }
 
     .manutencao-filter-actions,
