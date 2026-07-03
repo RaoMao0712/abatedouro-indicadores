@@ -4,7 +4,7 @@
 
 <section class="hero-dashboard dre-hero dre-hero-executiva">
     <div>
-        <span class="eyebrow">Financeiro</span>
+        <span class="eyebrow">Movimentações</span>
         <h2>Editar Movimentação</h2>
 
         <div class="hero-resumo-inline">
@@ -14,7 +14,7 @@
     </div>
 
     <div class="dre-acoes-topo dre-acoes-compactas">
-        <a href="{{ url_for('financeiro') }}" class="botao-dre-exportar">Voltar</a>
+        <a href="{{ url_for(voltar_endpoint or 'movimentacoes_entradas') }}" class="botao-dre-exportar">Voltar</a>
     </div>
 </section>
 

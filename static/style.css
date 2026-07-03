@@ -2051,6 +2051,73 @@ button:hover {
     gap: 16px;
 }
 
+.movimentacoes-page {
+    gap: 14px;
+}
+
+.movimentacoes-hero {
+    margin-bottom: 0;
+}
+
+.movimentacoes-fichas {
+    display: flex;
+    align-items: flex-end;
+    gap: 6px;
+    padding: 0 10px;
+    border-bottom: 1px solid #cbd5e1;
+}
+
+.movimentacoes-ficha {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 156px;
+    min-height: 42px;
+    padding: 0 16px;
+    border: 1px solid #cbd5e1;
+    border-bottom: none;
+    border-radius: 10px 10px 0 0;
+    background: #e9eef5;
+    color: #334155;
+    font-size: 13px;
+    font-weight: 900;
+    text-decoration: none;
+}
+
+.movimentacoes-ficha.ativa {
+    position: relative;
+    top: 1px;
+    background: #ffffff;
+    color: #1f5f8b;
+}
+
+.movimentacoes-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-bottom: 0;
+}
+
+.movimentacoes-form-card,
+.movimentacoes-extrato-card,
+.movimentacoes-placeholder-card {
+    border-radius: 8px;
+}
+
+.movimentacoes-placeholder-card {
+    min-height: 240px;
+    padding: 24px;
+}
+
+.movimentacoes-placeholder-card h2 {
+    margin: 10px 0 8px;
+    color: #1f3b4d;
+}
+
+.movimentacoes-placeholder-card p {
+    max-width: 760px;
+    color: #64748b;
+    line-height: 1.5;
+}
+
 .financeiro-page .card {
     box-shadow: 0 10px 28px rgba(15,23,42,0.07);
 }

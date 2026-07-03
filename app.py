@@ -6935,9 +6935,13 @@ def excluir_venda_diaria(venda_id):
 
 
 
-@app.route("/financeiro", methods=["GET", "POST"])
-@perfil_permitido("pcp")
-def financeiro():
+def destino_movimentacao_por_tipo(tipo):
+    if tipo == "Saída":
+        return "movimentacoes_despesas"
+    return "movimentacoes_entradas"
+
+
+def contexto_movimentacoes(visao, tipo_movimentacao=None):
     criar_tabela_movimentacoes_financeiras()
 
     agora = datetime.now()
@@ -6946,16 +6950,8 @@ def financeiro():
 
     data_inicio = request.args.get("data_inicio") or primeiro_dia_mes
     data_fim = request.args.get("data_fim") or hoje
-    tipo_filtro = request.args.get("tipo") or "Todos"
     status_filtro = request.args.get("status") or "Todos"
-
-    if request.method == "POST":
-        try:
-            salvar_movimentacao_financeira(request.form)
-            flash("Movimentação financeira lançada com sucesso.")
-            return redirect(url_for("financeiro"))
-        except Exception as erro:
-            flash(f"Erro ao salvar movimentação: {erro}")
+    tipo_filtro = tipo_movimentacao or request.args.get("tipo") or "Todos"
 
     movimentacoes = buscar_movimentacoes_financeiras(
         data_inicio,
@@ -6964,23 +6960,80 @@ def financeiro():
         status_filtro
     )
 
-    resumo = calcular_resumo_financeiro(movimentacoes)
-    fluxo_diario = agrupar_fluxo_por_dia(movimentacoes)
+    return {
+        "visao": visao,
+        "hoje": hoje,
+        "data_inicio": data_inicio,
+        "data_fim": data_fim,
+        "tipo_filtro": tipo_filtro,
+        "tipo_padrao": tipo_movimentacao or "Entrada",
+        "status_filtro": status_filtro,
+        "movimentacoes": movimentacoes,
+        "resumo": calcular_resumo_financeiro(movimentacoes),
+        "fluxo_diario": agrupar_fluxo_por_dia(movimentacoes),
+        "categorias_entrada": CATEGORIAS_FINANCEIRAS_ENTRADA,
+        "categorias_saida": CATEGORIAS_FINANCEIRAS_SAIDA,
+        "categorias_lancamento": CATEGORIAS_FINANCEIRAS_ENTRADA if tipo_movimentacao == "Entrada" else CATEGORIAS_FINANCEIRAS_SAIDA,
+        "formas_pagamento": FORMAS_PAGAMENTO_FINANCEIRO,
+        "status_opcoes": STATUS_FINANCEIRO_FILTRO
+    }
+
+
+def salvar_movimentacao_por_visao(tipo_movimentacao, endpoint):
+    form = request.form.copy()
+    form["tipo"] = tipo_movimentacao
+
+    try:
+        salvar_movimentacao_financeira(form)
+        flash("Movimentação lançada com sucesso.")
+    except Exception as erro:
+        flash(f"Erro ao salvar movimentação: {erro}")
+
+    return redirect(url_for(endpoint))
+
+
+@app.route("/financeiro")
+@perfil_permitido("pcp")
+def financeiro():
+    return redirect(url_for("movimentacoes_entradas"))
+
+
+@app.route("/movimentacoes")
+@perfil_permitido("pcp")
+def movimentacoes():
+    return redirect(url_for("movimentacoes_entradas"))
+
+
+@app.route("/movimentacoes/entradas", methods=["GET", "POST"])
+@perfil_permitido("pcp")
+def movimentacoes_entradas():
+    if request.method == "POST":
+        return salvar_movimentacao_por_visao("Entrada", "movimentacoes_entradas")
 
     return render_template(
         "financeiro.html",
-        hoje=hoje,
-        data_inicio=data_inicio,
-        data_fim=data_fim,
-        tipo_filtro=tipo_filtro,
-        status_filtro=status_filtro,
-        movimentacoes=movimentacoes,
-        resumo=resumo,
-        fluxo_diario=fluxo_diario,
-        categorias_entrada=CATEGORIAS_FINANCEIRAS_ENTRADA,
-        categorias_saida=CATEGORIAS_FINANCEIRAS_SAIDA,
-        formas_pagamento=FORMAS_PAGAMENTO_FINANCEIRO,
-        status_opcoes=STATUS_FINANCEIRO_FILTRO
+        **contexto_movimentacoes("entradas", "Entrada")
+    )
+
+
+@app.route("/movimentacoes/despesas", methods=["GET", "POST"])
+@perfil_permitido("pcp")
+def movimentacoes_despesas():
+    if request.method == "POST":
+        return salvar_movimentacao_por_visao("Saída", "movimentacoes_despesas")
+
+    return render_template(
+        "financeiro.html",
+        **contexto_movimentacoes("despesas", "Saída")
+    )
+
+
+@app.route("/movimentacoes/estoque")
+@perfil_permitido("pcp")
+def movimentacoes_estoque():
+    return render_template(
+        "financeiro.html",
+        **contexto_movimentacoes("estoque")
     )
 
 
@@ -6997,7 +7050,7 @@ def editar_movimentacao_financeira(movimentacao_id):
         try:
             atualizar_movimentacao_financeira(movimentacao_id, request.form)
             flash("Movimentação financeira atualizada com sucesso.")
-            return redirect(url_for("financeiro"))
+            return redirect(url_for(destino_movimentacao_por_tipo(request.form.get("tipo", movimentacao["tipo"]))))
         except Exception as erro:
             flash(f"Erro ao atualizar movimentação: {erro}")
 
@@ -7007,16 +7060,18 @@ def editar_movimentacao_financeira(movimentacao_id):
         categorias_entrada=CATEGORIAS_FINANCEIRAS_ENTRADA,
         categorias_saida=CATEGORIAS_FINANCEIRAS_SAIDA,
         formas_pagamento=FORMAS_PAGAMENTO_FINANCEIRO,
-        status_opcoes=STATUS_FINANCEIRO
+        status_opcoes=STATUS_FINANCEIRO,
+        voltar_endpoint=destino_movimentacao_por_tipo(movimentacao["tipo"])
     )
 
 
 @app.route("/financeiro/excluir/<int:movimentacao_id>", methods=["POST"])
 @perfil_permitido("pcp")
 def excluir_movimentacao_financeira_rota(movimentacao_id):
+    movimentacao = buscar_movimentacao_financeira_por_id(movimentacao_id)
     excluir_movimentacao_financeira(movimentacao_id)
     flash("Movimentação financeira excluída com sucesso.")
-    return redirect(url_for("financeiro"))
+    return redirect(url_for(destino_movimentacao_por_tipo(movimentacao["tipo"] if movimentacao else "Entrada")))
 
 
 @app.route("/fornecedores", methods=["GET", "POST"])

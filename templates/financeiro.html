@@ -2,24 +2,26 @@
 
 {% block conteudo %}
 
-<div class="financeiro-page">
+{% set endpoint_atual = 'movimentacoes_entradas' if visao == 'entradas' else ('movimentacoes_despesas' if visao == 'despesas' else 'movimentacoes_estoque') %}
+{% set titulo_visao = 'Vendas / Entradas' if visao == 'entradas' else ('Custos / Despesas' if visao == 'despesas' else 'Estoque') %}
+{% set subtitulo_visao = 'Direitos a receber por data de vencimento, com documento preservado para leitura gerencial.' if visao == 'entradas' else ('Obrigacoes a pagar por data de vencimento, mantendo data do documento para futura DRE.' if visao == 'despesas' else 'Estrutura reservada para futuras movimentacoes de estoque, sem impacto financeiro nesta etapa.') %}
 
-    <section class="hero-dashboard financeiro-hero-executivo">
+<div class="financeiro-page movimentacoes-page">
+
+    <section class="hero-dashboard financeiro-hero-executivo movimentacoes-hero">
         <div class="financeiro-hero-titulo">
-            <span class="eyebrow">Financeiro</span>
-            <h2>Movimentação Financeira</h2>
-            <p>
-                Controle executivo de contas a pagar e receber, separando previsão, realização,
-                vencimentos e saldo de caixa por período.
-            </p>
+            <span class="eyebrow">Movimentacoes</span>
+            <h2>{{ titulo_visao }}</h2>
+            <p>{{ subtitulo_visao }}</p>
 
             <div class="financeiro-hero-resumo">
-                <span class="financeiro-pill-info"><strong>Período</strong> {{ data_inicio }} a {{ data_fim }}</span>
-                <span class="financeiro-pill-info"><strong>Visão</strong> previsto x realizado</span>
+                <span class="financeiro-pill-info"><strong>Periodo</strong> {{ data_inicio }} a {{ data_fim }}</span>
+                <span class="financeiro-pill-info"><strong>Base</strong> movimentacoes_financeiras</span>
             </div>
         </div>
 
-        <form method="GET" action="{{ url_for('financeiro') }}" class="financeiro-filtro-form">
+        {% if visao != 'estoque' %}
+        <form method="GET" action="{{ url_for(endpoint_atual) }}" class="financeiro-filtro-form">
             <div>
                 <label>Data inicial</label>
                 <input type="date" name="data_inicio" value="{{ data_inicio }}">
@@ -28,15 +30,6 @@
             <div>
                 <label>Data final</label>
                 <input type="date" name="data_fim" value="{{ data_fim }}">
-            </div>
-
-            <div>
-                <label>Tipo</label>
-                <select name="tipo">
-                    <option value="Todos" {% if tipo_filtro == "Todos" %}selected{% endif %}>Todos</option>
-                    <option value="Entrada" {% if tipo_filtro == "Entrada" %}selected{% endif %}>Entrada</option>
-                    <option value="Saída" {% if tipo_filtro == "Saída" %}selected{% endif %}>Saída</option>
-                </select>
             </div>
 
             <div>
@@ -50,192 +43,163 @@
 
             <button type="submit" class="botao-hero-filtro">Filtrar</button>
         </form>
+        {% endif %}
     </section>
 
-    <div class="cards-executivos financeiro-kpis">
+    <nav class="movimentacoes-fichas" aria-label="Navegacao de movimentacoes">
+        <a href="{{ url_for('movimentacoes_entradas') }}" class="movimentacoes-ficha {% if visao == 'entradas' %}ativa{% endif %}">Vendas / Entradas</a>
+        <a href="{{ url_for('movimentacoes_despesas') }}" class="movimentacoes-ficha {% if visao == 'despesas' %}ativa{% endif %}">Custos / Despesas</a>
+        <a href="{{ url_for('movimentacoes_estoque') }}" class="movimentacoes-ficha {% if visao == 'estoque' %}ativa{% endif %}">Estoque</a>
+    </nav>
 
+    {% if visao == 'estoque' %}
+        <div class="card movimentacoes-placeholder-card">
+            <span class="eyebrow">Estrutura futura</span>
+            <h2>Movimentacoes de Estoque</h2>
+            <p>
+                Esta ficha fica reservada para futura integracao com estoque. Nesta etapa ela nao gera lancamentos,
+                nao altera saldos, nao cria custos e nao impacta DRE ou Fluxo de Caixa.
+            </p>
+        </div>
+    {% else %}
+
+    <div class="cards-executivos financeiro-kpis movimentacoes-kpis">
+        {% if visao == 'entradas' %}
         <div class="card kpi-card destaque">
             <span class="kpi-label">Entradas previstas</span>
             <strong>R$ {{ "%.2f"|format(resumo.entradas_previstas or 0) }}</strong>
-            <small>Total previsto para entrada no período</small>
+            <small>Direitos a receber no periodo</small>
         </div>
 
+        <div class="card kpi-card {% if resumo.entradas_realizadas >= 0 %}resultado-positivo{% else %}resultado-negativo{% endif %}">
+            <span class="kpi-label">Entradas realizadas</span>
+            <strong>R$ {{ "%.2f"|format(resumo.entradas_realizadas or 0) }}</strong>
+            <small>Recebimentos liquidados</small>
+        </div>
+        {% else %}
         <div class="card kpi-card alerta">
-            <span class="kpi-label">Saídas previstas</span>
+            <span class="kpi-label">Saidas previstas</span>
             <strong>R$ {{ "%.2f"|format(resumo.saidas_previstas or 0) }}</strong>
-            <small>Total previsto para saída no período</small>
+            <small>Obrigacoes a pagar no periodo</small>
         </div>
 
-        <div class="card kpi-card {% if resumo.saldo_previsto >= 0 %}resultado-positivo{% else %}resultado-negativo{% endif %}">
-            <span class="kpi-label">Saldo previsto</span>
-            <strong>R$ {{ "%.2f"|format(resumo.saldo_previsto or 0) }}</strong>
-            <small>Entradas previstas menos saídas previstas</small>
+        <div class="card kpi-card {% if resumo.saidas_realizadas >= 0 %}resultado-negativo{% else %}resultado-positivo{% endif %}">
+            <span class="kpi-label">Saidas realizadas</span>
+            <strong>R$ {{ "%.2f"|format(resumo.saidas_realizadas or 0) }}</strong>
+            <small>Pagamentos liquidados</small>
         </div>
-
-        <div class="card kpi-card {% if resumo.saldo_realizado >= 0 %}resultado-positivo{% else %}resultado-negativo{% endif %}">
-            <span class="kpi-label">Saldo realizado</span>
-            <strong>R$ {{ "%.2f"|format(resumo.saldo_realizado or 0) }}</strong>
-            <small>Movimentações efetivamente liquidadas</small>
-        </div>
-
+        {% endif %}
     </div>
 
-    <div class="financeiro-grid">
+    <div class="card financeiro-form-card movimentacoes-form-card">
+        <div class="section-title-row">
+            <div>
+                <span class="eyebrow">Lancamento</span>
+                <h2>Novo lancamento - {{ titulo_visao }}</h2>
+            </div>
+        </div>
 
-        <div class="card financeiro-form-card">
-            <div class="section-title-row">
+        <form method="POST" action="{{ url_for(endpoint_atual) }}">
+            <input type="hidden" name="tipo" value="{{ tipo_padrao }}">
+
+            <div class="financeiro-lancamento-topo">
+                <div class="financeiro-campo-status">
+                    <label>Status operacional</label>
+                    <select name="status" required>
+                        <option value="Pendente">Pendente</option>
+                        <option value="Realizado">Realizado</option>
+                        <option value="Cancelado">Cancelado</option>
+                    </select>
+                    <small>O sistema calcula automaticamente A vencer e Em atraso.</small>
+                </div>
+
                 <div>
-                    <span class="eyebrow">Lançamento</span>
-                    <h2>Nova Movimentação</h2>
+                    <label>Data do documento</label>
+                    <input type="date" name="data_documento" value="{{ hoje }}" required onchange="atualizarResumoParcelas()">
+                </div>
+
+                <div>
+                    <label>Data de realizacao</label>
+                    <input type="date" name="data_realizacao">
                 </div>
             </div>
 
-            <form method="POST" action="{{ url_for('financeiro') }}">
-
-                <div class="financeiro-lancamento-topo">
-                    <div>
-                        <label>Tipo</label>
-                        <select name="tipo" required>
-                            <option value="Entrada">Entrada</option>
-                            <option value="Saída">Saída</option>
-                        </select>
-                    </div>
-
-                    <div class="financeiro-campo-status">
-                        <label>Status operacional</label>
-                        <select name="status" required>
-                            <option value="Pendente">Pendente</option>
-                            <option value="Realizado">Realizado</option>
-                            <option value="Cancelado">Cancelado</option>
-                        </select>
-                        <small>O sistema calcula automaticamente “A vencer” e “Em atraso”.</small>
-                    </div>
-
-                    <div>
-                        <label>Data do documento</label>
-                        <input type="date" name="data_documento" value="{{ hoje }}" required onchange="atualizarResumoParcelas()">
-                    </div>
-
-                    <div>
-                        <label>Data de realização</label>
-                        <input type="date" name="data_realizacao">
-                    </div>
-                </div>
-
-                <div class="financeiro-lancamento-meio">
-                    <div>
-                        <label>Categoria</label>
-                        <select name="categoria" required>
-                            <optgroup label="Entradas">
-                                {% for categoria in categorias_entrada %}
-                                <option value="{{ categoria }}">{{ categoria }}</option>
-                                {% endfor %}
-                            </optgroup>
-
-                            <optgroup label="Saídas">
-                                {% for categoria in categorias_saida %}
-                                <option value="{{ categoria }}">{{ categoria }}</option>
-                                {% endfor %}
-                            </optgroup>
-                        </select>
-                    </div>
-
-                    <div>
-                        <label>Forma</label>
-                        <select name="forma_pagamento">
-                            {% for forma in formas_pagamento %}
-                            <option value="{{ forma }}">{{ forma }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-
-                    <div>
-                        <label>Valor total</label>
-                        <input type="number" step="0.01" min="0" name="valor" id="valor_documento" required oninput="atualizarResumoParcelas()">
-                    </div>
-                </div>
-
-                <div class="parcelas-manuais-card">
-                    <div class="section-title-row">
-                        <div>
-                            <span class="eyebrow">Vencimentos</span>
-                            <h2>Parcelas do Documento</h2>
-                        </div>
-                        <button type="button" class="botao-secundario-financeiro" onclick="adicionarParcela()">+ Parcela</button>
-                    </div>
-
-                    <div class="parcelas-manuais-header">
-                        <span>Vencimento</span>
-                        <span>Valor</span>
-                        <span></span>
-                    </div>
-
-                    <div id="parcelas_container">
-                        <div class="parcela-manual-row">
-                            <input type="date" name="parcela_vencimento[]" value="{{ hoje }}" required onchange="atualizarResumoParcelas()">
-                            <input type="number" step="0.01" min="0" name="parcela_valor[]" placeholder="0,00" required oninput="atualizarResumoParcelas()">
-                            <button type="button" class="botao-remover-parcela" onclick="removerParcela(this)">Remover</button>
-                        </div>
-                    </div>
-
-                    <div class="resumo-parcelas">
-                        <div><strong>Total das parcelas</strong><span id="total_parcelas">R$ 0,00</span></div>
-                        <div><strong>Diferença</strong><span id="diferenca_parcelas">R$ 0,00</span></div>
-                        <div><strong>Prazo médio</strong><span id="prazo_medio">0 dias</span></div>
-                    </div>
-
-                    <p class="obs">A soma das parcelas precisa bater com o valor total do documento. O prazo médio é ponderado pelo valor de cada parcela.</p>
-                </div>
-
-                <div class="financeiro-lancamento-descricao">
-                    <div>
-                        <label>Descrição</label>
-                        <input type="text" name="descricao" placeholder="Ex.: Venda mercado X, conta de energia, compra de embalagem..." required>
-                    </div>
-
-                    <div>
-                        <label>Observações</label>
-                        <textarea name="observacoes" rows="3"></textarea>
-                    </div>
-                </div>
-
-                <button type="submit">Salvar movimentação</button>
-            </form>
-        </div>
-
-        <div class="card financeiro-fluxo-card">
-            <div class="section-title-row">
+            <div class="financeiro-lancamento-meio">
                 <div>
-                    <span class="eyebrow">Fluxo</span>
-                    <h2>Saldo Diário Previsto</h2>
+                    <label>Categoria</label>
+                    <select name="categoria" required>
+                        {% for categoria in categorias_lancamento %}
+                        <option value="{{ categoria }}">{{ categoria }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div>
+                    <label>Forma</label>
+                    <select name="forma_pagamento">
+                        {% for forma in formas_pagamento %}
+                        <option value="{{ forma }}">{{ forma }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div>
+                    <label>Valor total</label>
+                    <input type="number" step="0.01" min="0" name="valor" id="valor_documento" required oninput="atualizarResumoParcelas()">
                 </div>
             </div>
 
-            {% if fluxo_diario %}
-                <div class="financeiro-fluxo-lista">
-                    {% for item in fluxo_diario %}
-                    <div class="financeiro-fluxo-item">
-                        <strong>{{ item.data }}</strong>
-                        <span class="entrada">+ R$ {{ "%.2f"|format(item.entradas or 0) }}</span>
-                        <span class="saida">- R$ {{ "%.2f"|format(item.saidas or 0) }}</span>
-                        <span class="{% if item.saldo >= 0 %}saldo-positivo{% else %}saldo-negativo{% endif %}">
-                            R$ {{ "%.2f"|format(item.saldo or 0) }}
-                        </span>
+            <div class="parcelas-manuais-card">
+                <div class="section-title-row">
+                    <div>
+                        <span class="eyebrow">Vencimentos</span>
+                        <h2>Parcelas do Documento</h2>
                     </div>
-                    {% endfor %}
+                    <button type="button" class="botao-secundario-financeiro" onclick="adicionarParcela()">+ Parcela</button>
                 </div>
-            {% else %}
-                <p class="obs">Nenhuma movimentação no período filtrado.</p>
-            {% endif %}
-        </div>
 
+                <div class="parcelas-manuais-header">
+                    <span>Vencimento</span>
+                    <span>Valor</span>
+                    <span></span>
+                </div>
+
+                <div id="parcelas_container">
+                    <div class="parcela-manual-row">
+                        <input type="date" name="parcela_vencimento[]" value="{{ hoje }}" required onchange="atualizarResumoParcelas()">
+                        <input type="number" step="0.01" min="0" name="parcela_valor[]" placeholder="0,00" required oninput="atualizarResumoParcelas()">
+                        <button type="button" class="botao-remover-parcela" onclick="removerParcela(this)">Remover</button>
+                    </div>
+                </div>
+
+                <div class="resumo-parcelas">
+                    <div><strong>Total das parcelas</strong><span id="total_parcelas">R$ 0,00</span></div>
+                    <div><strong>Diferenca</strong><span id="diferenca_parcelas">R$ 0,00</span></div>
+                    <div><strong>Prazo medio</strong><span id="prazo_medio">0 dias</span></div>
+                </div>
+            </div>
+
+            <div class="financeiro-lancamento-descricao">
+                <div>
+                    <label>Descricao</label>
+                    <input type="text" name="descricao" placeholder="Informe a origem ou destino do documento" required>
+                </div>
+
+                <div>
+                    <label>Observacoes</label>
+                    <textarea name="observacoes" rows="3"></textarea>
+                </div>
+            </div>
+
+            <button type="submit">Salvar movimentacao</button>
+        </form>
     </div>
 
-    <div class="card financeiro-extrato-card">
+    <div class="card financeiro-extrato-card movimentacoes-extrato-card">
         <div class="section-title-row">
             <div>
                 <span class="eyebrow">Extrato</span>
-                <h2>Movimentações do Período</h2>
+                <h2>{{ titulo_visao }} do Periodo</h2>
             </div>
         </div>
 
@@ -245,15 +209,14 @@
                 <thead>
                     <tr>
                         <th>Vencimento</th>
-                        <th>Tipo</th>
                         <th>Categoria</th>
-                        <th>Descrição</th>
+                        <th>Descricao</th>
                         <th>Valor</th>
                         <th>Status</th>
                         <th>Forma</th>
                         <th>Parcela</th>
-                        <th>Prazo médio</th>
-                        <th>Ações</th>
+                        <th>Prazo medio</th>
+                        <th>Acoes</th>
                     </tr>
                 </thead>
 
@@ -263,11 +226,6 @@
                     {% set status_classe = status_tela|lower|replace(' ', '-') %}
                     <tr>
                         <td>{{ item.data_vencimento }}</td>
-                        <td>
-                            <span class="badge-financeiro {% if item.tipo == 'Entrada' %}entrada{% else %}saida{% endif %}">
-                                {{ item.tipo }}
-                            </span>
-                        </td>
                         <td>{{ item.categoria }}</td>
                         <td>
                             <strong>{{ item.descricao }}</strong>
@@ -283,9 +241,8 @@
                         <td>
                             <div class="financeiro-acoes">
                                 <a href="{{ url_for('editar_movimentacao_financeira', movimentacao_id=item.id) }}">Editar</a>
-
                                 <form method="POST" action="{{ url_for('excluir_movimentacao_financeira_rota', movimentacao_id=item.id) }}">
-                                    <button type="submit" onclick="return confirm('Excluir esta movimentação?')">Excluir</button>
+                                    <button type="submit" onclick="return confirm('Excluir esta movimentacao?')">Excluir</button>
                                 </form>
                             </div>
                         </td>
@@ -295,9 +252,11 @@
             </table>
         </div>
         {% else %}
-            <p class="obs">Nenhuma movimentação encontrada.</p>
+            <p class="obs">Nenhuma movimentacao encontrada nesta ficha.</p>
         {% endif %}
     </div>
+
+    {% endif %}
 
 </div>
 
@@ -307,6 +266,7 @@ function formatarMoeda(valor) {
 }
 function adicionarParcela() {
     const container = document.getElementById("parcelas_container");
+    if (!container) return;
     const novaLinha = container.querySelector(".parcela-manual-row").cloneNode(true);
     novaLinha.querySelectorAll("input").forEach((input) => { if (input.type === "number") input.value = ""; });
     container.appendChild(novaLinha);
@@ -314,7 +274,7 @@ function adicionarParcela() {
 }
 function removerParcela(botao) {
     const container = document.getElementById("parcelas_container");
-    if (container.querySelectorAll(".parcela-manual-row").length > 1) botao.closest(".parcela-manual-row").remove();
+    if (container && container.querySelectorAll(".parcela-manual-row").length > 1) botao.closest(".parcela-manual-row").remove();
     atualizarResumoParcelas();
 }
 function atualizarResumoParcelas() {
@@ -335,7 +295,9 @@ function atualizarResumoParcelas() {
     });
     const diferenca = totalParcelas - valorDocumento;
     const prazoMedio = valorDocumento > 0 ? prazoPonderado / valorDocumento : 0;
-    document.getElementById("total_parcelas").textContent = formatarMoeda(totalParcelas);
+    const totalEl = document.getElementById("total_parcelas");
+    if (!totalEl) return;
+    totalEl.textContent = formatarMoeda(totalParcelas);
     document.getElementById("diferenca_parcelas").textContent = formatarMoeda(diferenca);
     document.getElementById("prazo_medio").textContent = prazoMedio.toFixed(1) + " dias";
 }
