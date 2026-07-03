@@ -2,7 +2,9 @@
 
 {% block conteudo %}
 
-<section class="hero-dashboard expedicao-hero">
+<div class="manutencao-page">
+
+<section class="hero-dashboard expedicao-hero manutencao-hero">
     <div>
         <span class="eyebrow">Cadastros</span>
         <h2>Cadastro de Equipamentos</h2>
@@ -13,13 +15,13 @@
         </div>
     </div>
 
-    <div class="expedicao-acoes-topo">
-        <a href="{{ url_for('fornecedores') }}" class="botao-dre-exportar">Fornecedores</a>
-        <a href="{{ url_for('manutencao') }}" class="botao-dre-exportar">Ordens de Manutencao</a>
+    <div class="expedicao-acoes-topo manutencao-acoes-topo">
+        <a href="{{ url_for('fornecedores') }}" class="botao-dre-exportar manutencao-link-btn">Fornecedores</a>
+        <a href="{{ url_for('manutencao') }}" class="botao-dre-exportar manutencao-link-btn">Ordens de Manutencao</a>
     </div>
 </section>
 
-<div class="card expedicao-card">
+<div class="card expedicao-card manutencao-card">
     <div class="section-title-row">
         <div>
             <span class="eyebrow">Equipamento</span>
@@ -27,7 +29,7 @@
         </div>
     </div>
 
-    <form method="POST" class="form-grid">
+    <form method="POST" class="form-grid manutencao-form">
         <div>
             <label>Codigo</label>
             <input type="text" name="codigo" placeholder="Ex.: TUN-001" required>
@@ -81,12 +83,12 @@
         </div>
 
         <div class="form-span-2">
-            <button type="submit" class="botao-principal">Cadastrar equipamento</button>
+            <button type="submit" class="botao-principal manutencao-btn">Cadastrar equipamento</button>
         </div>
     </form>
 </div>
 
-<div class="card expedicao-card">
+<div class="card expedicao-card manutencao-card">
     <div class="section-title-row">
         <div>
             <span class="eyebrow">Ativos</span>
@@ -95,7 +97,7 @@
     </div>
 
     {% if equipamentos %}
-        <div class="tabela-responsiva tabela-executiva expedicao-tabela">
+        <div class="tabela-responsiva tabela-executiva expedicao-tabela manutencao-tabela">
             <table>
                 <thead>
                     <tr>
@@ -124,6 +126,8 @@
     {% else %}
         <p class="obs">Nenhum equipamento cadastrado.</p>
     {% endif %}
+</div>
+
 </div>
 
 {% endblock %}

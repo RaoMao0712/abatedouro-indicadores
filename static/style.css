@@ -5431,3 +5431,319 @@ button:hover {
     }
 }
 
+
+/* ============================================================
+   MANUTENCAO - MODELAGEM CORPORATIVA
+   ============================================================ */
+
+.manutencao-page {
+    font-family: "Inter", "Segoe UI", Arial, Helvetica, sans-serif;
+    color: #23313f;
+}
+
+.manutencao-page .manutencao-hero {
+    grid-template-columns: minmax(280px, 1fr) auto;
+    padding: 14px 18px;
+    margin-bottom: 12px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, #19384c, #263f52);
+    box-shadow: 0 10px 22px rgba(15, 23, 42, 0.16);
+}
+
+.manutencao-page .manutencao-hero h2 {
+    margin: 4px 0 8px;
+    font-size: 22px;
+    letter-spacing: 0;
+}
+
+.manutencao-page .hero-resumo-inline {
+    gap: 8px;
+}
+
+.manutencao-page .hero-resumo-inline span {
+    border-radius: 8px;
+    padding: 7px 10px;
+    font-size: 12px;
+    background: rgba(255, 255, 255, 0.09);
+}
+
+.manutencao-page .eyebrow {
+    border-radius: 6px;
+    padding: 4px 8px;
+    font-size: 10px;
+    letter-spacing: 0.6px;
+}
+
+.manutencao-kpis {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 12px;
+}
+
+.manutencao-kpi {
+    min-height: 92px;
+    margin-bottom: 0;
+    padding: 14px 14px 12px;
+    border-radius: 8px;
+    box-shadow: 0 6px 16px rgba(15, 23, 42, 0.07);
+}
+
+.manutencao-kpi::before {
+    width: 4px;
+}
+
+.manutencao-kpi::after {
+    width: 72px;
+    height: 72px;
+    right: -28px;
+    top: -28px;
+}
+
+.manutencao-kpi .kpi-label {
+    margin-bottom: 6px;
+    font-size: 10px;
+    letter-spacing: 0.55px;
+}
+
+.manutencao-kpi strong {
+    margin-bottom: 4px;
+    font-size: 25px;
+    letter-spacing: 0;
+}
+
+.manutencao-kpi small {
+    display: block;
+    font-size: 11px;
+    line-height: 1.25;
+}
+
+.manutencao-card {
+    margin-bottom: 12px;
+    padding: 16px;
+    border-radius: 8px;
+    border: 1px solid #dce4ec;
+    box-shadow: 0 6px 18px rgba(15, 23, 42, 0.07);
+}
+
+.manutencao-card .section-title-row {
+    margin: 0 0 12px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #e5ebf0;
+}
+
+.manutencao-card .section-title-row h2 {
+    margin-top: 5px;
+    font-size: 18px;
+    letter-spacing: 0;
+}
+
+.manutencao-form,
+.manutencao-filter {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px 12px;
+}
+
+.manutencao-filter {
+    grid-template-columns: minmax(160px, 220px) minmax(240px, 1fr) 128px;
+    align-items: end;
+    margin-bottom: 12px;
+}
+
+.manutencao-page label {
+    margin-top: 0;
+    margin-bottom: 5px;
+    color: #334155;
+    font-size: 12px;
+    font-weight: 800;
+}
+
+.manutencao-page input,
+.manutencao-page select,
+.manutencao-page textarea {
+    min-height: 38px;
+    padding: 9px 10px;
+    border-radius: 7px;
+    border-color: #cbd5e1;
+    color: #1f2937;
+    font-size: 13px;
+}
+
+.manutencao-page textarea {
+    min-height: 76px;
+    resize: vertical;
+}
+
+.manutencao-page .form-span-2 {
+    grid-column: span 2;
+}
+
+.manutencao-btn,
+.manutencao-link-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: auto;
+    min-width: 128px;
+    height: 38px;
+    margin: 0;
+    padding: 0 16px;
+    border-radius: 7px;
+    background: #1f5f8b;
+    color: #ffffff;
+    border: 1px solid #1f5f8b;
+    box-shadow: none;
+    font-size: 13px;
+    font-weight: 800;
+    text-decoration: none;
+}
+
+.manutencao-btn:hover,
+.manutencao-link-btn:hover {
+    background: #174b70;
+    border-color: #174b70;
+}
+
+.manutencao-btn.secundario,
+.manutencao-link-btn {
+    background: #ffffff;
+    color: #1f5f8b;
+    border-color: #aac3d5;
+}
+
+.manutencao-btn.secundario:hover,
+.manutencao-link-btn:hover {
+    background: #edf6fb;
+    color: #174b70;
+}
+
+.manutencao-acoes-topo {
+    gap: 8px;
+}
+
+.manutencao-tabela {
+    border: 1px solid #dce4ec;
+    border-radius: 8px;
+    background: #ffffff;
+}
+
+.manutencao-tabela table {
+    min-width: 1060px;
+    border-collapse: collapse;
+}
+
+.manutencao-tabela th {
+    padding: 10px 9px;
+    background: #f4f7fa;
+    color: #334155;
+    font-size: 11px;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+}
+
+.manutencao-tabela td {
+    padding: 10px 9px;
+    color: #334155;
+    font-size: 12px;
+    vertical-align: top;
+}
+
+.manutencao-tabela td strong {
+    color: #1f2937;
+    font-weight: 800;
+}
+
+.manutencao-tabela td small {
+    color: #64748b;
+    line-height: 1.35;
+}
+
+.manutencao-status {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 86px;
+    height: 24px;
+    padding: 0 8px;
+    border-radius: 999px;
+    background: #eef2f7;
+    color: #475569;
+    border: 1px solid #d8e1ea;
+    font-size: 10px;
+    font-weight: 900;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.manutencao-status.status-aberta {
+    background: #fff7ed;
+    color: #c2410c;
+    border-color: #fed7aa;
+}
+
+.manutencao-status.status-em-andamento {
+    background: #eff6ff;
+    color: #1d4ed8;
+    border-color: #bfdbfe;
+}
+
+.manutencao-status.status-aguardando-peca {
+    background: #fefce8;
+    color: #a16207;
+    border-color: #fde68a;
+}
+
+.manutencao-status.status-concluida {
+    background: #ecfdf5;
+    color: #047857;
+    border-color: #a7f3d0;
+}
+
+.manutencao-status.status-cancelada {
+    background: #f1f5f9;
+    color: #64748b;
+    border-color: #cbd5e1;
+}
+
+.manutencao-btn-tabela {
+    height: 28px;
+    min-width: 76px;
+    border-radius: 7px;
+    background: #1f5f8b;
+    font-size: 11px;
+}
+
+.manutencao-update-form {
+    min-width: 560px;
+    padding: 12px;
+    border-radius: 8px;
+    background: #f8fafc;
+}
+
+@media (max-width: 1250px) {
+    .manutencao-kpis {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .manutencao-form {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 760px) {
+    .manutencao-page .manutencao-hero,
+    .manutencao-kpis,
+    .manutencao-form,
+    .manutencao-filter {
+        grid-template-columns: 1fr;
+    }
+
+    .manutencao-page .form-span-2 {
+        grid-column: 1;
+    }
+
+    .manutencao-btn,
+    .manutencao-link-btn {
+        width: 100%;
+    }
+}
+

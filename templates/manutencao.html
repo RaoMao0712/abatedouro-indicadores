@@ -2,7 +2,9 @@
 
 {% block conteudo %}
 
-<section class="hero-dashboard expedicao-hero">
+<div class="manutencao-page">
+
+<section class="hero-dashboard expedicao-hero manutencao-hero">
     <div>
         <span class="eyebrow">Manutencao</span>
         <h2>Ordens de Manutencao</h2>
@@ -14,45 +16,45 @@
     </div>
 </section>
 
-<div class="expedicao-kpis">
-    <div class="card kpi-card destaque">
+<div class="expedicao-kpis manutencao-kpis">
+    <div class="card kpi-card manutencao-kpi destaque">
         <span class="kpi-label">Equipamentos</span>
         <strong>{{ resumo.equipamentos }}</strong>
         <small>ativos cadastrados no modulo</small>
     </div>
 
-    <div class="card kpi-card">
+    <div class="card kpi-card manutencao-kpi">
         <span class="kpi-label">Abertas</span>
         <strong>{{ resumo.abertas }}</strong>
         <small>ordens aguardando inicio</small>
     </div>
 
-    <div class="card kpi-card">
+    <div class="card kpi-card manutencao-kpi">
         <span class="kpi-label">Em andamento</span>
         <strong>{{ resumo.andamento }}</strong>
         <small>execucao em curso</small>
     </div>
 
-    <div class="card kpi-card">
+    <div class="card kpi-card manutencao-kpi">
         <span class="kpi-label">Criticas</span>
         <strong>{{ resumo.criticas }}</strong>
         <small>prioridade critica em aberto</small>
     </div>
 
-    <div class="card kpi-card">
+    <div class="card kpi-card manutencao-kpi">
         <span class="kpi-label">Horas paradas</span>
         <strong>{{ resumo.horas_paradas|br_numero }}</strong>
         <small>total apontado nas ordens filtradas</small>
     </div>
 
-    <div class="card kpi-card">
+    <div class="card kpi-card manutencao-kpi">
         <span class="kpi-label">Custo real</span>
         <strong>{{ resumo.custo_real|br_moeda }}</strong>
         <small>realizado nas ordens filtradas</small>
     </div>
 </div>
 
-<div class="card expedicao-card">
+<div class="card expedicao-card manutencao-card">
     <div class="section-title-row">
         <div>
             <span class="eyebrow">Ordem</span>
@@ -60,7 +62,7 @@
         </div>
     </div>
 
-    <form method="POST" class="form-grid">
+    <form method="POST" class="form-grid manutencao-form">
         <div>
             <label>Equipamento</label>
             <select name="equipamento_id" required>
@@ -122,12 +124,12 @@
         </div>
 
         <div class="form-span-2">
-            <button type="submit" class="botao-principal">Abrir ordem</button>
+            <button type="submit" class="botao-principal manutencao-btn">Abrir ordem</button>
         </div>
     </form>
 </div>
 
-<div class="card expedicao-card">
+<div class="card expedicao-card manutencao-card">
     <div class="section-title-row">
         <div>
             <span class="eyebrow">Consulta</span>
@@ -135,7 +137,7 @@
         </div>
     </div>
 
-    <form method="GET" action="{{ url_for('manutencao') }}" class="form-grid">
+    <form method="GET" action="{{ url_for('manutencao') }}" class="form-grid manutencao-filter">
         <div>
             <label>Status</label>
             <select name="status">
@@ -159,12 +161,12 @@
         </div>
 
         <div>
-            <button type="submit" class="botao-dre-exportar">Filtrar</button>
+            <button type="submit" class="botao-dre-exportar manutencao-btn secundario">Filtrar</button>
         </div>
     </form>
 
     {% if ordens %}
-        <div class="tabela-responsiva tabela-executiva expedicao-tabela">
+        <div class="tabela-responsiva tabela-executiva expedicao-tabela manutencao-tabela">
             <table>
                 <thead>
                     <tr>
@@ -200,14 +202,18 @@
                                 {{ ordem.prioridade }}
                             </span>
                         </td>
-                        <td>{{ ordem.status }}</td>
+                        <td>
+                            <span class="manutencao-status status-{{ ordem.status|lower|replace(' ', '-') }}">
+                                {{ ordem.status }}
+                            </span>
+                        </td>
                         <td>{{ ordem.data_abertura }}</td>
                         <td>{{ ordem.responsavel or "-" }}</td>
                         <td>{{ ordem.horas_paradas|br_numero }}</td>
                         <td>{{ ordem.custo_real|br_moeda }}</td>
                         <td>
                             <details>
-                                <summary class="botao-tabela-almoxarifado">Atualizar</summary>
+                                <summary class="botao-tabela-almoxarifado manutencao-btn-tabela">Atualizar</summary>
                                 <form method="POST" action="{{ url_for('atualizar_ordem_manutencao_rota', ordem_id=ordem.id) }}" class="form-grid manutencao-update-form">
                                     <div>
                                         <label>Status</label>
@@ -254,7 +260,7 @@
                                         <textarea name="observacoes_finais" rows="2">{{ ordem.observacoes_finais or '' }}</textarea>
                                     </div>
                                     <div class="form-span-2">
-                                        <button type="submit" class="botao-principal">Salvar</button>
+                                        <button type="submit" class="botao-principal manutencao-btn">Salvar</button>
                                     </div>
                                 </form>
                             </details>
@@ -267,6 +273,8 @@
     {% else %}
         <p class="obs">Nenhuma ordem de manutencao encontrada para os filtros aplicados.</p>
     {% endif %}
+</div>
+
 </div>
 
 {% endblock %}
