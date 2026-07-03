@@ -1,5 +1,5 @@
-from flask import Flask, render_template, request, redirect, url_for, session, flash, send_file
-from werkzeug.security import generate_password_hash, check_password_hash
+from flask import Flask, render_template, request, redirect, url_for, flash, send_file
+from werkzeug.security import generate_password_hash
 from datetime import datetime, timedelta
 from functools import wraps
 import calendar
@@ -14,7 +14,9 @@ import psycopg2.extras
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
-from auth import login_obrigatorio, destino_por_perfil, perfil_permitido
+from modules.auth import register_auth_routes
+from modules.auth.decorators import perfil_permitido
+from modules.auth.services import nome_usuario_atual, usuario_eh_admin
 from services import manutencao_service
 from utils import calcular_horas_programadas, calcular_produtividade, setores_padrao, normalizar_chave_setor
 
@@ -638,6 +640,9 @@ def criar_banco():
 
     conn.commit()
     conn.close()
+
+
+register_auth_routes(app, criar_banco)
 
 
 @executar_rotina_estrutural_uma_vez
@@ -4942,7 +4947,7 @@ def op_esta_encerrada(op_id):
 
 
 def validar_op_aberta(op_id):
-    if op_esta_encerrada(op_id) and session.get("perfil") != "admin":
+    if op_esta_encerrada(op_id) and not usuario_eh_admin():
         raise ValueError("Esta OP já está encerrada. Novos lançamentos não são permitidos.")
 
 
@@ -5205,7 +5210,7 @@ def salvar_apontamento_parada(form):
             motivo=motivo,
             data=form["data"],
             hora_inicio=hora_inicio,
-            usuario=session.get("nome", ""),
+            usuario=nome_usuario_atual(),
             observacoes=form.get("observacoes", ""),
         )
 
@@ -5523,48 +5528,6 @@ def contexto_apontamento():
         "motivos_manutencao": manutencao_service.MOTIVOS_MANUTENCAO,
         "motivos_operacionais": manutencao_service.MOTIVOS_OPERACIONAIS,
     }
-
-
-@app.route("/", methods=["GET", "POST"])
-def login():
-    criar_banco()
-
-    if request.method == "POST":
-        email = request.form["email"]
-        senha = request.form["senha"]
-
-        conn = conectar()
-        cursor = conn.cursor()
-
-        cursor.execute(q("""
-        SELECT *
-        FROM usuarios
-        WHERE email = ?
-        """), (email,))
-
-        usuario = cursor.fetchone()
-        conn.close()
-
-        if usuario and check_password_hash(usuario["senha_hash"], senha):
-            session["usuario_id"] = usuario["id"]
-            session["nome"] = usuario["nome"]
-
-            if usuario["perfil"]:
-                session["perfil"] = usuario["perfil"]
-            else:
-                session["perfil"] = "admin"
-
-            return redirect(url_for(destino_por_perfil(session["perfil"])))
-
-        flash("Usuário ou senha inválidos")
-
-    return render_template("login.html")
-
-
-@app.route("/sair")
-def sair():
-    session.clear()
-    return redirect(url_for("login"))
 
 
 @app.route("/dashboard")
@@ -7458,7 +7421,7 @@ def editar_op(op_id):
         flash("OP não encontrada.")
         return redirect(url_for("consultar_op"))
 
-    if op["status"] == "Encerrada" and session.get("perfil") != "admin":
+    if op["status"] == "Encerrada" and not usuario_eh_admin():
         conn.close()
         flash("Esta OP está encerrada. Edição bloqueada.")
         return redirect(url_for("consultar_op", op_id=op_id))
@@ -7524,7 +7487,7 @@ def editar_mao_obra(mao_obra_id):
         flash("Apontamento de mão de obra não encontrado.")
         return redirect(url_for("consultar_op"))
 
-    if apontamento["op_status"] == "Encerrada" and session.get("perfil") != "admin":
+    if apontamento["op_status"] == "Encerrada" and not usuario_eh_admin():
         op_id = apontamento["op_id"]
         conn.close()
         flash("Esta OP está encerrada. Edição de mão de obra bloqueada.")
@@ -7619,7 +7582,7 @@ def editar_parada(parada_id):
         flash("Apontamento de parada não encontrado.")
         return redirect(url_for("consultar_op"))
 
-    if apontamento["op_status"] == "Encerrada" and session.get("perfil") != "admin":
+    if apontamento["op_status"] == "Encerrada" and not usuario_eh_admin():
         op_id = apontamento["op_id"]
         conn.close()
         flash("Esta OP está encerrada. Edição de parada bloqueada.")
@@ -7728,7 +7691,7 @@ def primeiro_op_id(registros):
 
 
 def edicao_bloqueada_por_status(registros):
-    if session.get("perfil") == "admin":
+    if usuario_eh_admin():
         return False
 
     for registro in registros:
@@ -8263,48 +8226,6 @@ def imprimir_op(op_id):
         descartes=descartes,
         resumo=resumo
     )
-
-
-@app.route("/cadastrar-usuario", methods=["GET", "POST"])
-@perfil_permitido("admin")
-def cadastrar_usuario():
-    criar_banco()
-
-    if request.method == "POST":
-        nome = request.form["nome"]
-        email = request.form["email"]
-        senha = request.form["senha"]
-        perfil = request.form["perfil"]
-
-        senha_hash = generate_password_hash(senha)
-
-        conn = conectar()
-        cursor = conn.cursor()
-
-        cursor.execute(q("""
-        INSERT INTO usuarios (
-            nome,
-            email,
-            senha_hash,
-            perfil
-        )
-        VALUES (?, ?, ?, ?)
-        """), (
-            nome,
-            email,
-            senha_hash,
-            perfil
-        ))
-
-        conn.commit()
-        conn.close()
-
-        flash("Usuário cadastrado com sucesso.")
-
-        return redirect(url_for("cadastrar_usuario"))
-
-    return render_template("cadastrar_usuario.html")
-
 
 
 # ============================================================
