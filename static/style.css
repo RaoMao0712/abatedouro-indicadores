@@ -5719,6 +5719,61 @@ button:hover {
     background: #f8fafc;
 }
 
+.manutencao-filter-equipamentos {
+    grid-template-columns: minmax(260px, 1fr) auto;
+    align-items: end;
+}
+
+.manutencao-filter-actions,
+.manutencao-form-actions,
+.manutencao-acoes-tabela {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.manutencao-filter-actions {
+    justify-content: flex-end;
+}
+
+.manutencao-acoes-tabela {
+    align-items: flex-start;
+    min-width: 164px;
+}
+
+.manutencao-acoes-tabela form {
+    margin: 0;
+}
+
+.manutencao-acoes-tabela details {
+    position: relative;
+}
+
+.manutencao-equipamento-edit-form {
+    position: absolute;
+    right: 0;
+    z-index: 15;
+    grid-template-columns: repeat(4, minmax(120px, 1fr));
+    width: min(760px, calc(100vw - 56px));
+    margin-top: 8px;
+    box-shadow: 0 18px 34px rgba(15, 23, 42, 0.18);
+}
+
+.manutencao-btn-remover {
+    width: auto;
+    margin: 0;
+    background: #ffffff;
+    color: #b91c1c;
+    border: 1px solid #fecaca;
+    box-shadow: none;
+}
+
+.manutencao-btn-remover:hover {
+    background: #fef2f2;
+    color: #991b1b;
+}
+
 @media (max-width: 1250px) {
     .manutencao-kpis {
         grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -5727,12 +5782,17 @@ button:hover {
     .manutencao-form {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
+
+    .manutencao-equipamento-edit-form {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
 }
 
 @media (max-width: 760px) {
     .manutencao-page .manutencao-hero,
     .manutencao-kpis,
     .manutencao-form,
+    .manutencao-filter-equipamentos,
     .manutencao-filter {
         grid-template-columns: 1fr;
     }
@@ -5744,6 +5804,18 @@ button:hover {
     .manutencao-btn,
     .manutencao-link-btn {
         width: 100%;
+    }
+
+    .manutencao-filter-actions,
+    .manutencao-form-actions,
+    .manutencao-acoes-tabela {
+        width: 100%;
+    }
+
+    .manutencao-equipamento-edit-form {
+        position: static;
+        width: 100%;
+        grid-template-columns: 1fr;
     }
 }
 

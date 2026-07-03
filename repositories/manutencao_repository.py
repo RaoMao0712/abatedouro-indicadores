@@ -162,11 +162,47 @@ def inserir_equipamento(dados):
     conn.close()
 
 
+def atualizar_equipamento(equipamento_id, dados):
+    criar_tabelas_manutencao()
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute(q("""
+    UPDATE manutencao_equipamentos
+    SET
+        codigo = ?,
+        nome = ?,
+        setor = ?,
+        fabricante = ?,
+        modelo = ?,
+        numero_serie = ?,
+        criticidade = ?,
+        status = ?,
+        observacoes = ?
+    WHERE id = ?
+    """), (*dados, equipamento_id))
+    conn.commit()
+    conn.close()
+
+
 def equipamento_existe(equipamento_id):
     criar_tabelas_manutencao()
     conn = conectar()
     cursor = conn.cursor()
     cursor.execute(q("SELECT id FROM manutencao_equipamentos WHERE id = ?"), (equipamento_id,))
+    equipamento = cursor.fetchone()
+    conn.close()
+    return equipamento
+
+
+def buscar_equipamento_por_codigo(codigo):
+    criar_tabelas_manutencao()
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute(q("""
+    SELECT *
+    FROM manutencao_equipamentos
+    WHERE codigo = ?
+    """), (codigo,))
     equipamento = cursor.fetchone()
     conn.close()
     return equipamento
@@ -310,6 +346,63 @@ def listar_equipamentos():
     equipamentos = cursor.fetchall()
     conn.close()
     return equipamentos
+
+
+def listar_equipamentos_filtrados(busca=""):
+    criar_tabelas_manutencao()
+    termo = (busca or "").strip()
+    parametros = []
+    where = ""
+
+    if termo:
+        where = """
+        WHERE LOWER(codigo) LIKE ?
+           OR LOWER(nome) LIKE ?
+           OR LOWER(setor) LIKE ?
+           OR LOWER(fabricante) LIKE ?
+           OR LOWER(modelo) LIKE ?
+           OR LOWER(status) LIKE ?
+        """
+        like = f"%{termo.lower()}%"
+        parametros = [like, like, like, like, like, like]
+
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute(q(f"""
+    SELECT *
+    FROM manutencao_equipamentos
+    {where}
+    ORDER BY setor ASC, nome ASC
+    """), tuple(parametros))
+    equipamentos = cursor.fetchall()
+    conn.close()
+    return equipamentos
+
+
+def contar_ordens_por_equipamento(equipamento_id):
+    criar_tabelas_manutencao()
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute(q("""
+    SELECT COUNT(*) as total
+    FROM manutencao_ordens
+    WHERE equipamento_id = ?
+    """), (equipamento_id,))
+    total = cursor.fetchone()["total"]
+    conn.close()
+    return int(total or 0)
+
+
+def excluir_equipamento(equipamento_id):
+    criar_tabelas_manutencao()
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute(q("""
+    DELETE FROM manutencao_equipamentos
+    WHERE id = ?
+    """), (equipamento_id,))
+    conn.commit()
+    conn.close()
 
 
 def listar_ordens(status_filtro="Todos", equipamento_id=""):

@@ -15,6 +15,34 @@ def criar_tabelas_manutencao():
 
 
 def salvar_equipamento_manutencao(form):
+    repo.inserir_equipamento(_dados_equipamento(form))
+
+
+def atualizar_equipamento_manutencao(equipamento_id, form):
+    equipamento_id = int(equipamento_id or 0)
+    if not equipamento_id or not repo.buscar_equipamento_por_id(equipamento_id):
+        raise ValueError("Equipamento nao encontrado.")
+
+    dados = _dados_equipamento(form)
+    equipamento_codigo = repo.buscar_equipamento_por_codigo(dados[0])
+    if equipamento_codigo and int(equipamento_codigo["id"]) != equipamento_id:
+        raise ValueError("Ja existe outro equipamento com este codigo.")
+
+    repo.atualizar_equipamento(equipamento_id, dados)
+
+
+def excluir_equipamento_manutencao(equipamento_id):
+    equipamento_id = int(equipamento_id or 0)
+    if not equipamento_id or not repo.buscar_equipamento_por_id(equipamento_id):
+        raise ValueError("Equipamento nao encontrado.")
+
+    if repo.contar_ordens_por_equipamento(equipamento_id) > 0:
+        raise ValueError("Este equipamento possui ordens vinculadas. Altere o status para Inativo para preservar o historico.")
+
+    repo.excluir_equipamento(equipamento_id)
+
+
+def _dados_equipamento(form):
     codigo = (form.get("codigo") or "").strip()
     nome = (form.get("nome") or "").strip()
     setor = (form.get("setor") or "").strip()
@@ -22,7 +50,7 @@ def salvar_equipamento_manutencao(form):
     if not codigo or not nome or not setor:
         raise ValueError("Informe codigo, nome e setor do equipamento.")
 
-    repo.inserir_equipamento((
+    return (
         codigo,
         nome,
         setor,
@@ -30,9 +58,9 @@ def salvar_equipamento_manutencao(form):
         (form.get("modelo") or "").strip(),
         (form.get("numero_serie") or "").strip(),
         form.get("criticidade") or "Media",
-        form.get("status") or "Ativo",
+        form.get("status") or "Operacional",
         (form.get("observacoes") or "").strip(),
-    ))
+    )
 
 
 def salvar_ordem_manutencao(form):
@@ -105,7 +133,9 @@ def atualizar_ordem_manutencao(ordem_id, form):
             repo.encerrar_parada_por_ordem(ordem_atual["parada_id"], data_conclusao, hora_conclusao, horas_paradas)
 
 
-def buscar_equipamentos_manutencao():
+def buscar_equipamentos_manutencao(busca=""):
+    if busca:
+        return repo.listar_equipamentos_filtrados(busca)
     return repo.listar_equipamentos()
 
 
@@ -138,10 +168,13 @@ def calcular_resumo_manutencao(equipamentos, ordens):
     }
 
 
-def preparar_contexto_cadastro_equipamentos():
+def preparar_contexto_cadastro_equipamentos(args=None):
+    args = args or {}
+    busca = (args.get("busca") or "").strip()
     return {
-        "equipamentos": buscar_equipamentos_manutencao(),
+        "equipamentos": buscar_equipamentos_manutencao(busca),
         "prioridades": PRIORIDADES_MANUTENCAO,
+        "busca": busca,
     }
 
 

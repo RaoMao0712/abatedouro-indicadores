@@ -7079,8 +7079,32 @@ def cadastro_equipamentos_manutencao():
 
     return render_template(
         "cadastro_equipamentos.html",
-        **manutencao_service.preparar_contexto_cadastro_equipamentos()
+        **manutencao_service.preparar_contexto_cadastro_equipamentos(request.args)
     )
+
+
+@app.route("/cadastros/equipamentos/<int:equipamento_id>/editar", methods=["POST"])
+@perfil_permitido("pcp", "producao")
+def editar_equipamento_manutencao(equipamento_id):
+    try:
+        manutencao_service.atualizar_equipamento_manutencao(equipamento_id, request.form)
+        flash("Equipamento atualizado com sucesso.")
+    except Exception as erro:
+        flash(str(erro))
+
+    return redirect(url_for("cadastro_equipamentos_manutencao", busca=request.form.get("busca", "")))
+
+
+@app.route("/cadastros/equipamentos/<int:equipamento_id>/excluir", methods=["POST"])
+@perfil_permitido("pcp", "producao")
+def excluir_equipamento_manutencao(equipamento_id):
+    try:
+        manutencao_service.excluir_equipamento_manutencao(equipamento_id)
+        flash("Equipamento removido com sucesso.")
+    except Exception as erro:
+        flash(str(erro))
+
+    return redirect(url_for("cadastro_equipamentos_manutencao", busca=request.form.get("busca", "")))
 
 
 @app.route("/manutencao", methods=["GET", "POST"])

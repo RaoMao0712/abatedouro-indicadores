@@ -72,7 +72,8 @@
         <div>
             <label>Status</label>
             <select name="status">
-                <option value="Ativo">Ativo</option>
+                <option value="Operacional">Operacional</option>
+                <option value="Em Manutencao">Em Manutencao</option>
                 <option value="Inativo">Inativo</option>
             </select>
         </div>
@@ -96,6 +97,20 @@
         </div>
     </div>
 
+    <form method="GET" action="{{ url_for('cadastro_equipamentos_manutencao') }}" class="form-grid manutencao-filter manutencao-filter-equipamentos">
+        <div>
+            <label>Buscar equipamento</label>
+            <input type="text" name="busca" value="{{ busca }}" placeholder="Codigo, nome, setor, fabricante ou status">
+        </div>
+
+        <div class="manutencao-filter-actions">
+            <button type="submit" class="botao-dre-exportar manutencao-btn secundario">Buscar</button>
+            {% if busca %}
+                <a href="{{ url_for('cadastro_equipamentos_manutencao') }}" class="botao-dre-exportar manutencao-link-btn">Limpar</a>
+            {% endif %}
+        </div>
+    </form>
+
     {% if equipamentos %}
         <div class="tabela-responsiva tabela-executiva expedicao-tabela manutencao-tabela">
             <table>
@@ -107,6 +122,7 @@
                         <th>Criticidade</th>
                         <th>Status</th>
                         <th>Fabricante / Modelo</th>
+                        <th>Acoes</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -118,13 +134,85 @@
                         <td>{{ equipamento.criticidade }}</td>
                         <td>{{ equipamento.status }}</td>
                         <td>{{ equipamento.fabricante or "-" }} {{ equipamento.modelo or "" }}</td>
+                        <td>
+                            <div class="manutencao-acoes-tabela">
+                                <details>
+                                    <summary class="botao-tabela-almoxarifado manutencao-btn-tabela">Editar</summary>
+                                    <form method="POST" action="{{ url_for('editar_equipamento_manutencao', equipamento_id=equipamento.id) }}" class="form-grid manutencao-update-form manutencao-equipamento-edit-form">
+                                        <input type="hidden" name="busca" value="{{ busca }}">
+
+                                        <div>
+                                            <label>Codigo</label>
+                                            <input type="text" name="codigo" value="{{ equipamento.codigo }}" required>
+                                        </div>
+
+                                        <div>
+                                            <label>Nome</label>
+                                            <input type="text" name="nome" value="{{ equipamento.nome }}" required>
+                                        </div>
+
+                                        <div>
+                                            <label>Setor</label>
+                                            <input type="text" name="setor" value="{{ equipamento.setor }}" required>
+                                        </div>
+
+                                        <div>
+                                            <label>Criticidade</label>
+                                            <select name="criticidade">
+                                                {% for prioridade in prioridades %}
+                                                    <option value="{{ prioridade }}" {% if equipamento.criticidade == prioridade %}selected{% endif %}>{{ prioridade }}</option>
+                                                {% endfor %}
+                                            </select>
+                                        </div>
+
+                                        <div>
+                                            <label>Fabricante</label>
+                                            <input type="text" name="fabricante" value="{{ equipamento.fabricante or '' }}">
+                                        </div>
+
+                                        <div>
+                                            <label>Modelo</label>
+                                            <input type="text" name="modelo" value="{{ equipamento.modelo or '' }}">
+                                        </div>
+
+                                        <div>
+                                            <label>Numero de serie</label>
+                                            <input type="text" name="numero_serie" value="{{ equipamento.numero_serie or '' }}">
+                                        </div>
+
+                                        <div>
+                                            <label>Status</label>
+                                            <select name="status">
+                                                <option value="Operacional" {% if equipamento.status == "Operacional" %}selected{% endif %}>Operacional</option>
+                                                <option value="Em Manutencao" {% if equipamento.status == "Em Manutencao" %}selected{% endif %}>Em Manutencao</option>
+                                                <option value="Inativo" {% if equipamento.status == "Inativo" %}selected{% endif %}>Inativo</option>
+                                            </select>
+                                        </div>
+
+                                        <div class="form-span-2">
+                                            <label>Observacoes</label>
+                                            <textarea name="observacoes" rows="2">{{ equipamento.observacoes or '' }}</textarea>
+                                        </div>
+
+                                        <div class="form-span-2 manutencao-form-actions">
+                                            <button type="submit" class="botao-principal manutencao-btn">Salvar alteracoes</button>
+                                        </div>
+                                    </form>
+                                </details>
+
+                                <form method="POST" action="{{ url_for('excluir_equipamento_manutencao', equipamento_id=equipamento.id) }}" onsubmit="return confirm('Remover este equipamento? Esta acao nao pode ser desfeita.');">
+                                    <input type="hidden" name="busca" value="{{ busca }}">
+                                    <button type="submit" class="botao-tabela-almoxarifado manutencao-btn-tabela manutencao-btn-remover">Remover</button>
+                                </form>
+                            </div>
+                        </td>
                     </tr>
                     {% endfor %}
                 </tbody>
             </table>
         </div>
     {% else %}
-        <p class="obs">Nenhum equipamento cadastrado.</p>
+        <p class="obs">{% if busca %}Nenhum equipamento encontrado para a busca aplicada.{% else %}Nenhum equipamento cadastrado.{% endif %}</p>
     {% endif %}
 </div>
 
