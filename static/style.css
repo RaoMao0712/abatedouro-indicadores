@@ -5751,13 +5751,29 @@ button:hover {
 }
 
 .manutencao-equipamento-edit-form {
-    position: absolute;
-    right: 0;
-    z-index: 15;
+    position: fixed;
+    top: 92px;
+    right: 28px;
+    z-index: 60;
     grid-template-columns: repeat(4, minmax(120px, 1fr));
     width: min(760px, calc(100vw - 56px));
-    margin-top: 8px;
+    max-height: calc(100vh - 124px);
+    margin-top: 0;
+    overflow-y: auto;
     box-shadow: 0 18px 34px rgba(15, 23, 42, 0.18);
+}
+
+.manutencao-acoes-tabela details[open] summary {
+    background: #174b70;
+}
+
+.manutencao-equipamento-edit-form .manutencao-form-actions {
+    position: sticky;
+    bottom: -12px;
+    margin: 0 -12px -12px;
+    padding: 12px;
+    background: #f8fafc;
+    border-top: 1px solid #dce4ec;
 }
 
 .manutencao-btn-remover {
@@ -5815,6 +5831,7 @@ button:hover {
     .manutencao-equipamento-edit-form {
         position: static;
         width: 100%;
+        max-height: none;
         grid-template-columns: 1fr;
     }
 }
