@@ -2,8 +2,7 @@
 
 from flask import flash, redirect, render_template, request, session, url_for
 
-from .decorators import perfil_permitido
-from .services import autenticar_usuario, cadastrar_novo_usuario, destino_por_perfil
+from .services import autenticar_usuario, destino_por_perfil
 
 
 def register_auth_routes(app, preparar_banco):
@@ -29,16 +28,3 @@ def register_auth_routes(app, preparar_banco):
     def sair():
         session.clear()
         return redirect(url_for("login"))
-
-    @app.route("/cadastrar-usuario", methods=["GET", "POST"])
-    @perfil_permitido("admin")
-    def cadastrar_usuario():
-        preparar_banco()
-
-        if request.method == "POST":
-            cadastrar_novo_usuario(request.form)
-            flash("Usuário cadastrado com sucesso.")
-
-            return redirect(url_for("cadastrar_usuario"))
-
-        return render_template("cadastrar_usuario.html")
