@@ -1,1 +1,1 @@
-"""Módulo futuro de movimentações."""
+"""Modulo de movimentacoes."""

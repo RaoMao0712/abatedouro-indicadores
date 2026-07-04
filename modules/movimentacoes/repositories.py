@@ -1,1 +1,3 @@
-"""Persistência futura do módulo movimentações."""
+"""Camada de persistencia do modulo de Movimentacoes."""
+
+from database import conectar, q
