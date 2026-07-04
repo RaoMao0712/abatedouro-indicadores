@@ -17,6 +17,9 @@ from modules.auth import register_auth_routes
 from modules.auth.decorators import perfil_permitido
 from modules.auth.services import nome_usuario_atual, usuario_eh_admin
 from modules.dashboard.routes import register_dashboard_routes
+from modules.custos.routes import register_custos_routes
+from modules.dre.routes import register_dre_routes
+from modules.relatorios.routes import register_relatorios_routes
 from modules.expedicao.routes import register_expedicao_routes
 from modules.movimentacoes.routes import register_movimentacoes_routes
 from modules.producao.routes import register_producao_routes
@@ -35,6 +38,7 @@ from modules.almoxarifado.services import (
     criar_tabelas_almoxarifado,
     criar_tabelas_estoque_almoxarifado,
 )
+from modules.custos.services import criar_tabelas_custos
 from services import manutencao_service
 from utils import calcular_horas_programadas, calcular_produtividade, setores_padrao, normalizar_chave_setor
 
@@ -79,132 +83,6 @@ def filtro_br_percentual(valor):
     return formatar_percentual_br(valor)
 
 
-def preparar_grafico_despesas_operacionais(linhas_custos, receita_bruta, limite=6):
-    """
-    Prepara os dados visuais do gráfico de rosca da DRE.
-    O tamanho das fatias usa participação dentro das despesas operacionais.
-    O rótulo exibido usa % da receita, para manter leitura gerencial.
-    """
-    itens_validos = [
-        {
-            "categoria": item["categoria"],
-            "valor": float(item["valor"] or 0),
-            "percentual_receita": float(item["percentual"] or 0)
-        }
-        for item in linhas_custos
-        if float(item["valor"] or 0) > 0
-    ]
-
-    itens_validos = sorted(itens_validos, key=lambda item: item["valor"], reverse=True)
-    total_despesas = sum(item["valor"] for item in itens_validos)
-
-    if total_despesas <= 0:
-        return {
-            "itens": [],
-            "gradiente": "#e5e7eb 0deg 360deg",
-            "total": 0,
-            "percentual_receita_total": 0
-        }
-
-    cores = [
-        "#2563eb",
-        "#16a34a",
-        "#f97316",
-        "#8b5cf6",
-        "#0891b2",
-        "#64748b",
-        "#dc2626"
-    ]
-
-    limite_principal = max(1, limite - 1)
-    principais = itens_validos[:limite_principal]
-    restantes = itens_validos[limite_principal:]
-
-    itens_grafico = []
-
-    for item in principais:
-        itens_grafico.append(item)
-
-    if restantes:
-        valor_outras = sum(item["valor"] for item in restantes)
-        percentual_receita_outras = sum(item["percentual_receita"] for item in restantes)
-        itens_grafico.append({
-            "categoria": f"Outras categorias ({len(restantes)})",
-            "valor": valor_outras,
-            "percentual_receita": percentual_receita_outras
-        })
-
-    segmentos = []
-    angulo_atual = 0
-    itens_saida = []
-
-    for indice, item in enumerate(itens_grafico):
-        fatia = item["valor"] / total_despesas
-        graus = fatia * 360
-        inicio = angulo_atual
-        fim = 360 if indice == len(itens_grafico) - 1 else angulo_atual + graus
-        meio = (inicio + fim) / 2
-        cor = cores[indice % len(cores)]
-        segmentos.append(f"{cor} {inicio:.2f}deg {fim:.2f}deg")
-
-        # Coordenadas dos rótulos ao redor da rosca.
-        # Regra visual validada: só exibimos rótulos externos para categorias
-        # com pelo menos 5% da receita. As demais continuam na tabela lateral.
-        #
-        # Também limitamos a distância dos rótulos para impedir invasão da tabela
-        # lateral e evitar balões excessivamente afastados do gráfico.
-        import math
-        rad = math.radians(meio - 90)
-        x = 50 + (32 * math.cos(rad))
-        y = 50 + (31 * math.sin(rad))
-        x = max(28, min(72, x))
-        y = max(22, min(78, y))
-        alinhamento = "right" if x < 50 else "left"
-        mostrar_rotulo = float(item["percentual_receita"] or 0) >= 5
-
-        itens_saida.append({
-            "categoria": item["categoria"],
-            "valor": round(item["valor"], 2),
-            "valor_formatado": formatar_moeda_br(item["valor"]),
-            "percentual_receita": round(item["percentual_receita"], 2),
-            "percentual_receita_formatado": formatar_percentual_br(item["percentual_receita"]),
-            "percentual_despesa": round(fatia * 100, 2),
-            "percentual_despesa_formatado": formatar_percentual_br(fatia * 100),
-            "cor": cor,
-            "x": round(x, 2),
-            "y": round(y, 2),
-            "alinhamento": alinhamento,
-            "mostrar_rotulo": mostrar_rotulo
-        })
-
-        angulo_atual = fim
-
-    return {
-        "itens": itens_saida,
-        "gradiente": ", ".join(segmentos),
-        "total": round(total_despesas, 2),
-        "total_formatado": formatar_moeda_br(total_despesas),
-        "percentual_receita_total": round((total_despesas / receita_bruta * 100) if receita_bruta > 0 else 0, 2),
-        "percentual_receita_total_formatado": formatar_percentual_br((total_despesas / receita_bruta * 100) if receita_bruta > 0 else 0)
-    }
-
-
-def preparar_linhas_custos_executivas(linhas_custos, limite=6):
-    itens = [item for item in linhas_custos if float(item["valor"] or 0) > 0]
-    itens = sorted(itens, key=lambda item: float(item["valor"] or 0), reverse=True)
-
-    if len(itens) <= limite:
-        return itens
-
-    principais = itens[:limite - 1]
-    restantes = itens[limite - 1:]
-    principais.append({
-        "categoria": f"Outras categorias ({len(restantes)})",
-        "valor": round(sum(float(item["valor"] or 0) for item in restantes), 2),
-        "percentual": round(sum(float(item["percentual"] or 0) for item in restantes), 2)
-    })
-    return principais
-
 ROTINAS_ESTRUTURAIS_EXECUTADAS = set()
 ROTINAS_ESTRUTURAIS_LOCK = threading.RLock()
 
@@ -226,40 +104,6 @@ def executar_rotina_estrutural_uma_vez(func):
     return wrapper
 
 
-CATEGORIAS_CUSTOS = [
-    "Mão de obra",
-    "Energia",
-    "Água",
-    "Lenha",
-    "Combustível",
-
-    "Manutenção de Equipamentos",
-    "Manutenção Predial",
-    "Manutenção de Veículos",
-
-    "Material de Limpeza",
-    "Material de Escritório",
-    "Serviços",
-
-    "EPIs",
-
-    "Marketing",
-    "Cursos e Treinamentos",
-    "Despesas com Viagens",
-
-    "Consultoria e Responsabilidade Técnica",
-
-    "Contratos com Clientes",
-
-    "Insumos para Produção",
-
-    "Impostos e Taxas",
-
-    "Despesas Financeiras",
-
-
-    "Outros"
-]
 
 
 def tentar_alter_table(cursor, conn, comando):
@@ -632,6 +476,11 @@ def criar_banco():
 
 register_auth_routes(app, criar_banco)
 register_dashboard_routes(app)
+register_custos_routes(app)
+register_dre_routes(app, {
+    "criar_tabela_vendas": lambda: criar_tabela_vendas(),
+})
+register_relatorios_routes(app)
 
 
 @executar_rotina_estrutural_uma_vez
@@ -673,272 +522,8 @@ def criar_tabela_tempos_setor():
 
 
 
-@executar_rotina_estrutural_uma_vez
-def criar_tabelas_custos():
-    conn = conectar()
-    cursor = conn.cursor()
-
-    if DATABASE_URL:
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS parametros_custos (
-            id SERIAL PRIMARY KEY,
-            sku TEXT UNIQUE NOT NULL,
-            custo_ave REAL DEFAULT 0,
-            unidade_custo_ave TEXT DEFAULT '',
-            custo_embalagem REAL DEFAULT 0,
-            unidade_custo_embalagem TEXT DEFAULT '',
-            atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-        """)
-
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS custos_mensais (
-            id SERIAL PRIMARY KEY,
-            competencia TEXT NOT NULL,
-            categoria TEXT NOT NULL,
-            valor REAL NOT NULL,
-            observacoes TEXT,
-            criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-        """)
-    else:
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS parametros_custos (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            sku TEXT UNIQUE NOT NULL,
-            custo_ave REAL DEFAULT 0,
-            unidade_custo_ave TEXT DEFAULT '',
-            custo_embalagem REAL DEFAULT 0,
-            unidade_custo_embalagem TEXT DEFAULT '',
-            atualizado_em TEXT DEFAULT CURRENT_TIMESTAMP
-        )
-        """)
-
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS custos_mensais (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            competencia TEXT NOT NULL,
-            categoria TEXT NOT NULL,
-            valor REAL NOT NULL,
-            observacoes TEXT,
-            criado_em TEXT DEFAULT CURRENT_TIMESTAMP
-        )
-        """)
-
-    conn.commit()
-
-    parametros_padrao = [
-        ("Galinha Cortada", 0, "R$/ave", 0, "R$/bandeja"),
-        ("Galinha Inteira", 0, "R$/ave", 0, "R$/unidade")
-    ]
-
-    for item in parametros_padrao:
-        try:
-            cursor.execute(q("""
-            INSERT INTO parametros_custos (
-                sku,
-                custo_ave,
-                unidade_custo_ave,
-                custo_embalagem,
-                unidade_custo_embalagem
-            ) VALUES (?, ?, ?, ?, ?)
-            """), item)
-            conn.commit()
-        except Exception:
-            conn.rollback()
-
-    conn.close()
 
 
-def buscar_parametros_custos():
-    criar_tabelas_custos()
-
-    conn = conectar()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-    SELECT *
-    FROM parametros_custos
-    ORDER BY sku
-    """)
-
-    parametros = cursor.fetchall()
-    conn.close()
-
-    return parametros
-
-
-def buscar_custos_mensais(competencia_inicio=None, competencia_fim=None, categoria=None):
-    criar_tabelas_custos()
-
-    conn = conectar()
-    cursor = conn.cursor()
-
-    filtros = []
-    parametros = []
-
-    if competencia_inicio:
-        filtros.append("competencia >= ?")
-        parametros.append(competencia_inicio)
-
-    if competencia_fim:
-        filtros.append("competencia <= ?")
-        parametros.append(competencia_fim)
-
-    if categoria and categoria != "Todas":
-        filtros.append("categoria = ?")
-        parametros.append(categoria)
-
-    where_sql = f"WHERE {' AND '.join(filtros)}" if filtros else ""
-
-    cursor.execute(q(f"""
-    SELECT *
-    FROM custos_mensais
-    {where_sql}
-    ORDER BY competencia DESC, categoria ASC
-    """), parametros)
-
-    custos = cursor.fetchall()
-    conn.close()
-
-    return custos
-
-
-def chave_sku_custo(sku):
-    return (
-        sku.lower()
-        .replace(" ", "_")
-        .replace("ã", "a")
-    )
-
-
-def salvar_parametros_custos(form):
-    criar_tabelas_custos()
-
-    conn = conectar()
-    cursor = conn.cursor()
-
-    skus = ["Galinha Cortada", "Galinha Inteira"]
-
-    for sku in skus:
-        chave = chave_sku_custo(sku)
-
-        custo_ave = float(form.get(f"custo_ave_{chave}") or 0)
-        custo_embalagem = float(form.get(f"custo_embalagem_{chave}") or 0)
-
-        if sku == "Galinha Cortada":
-            unidade_custo_ave = "R$/ave"
-            unidade_custo_embalagem = "R$/bandeja"
-        else:
-            unidade_custo_ave = "R$/ave"
-            unidade_custo_embalagem = "R$/unidade"
-
-        cursor.execute(q("""
-        UPDATE parametros_custos
-        SET custo_ave = ?,
-            unidade_custo_ave = ?,
-            custo_embalagem = ?,
-            unidade_custo_embalagem = ?
-        WHERE sku = ?
-        """), (
-            custo_ave,
-            unidade_custo_ave,
-            custo_embalagem,
-            unidade_custo_embalagem,
-            sku
-        ))
-
-    conn.commit()
-    conn.close()
-
-
-def salvar_custo_mensal(form):
-    criar_tabelas_custos()
-
-    conn = conectar()
-    cursor = conn.cursor()
-
-    cursor.execute(q("""
-    INSERT INTO custos_mensais (
-        competencia,
-        categoria,
-        valor,
-        observacoes
-    ) VALUES (?, ?, ?, ?)
-    """), (
-        form["competencia"],
-        form["categoria"],
-        float(form["valor"]),
-        form.get("observacoes", "")
-    ))
-
-    conn.commit()
-    conn.close()
-
-
-def salvar_custos_mensais_lote(form):
-    criar_tabelas_custos()
-
-    competencia = form["competencia"]
-    observacoes_gerais = form.get("observacoes_gerais", "")
-    categorias = form.getlist("categoria[]")
-    valores = form.getlist("valor[]")
-    observacoes = form.getlist("observacoes[]")
-
-    if not categorias:
-        raise ValueError("Adicione pelo menos uma linha de custo antes de confirmar.")
-
-    if not (len(categorias) == len(valores) == len(observacoes)):
-        raise ValueError("As linhas de custo estao incompletas. Revise categorias, valores e observacoes.")
-
-    linhas = []
-    for indice, valor_raw in enumerate(valores, start=1):
-        categoria = categorias[indice - 1]
-        observacao = observacoes[indice - 1].strip()
-
-        if not categoria:
-            raise ValueError(f"Selecione uma categoria na linha {indice}.")
-
-        if categoria not in CATEGORIAS_CUSTOS:
-            raise ValueError(f"A categoria da linha {indice} nao e valida.")
-
-        try:
-            valor = float(str(valor_raw).replace(",", "."))
-        except (TypeError, ValueError):
-            raise ValueError(f"Informe um valor valido na linha {indice}.")
-
-        if valor <= 0:
-            raise ValueError(f"O valor da linha {indice} precisa ser maior que zero.")
-
-        if observacoes_gerais and observacao:
-            observacao_final = f"{observacao} | {observacoes_gerais}"
-        else:
-            observacao_final = observacao or observacoes_gerais
-
-        linhas.append((competencia, categoria, valor, observacao_final))
-
-    conn = conectar()
-    cursor = conn.cursor()
-
-    cursor.executemany(q("""
-    INSERT INTO custos_mensais (
-        competencia,
-        categoria,
-        valor,
-        observacoes
-    ) VALUES (?, ?, ?, ?)
-    """), linhas)
-
-    conn.commit()
-    conn.close()
-
-    return len(linhas)
-
-
-
-
-
-@executar_rotina_estrutural_uma_vez
 def criar_tabela_vendas():
     conn = conectar()
     cursor = conn.cursor()
@@ -1127,7 +712,6 @@ def salvar_venda_diaria(form):
     conn.commit()
     conn.close()
 
-
 def buscar_vendas_diarias():
     criar_tabela_vendas()
 
@@ -1147,18 +731,6 @@ def buscar_vendas_diarias():
 
 
 
-def buscar_custo_mensal_por_id(custo_id):
-    criar_tabelas_custos()
-    conn = conectar()
-    cursor = conn.cursor()
-    cursor.execute(q("""
-    SELECT *
-    FROM custos_mensais
-    WHERE id = ?
-    """), (custo_id,))
-    custo = cursor.fetchone()
-    conn.close()
-    return custo
 
 
 def buscar_venda_diaria_por_id(venda_id):
@@ -1180,654 +752,141 @@ def buscar_venda_diaria_por_id(venda_id):
 # EXPEDIÇÃO - SPRINT 1.0
 # ============================================================
 
-def normalizar_competencia(competencia):
-    if not competencia:
-        return ""
-
-    competencia = str(competencia).strip()
-
-    if len(competencia) >= 7:
-        return competencia[:7]
-
-    return competencia
 
 
-def listar_competencias_periodo(competencia_inicio, competencia_fim):
-    inicio = datetime.strptime(competencia_inicio + "-01", "%Y-%m-%d")
-    fim = datetime.strptime(competencia_fim + "-01", "%Y-%m-%d")
+@app.route("/vendas", methods=["GET", "POST"])
+@perfil_permitido("pcp")
+def vendas():
+    if request.method == "POST":
+        try:
+            salvar_venda_diaria(request.form)
+            flash("Venda diária cadastrada com sucesso.")
+        except ValueError as erro:
+            flash(str(erro))
 
-    competencias = []
-    atual = inicio
+        return redirect(url_for("vendas"))
 
-    while atual <= fim:
-        competencias.append(atual.strftime("%Y-%m"))
+    hoje = datetime.now().strftime("%Y-%m-%d")
 
-        if atual.month == 12:
-            atual = atual.replace(year=atual.year + 1, month=1)
-        else:
-            atual = atual.replace(month=atual.month + 1)
-
-    return competencias
-
-
-def buscar_dados_relatorio_custos(competencia_inicio, competencia_fim, categoria_filtro="Todas"):
-    criar_tabelas_custos()
-
-    competencias = listar_competencias_periodo(
-        competencia_inicio,
-        competencia_fim
+    return render_template(
+        "vendas.html",
+        hoje=hoje,
+        vendas_diarias=buscar_vendas_diarias()
     )
 
-    categoria_filtro = categoria_filtro or "Todas"
-    categorias_padrao = CATEGORIAS_CUSTOS
 
-    dados_por_categoria_completo = {
-        categoria: {competencia: 0 for competencia in competencias}
-        for categoria in categorias_padrao
-    }
 
-    conn = conectar()
-    cursor = conn.cursor()
+@app.route("/vendas/<int:venda_id>/editar", methods=["GET", "POST"])
+@perfil_permitido("pcp")
+def editar_venda_diaria(venda_id):
+    venda = buscar_venda_diaria_por_id(venda_id)
 
-    cursor.execute(q("""
-    SELECT
-        competencia,
-        categoria,
-        COALESCE(SUM(valor), 0) as total
-    FROM custos_mensais
-    WHERE competencia BETWEEN ? AND ?
-    GROUP BY competencia, categoria
-    ORDER BY competencia, categoria
-    """), (
-        competencia_inicio,
-        competencia_fim
-    ))
+    if not venda:
+        flash("Venda diária não encontrada.")
+        return redirect(url_for("vendas"))
 
-    registros = cursor.fetchall()
-    conn.close()
+    if request.method == "POST":
+        try:
+            sku = request.form["sku"]
+            receita = float(request.form["receita"])
 
-    categorias_encontradas = set()
+            if receita < 0:
+                raise ValueError("A receita não pode ser negativa.")
 
-    for item in registros:
-        competencia = normalizar_competencia(item["competencia"])
-        categoria = item["categoria"]
-        categorias_encontradas.add(categoria)
+            form_edicao = request.form.copy()
 
-        if categoria not in dados_por_categoria_completo:
-            dados_por_categoria_completo[categoria] = {
-                comp: 0 for comp in competencias
-            }
+            try:
+                quantidade_unidades_atual = float(venda["quantidade_unidades"] or 0)
+            except Exception:
+                quantidade_unidades_atual = 0
 
-        if competencia in dados_por_categoria_completo[categoria]:
-            dados_por_categoria_completo[categoria][competencia] = float(item["total"] or 0)
+            try:
+                quantidade_kg_atual = float(venda["quantidade_kg"] or 0)
+            except Exception:
+                quantidade_kg_atual = 0
 
-    categorias_disponiveis = list(categorias_padrao)
+            if sku == "Galinha Cortada":
+                if not form_edicao.get("quantidade_unidades") and quantidade_unidades_atual > 0:
+                    form_edicao["quantidade_unidades"] = str(quantidade_unidades_atual)
 
-    for categoria in sorted(categorias_encontradas):
-        if categoria not in categorias_disponiveis:
-            categorias_disponiveis.append(categoria)
+                if not form_edicao.get("quantidade_kg") and quantidade_kg_atual > 0:
+                    form_edicao["quantidade_kg"] = str(quantidade_kg_atual)
 
-    if categoria_filtro != "Todas":
-        if categoria_filtro not in dados_por_categoria_completo:
-            dados_por_categoria_completo[categoria_filtro] = {
-                comp: 0 for comp in competencias
-            }
-
-        dados_por_categoria = {
-            categoria_filtro: dados_por_categoria_completo[categoria_filtro]
-        }
-    else:
-        dados_por_categoria = {
-            categoria: dados_por_categoria_completo.get(
-                categoria,
-                {comp: 0 for comp in competencias}
+            quantidades = preparar_quantidades_venda(
+                sku,
+                form_edicao,
+                quantidade_atual=float(venda["quantidade"] or 0),
+                unidade_atual=venda["unidade"]
             )
-            for categoria in categorias_disponiveis
-        }
 
-    totais_por_categoria = {
-        categoria: sum(valores.values())
-        for categoria, valores in dados_por_categoria.items()
-    }
+            venda_duplicada = buscar_venda_diaria_por_data_sku(
+                request.form["data"],
+                sku,
+                ignorar_id=venda_id
+            )
 
-    totais_por_competencia = {
-        competencia: sum(
-            dados_por_categoria[categoria].get(competencia, 0)
-            for categoria in dados_por_categoria
-        )
-        for competencia in competencias
-    }
-
-    custo_total = sum(totais_por_categoria.values())
-    media_mensal = custo_total / len(competencias) if competencias else 0
-
-    maior_categoria = "Sem dados"
-    valor_maior_categoria = 0
-
-    if totais_por_categoria:
-        maior_categoria = max(
-            totais_por_categoria,
-            key=lambda categoria: totais_por_categoria[categoria]
-        )
-        valor_maior_categoria = totais_por_categoria.get(maior_categoria, 0)
-
-        if valor_maior_categoria == 0:
-            maior_categoria = "Sem dados"
-
-    maior_crescimento_categoria = "Sem dados"
-    maior_crescimento_valor = 0
-
-    for categoria, valores in dados_por_categoria.items():
-        lista_valores = [valores.get(comp, 0) for comp in competencias]
-
-        if len(lista_valores) < 2:
-            continue
-
-        crescimento = lista_valores[-1] - lista_valores[0]
-
-        if crescimento > maior_crescimento_valor:
-            maior_crescimento_valor = crescimento
-            maior_crescimento_categoria = categoria
-
-    # Gráfico executivo: exibe apenas as 5 maiores categorias do período
-    # e agrupa as demais em "Outras Categorias".
-    categorias_com_movimento = [
-        categoria
-        for categoria, total in sorted(
-            totais_por_categoria.items(),
-            key=lambda item: item[1],
-            reverse=True
-        )
-        if float(total or 0) > 0
-    ]
-
-    categorias_principais = categorias_com_movimento[:5]
-    categorias_restantes = categorias_com_movimento[5:]
-
-    datasets = []
-
-    for categoria in categorias_principais:
-        valores = dados_por_categoria.get(categoria, {})
-        datasets.append({
-            "label": categoria,
-            "data": [
-                round(valores.get(competencia, 0), 2)
-                for competencia in competencias
-            ]
-        })
-
-    if categorias_restantes:
-        datasets.append({
-            "label": f"Outras Categorias ({len(categorias_restantes)})",
-            "data": [
-                round(
-                    sum(
-                        dados_por_categoria.get(categoria, {}).get(competencia, 0)
-                        for categoria in categorias_restantes
-                    ),
-                    2
+            if venda_duplicada:
+                raise ValueError(
+                    "Já existe outra venda lançada para esta data e SKU. "
+                    "Ajuste o lançamento existente ou escolha outra data/SKU."
                 )
-                for competencia in competencias
-            ]
-        })
 
-    resumo_categorias = []
+            conn = conectar()
+            cursor = conn.cursor()
+            cursor.execute(q("""
+            UPDATE vendas_diarias
+            SET data = ?,
+                sku = ?,
+                quantidade = ?,
+                unidade = ?,
+                quantidade_unidades = ?,
+                quantidade_kg = ?,
+                receita = ?,
+                observacoes = ?
+            WHERE id = ?
+            """), (
+                request.form["data"],
+                sku,
+                quantidades["quantidade"],
+                quantidades["unidade"],
+                quantidades["quantidade_unidades"],
+                quantidades["quantidade_kg"],
+                receita,
+                request.form.get("observacoes", ""),
+                venda_id
+            ))
+            conn.commit()
+            conn.close()
 
-    for categoria, total in sorted(
-        totais_por_categoria.items(),
-        key=lambda item: item[1],
-        reverse=True
-    ):
-        percentual = 0
+            flash("Venda diária atualizada com sucesso.")
+            return redirect(url_for("vendas"))
+        except ValueError as erro:
+            flash(str(erro))
 
-        if custo_total > 0:
-            percentual = (total / custo_total) * 100
-
-        resumo_categorias.append({
-            "categoria": categoria,
-            "total": round(total, 2),
-            "percentual": round(percentual, 2)
-        })
-
-    return {
-        "competencias": competencias,
-        "datasets": datasets,
-        "custo_total": round(custo_total, 2),
-        "media_mensal": round(media_mensal, 2),
-        "maior_categoria": maior_categoria,
-        "valor_maior_categoria": round(valor_maior_categoria, 2),
-        "maior_crescimento_categoria": maior_crescimento_categoria,
-        "maior_crescimento_valor": round(maior_crescimento_valor, 2),
-        "totais_por_competencia": totais_por_competencia,
-        "resumo_categorias": resumo_categorias,
-        "categorias_disponiveis": categorias_disponiveis,
-        "categoria_filtro": categoria_filtro
-    }
+    return render_template("editar_venda_diaria.html", venda=venda)
 
 
-
-
-def valor_linha_venda(item, campo, padrao=0):
-    try:
-        valor = item[campo]
-    except Exception:
-        valor = padrao
-
-    if valor is None:
-        return padrao
-
-    return float(valor or 0)
-
-
-def normalizar_venda_para_dre(item):
-    sku = item["sku"]
-    quantidade = valor_linha_venda(item, "quantidade")
-    unidade = (item["unidade"] or "").lower()
-    quantidade_unidades = valor_linha_venda(item, "quantidade_unidades")
-    quantidade_kg = valor_linha_venda(item, "quantidade_kg")
-    receita = valor_linha_venda(item, "receita")
-
-    # Compatibilidade com registros antigos: antes a Galinha Cortada era lançada só em kg.
-    if sku == "Galinha Cortada":
-        if quantidade_kg <= 0 and unidade == "kg":
-            quantidade_kg = quantidade
-
-        if quantidade_unidades <= 0 and unidade in ["unidades", "unidade", "aves", "ave"]:
-            quantidade_unidades = quantidade
-    else:
-        if quantidade_unidades <= 0:
-            quantidade_unidades = quantidade
-
-        quantidade_kg = 0
-
-    return {
-        "sku": sku,
-        "receita": receita,
-        "quantidade": quantidade,
-        "unidade": unidade,
-        "quantidade_unidades": quantidade_unidades,
-        "quantidade_kg": quantidade_kg
-    }
-
-
-def buscar_dados_dre_gerencial(competencia):
-    criar_tabelas_custos()
-    criar_tabela_vendas()
-
-    ano, mes = competencia.split("-")
-    ultimo_dia = calendar.monthrange(int(ano), int(mes))[1]
-    data_inicio = f"{competencia}-01"
-    data_fim = f"{competencia}-{ultimo_dia:02d}"
+@app.route("/vendas/<int:venda_id>/excluir", methods=["POST"])
+@perfil_permitido("pcp")
+def excluir_venda_diaria(venda_id):
+    if not buscar_venda_diaria_por_id(venda_id):
+        flash("Venda diária não encontrada.")
+        return redirect(url_for("vendas"))
 
     conn = conectar()
     cursor = conn.cursor()
-
     cursor.execute(q("""
-    SELECT *
-    FROM vendas_diarias
-    WHERE data BETWEEN ? AND ?
-    ORDER BY sku ASC, data ASC, id ASC
-    """), (data_inicio, data_fim))
-
-    vendas_linhas = [normalizar_venda_para_dre(item) for item in cursor.fetchall()]
-
-    vendas_por_sku_dict = {}
-    receita_bruta = 0
-
-    for item in vendas_linhas:
-        sku = item["sku"]
-
-        if sku not in vendas_por_sku_dict:
-            vendas_por_sku_dict[sku] = {
-                "receita": 0,
-                "quantidade": 0,
-                "quantidade_unidades": 0,
-                "quantidade_kg": 0
-            }
-
-        vendas_por_sku_dict[sku]["receita"] += item["receita"]
-        vendas_por_sku_dict[sku]["quantidade_unidades"] += item["quantidade_unidades"]
-        vendas_por_sku_dict[sku]["quantidade_kg"] += item["quantidade_kg"]
-
-        if sku == "Galinha Cortada":
-            vendas_por_sku_dict[sku]["quantidade"] += item["quantidade_kg"]
-        else:
-            vendas_por_sku_dict[sku]["quantidade"] += item["quantidade_unidades"]
-
-        receita_bruta += item["receita"]
-
-    vendas_por_sku = []
-
-    for sku, venda in vendas_por_sku_dict.items():
-        quantidade_base = venda["quantidade_kg"] if sku == "Galinha Cortada" else venda["quantidade_unidades"]
-        unidade_base = "kg" if sku == "Galinha Cortada" else "unidades"
-        preco_medio = venda["receita"] / quantidade_base if quantidade_base > 0 else 0
-
-        vendas_por_sku.append({
-            "sku": sku,
-            "receita": round(venda["receita"], 2),
-            "quantidade": round(quantidade_base, 2),
-            "unidade": unidade_base,
-            "quantidade_unidades": round(venda["quantidade_unidades"], 2),
-            "quantidade_kg": round(venda["quantidade_kg"], 2),
-            "preco_medio": round(preco_medio, 4)
-        })
-
-    cursor.execute("SELECT * FROM parametros_custos")
-
-    parametros = {
-        item["sku"]: item
-        for item in cursor.fetchall()
-    }
-
-    cmv_por_sku = []
-    cmv_total = 0
-
-    for sku, venda in vendas_por_sku_dict.items():
-        parametros_sku = parametros.get(sku)
-
-        custo_ave = 0
-        custo_embalagem = 0
-
-        if parametros_sku:
-            custo_ave = float(parametros_sku["custo_ave"] or 0)
-            custo_embalagem = float(parametros_sku["custo_embalagem"] or 0)
-
-        quantidade_unidades = float(venda["quantidade_unidades"] or 0)
-        quantidade_kg = float(venda["quantidade_kg"] or 0)
-
-        # Regra atual validada:
-        # Galinha Cortada: (ave viva + embalagem) x bandejas vendidas.
-        # CMV por kg = CMV total / kg vendidos.
-        # Galinha Inteira: 1 x 1 por unidade vendida.
-        custo_materia_prima_unitario = custo_ave
-        custo_embalagem_unitario = custo_embalagem
-        quantidade_cmv = quantidade_unidades
-
-        custo_materia_prima = quantidade_cmv * custo_materia_prima_unitario
-        custo_embalagens = quantidade_cmv * custo_embalagem_unitario
-        cmv_sku = custo_materia_prima + custo_embalagens
-        cmv_total += cmv_sku
-
-        cmv_por_kg = 0
-        if sku == "Galinha Cortada" and quantidade_kg > 0:
-            cmv_por_kg = cmv_sku / quantidade_kg
-
-        cmv_por_unidade = 0
-        if quantidade_cmv > 0:
-            cmv_por_unidade = cmv_sku / quantidade_cmv
-
-        cmv_por_sku.append({
-            "sku": sku,
-            "quantidade_vendida": round(quantidade_kg if sku == "Galinha Cortada" else quantidade_unidades, 2),
-            "quantidade_unidades": round(quantidade_unidades, 2),
-            "quantidade_kg": round(quantidade_kg, 2),
-            "custo_materia_prima_unitario": round(custo_materia_prima_unitario, 4),
-            "custo_embalagem_unitario": round(custo_embalagem_unitario, 4),
-            "materia_prima": round(custo_materia_prima, 2),
-            "embalagem": round(custo_embalagens, 2),
-            "cmv": round(cmv_sku, 2),
-            "cmv_por_kg": round(cmv_por_kg, 4),
-            "cmv_por_unidade": round(cmv_por_unidade, 4),
-            "observacao_calculo": "CMV por bandeja vendida; CMV/kg calculado pelos kg vendidos." if sku == "Galinha Cortada" else "CMV 1 x 1 por unidade vendida."
-        })
-
-    cursor.execute(q("""
-    SELECT
-        categoria,
-        COALESCE(SUM(valor), 0) as total
-    FROM custos_mensais
-    WHERE competencia = ?
-    GROUP BY categoria
-    ORDER BY categoria
-    """), (competencia,))
-
-    custos_raw = cursor.fetchall()
+    DELETE FROM vendas_diarias
+    WHERE id = ?
+    """), (venda_id,))
+    conn.commit()
     conn.close()
 
-    categorias = CATEGORIAS_CUSTOS
-    custos = {
-        categoria: 0
-        for categoria in categorias
-    }
-
-    for item in custos_raw:
-        categoria = item["categoria"]
-        valor = float(item["total"] or 0)
-        custos[categoria] = custos.get(categoria, 0) + valor
-
-    custos_operacionais_total = sum(custos.values())
-    margem_bruta = receita_bruta - cmv_total
-    resultado_operacional = margem_bruta - custos_operacionais_total
-
-    def perc(valor):
-        if receita_bruta > 0:
-            return (valor / receita_bruta) * 100
-
-        return 0
-
-    linhas_custos = [
-        {
-            "categoria": categoria,
-            "valor": round(valor, 2),
-            "percentual": round(perc(valor), 2)
-        }
-        for categoria, valor in custos.items()
-    ]
-
-    linhas_custos_executivas = preparar_linhas_custos_executivas(linhas_custos)
-    despesas_grafico = preparar_grafico_despesas_operacionais(linhas_custos, receita_bruta)
-
-    return {
-        "receita_bruta": round(receita_bruta, 2),
-        "vendas_por_sku": vendas_por_sku,
-        "cmv_total": round(cmv_total, 2),
-        "cmv_percentual": round(perc(cmv_total), 2),
-        "cmv_por_sku": cmv_por_sku,
-        "margem_bruta": round(margem_bruta, 2),
-        "margem_bruta_percentual": round(perc(margem_bruta), 2),
-        "custos_operacionais_total": round(custos_operacionais_total, 2),
-        "custos_operacionais_percentual": round(perc(custos_operacionais_total), 2),
-        "linhas_custos": linhas_custos,
-        "linhas_custos_executivas": linhas_custos_executivas,
-        "despesas_grafico": despesas_grafico,
-        "resultado_operacional": round(resultado_operacional, 2),
-        "margem_operacional_percentual": round(perc(resultado_operacional), 2)
-    }
-
-def gerar_excel_dre_gerencial(competencia, dados):
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "DRE Gerencial"
-
-    azul = "1F3B4D"
-    laranja = "F97316"
-    cinza = "F8FAFC"
-    branco = "FFFFFF"
-    azul_resultado = "2563EB"
-    vermelho = "DC2626"
-
-    fill_topo = PatternFill("solid", fgColor=azul)
-    fill_laranja = PatternFill("solid", fgColor=laranja)
-    fill_cinza = PatternFill("solid", fgColor=cinza)
-    fill_resultado = PatternFill(
-        "solid",
-        fgColor=azul_resultado if dados["resultado_operacional"] >= 0 else vermelho
-    )
-
-    fonte_titulo = Font(color=branco, bold=True, size=16)
-    fonte_subtitulo = Font(color=branco, bold=True, size=11)
-    fonte_header = Font(color=branco, bold=True)
-    fonte_negrito = Font(bold=True, color=azul)
-    fonte_resultado = Font(color=branco, bold=True, size=13)
-
-    borda = Border(
-        left=Side(style="thin", color="E2E8F0"),
-        right=Side(style="thin", color="E2E8F0"),
-        top=Side(style="thin", color="E2E8F0"),
-        bottom=Side(style="thin", color="E2E8F0")
-    )
-
-    ws.merge_cells("A1:D1")
-    ws["A1"] = "FRIGODATTA — DRE Gerencial Industrial"
-    ws["A1"].fill = fill_topo
-    ws["A1"].font = fonte_titulo
-    ws["A1"].alignment = Alignment(horizontal="center")
-
-    ws.merge_cells("A2:D2")
-    ws["A2"] = f"Competência: {competencia}"
-    ws["A2"].fill = fill_topo
-    ws["A2"].font = fonte_subtitulo
-    ws["A2"].alignment = Alignment(horizontal="center")
-
-    linha = 4
-
-    ws[f"A{linha}"] = "Indicador"
-    ws[f"B{linha}"] = "Valor"
-    ws[f"C{linha}"] = "% Receita"
-    ws[f"D{linha}"] = "Observação"
-
-    for col in range(1, 5):
-        celula = ws.cell(row=linha, column=col)
-        celula.fill = fill_laranja
-        celula.font = fonte_header
-        celula.alignment = Alignment(horizontal="center")
-        celula.border = borda
-
-    kpis = [
-        ("Receita Bruta", dados["receita_bruta"], 100 if dados["receita_bruta"] > 0 else 0, "Venda de galinhas"),
-        ("CMV", dados["cmv_total"], dados["cmv_percentual"], "Custo das vendas"),
-        ("Margem Bruta", dados["margem_bruta"], dados["margem_bruta_percentual"], "Receita - CMV"),
-        ("Custos Operacionais", dados["custos_operacionais_total"], dados["custos_operacionais_percentual"], "Custos mensais"),
-        ("Resultado Operacional", dados["resultado_operacional"], dados["margem_operacional_percentual"], "Margem Bruta - Custos")
-    ]
-
-    for item in kpis:
-        linha += 1
-        ws[f"A{linha}"] = item[0]
-        ws[f"B{linha}"] = item[1]
-        ws[f"C{linha}"] = item[2] / 100
-        ws[f"D{linha}"] = item[3]
-
-        for col in range(1, 5):
-            celula = ws.cell(row=linha, column=col)
-            celula.border = borda
-            celula.fill = fill_cinza
-            if col == 1:
-                celula.font = fonte_negrito
-
-        ws[f"B{linha}"].number_format = 'R$ #,##0.00'
-        ws[f"C{linha}"].number_format = '0.00%'
-
-    linha += 3
-    ws.merge_cells(start_row=linha, start_column=1, end_row=linha, end_column=4)
-    ws.cell(row=linha, column=1).value = "DRE"
-    ws.cell(row=linha, column=1).fill = fill_topo
-    ws.cell(row=linha, column=1).font = fonte_header
-    ws.cell(row=linha, column=1).alignment = Alignment(horizontal="center")
-
-    linhas_dre = []
-
-    linhas_dre.append(("Receita Bruta", dados["receita_bruta"], "receita"))
-
-    for venda in dados["vendas_por_sku"]:
-        linhas_dre.append((f"  Venda — {venda['sku']}", venda["receita"], "subitem"))
-
-    linhas_dre.append(("(-) CMV", dados["cmv_total"], "normal"))
-
-    for cmv in dados["cmv_por_sku"]:
-        linhas_dre.append((f"  CMV — {cmv['sku']}", cmv["cmv"], "subitem"))
-
-    linhas_dre.append(("= Margem Bruta", dados["margem_bruta"], "total"))
-    linhas_dre.append(("Custos Operacionais", None, "grupo"))
-
-    for custo in dados["linhas_custos"]:
-        linhas_dre.append((f"(-) {custo['categoria']}", custo["valor"], "normal"))
-
-    linhas_dre.append(("Total de Custos Operacionais", dados["custos_operacionais_total"], "total"))
-    linhas_dre.append(("= Resultado Operacional", dados["resultado_operacional"], "resultado"))
-
-    for descricao, valor, tipo in linhas_dre:
-        linha += 1
-
-        ws[f"A{linha}"] = descricao
-
-        if valor is not None:
-            ws[f"B{linha}"] = valor
-            ws[f"B{linha}"].number_format = 'R$ #,##0.00'
-
-        ws.merge_cells(start_row=linha, start_column=2, end_row=linha, end_column=4)
-
-        for col in range(1, 5):
-            celula = ws.cell(row=linha, column=col)
-            celula.border = borda
-
-        if tipo == "grupo":
-            for col in range(1, 5):
-                ws.cell(row=linha, column=col).fill = fill_topo
-                ws.cell(row=linha, column=col).font = fonte_header
-        elif tipo == "resultado":
-            for col in range(1, 5):
-                ws.cell(row=linha, column=col).fill = fill_resultado
-                ws.cell(row=linha, column=col).font = fonte_resultado
-        elif tipo == "total":
-            for col in range(1, 5):
-                ws.cell(row=linha, column=col).fill = fill_cinza
-                ws.cell(row=linha, column=col).font = fonte_negrito
-        elif tipo == "subitem":
-            ws[f"A{linha}"].font = Font(color="64748B")
-            ws[f"B{linha}"].font = Font(color="64748B")
-        else:
-            ws[f"A{linha}"].font = fonte_negrito
-
-    linha += 3
-    ws.merge_cells(start_row=linha, start_column=1, end_row=linha, end_column=4)
-    ws.cell(row=linha, column=1).value = (
-        "Leitura executiva: "
-        + ("A operação apresentou resultado operacional positivo." if dados["resultado_operacional"] >= 0 else "A operação apresentou resultado operacional negativo.")
-    )
-    ws.cell(row=linha, column=1).alignment = Alignment(wrap_text=True)
-    ws.cell(row=linha, column=1).fill = PatternFill("solid", fgColor="FFF7ED")
-
-    larguras = {
-        "A": 38,
-        "B": 18,
-        "C": 14,
-        "D": 32
-    }
-
-    for coluna, largura in larguras.items():
-        ws.column_dimensions[coluna].width = largura
-
-    for row in ws.iter_rows():
-        for cell in row:
-            cell.alignment = Alignment(
-                vertical="center",
-                horizontal="right" if cell.column >= 2 else "left",
-                wrap_text=True
-            )
-
-    ws.page_setup.orientation = "portrait"
-    ws.page_setup.paperSize = ws.PAPERSIZE_A4
-    ws.page_setup.fitToWidth = 1
-    ws.page_setup.fitToHeight = 1
-    ws.sheet_properties.pageSetUpPr.fitToPage = True
-    ws.freeze_panes = "A4"
-
-    arquivo = BytesIO()
-    wb.save(arquivo)
-    arquivo.seek(0)
-
-    return arquivo
+    flash("Venda diária excluída com sucesso.")
+    return redirect(url_for("vendas"))
 
 
 
-
-
-
-# ============================================================
-# MÓDULO ALMOXARIFADO
-# ============================================================
 
 UNIDADES_VENDA_SKU = [
     "Kg",
@@ -2177,353 +1236,6 @@ def buscar_fornecedores():
     conn.close()
 
     return fornecedores
-
-
-@app.route("/dre-gerencial/exportar-excel")
-@perfil_permitido("pcp")
-def exportar_dre_gerencial_excel():
-    competencia = request.args.get("competencia") or datetime.now().strftime("%Y-%m")
-    dados = buscar_dados_dre_gerencial(competencia)
-    arquivo = gerar_excel_dre_gerencial(competencia, dados)
-
-    nome_arquivo = f"DRE_Gerencial_{competencia}.xlsx"
-
-    return send_file(
-        arquivo,
-        as_attachment=True,
-        download_name=nome_arquivo,
-        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
-
-@app.route("/dre-gerencial")
-@perfil_permitido("pcp")
-def dre_gerencial():
-    competencia = request.args.get("competencia") or datetime.now().strftime("%Y-%m")
-    dados = buscar_dados_dre_gerencial(competencia)
-
-    return render_template(
-        "dre_gerencial.html",
-        competencia=competencia,
-        receita_bruta=dados["receita_bruta"],
-        vendas_por_sku=dados["vendas_por_sku"],
-        cmv_total=dados["cmv_total"],
-        cmv_percentual=dados["cmv_percentual"],
-        cmv_por_sku=dados["cmv_por_sku"],
-        margem_bruta=dados["margem_bruta"],
-        margem_bruta_percentual=dados["margem_bruta_percentual"],
-        custos_operacionais_total=dados["custos_operacionais_total"],
-        custos_operacionais_percentual=dados["custos_operacionais_percentual"],
-        linhas_custos=dados["linhas_custos"],
-        linhas_custos_executivas=dados.get("linhas_custos_executivas", dados["linhas_custos"]),
-        despesas_grafico=dados.get("despesas_grafico", {}),
-        resultado_operacional=dados["resultado_operacional"],
-        margem_operacional_percentual=dados["margem_operacional_percentual"]
-    )
-
-
-
-@app.route("/relatorio-custos")
-@perfil_permitido("pcp")
-def relatorio_custos():
-    agora = datetime.now()
-    competencia_fim = request.args.get("competencia_fim") or agora.strftime("%Y-%m")
-
-    seis_meses_atras = agora
-
-    for _ in range(5):
-        if seis_meses_atras.month == 1:
-            seis_meses_atras = seis_meses_atras.replace(
-                year=seis_meses_atras.year - 1,
-                month=12
-            )
-        else:
-            seis_meses_atras = seis_meses_atras.replace(
-                month=seis_meses_atras.month - 1
-            )
-
-    competencia_inicio = (
-        request.args.get("competencia_inicio")
-        or seis_meses_atras.strftime("%Y-%m")
-    )
-
-    if competencia_inicio > competencia_fim:
-        competencia_inicio, competencia_fim = competencia_fim, competencia_inicio
-
-    categoria_filtro = request.args.get("categoria") or "Todas"
-
-    dados = buscar_dados_relatorio_custos(
-        competencia_inicio,
-        competencia_fim,
-        categoria_filtro
-    )
-
-    return render_template(
-        "relatorio_custos.html",
-        competencia_inicio=competencia_inicio,
-        competencia_fim=competencia_fim,
-        categoria_filtro=categoria_filtro,
-        categorias_custos=dados["categorias_disponiveis"],
-        competencias=dados["competencias"],
-        datasets=dados["datasets"],
-        custo_total=dados["custo_total"],
-        media_mensal=dados["media_mensal"],
-        maior_categoria=dados["maior_categoria"],
-        valor_maior_categoria=dados["valor_maior_categoria"],
-        maior_crescimento_categoria=dados["maior_crescimento_categoria"],
-        maior_crescimento_valor=dados["maior_crescimento_valor"],
-        resumo_categorias=dados["resumo_categorias"]
-    )
-
-
-
-@app.route("/custos", methods=["GET", "POST"])
-@perfil_permitido("pcp")
-def custos():
-    if request.method == "POST":
-        acao = request.form.get("acao")
-
-        try:
-            if acao == "salvar_parametros":
-                salvar_parametros_custos(request.form)
-                flash("Parâmetros de CMV atualizados com sucesso.")
-
-            elif acao == "salvar_custo_mensal":
-                salvar_custo_mensal(request.form)
-                flash("Custo mensal cadastrado com sucesso.")
-
-            elif acao == "salvar_custos_lote":
-                total_linhas = salvar_custos_mensais_lote(request.form)
-                flash(f"{total_linhas} custos mensais cadastrados com sucesso.")
-
-        except ValueError as erro:
-            flash(str(erro) or "Verifique os valores informados. Use apenas números nos campos de custo.")
-
-        return redirect(url_for("custos"))
-
-    categorias_custos = CATEGORIAS_CUSTOS
-
-    competencia_atual = datetime.now().strftime("%Y-%m")
-    competencia_inicio = request.args.get("competencia_inicio") or competencia_atual
-    competencia_fim = request.args.get("competencia_fim") or competencia_atual
-    categoria_filtro = request.args.get("categoria") or "Todas"
-    custos_filtrados = buscar_custos_mensais(
-        competencia_inicio=competencia_inicio,
-        competencia_fim=competencia_fim,
-        categoria=categoria_filtro
-    )
-    total_custos_filtrados = sum(float(item["valor"] or 0) for item in custos_filtrados)
-
-    return render_template(
-        "custos.html",
-        parametros=buscar_parametros_custos(),
-        custos_mensais=custos_filtrados,
-        categorias_custos=categorias_custos,
-        competencia_atual=competencia_atual,
-        competencia_inicio=competencia_inicio,
-        competencia_fim=competencia_fim,
-        categoria_filtro=categoria_filtro,
-        total_custos_filtrados=total_custos_filtrados
-    )
-
-
-
-
-@app.route("/vendas", methods=["GET", "POST"])
-@perfil_permitido("pcp")
-def vendas():
-    if request.method == "POST":
-        try:
-            salvar_venda_diaria(request.form)
-            flash("Venda diária cadastrada com sucesso.")
-        except ValueError as erro:
-            flash(str(erro))
-
-        return redirect(url_for("vendas"))
-
-    hoje = datetime.now().strftime("%Y-%m-%d")
-
-    return render_template(
-        "vendas.html",
-        hoje=hoje,
-        vendas_diarias=buscar_vendas_diarias()
-    )
-
-
-
-@app.route("/custos/mensal/<int:custo_id>/editar", methods=["GET", "POST"])
-@perfil_permitido("pcp")
-def editar_custo_mensal(custo_id):
-    custo = buscar_custo_mensal_por_id(custo_id)
-
-    if not custo:
-        flash("Custo mensal não encontrado.")
-        return redirect(url_for("custos"))
-
-    categorias_custos = CATEGORIAS_CUSTOS
-
-    if request.method == "POST":
-        try:
-            conn = conectar()
-            cursor = conn.cursor()
-            cursor.execute(q("""
-            UPDATE custos_mensais
-            SET competencia = ?,
-                categoria = ?,
-                valor = ?,
-                observacoes = ?
-            WHERE id = ?
-            """), (
-                request.form["competencia"],
-                request.form["categoria"],
-                float(request.form["valor"]),
-                request.form.get("observacoes", ""),
-                custo_id
-            ))
-            conn.commit()
-            conn.close()
-            flash("Custo mensal atualizado com sucesso.")
-            return redirect(url_for("custos"))
-        except ValueError:
-            flash("Verifique o valor informado. Use apenas números no campo de valor.")
-
-    return render_template(
-        "editar_custo_mensal.html",
-        custo=custo,
-        categorias_custos=categorias_custos
-    )
-
-
-@app.route("/custos/mensal/<int:custo_id>/excluir", methods=["POST"])
-@perfil_permitido("pcp")
-def excluir_custo_mensal(custo_id):
-    if not buscar_custo_mensal_por_id(custo_id):
-        flash("Custo mensal não encontrado.")
-        return redirect(url_for("custos"))
-
-    conn = conectar()
-    cursor = conn.cursor()
-    cursor.execute(q("""
-    DELETE FROM custos_mensais
-    WHERE id = ?
-    """), (custo_id,))
-    conn.commit()
-    conn.close()
-
-    flash("Custo mensal excluído com sucesso.")
-    return redirect(url_for("custos"))
-
-
-@app.route("/vendas/<int:venda_id>/editar", methods=["GET", "POST"])
-@perfil_permitido("pcp")
-def editar_venda_diaria(venda_id):
-    venda = buscar_venda_diaria_por_id(venda_id)
-
-    if not venda:
-        flash("Venda diária não encontrada.")
-        return redirect(url_for("vendas"))
-
-    if request.method == "POST":
-        try:
-            sku = request.form["sku"]
-            receita = float(request.form["receita"])
-
-            if receita < 0:
-                raise ValueError("A receita não pode ser negativa.")
-
-            form_edicao = request.form.copy()
-
-            try:
-                quantidade_unidades_atual = float(venda["quantidade_unidades"] or 0)
-            except Exception:
-                quantidade_unidades_atual = 0
-
-            try:
-                quantidade_kg_atual = float(venda["quantidade_kg"] or 0)
-            except Exception:
-                quantidade_kg_atual = 0
-
-            if sku == "Galinha Cortada":
-                if not form_edicao.get("quantidade_unidades") and quantidade_unidades_atual > 0:
-                    form_edicao["quantidade_unidades"] = str(quantidade_unidades_atual)
-
-                if not form_edicao.get("quantidade_kg") and quantidade_kg_atual > 0:
-                    form_edicao["quantidade_kg"] = str(quantidade_kg_atual)
-
-            quantidades = preparar_quantidades_venda(
-                sku,
-                form_edicao,
-                quantidade_atual=float(venda["quantidade"] or 0),
-                unidade_atual=venda["unidade"]
-            )
-
-            venda_duplicada = buscar_venda_diaria_por_data_sku(
-                request.form["data"],
-                sku,
-                ignorar_id=venda_id
-            )
-
-            if venda_duplicada:
-                raise ValueError(
-                    "Já existe outra venda lançada para esta data e SKU. "
-                    "Ajuste o lançamento existente ou escolha outra data/SKU."
-                )
-
-            conn = conectar()
-            cursor = conn.cursor()
-            cursor.execute(q("""
-            UPDATE vendas_diarias
-            SET data = ?,
-                sku = ?,
-                quantidade = ?,
-                unidade = ?,
-                quantidade_unidades = ?,
-                quantidade_kg = ?,
-                receita = ?,
-                observacoes = ?
-            WHERE id = ?
-            """), (
-                request.form["data"],
-                sku,
-                quantidades["quantidade"],
-                quantidades["unidade"],
-                quantidades["quantidade_unidades"],
-                quantidades["quantidade_kg"],
-                receita,
-                request.form.get("observacoes", ""),
-                venda_id
-            ))
-            conn.commit()
-            conn.close()
-
-            flash("Venda diária atualizada com sucesso.")
-            return redirect(url_for("vendas"))
-        except ValueError as erro:
-            flash(str(erro))
-
-    return render_template("editar_venda_diaria.html", venda=venda)
-
-
-@app.route("/vendas/<int:venda_id>/excluir", methods=["POST"])
-@perfil_permitido("pcp")
-def excluir_venda_diaria(venda_id):
-    if not buscar_venda_diaria_por_id(venda_id):
-        flash("Venda diária não encontrada.")
-        return redirect(url_for("vendas"))
-
-    conn = conectar()
-    cursor = conn.cursor()
-    cursor.execute(q("""
-    DELETE FROM vendas_diarias
-    WHERE id = ?
-    """), (venda_id,))
-    conn.commit()
-    conn.close()
-
-    flash("Venda diária excluída com sucesso.")
-    return redirect(url_for("vendas"))
-
-
-
 
 @app.route("/fornecedores", methods=["GET", "POST"])
 @perfil_permitido("pcp")

@@ -1,1 +1,1 @@
-"""Módulo futuro de relatórios."""
+"""Modulo de relatorios."""

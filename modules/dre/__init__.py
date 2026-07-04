@@ -1,1 +1,1 @@
-"""Módulo futuro de DRE."""
+"""Modulo DRE."""

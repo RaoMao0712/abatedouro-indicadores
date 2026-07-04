@@ -1,1 +1,1 @@
-"""Módulo futuro de custos."""
+"""Modulo de custos."""
