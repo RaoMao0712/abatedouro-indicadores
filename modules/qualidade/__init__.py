@@ -1,1 +1,1 @@
-"""Módulo futuro de qualidade."""
+"""Modulo de qualidade."""

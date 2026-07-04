@@ -7,6 +7,7 @@ from flask import flash, redirect, render_template, request, url_for
 from database import conectar, q
 from modules.auth.decorators import perfil_permitido
 from modules.auth.services import usuario_eh_admin
+from modules.qualidade import services as qualidade_service
 from utils import normalizar_chave_setor, setores_padrao
 
 from .services import (
@@ -19,10 +20,8 @@ from .services import (
     contexto_apontamento,
     copiar_mao_obra_de_op,
     gerar_producao_automatica_setores,
-    salvar_apontamento_descarte,
     salvar_apontamento_mao_obra,
     salvar_apontamento_parada,
-    salvar_apontamentos_descartes_lote,
     salvar_tempos_setor,
     setores_por_sku,
 )
@@ -105,9 +104,9 @@ def register_producao_routes(app, integracoes=None):
 
             elif tipo == "descarte":
                 if request.form.get("tipo_apontamento") == "descarte_lote":
-                    salvar_apontamentos_descartes_lote(request.form)
+                    qualidade_service.salvar_apontamentos_descartes_lote(request.form)
                 else:
-                    salvar_apontamento_descarte(request.form)
+                    qualidade_service.salvar_apontamento_descarte(request.form)
                 flash("Apontamento de descarte/condenação salvo.")
 
             return redirect(url_for("apontamento_setor"))
@@ -209,24 +208,6 @@ def register_producao_routes(app, integracoes=None):
             tempos_por_setor=tempos_por_setor,
             normalizar_chave_setor=normalizar_chave_setor
         )
-
-
-    @app.route("/apontamento-descartes", methods=["GET", "POST"])
-    @perfil_permitido("qualidade")
-    def apontamento_descartes():
-        if request.method == "POST":
-            try:
-                if request.form.get("tipo_apontamento") == "descarte_lote":
-                    salvar_apontamentos_descartes_lote(request.form)
-                else:
-                    salvar_apontamento_descarte(request.form)
-                flash("Apontamento de descarte/condenação salvo.")
-            except ValueError as erro:
-                flash(str(erro))
-
-            return redirect(url_for("apontamento_descartes"))
-
-        return render_template("apontamento_descartes.html", **contexto_apontamento())
 
 
     @app.route("/op/<int:op_id>/editar", methods=["GET", "POST"])
@@ -751,98 +732,6 @@ def register_producao_routes(app, integracoes=None):
         return redirect(url_for("consultar_op", op_id=op_id))
 
 
-
-
-    @app.route("/descartes/lote/editar", methods=["GET", "POST"])
-    @perfil_permitido("qualidade")
-    def editar_descartes_lote():
-        ids = ids_do_request("ids")
-
-        if not ids:
-            flash("Selecione pelo menos um descarte.")
-            return redirect(url_for("consultar_op"))
-
-        registros = obter_registros_por_ids("apontamentos_descartes", ids)
-
-        if not registros:
-            flash("Nenhum descarte encontrado.")
-            return redirect(url_for("consultar_op"))
-
-        op_id = primeiro_op_id(registros)
-
-        if edicao_bloqueada_por_status(registros):
-            flash("Esta OP está encerrada. Edição de descartes bloqueada.")
-            return redirect(url_for("consultar_op", op_id=op_id))
-
-        if request.method == "POST" and request.form.get("acao") == "salvar":
-            categoria = request.form["categoria"]
-            motivo = request.form["motivo"]
-            unidade = request.form["unidade"]
-            observacoes = request.form.get("observacoes", "")
-
-            placeholders = ",".join(["?"] * len(ids))
-
-            conn = conectar()
-            cursor = conn.cursor()
-
-            cursor.execute(q(f"""
-            UPDATE apontamentos_descartes
-            SET categoria = ?,
-                motivo = ?,
-                unidade = ?,
-                observacoes = ?
-            WHERE id IN ({placeholders})
-            """), (categoria, motivo, unidade, observacoes, *ids))
-
-            conn.commit()
-            conn.close()
-
-            flash("Descartes atualizados com sucesso.")
-            return redirect(url_for("consultar_op", op_id=op_id))
-
-        return render_template(
-            "editar_descartes_lote.html",
-            registros=registros,
-            ids=ids
-        )
-
-
-    @app.route("/descartes/lote/excluir", methods=["POST"])
-    @perfil_permitido("qualidade")
-    def excluir_descartes_lote():
-        ids = ids_do_request("ids")
-
-        if not ids:
-            flash("Selecione pelo menos um descarte.")
-            return redirect(url_for("consultar_op"))
-
-        registros = obter_registros_por_ids("apontamentos_descartes", ids)
-
-        if not registros:
-            flash("Nenhum descarte encontrado.")
-            return redirect(url_for("consultar_op"))
-
-        op_id = primeiro_op_id(registros)
-
-        if edicao_bloqueada_por_status(registros):
-            flash("Esta OP está encerrada. Exclusão de descartes bloqueada.")
-            return redirect(url_for("consultar_op", op_id=op_id))
-
-        placeholders = ",".join(["?"] * len(ids))
-
-        conn = conectar()
-        cursor = conn.cursor()
-
-        cursor.execute(q(f"""
-        DELETE FROM apontamentos_descartes
-        WHERE id IN ({placeholders})
-        """), tuple(ids))
-
-        conn.commit()
-        conn.close()
-
-        flash("Descartes excluídos com sucesso.")
-        return redirect(url_for("consultar_op", op_id=op_id))
 
 
     @app.route("/op/<int:op_id>/excluir", methods=["POST"])
