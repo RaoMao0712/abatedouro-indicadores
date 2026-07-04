@@ -1,1 +1,1 @@
-"""Módulo futuro de almoxarifado."""
+"""Modulo de almoxarifado."""
