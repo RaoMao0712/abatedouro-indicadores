@@ -1,1 +1,1 @@
-"""Módulo futuro de expedição."""
+"""Modulo de expedicao."""
