@@ -6064,3 +6064,628 @@ button:hover {
     }
 }
 
+
+/* ============================================================
+   FRIGODATTA - PADRONIZACAO VISUAL PRUMO
+   Sprint visual conservadora: apenas acabamento, densidade e
+   hierarquia. Nao altera regras, rotas, campos ou calculos.
+   ============================================================ */
+
+:root {
+    --prumo-bg: #f4f7fa;
+    --prumo-surface: #ffffff;
+    --prumo-surface-soft: #f8fafc;
+    --prumo-border: #dce5ee;
+    --prumo-border-soft: #e7edf3;
+    --prumo-text: #1f2f3d;
+    --prumo-muted: #627286;
+    --prumo-brand: #1f3b4d;
+    --prumo-brand-strong: #173248;
+    --prumo-accent: #f97316;
+    --prumo-radius: 8px;
+    --prumo-shadow: 0 6px 16px rgba(15, 23, 42, 0.06);
+    --prumo-shadow-strong: 0 12px 26px rgba(15, 23, 42, 0.10);
+}
+
+body {
+    background: var(--prumo-bg);
+    color: var(--prumo-text);
+}
+
+.topo-compacto {
+    min-height: 70px;
+    padding-top: 10px;
+    padding-bottom: 10px;
+    border-bottom-width: 3px;
+    box-shadow: 0 6px 18px rgba(15, 23, 42, 0.14);
+}
+
+.topo-compacto .brand h1 {
+    font-size: 25px;
+    letter-spacing: 0;
+}
+
+.topo-compacto .brand p {
+    margin-top: 2px;
+    font-size: 12px;
+}
+
+.topo-compacto .brand p small {
+    font-size: 10px;
+    letter-spacing: 0.45px;
+}
+
+.logo-topo {
+    height: 28px !important;
+    max-height: 28px !important;
+    max-width: 28px !important;
+    border-radius: 6px !important;
+}
+
+.sidebar-menu {
+    width: 238px;
+    padding: 16px 12px;
+    border-right-width: 4px;
+}
+
+.sidebar-section {
+    margin-bottom: 16px;
+}
+
+.sidebar-title {
+    margin-bottom: 7px;
+    font-size: 10px;
+    letter-spacing: 0.75px;
+}
+
+.sidebar-menu a {
+    min-height: 34px;
+    margin-bottom: 5px;
+    padding: 8px 10px;
+    border-radius: var(--prumo-radius);
+    font-size: 13px;
+    font-weight: 800;
+    box-shadow: none;
+}
+
+.container-com-sidebar {
+    width: calc(100% - 238px);
+    margin-left: 238px;
+    padding: 16px 20px 24px;
+}
+
+.card,
+.viabilidade-bloco,
+.viabilidade-filtros,
+.viabilidade-card,
+.kpi-rendimento,
+.grafico-card,
+.tabela-card,
+.nota-tecnica-card {
+    border-color: var(--prumo-border);
+    border-radius: var(--prumo-radius);
+    box-shadow: var(--prumo-shadow);
+}
+
+.card {
+    padding: 16px;
+    margin-bottom: 12px;
+}
+
+.card h2 {
+    margin-bottom: 10px;
+    padding-left: 9px;
+    border-left-width: 4px;
+    font-size: 18px;
+    letter-spacing: 0;
+}
+
+.hero-dashboard,
+.relatorio-hero,
+.viabilidade-hero {
+    border-radius: var(--prumo-radius) !important;
+    padding: 13px 16px !important;
+    margin-bottom: 12px !important;
+    box-shadow: var(--prumo-shadow-strong) !important;
+}
+
+.hero-dashboard {
+    gap: 14px;
+    background: linear-gradient(135deg, var(--prumo-brand-strong), var(--prumo-brand));
+}
+
+.hero-dashboard h2,
+.relatorio-hero h2,
+.viabilidade-hero h1 {
+    margin: 3px 0 6px !important;
+    font-size: 21px !important;
+    line-height: 1.08 !important;
+    letter-spacing: 0 !important;
+}
+
+.hero-dashboard p,
+.relatorio-hero p,
+.viabilidade-hero p {
+    font-size: 12px !important;
+    line-height: 1.35 !important;
+}
+
+.hero-resumo-inline {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-top: 8px;
+}
+
+.hero-resumo-inline span,
+.financeiro-pill-info,
+.viabilidade-status {
+    border-radius: var(--prumo-radius) !important;
+    padding: 6px 9px !important;
+    font-size: 11px !important;
+    line-height: 1.2;
+}
+
+.eyebrow {
+    border-radius: 6px;
+    padding: 4px 7px;
+    font-size: 10px;
+    letter-spacing: 0.55px;
+}
+
+.section-title,
+.section-title-row {
+    margin: 14px 0 9px;
+}
+
+.section-title h2,
+.section-title-row h2 {
+    margin-top: 4px;
+    font-size: 18px;
+    letter-spacing: 0;
+}
+
+.cards-executivos,
+.expedicao-kpis,
+.viabilidade-grid,
+.kpi-grid-rendimento,
+.relatorio-custos-kpis-compactos {
+    gap: 10px !important;
+    margin-bottom: 12px !important;
+}
+
+.kpi-card,
+.expedicao-kpi,
+.viabilidade-card,
+.kpi-rendimento,
+.dre-mini-kpi,
+.manutencao-kpi {
+    min-height: 92px !important;
+    padding: 13px 14px !important;
+    border-radius: var(--prumo-radius) !important;
+    box-shadow: var(--prumo-shadow) !important;
+}
+
+.kpi-card::before {
+    width: 4px;
+}
+
+.kpi-card::after,
+.financeiro-kpis .kpi-card::after,
+.relatorio-custos-kpis-compactos .kpi-card::after {
+    width: 66px !important;
+    height: 66px !important;
+    right: -24px !important;
+    top: -24px !important;
+}
+
+.kpi-card .kpi-label,
+.expedicao-kpi span,
+.viabilidade-card span,
+.kpi-rendimento span,
+.dre-mini-kpi span {
+    margin-bottom: 6px !important;
+    font-size: 10px !important;
+    letter-spacing: 0.55px !important;
+}
+
+.kpi-card strong,
+.expedicao-kpi strong,
+.viabilidade-card strong,
+.kpi-rendimento strong,
+.dre-mini-kpi strong {
+    margin-bottom: 4px !important;
+    font-size: 24px !important;
+    line-height: 1.08 !important;
+    letter-spacing: 0 !important;
+}
+
+.kpi-card small,
+.expedicao-kpi small,
+.viabilidade-card small,
+.kpi-rendimento small,
+.dre-mini-kpi small {
+    font-size: 11px !important;
+    line-height: 1.25 !important;
+}
+
+label,
+.hero-filtros-form label,
+.financeiro-filtro-form label,
+.almoxarifado-filtro-form label,
+.expedicao-filtro-form label,
+.dre-filtro-oficial label,
+.relatorio-custos-filtro-hero label,
+.campo-filtro label,
+.viabilidade-campo label {
+    margin-top: 0;
+    margin-bottom: 4px;
+    color: #334155;
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 0.35px;
+    text-transform: uppercase;
+}
+
+input,
+select,
+textarea,
+.hero-filtros-form input,
+.hero-filtros-form select,
+.financeiro-filtro-form input,
+.financeiro-filtro-form select,
+.almoxarifado-filtro-form input,
+.almoxarifado-filtro-form select,
+.expedicao-filtro-form input,
+.expedicao-filtro-form select,
+.dre-filtro-oficial input,
+.relatorio-custos-filtro-hero input,
+.campo-filtro input,
+.campo-filtro select,
+.viabilidade-campo input,
+.viabilidade-campo select {
+    min-height: 36px;
+    padding: 8px 10px;
+    border-radius: 7px;
+    border-color: #cbd7e3;
+    color: var(--prumo-text);
+    font-size: 13px;
+}
+
+textarea {
+    min-height: 72px;
+}
+
+button,
+.botao-hero-filtro,
+.botao-dre-exportar,
+.botao-dre-imprimir,
+.botao-editar,
+.botao-impressao,
+.botao-excluir,
+.botao-expedicao-novo,
+.viabilidade-btn,
+.btn-filtrar,
+.btn-imprimir-topo {
+    border-radius: 7px !important;
+    font-size: 12px !important;
+    font-weight: 900 !important;
+    box-shadow: none !important;
+}
+
+button,
+.botao-hero-filtro,
+.btn-filtrar,
+.viabilidade-btn {
+    min-height: 36px;
+    padding: 8px 12px;
+}
+
+.hero-filtros-form,
+.financeiro-filtro-form,
+.almoxarifado-filtro-form,
+.expedicao-filtro-form,
+.dre-filtro-oficial,
+.relatorio-custos-filtro-hero,
+.filtros-hero {
+    border-radius: var(--prumo-radius) !important;
+    padding: 9px !important;
+}
+
+.container-com-sidebar .hero-dashboard-com-filtros,
+.hero-dashboard-com-filtros {
+    grid-template-columns: minmax(240px, 0.72fr) minmax(620px, 1.28fr) !important;
+    align-items: center;
+}
+
+.hero-filtros-grid {
+    grid-template-columns: repeat(4, minmax(118px, 1fr)) 88px !important;
+    gap: 8px;
+}
+
+.hero-filtros-grid > div:last-child {
+    grid-column: auto !important;
+}
+
+.hero-filtros-form label,
+.financeiro-filtro-form label,
+.almoxarifado-filtro-form label,
+.expedicao-filtro-form label,
+.dre-filtro-oficial label,
+.relatorio-custos-filtro-hero label,
+.filtros-hero label,
+.campo-filtro label {
+    color: #fdba74 !important;
+}
+
+.alerta-hero {
+    margin: 6px 0 0 !important;
+    font-size: 11px !important;
+    line-height: 1.25 !important;
+}
+
+.form-grid,
+.form-grid-3,
+.form-grid-4,
+.financeiro-lancamento-topo,
+.financeiro-lancamento-meio,
+.financeiro-lancamento-descricao,
+.expedicao-form-grid,
+.expedicao-form-grid-3,
+.descarte-carregar-grid,
+.custos-linhas-header,
+.descarte-linha {
+    gap: 10px 12px !important;
+}
+
+.history-item,
+.item-selecionavel,
+.ficha,
+.almoxarifado-roadmap div,
+.qualidade-setor-pill,
+.relatorio-custos-conclusao-grid div {
+    border-radius: var(--prumo-radius);
+    box-shadow: none;
+}
+
+.history-item {
+    margin-bottom: 8px;
+    padding: 10px 12px;
+}
+
+.history-item p {
+    margin: 3px 0;
+    font-size: 13px;
+}
+
+.linha-info {
+    padding: 8px 0;
+    font-size: 13px;
+}
+
+.tabela-responsiva,
+.tabela-executiva,
+.financeiro-tabela,
+.almoxarifado-tabela,
+.expedicao-tabela,
+.dre-tabela-executiva,
+.tabela-scroll {
+    border-radius: var(--prumo-radius) !important;
+}
+
+.tabela-executiva th,
+.tabela-executiva td,
+.financeiro-tabela th,
+.financeiro-tabela td,
+.almoxarifado-tabela th,
+.almoxarifado-tabela td,
+.expedicao-tabela th,
+.expedicao-tabela td,
+.tabela-rendimento th,
+.tabela-rendimento td,
+.viabilidade-tabela th,
+.viabilidade-tabela td {
+    padding: 8px 9px !important;
+    font-size: 12px !important;
+}
+
+.tabela-executiva th,
+.financeiro-tabela th,
+.almoxarifado-tabela th,
+.expedicao-tabela th,
+.tabela-rendimento th,
+.viabilidade-tabela th {
+    background: #f3f6f9 !important;
+    color: #334155 !important;
+    border-bottom: 1px solid var(--prumo-border) !important;
+    font-size: 10px !important;
+    letter-spacing: 0.45px !important;
+    text-transform: uppercase;
+}
+
+.financeiro-acoes a,
+.financeiro-acoes button,
+.botao-tabela-almoxarifado,
+.botao-lote-editar,
+.botao-lote-excluir,
+.botao-remover-parcela {
+    min-height: 30px !important;
+    padding: 7px 10px !important;
+    border-radius: 7px !important;
+    font-size: 11px !important;
+    box-shadow: none !important;
+}
+
+.operational-page {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
+.operational-hero {
+    grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.operational-hero .hero-resumo-inline span {
+    background: rgba(255, 255, 255, 0.09);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+}
+
+.op-page .grid-dashboard {
+    gap: 12px;
+}
+
+.consultar-op-page > .card:first-of-type {
+    margin-bottom: 12px;
+}
+
+.consultar-op-page .cards-resumo {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 0;
+}
+
+.consultar-op-page .resumo {
+    padding: 12px;
+    min-height: 86px;
+}
+
+.consultar-op-page .resumo h3 {
+    margin-bottom: 6px;
+    font-size: 12px;
+}
+
+.consultar-op-page .resumo p {
+    margin: 4px 0;
+    font-size: 24px;
+}
+
+.viabilidade-shell {
+    max-width: none !important;
+    padding: 0 !important;
+}
+
+.viabilidade-filtros,
+.viabilidade-bloco {
+    padding: 14px !important;
+    margin-bottom: 12px !important;
+}
+
+.viabilidade-chart-box {
+    height: 300px !important;
+}
+
+.relatorio-rendimento-shell {
+    gap: 10px !important;
+}
+
+.grafico-card,
+.tabela-card {
+    padding: 14px !important;
+}
+
+.grafico-wrapper {
+    height: 360px !important;
+}
+
+.dre-executiva-layout,
+.dre-detalhes-grid,
+.qualidade-executiva-grid,
+.almoxarifado-grid,
+.expedicao-grid,
+.viabilidade-duas-colunas {
+    gap: 12px !important;
+}
+
+@media (max-width: 1100px) {
+    .sidebar-menu {
+        width: 100%;
+        padding: 12px;
+    }
+
+    .container-com-sidebar {
+        width: 100%;
+        margin-left: 0;
+        padding: 14px;
+    }
+}
+
+@media (max-width: 860px) {
+    .hero-dashboard,
+    .hero-dashboard-com-filtros,
+    .operational-hero,
+    .viabilidade-hero,
+    .relatorio-hero {
+        grid-template-columns: 1fr !important;
+    }
+
+    .hero-filtros-grid {
+        grid-template-columns: 1fr 1fr !important;
+    }
+
+    .financeiro-hero-executivo,
+    .movimentacoes-hero,
+    .almoxarifado-hero,
+    .expedicao-hero {
+        grid-template-columns: minmax(0, 1fr) !important;
+        width: 100%;
+        min-width: 0;
+    }
+
+    .financeiro-hero-titulo,
+    .financeiro-filtro-form,
+    .almoxarifado-filtro-form,
+    .expedicao-filtro-form {
+        min-width: 0;
+        width: 100%;
+    }
+
+    .movimentacoes-fichas {
+        width: 100%;
+        overflow-x: auto;
+        grid-template-columns: repeat(3, minmax(138px, 1fr)) !important;
+    }
+
+    .consultar-op-page .cards-resumo {
+        grid-template-columns: 1fr 1fr;
+    }
+}
+
+@media (max-width: 620px) {
+    .container-com-sidebar {
+        padding: 12px;
+    }
+
+    .card {
+        padding: 13px;
+    }
+
+    .consultar-op-page .cards-resumo {
+        grid-template-columns: 1fr;
+    }
+
+    .hero-filtros-grid {
+        grid-template-columns: 1fr !important;
+    }
+
+    .financeiro-filtro-form,
+    .almoxarifado-filtro-form,
+    .expedicao-filtro-form {
+        grid-template-columns: minmax(0, 1fr) !important;
+    }
+
+    .financeiro-hero-resumo {
+        display: grid;
+        grid-template-columns: 1fr;
+    }
+
+    .financeiro-pill-info {
+        width: 100%;
+    }
+
+    .tabela-executiva th,
+    .tabela-executiva td {
+        white-space: normal;
+    }
+}
+

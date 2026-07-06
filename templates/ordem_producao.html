@@ -1,6 +1,19 @@
 {% extends "base.html" %}
 
 {% block conteudo %}
+<div class="operational-page op-page">
+
+<section class="hero-dashboard operational-hero">
+    <div>
+        <span class="eyebrow">Produ&ccedil;&atilde;o</span>
+        <h2>Ordem de Produ&ccedil;&atilde;o</h2>
+        <div class="hero-resumo-inline">
+            <span><strong>Fluxo:</strong> abertura de OP e acompanhamento recente</span>
+            <span><strong>Base:</strong> fornecedor, GTA, NF, aves e peso vivo</span>
+        </div>
+    </div>
+</section>
+
 <div class="grid-dashboard">
 
     <div class="card">
@@ -86,5 +99,6 @@
         {% endif %}
     </div>
 
+</div>
 </div>
 {% endblock %}
