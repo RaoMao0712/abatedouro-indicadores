@@ -1,0 +1,258 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+
+<section class="hero-dashboard financeiro-hero-executivo movimentacoes-hero">
+    <div class="financeiro-hero-titulo">
+        <span class="eyebrow">Movimentacoes</span>
+        <h2>Auditoria Financeira</h2>
+        <p>Conferencia da base importada e reclassificacao controlada das pendencias.</p>
+
+        <div class="financeiro-hero-resumo">
+            <span class="financeiro-pill-info"><strong>Fonte</strong> movimentacoes_financeiras</span>
+            <span class="financeiro-pill-info"><strong>Categoria pendente</strong> Nao Classificado</span>
+        </div>
+    </div>
+
+    <div class="dre-acoes-topo dre-acoes-compactas">
+        <a href="{{ url_for('movimentacoes_auditoria_exportar') }}{% if query_string %}?{{ query_string }}{% endif %}" class="botao-dre-exportar">Exportar Excel</a>
+        <a href="{{ url_for('movimentacoes_entradas') }}" class="botao-dre-imprimir">Voltar</a>
+    </div>
+</section>
+
+<nav class="movimentacoes-fichas" aria-label="Navegacao de movimentacoes">
+    <a href="{{ url_for('movimentacoes_entradas') }}" class="movimentacoes-ficha">Vendas / Entradas</a>
+    <a href="{{ url_for('movimentacoes_despesas') }}" class="movimentacoes-ficha">Custos / Despesas</a>
+    <a href="{{ url_for('movimentacoes_estoque') }}" class="movimentacoes-ficha">Estoque</a>
+    <a href="{{ url_for('importar_movimentacoes_financeiras') }}" class="movimentacoes-ficha">Importar Excel</a>
+    <a href="{{ url_for('movimentacoes_auditoria') }}" class="movimentacoes-ficha ativa">Auditoria</a>
+    <a href="{{ url_for('movimentacoes_pendencias') }}" class="movimentacoes-ficha">Pendencias</a>
+</nav>
+
+<div class="card financeiro-form-card movimentacoes-form-card">
+    <div class="section-title-row">
+        <div>
+            <span class="eyebrow">Filtros</span>
+            <h2>Conferencia da importacao</h2>
+        </div>
+    </div>
+
+    <form method="GET" action="{{ url_for('movimentacoes_auditoria') }}" class="financeiro-filtro-form">
+        <div>
+            <label>Data inicial</label>
+            <input type="date" name="data_inicio" value="{{ filtros.data_inicio }}">
+        </div>
+
+        <div>
+            <label>Data final</label>
+            <input type="date" name="data_fim" value="{{ filtros.data_fim }}">
+        </div>
+
+        <div>
+            <label>Categoria</label>
+            <select name="categoria">
+                <option value="Todas" {% if filtros.categoria == 'Todas' %}selected{% endif %}>Todas</option>
+                {% for categoria in categorias_filtro %}
+                <option value="{{ categoria }}" {% if filtros.categoria == categoria %}selected{% endif %}>{{ categoria }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div>
+            <label>Mes</label>
+            <input type="month" name="mes" value="{{ filtros.mes }}">
+        </div>
+
+        <div>
+            <label>Favorecido</label>
+            <input type="text" name="favorecido" value="{{ filtros.favorecido }}">
+        </div>
+
+        <div>
+            <label>Descricao</label>
+            <input type="text" name="descricao" value="{{ filtros.descricao }}">
+        </div>
+
+        <div>
+            <label>Historico</label>
+            <input type="text" name="historico" value="{{ filtros.historico }}">
+        </div>
+
+        <label class="checkbox-inline">
+            <input type="checkbox" name="somente_nao_classificados" value="1" {% if filtros.somente_nao_classificados %}checked{% endif %}>
+            Somente nao classificados
+        </label>
+
+        <button type="submit" class="botao-hero-filtro">Filtrar</button>
+    </form>
+</div>
+
+<div class="cards-executivos financeiro-kpis movimentacoes-kpis">
+    <div class="card kpi-card destaque">
+        <span class="kpi-label">Movimentacoes importadas</span>
+        <strong>{{ indicadores.total_movimentacoes }}</strong>
+        <small>Registros na auditoria</small>
+    </div>
+
+    <div class="card kpi-card resultado-positivo">
+        <span class="kpi-label">Receitas</span>
+        <strong>{{ indicadores.total_receitas|br_moeda }}</strong>
+        <small>Entradas importadas</small>
+    </div>
+
+    <div class="card kpi-card alerta">
+        <span class="kpi-label">Despesas</span>
+        <strong>{{ indicadores.total_despesas|br_moeda }}</strong>
+        <small>Saidas importadas</small>
+    </div>
+
+    <div class="card kpi-card {% if indicadores.saldo_liquido >= 0 %}resultado-positivo{% else %}resultado-negativo{% endif %}">
+        <span class="kpi-label">Saldo liquido</span>
+        <strong>{{ indicadores.saldo_liquido|br_moeda }}</strong>
+        <small>Receitas menos despesas</small>
+    </div>
+
+    <div class="card kpi-card">
+        <span class="kpi-label">Nao Classificado</span>
+        <strong>{{ indicadores.qtd_nao_classificado }}</strong>
+        <small>Movimentacoes pendentes</small>
+    </div>
+
+    <div class="card kpi-card">
+        <span class="kpi-label">Valor pendente</span>
+        <strong>{{ indicadores.valor_nao_classificado|br_moeda }}</strong>
+        <small>Total sem classificacao</small>
+    </div>
+</div>
+
+<div class="card financeiro-extrato-card movimentacoes-extrato-card">
+    <div class="section-title-row">
+        <div>
+            <span class="eyebrow">Categorias</span>
+            <h2>Totais por Categoria</h2>
+        </div>
+    </div>
+
+    <div class="tabela-responsiva tabela-executiva financeiro-tabela">
+        <table>
+            <thead>
+                <tr>
+                    <th>Categoria</th>
+                    <th>Quantidade</th>
+                    <th>Valor total</th>
+                    <th>% do total</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in totais_categoria %}
+                <tr>
+                    <td>{{ item.categoria }}</td>
+                    <td>{{ item.quantidade }}</td>
+                    <td class="financeiro-valor">{{ item.valor_total|br_moeda }}</td>
+                    <td>{{ "%.2f"|format(item.percentual or 0) }}%</td>
+                </tr>
+                {% else %}
+                <tr><td colspan="4">Nenhuma movimentacao encontrada.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card financeiro-extrato-card movimentacoes-extrato-card">
+    <div class="section-title-row">
+        <div>
+            <span class="eyebrow">Meses</span>
+            <h2>Totais por Mes</h2>
+        </div>
+    </div>
+
+    <div class="tabela-responsiva tabela-executiva financeiro-tabela">
+        <table>
+            <thead>
+                <tr>
+                    <th>Mes</th>
+                    <th>Receitas</th>
+                    <th>Despesas</th>
+                    <th>Saldo</th>
+                    <th>Quantidade</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in totais_mes %}
+                <tr>
+                    <td>{{ item.mes }}</td>
+                    <td class="financeiro-valor">{{ item.total_receitas|br_moeda }}</td>
+                    <td class="financeiro-valor">{{ item.total_despesas|br_moeda }}</td>
+                    <td class="financeiro-valor">{{ item.saldo|br_moeda }}</td>
+                    <td>{{ item.quantidade }}</td>
+                </tr>
+                {% else %}
+                <tr><td colspan="5">Nenhuma movimentacao encontrada.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card financeiro-extrato-card movimentacoes-extrato-card">
+    <form method="POST" action="{{ url_for('movimentacoes_auditoria') }}{% if query_string %}?{{ query_string }}{% endif %}">
+        <div class="section-title-row">
+            <div>
+                <span class="eyebrow">Pendencias</span>
+                <h2>Reclassificacao em Lote</h2>
+            </div>
+
+            <div class="dre-acoes-topo dre-acoes-compactas">
+                <select name="nova_categoria" required>
+                    <option value="">Nova categoria</option>
+                    {% for categoria in categorias_reclassificacao %}
+                    <option value="{{ categoria }}">{{ categoria }}</option>
+                    {% endfor %}
+                </select>
+                <button type="submit" class="botao-dre-exportar">Aplicar</button>
+            </div>
+        </div>
+
+        {% if pendencias %}
+        <div class="tabela-responsiva tabela-executiva financeiro-tabela">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Selecionar</th>
+                        <th>Data Doc.</th>
+                        <th>Vencimento</th>
+                        <th>Favorecido</th>
+                        <th>Descricao</th>
+                        <th>Historico</th>
+                        <th>Documento</th>
+                        <th>Valor documento</th>
+                        <th>Valor pago</th>
+                        <th>Categoria atual</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in pendencias %}
+                    <tr>
+                        <td><input type="checkbox" name="movimentacao_id" value="{{ item.id }}"></td>
+                        <td>{{ item.data_documento or "-" }}</td>
+                        <td>{{ item.data_vencimento or "-" }}</td>
+                        <td>{{ item.favorecido or item.parceiro or "-" }}</td>
+                        <td>{{ item.descricao or "-" }}</td>
+                        <td>{{ item.historico or item.observacoes or "-" }}</td>
+                        <td>{{ item.numero_documento or item.documento_id or "-" }}</td>
+                        <td class="financeiro-valor">{{ (item.valor_documento or item.valor or 0)|br_moeda }}</td>
+                        <td class="financeiro-valor">{{ (item.valor_pago or 0)|br_moeda }}</td>
+                        <td>{{ item.categoria }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="obs">Nao existem movimentacoes pendentes de classificacao nos filtros atuais.</p>
+        {% endif %}
+    </form>
+</div>
+
+{% endblock %}

@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from flask import flash, redirect, render_template, request, url_for
+from flask import flash, redirect, render_template, request, send_file, url_for
 
 from modules.auth.decorators import perfil_permitido
 
@@ -20,7 +20,10 @@ from .services import (
     calcular_resumo_financeiro,
     criar_tabela_movimentacoes_financeiras,
     excluir_movimentacao_financeira,
+    gerar_excel_auditoria_financeira,
     importar_movimentacoes_financeiras_excel,
+    montar_contexto_auditoria_financeira,
+    reclassificar_movimentacoes,
     salvar_movimentacao_financeira,
 )
 
@@ -158,6 +161,40 @@ def register_movimentacoes_routes(app):
         return render_template(
             "movimentacoes_pendencias.html",
             pendencias=buscar_pendencias_classificacao(),
+        )
+
+
+    @app.route("/movimentacoes/auditoria", methods=["GET", "POST"])
+    @perfil_permitido("pcp")
+    def movimentacoes_auditoria():
+        if request.method == "POST":
+            try:
+                atualizadas = reclassificar_movimentacoes(
+                    request.form.getlist("movimentacao_id"),
+                    request.form.get("nova_categoria", "")
+                )
+                flash(f"{atualizadas} movimentacao(oes) reclassificada(s) com sucesso.")
+            except Exception as erro:
+                flash(f"Erro ao reclassificar movimentacoes: {erro}")
+            return redirect(url_for("movimentacoes_auditoria", **request.args))
+
+        return render_template(
+            "movimentacoes_auditoria.html",
+            **montar_contexto_auditoria_financeira(request.args),
+            query_string=request.query_string.decode("utf-8"),
+        )
+
+
+    @app.route("/movimentacoes/auditoria/exportar")
+    @perfil_permitido("pcp")
+    def movimentacoes_auditoria_exportar():
+        contexto = montar_contexto_auditoria_financeira(request.args)
+        arquivo = gerar_excel_auditoria_financeira(contexto)
+        return send_file(
+            arquivo,
+            as_attachment=True,
+            download_name="auditoria_financeira.xlsx",
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
 
 
