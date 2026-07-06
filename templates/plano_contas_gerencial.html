@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+
+<section class="hero-dashboard dre-hero dre-hero-executiva">
+    <div>
+        <span class="eyebrow">Nucleo Financeiro</span>
+        <h2>Plano de Contas Gerencial</h2>
+        <p>Estrutura unica para Movimentacoes, DRE Gerencial, Fluxo de Caixa e importacao financeira.</p>
+
+        <div class="hero-resumo-inline">
+            <span><strong>DRE:</strong> Data do Documento</span>
+            <span><strong>Fluxo:</strong> Data de Vencimento</span>
+            <span><strong>Base:</strong> movimentacoes_financeiras</span>
+        </div>
+    </div>
+</section>
+
+<div class="card plano-contas-card">
+    <div class="section-title-row">
+        <div>
+            <span class="eyebrow">Diagnostico</span>
+            <h2>Auditoria das categorias atuais</h2>
+        </div>
+    </div>
+
+    <div class="plano-diagnostico-grid">
+        <div>
+            <strong>Duplicadas</strong>
+            {% for item in diagnostico.duplicadas %}
+            <span>{{ item }}</span>
+            {% endfor %}
+        </div>
+
+        <div>
+            <strong>Ambiguas</strong>
+            {% for item in diagnostico.ambiguas %}
+            <span>{{ item }}</span>
+            {% endfor %}
+        </div>
+
+        <div>
+            <strong>Tratamento corrigido</strong>
+            {% for item in diagnostico.tratamento_incorreto_corrigido %}
+            <span>{{ item }}</span>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
+{% for grupo, contas in grupos_plano.items() %}
+<div class="card plano-contas-card">
+    <div class="section-title-row">
+        <div>
+            <span class="eyebrow">Grupo</span>
+            <h2>{{ grupo }}</h2>
+        </div>
+    </div>
+
+    <div class="tabela-responsiva financeiro-tabela plano-contas-tabela">
+        <table>
+            <thead>
+                <tr>
+                    <th>Nome</th>
+                    <th>Natureza</th>
+                    <th>DRE</th>
+                    <th>Resultado Operacional</th>
+                    <th>Fluxo</th>
+                    <th>Estoque</th>
+                    <th>CMV</th>
+                    <th>Imobilizado</th>
+                    <th>Financeiro</th>
+                    <th>Neutro</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for conta in contas %}
+                <tr>
+                    <td><strong>{{ conta.nome }}</strong></td>
+                    <td>{{ conta.natureza }}</td>
+                    <td>{{ "Sim" if conta.impacta_dre else "Nao" }}</td>
+                    <td>{{ "Sim" if conta.impacta_resultado_operacional else "Nao" }}</td>
+                    <td>{{ "Sim" if conta.impacta_fluxo_caixa else "Nao" }}</td>
+                    <td>{{ "Sim" if conta.formacao_estoque else "Nao" }}</td>
+                    <td>{{ "Sim" if conta.cmv else "Nao" }}</td>
+                    <td>{{ "Sim" if conta.imobilizado else "Nao" }}</td>
+                    <td>{{ "Sim" if conta.financeiro else "Nao" }}</td>
+                    <td>{{ "Sim" if conta.transferencia_neutro else "Nao" }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endfor %}
+
+{% endblock %}
+

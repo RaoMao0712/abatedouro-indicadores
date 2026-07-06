@@ -9,6 +9,7 @@ from openpyxl.utils import get_column_letter
 
 from . import repositories as repository
 from modules.custos.services import CATEGORIAS_CUSTOS, criar_tabelas_custos
+from modules.financeiro.services import categoria_impacta_resultado_operacional
 
 _CRIAR_TABELA_VENDAS = None
 
@@ -330,6 +331,8 @@ def buscar_dados_dre_gerencial(competencia):
     for item in custos_raw:
         categoria = item["categoria"]
         valor = float(item["total"] or 0)
+        if not categoria_impacta_resultado_operacional(categoria):
+            continue
         # Compatibilidade: categorias novas vindas de Movimentacoes entram na DRE
         # mesmo que ainda nao existam na lista historica do modulo de Custos.
         custos[categoria] = custos.get(categoria, 0) + valor

@@ -1,43 +1,10 @@
 """Servicos do modulo de Custos."""
 
 from . import repositories as repository
+from modules.financeiro.services import categorias_custos_operacionais
 
 
-CATEGORIAS_CUSTOS = [
-    "Mão de obra",
-    "Energia",
-    "Água",
-    "Lenha",
-    "Combustível",
-
-    "Manutenção de Equipamentos",
-    "Manutenção Predial",
-    "Manutenção de Veículos",
-
-    "Material de Limpeza",
-    "Material de Escritório",
-    "Serviços",
-
-    "EPIs",
-
-    "Marketing",
-    "Cursos e Treinamentos",
-    "Despesas com Viagens",
-
-    "Consultoria e Responsabilidade Técnica",
-
-    "Contratos com Clientes",
-
-    "Insumos para Produção",
-
-    "Impostos e Taxas",
-
-    "Despesas Financeiras",
-
-
-    "Outros"
-]
-
+CATEGORIAS_CUSTOS = categorias_custos_operacionais()
 
 def criar_tabelas_custos():
     repository.criar_tabelas_custos()

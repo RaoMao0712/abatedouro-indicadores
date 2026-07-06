@@ -6,35 +6,19 @@ from datetime import datetime
 
 from database import DATABASE_URL, conectar, q
 from database.migrations import executar_alteracao_segura
+from modules.financeiro.services import (
+    categorias_entradas_financeiras,
+    categorias_saidas_financeiras,
+)
 
 
 def tentar_alter_table(cursor, conn, comando):
     executar_alteracao_segura(cursor, conn, comando)
 
 
-CATEGORIAS_FINANCEIRAS_ENTRADA = [
-    "Venda de produtos",
-    "Recebimento de cliente",
-    "Aporte",
-    "Empréstimo recebido",
-    "Outras entradas"
-]
+CATEGORIAS_FINANCEIRAS_ENTRADA = categorias_entradas_financeiras()
+CATEGORIAS_FINANCEIRAS_SAIDA = categorias_saidas_financeiras()
 
-CATEGORIAS_FINANCEIRAS_SAIDA = [
-    "Fornecedor",
-    "Mão de obra",
-    "Energia",
-    "Água",
-    "Lenha",
-    "Combustível",
-    "Manutenção",
-    "Embalagens",
-    "Impostos",
-    "Marketing",
-    "Serviços terceiros",
-    "Empréstimos e financiamentos",
-    "Outras saídas"
-]
 
 FORMAS_PAGAMENTO_FINANCEIRO = [
     "Pix",
