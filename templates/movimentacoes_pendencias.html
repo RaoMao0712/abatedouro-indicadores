@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+
+<section class="hero-dashboard dre-hero dre-hero-executiva">
+    <div>
+        <span class="eyebrow">Movimentacoes</span>
+        <h2>Pendencias de classificacao</h2>
+        <div class="hero-resumo-inline">
+            <span><strong>Quantidade:</strong> {{ pendencias.quantidade }}</span>
+            <span><strong>Total:</strong> {{ pendencias.valor_total|br_moeda }}</span>
+            <span><strong>Categoria:</strong> Não Classificado</span>
+        </div>
+    </div>
+
+    <div class="dre-acoes-topo dre-acoes-compactas">
+        <a href="{{ url_for('importar_movimentacoes_financeiras') }}" class="botao-dre-exportar">Importar</a>
+        <a href="{{ url_for('movimentacoes_entradas') }}" class="botao-dre-imprimir">Voltar</a>
+    </div>
+</section>
+
+<div class="card financeiro-extrato-card">
+    <div class="section-title-row">
+        <div>
+            <span class="eyebrow">Listagem</span>
+            <h2>Movimentacoes sem categoria</h2>
+        </div>
+    </div>
+
+    {% if pendencias.movimentacoes %}
+    <div class="tabela-responsiva financeiro-tabela">
+        <table>
+            <thead>
+                <tr>
+                    <th>Documento</th>
+                    <th>Data Doc.</th>
+                    <th>Vencimento</th>
+                    <th>Favorecido</th>
+                    <th>Descricao</th>
+                    <th>Valor</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in pendencias.movimentacoes %}
+                <tr>
+                    <td>{{ item.numero_documento or item.documento_id or "-" }}</td>
+                    <td>{{ item.data_documento or "-" }}</td>
+                    <td>{{ item.data_vencimento or "-" }}</td>
+                    <td>{{ item.favorecido or item.parceiro or "-" }}</td>
+                    <td>
+                        <strong>{{ item.descricao }}</strong>
+                        {% if item.historico %}
+                        <small>{{ item.historico }}</small>
+                        {% endif %}
+                    </td>
+                    <td class="financeiro-valor">{{ item.valor|br_moeda }}</td>
+                    <td><span class="badge-status-financeiro pendente">{{ item.status }}</span></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="obs">Nao existem movimentacoes pendentes de classificacao.</p>
+    {% endif %}
+</div>
+
+{% endblock %}

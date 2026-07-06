@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+
+<section class="hero-dashboard dre-hero dre-hero-executiva">
+    <div>
+        <span class="eyebrow">Movimentacoes</span>
+        <h2>Importar movimentacoes financeiras</h2>
+        <p>Importacao inicial via Excel com deduplicacao por documento, datas, favorecido, valor e historico.</p>
+    </div>
+
+    <div class="dre-acoes-topo dre-acoes-compactas">
+        <a href="{{ url_for('movimentacoes_pendencias') }}" class="botao-dre-exportar">Pendencias</a>
+        <a href="{{ url_for('movimentacoes_entradas') }}" class="botao-dre-imprimir">Voltar</a>
+    </div>
+</section>
+
+<div class="card financeiro-form-card">
+    <div class="section-title-row">
+        <div>
+            <span class="eyebrow">Excel</span>
+            <h2>Upload da planilha</h2>
+        </div>
+    </div>
+
+    <form method="POST" enctype="multipart/form-data">
+        <label>Arquivo Excel</label>
+        <input type="file" name="arquivo" accept=".xlsx,.xlsm" required>
+        <button type="submit">Importar movimentacoes</button>
+    </form>
+
+    <p class="obs">
+        Linhas sem categoria entram como Não Classificado. Reimportar a mesma planilha atualiza os registros existentes.
+    </p>
+</div>
+
+{% if resultado %}
+<div class="card financeiro-extrato-card">
+    <div class="section-title-row">
+        <div>
+            <span class="eyebrow">Log</span>
+            <h2>Resultado da importacao</h2>
+        </div>
+    </div>
+
+    <div class="resumo-parcelas">
+        <div><strong>Linhas lidas</strong><span>{{ resultado.linhas_lidas }}</span></div>
+        <div><strong>Importadas</strong><span>{{ resultado.importadas }}</span></div>
+        <div><strong>Atualizadas</strong><span>{{ resultado.atualizadas }}</span></div>
+        <div><strong>Com erro</strong><span>{{ resultado.erros }}</span></div>
+        <div><strong>Classificadas</strong><span>{{ resultado.classificadas }}</span></div>
+        <div><strong>Nao classificadas</strong><span>{{ resultado.nao_classificadas }}</span></div>
+    </div>
+
+    {% if resultado.detalhes_erros %}
+    <div class="plano-diagnostico-grid">
+        <div>
+            <strong>Erros encontrados</strong>
+            {% for erro in resultado.detalhes_erros %}
+            <span>{{ erro }}</span>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endif %}
+
+{% endblock %}
