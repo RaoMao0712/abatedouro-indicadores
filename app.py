@@ -15,6 +15,7 @@ from modules.importacao_oficial import register_importacao_routes
 from modules.dashboard.routes import register_dashboard_routes
 from modules.custos.routes import register_custos_routes
 from modules.dre.routes import register_dre_routes
+from modules.fluxo_caixa.routes import register_fluxo_caixa_routes
 from modules.relatorios.routes import register_relatorios_routes
 from modules.expedicao.routes import register_expedicao_routes
 from modules.movimentacoes.routes import register_movimentacoes_routes
@@ -476,6 +477,7 @@ register_dre_routes(app, {
     "criar_tabela_vendas": lambda: criar_tabela_vendas(),
 })
 register_relatorios_routes(app)
+register_fluxo_caixa_routes(app)
 
 
 @executar_rotina_estrutural_uma_vez
