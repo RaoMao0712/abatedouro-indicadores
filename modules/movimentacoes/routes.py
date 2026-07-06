@@ -1,4 +1,4 @@
-"""Rotas de Financeiro e Movimentacoes."""
+"""Rotas de Movimentacoes com compatibilidade para URLs antigas do Financeiro."""
 
 from datetime import datetime
 
@@ -75,9 +75,9 @@ def register_movimentacoes_routes(app):
 
         try:
             salvar_movimentacao_financeira(form)
-            flash("Movimentação lançada com sucesso.")
+            flash("Movimentacao lancada com sucesso.")
         except Exception as erro:
-            flash(f"Erro ao salvar movimentação: {erro}")
+            flash(f"Erro ao salvar movimentacao: {erro}")
 
         return redirect(url_for(endpoint))
 
@@ -128,21 +128,22 @@ def register_movimentacoes_routes(app):
 
 
     @app.route("/financeiro/editar/<int:movimentacao_id>", methods=["GET", "POST"])
+    @app.route("/movimentacoes/editar/<int:movimentacao_id>", methods=["GET", "POST"])
     @perfil_permitido("pcp")
     def editar_movimentacao_financeira(movimentacao_id):
         movimentacao = buscar_movimentacao_financeira_por_id(movimentacao_id)
 
         if not movimentacao:
-            flash("Movimentação financeira não encontrada.")
+            flash("Movimentacao nao encontrada.")
             return redirect(url_for("financeiro"))
 
         if request.method == "POST":
             try:
                 atualizar_movimentacao_financeira(movimentacao_id, request.form)
-                flash("Movimentação financeira atualizada com sucesso.")
+                flash("Movimentacao atualizada com sucesso.")
                 return redirect(url_for(destino_movimentacao_por_tipo(request.form.get("tipo", movimentacao["tipo"]))))
             except Exception as erro:
-                flash(f"Erro ao atualizar movimentação: {erro}")
+                flash(f"Erro ao atualizar movimentacao: {erro}")
 
         return render_template(
             "financeiro_editar.html",
@@ -156,9 +157,10 @@ def register_movimentacoes_routes(app):
 
 
     @app.route("/financeiro/excluir/<int:movimentacao_id>", methods=["POST"])
+    @app.route("/movimentacoes/excluir/<int:movimentacao_id>", methods=["POST"])
     @perfil_permitido("pcp")
     def excluir_movimentacao_financeira_rota(movimentacao_id):
         movimentacao = buscar_movimentacao_financeira_por_id(movimentacao_id)
         excluir_movimentacao_financeira(movimentacao_id)
-        flash("Movimentação financeira excluída com sucesso.")
+        flash("Movimentacao excluida com sucesso.")
         return redirect(url_for(destino_movimentacao_por_tipo(movimentacao["tipo"] if movimentacao else "Entrada")))
