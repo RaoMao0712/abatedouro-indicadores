@@ -319,7 +319,7 @@ def buscar_dados_dre_gerencial(competencia):
             "observacao_calculo": "CMV por bandeja vendida; CMV/kg calculado pelos kg vendidos." if sku == "Galinha Cortada" else "CMV 1 x 1 por unidade vendida."
         })
 
-    custos_raw = repository.buscar_custos_mensais_por_categoria(competencia)
+    custos_raw = repository.buscar_custos_operacionais_movimentacoes_por_categoria(competencia)
 
     categorias = CATEGORIAS_CUSTOS
     custos = {
@@ -330,6 +330,8 @@ def buscar_dados_dre_gerencial(competencia):
     for item in custos_raw:
         categoria = item["categoria"]
         valor = float(item["total"] or 0)
+        # Compatibilidade: categorias novas vindas de Movimentacoes entram na DRE
+        # mesmo que ainda nao existam na lista historica do modulo de Custos.
         custos[categoria] = custos.get(categoria, 0) + valor
 
     custos_operacionais_total = sum(custos.values())
