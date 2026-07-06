@@ -1,8 +1,13 @@
 """Servicos de Financeiro e Movimentacoes."""
 
 import calendar
+import hashlib
+import re
 import uuid
-from datetime import datetime
+from datetime import datetime, date
+
+from openpyxl import load_workbook
+from openpyxl.utils.datetime import from_excel
 
 from database import DATABASE_URL, conectar, q
 from database.migrations import executar_alteracao_segura
@@ -18,6 +23,7 @@ def tentar_alter_table(cursor, conn, comando):
 
 CATEGORIAS_FINANCEIRAS_ENTRADA = categorias_entradas_financeiras()
 CATEGORIAS_FINANCEIRAS_SAIDA = categorias_saidas_financeiras()
+CATEGORIA_NAO_CLASSIFICADO = "Não Classificado"
 
 
 FORMAS_PAGAMENTO_FINANCEIRO = [
@@ -172,6 +178,15 @@ def criar_tabela_movimentacoes_financeiras():
     tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN data_documento TEXT")
     tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN valor_documento REAL DEFAULT 0")
     tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN prazo_medio_dias REAL DEFAULT 0")
+    tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN import_key TEXT")
+    tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN cnpj_cpf TEXT")
+    tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN numero_documento TEXT")
+    tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN favorecido TEXT")
+    tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN parceiro TEXT")
+    tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN historico TEXT")
+    tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN valor_pago REAL DEFAULT 0")
+    tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN valor_liquido REAL DEFAULT 0")
+    tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN origem_importacao TEXT")
 
     conn.commit()
     conn.close()
@@ -492,3 +507,328 @@ def agrupar_fluxo_por_dia(movimentacoes):
         }
         for item in fluxo.values()
     ]
+
+
+def normalizar_cabecalho_importacao(valor):
+    texto = str(valor or "").strip().lower()
+    substituicoes = {
+        "á": "a", "à": "a", "ã": "a", "â": "a",
+        "é": "e", "ê": "e",
+        "í": "i",
+        "ó": "o", "ô": "o", "õ": "o",
+        "ú": "u",
+        "ç": "c",
+    }
+    for origem, destino in substituicoes.items():
+        texto = texto.replace(origem, destino)
+    return re.sub(r"[^a-z0-9]+", "", texto)
+
+
+MAPEAMENTO_CABECALHOS_IMPORTACAO = {
+    "categoria": ["categoria", "classificacao", "classificacaofinanceira"],
+    "data_documento": ["datadocumento", "datadodocumento", "dataemissao", "emissao"],
+    "cnpj_cpf": ["cnpjcpf", "cnpj", "cpf"],
+    "valor_documento": ["valordocumento", "valordodocumento", "valor"],
+    "numero_documento": ["numerodocumento", "numerododocumento", "documento", "numero", "nf", "notafiscal"],
+    "data_vencimento": ["datavencimento", "datadevencimento", "vencimento"],
+    "valor_pago": ["valorpago", "pago", "valorpagamento"],
+    "data_pagamento": ["datapagamento", "datadepagamento", "pagamento", "datarealizacao"],
+    "favorecido": ["favorecido", "fornecedor", "cliente"],
+    "valor_liquido": ["valorliquido", "liquido", "valorliquidado"],
+    "descricao": ["descricao", "descricaohistorico"],
+    "parceiro": ["parceiro", "razaosocial", "nome"],
+    "historico": ["historico", "histórico", "observacao", "observacoes"],
+}
+
+
+def mapear_cabecalhos_importacao(ws):
+    cabecalhos = {}
+    for indice, celula in enumerate(ws[1], start=1):
+        chave = normalizar_cabecalho_importacao(celula.value)
+        if chave:
+            cabecalhos[chave] = indice
+
+    colunas = {}
+    for campo, aliases in MAPEAMENTO_CABECALHOS_IMPORTACAO.items():
+        for alias in aliases:
+            chave = normalizar_cabecalho_importacao(alias)
+            if chave in cabecalhos:
+                colunas[campo] = cabecalhos[chave]
+                break
+
+    obrigatorios = ["data_documento", "data_vencimento", "valor_documento"]
+    ausentes = [campo for campo in obrigatorios if campo not in colunas]
+    return colunas, ausentes
+
+
+def texto_importacao(valor):
+    if valor is None:
+        return ""
+    return str(valor).strip()
+
+
+def data_importacao(valor):
+    if valor in [None, ""]:
+        return ""
+    if isinstance(valor, datetime):
+        return valor.date().isoformat()
+    if isinstance(valor, date):
+        return valor.isoformat()
+    if isinstance(valor, (int, float)) and valor > 20000:
+        try:
+            return from_excel(valor).date().isoformat()
+        except Exception:
+            return ""
+
+    texto = str(valor).strip()
+    for formato in ["%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%d.%m.%Y"]:
+        try:
+            return datetime.strptime(texto[:10], formato).date().isoformat()
+        except ValueError:
+            pass
+    return ""
+
+
+def numero_importacao(valor):
+    if valor in [None, ""]:
+        return 0
+    if isinstance(valor, (int, float)):
+        return float(valor or 0)
+    texto = str(valor).strip()
+    if not texto:
+        return 0
+    texto = texto.replace("R$", "").replace(" ", "")
+    if "," in texto and "." in texto:
+        texto = texto.replace(".", "").replace(",", ".")
+    else:
+        texto = texto.replace(",", ".")
+    try:
+        return float(texto)
+    except ValueError:
+        return 0
+
+
+def valor_celula(ws, linha, colunas, campo):
+    coluna = colunas.get(campo)
+    if not coluna:
+        return None
+    return ws.cell(linha, coluna).value
+
+
+def natureza_por_categoria(categoria):
+    if categoria in CATEGORIAS_FINANCEIRAS_ENTRADA:
+        return "Entrada"
+    if categoria in CATEGORIAS_FINANCEIRAS_SAIDA:
+        return "Saída"
+    return ""
+
+
+def montar_import_key(dados):
+    partes = [
+        dados.get("numero_documento", ""),
+        dados.get("data_documento", ""),
+        dados.get("data_vencimento", ""),
+        dados.get("favorecido", "") or dados.get("parceiro", ""),
+        f"{float(dados.get('valor_documento') or 0):.2f}",
+        dados.get("historico", "") or dados.get("descricao", ""),
+    ]
+    base = "|".join(str(parte).strip().lower() for parte in partes)
+    return hashlib.sha256(base.encode("utf-8")).hexdigest()
+
+
+def linha_importacao_vazia(dados):
+    return not any(str(valor or "").strip() for valor in dados.values())
+
+
+def preparar_linha_importacao(ws, linha, colunas):
+    valor_documento_original = numero_importacao(valor_celula(ws, linha, colunas, "valor_documento"))
+    valor_liquido_original = numero_importacao(valor_celula(ws, linha, colunas, "valor_liquido"))
+    valor_pago_original = numero_importacao(valor_celula(ws, linha, colunas, "valor_pago"))
+    categoria = texto_importacao(valor_celula(ws, linha, colunas, "categoria")) or CATEGORIA_NAO_CLASSIFICADO
+    descricao = texto_importacao(valor_celula(ws, linha, colunas, "descricao"))
+    historico = texto_importacao(valor_celula(ws, linha, colunas, "historico"))
+    favorecido = texto_importacao(valor_celula(ws, linha, colunas, "favorecido"))
+    parceiro = texto_importacao(valor_celula(ws, linha, colunas, "parceiro"))
+
+    valor_referencia = valor_liquido_original or valor_documento_original or valor_pago_original
+    natureza_categoria = natureza_por_categoria(categoria)
+    valores_com_sinal = [valor for valor in [valor_documento_original, valor_liquido_original] if valor]
+    tipo_por_sinal = "Entrada"
+    if any(valor < 0 for valor in valores_com_sinal):
+        tipo_por_sinal = "Saída"
+    elif any(valor > 0 for valor in valores_com_sinal):
+        tipo_por_sinal = "Entrada"
+    tipo = natureza_categoria or tipo_por_sinal
+
+    valor_documento = abs(valor_documento_original or valor_referencia)
+    valor_liquido = abs(valor_liquido_original)
+    valor_pago = abs(valor_pago_original)
+
+    data_documento = data_importacao(valor_celula(ws, linha, colunas, "data_documento"))
+    data_vencimento = data_importacao(valor_celula(ws, linha, colunas, "data_vencimento")) or data_documento
+    data_pagamento = data_importacao(valor_celula(ws, linha, colunas, "data_pagamento"))
+    descricao_final = descricao or historico or favorecido or parceiro or "Movimentacao importada"
+    status = "Realizado" if data_pagamento or valor_pago > 0 else "Pendente"
+
+    dados = {
+        "data_vencimento": data_vencimento,
+        "data_realizacao": data_pagamento if status == "Realizado" else "",
+        "tipo": tipo,
+        "categoria": categoria,
+        "descricao": descricao_final,
+        "valor": abs(valor_referencia) if valor_referencia else valor_documento,
+        "forma_pagamento": "",
+        "status": status,
+        "parcelas": 1,
+        "parcela_atual": 1,
+        "intervalo_dias": 0,
+        "documento_id": texto_importacao(valor_celula(ws, linha, colunas, "numero_documento")),
+        "data_documento": data_documento,
+        "valor_documento": valor_documento,
+        "prazo_medio_dias": 0,
+        "observacoes": f"Importado do Excel. Historico: {historico}".strip(),
+        "cnpj_cpf": texto_importacao(valor_celula(ws, linha, colunas, "cnpj_cpf")),
+        "numero_documento": texto_importacao(valor_celula(ws, linha, colunas, "numero_documento")),
+        "favorecido": favorecido,
+        "parceiro": parceiro,
+        "historico": historico,
+        "valor_pago": valor_pago,
+        "valor_liquido": valor_liquido,
+        "origem_importacao": "excel_movimentacoes",
+    }
+    dados["import_key"] = montar_import_key(dados)
+    return dados
+
+
+def importar_movimentacoes_financeiras_excel(arquivo_excel):
+    criar_tabela_movimentacoes_financeiras()
+
+    wb = load_workbook(arquivo_excel, data_only=True)
+    ws = wb.active
+    colunas, ausentes = mapear_cabecalhos_importacao(ws)
+    if ausentes:
+        raise ValueError("Cabecalhos obrigatorios ausentes: " + ", ".join(ausentes))
+
+    resultado = {
+        "linhas_lidas": 0,
+        "importadas": 0,
+        "atualizadas": 0,
+        "erros": 0,
+        "classificadas": 0,
+        "nao_classificadas": 0,
+        "detalhes_erros": [],
+    }
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    for linha in range(2, ws.max_row + 1):
+        resultado["linhas_lidas"] += 1
+        try:
+            dados = preparar_linha_importacao(ws, linha, colunas)
+            if linha_importacao_vazia(dados):
+                continue
+            if not dados["data_documento"] and not dados["data_vencimento"]:
+                raise ValueError("linha sem data do documento e sem vencimento")
+            if float(dados["valor"] or 0) <= 0:
+                raise ValueError("linha sem valor financeiro valido")
+
+            if dados["categoria"] == CATEGORIA_NAO_CLASSIFICADO:
+                resultado["nao_classificadas"] += 1
+            else:
+                resultado["classificadas"] += 1
+
+            cursor.execute(q("""
+            SELECT id
+            FROM movimentacoes_financeiras
+            WHERE import_key = ?
+            """), (dados["import_key"],))
+            existente = cursor.fetchone()
+
+            if existente:
+                cursor.execute(q("""
+                UPDATE movimentacoes_financeiras
+                SET data_vencimento = ?,
+                    data_realizacao = ?,
+                    tipo = ?,
+                    categoria = ?,
+                    descricao = ?,
+                    valor = ?,
+                    forma_pagamento = ?,
+                    status = ?,
+                    parcelas = ?,
+                    parcela_atual = ?,
+                    intervalo_dias = ?,
+                    documento_id = ?,
+                    data_documento = ?,
+                    valor_documento = ?,
+                    prazo_medio_dias = ?,
+                    observacoes = ?,
+                    cnpj_cpf = ?,
+                    numero_documento = ?,
+                    favorecido = ?,
+                    parceiro = ?,
+                    historico = ?,
+                    valor_pago = ?,
+                    valor_liquido = ?,
+                    origem_importacao = ?
+                WHERE id = ?
+                """), (
+                    dados["data_vencimento"], dados["data_realizacao"], dados["tipo"],
+                    dados["categoria"], dados["descricao"], dados["valor"], dados["forma_pagamento"],
+                    dados["status"], dados["parcelas"], dados["parcela_atual"], dados["intervalo_dias"],
+                    dados["documento_id"], dados["data_documento"], dados["valor_documento"],
+                    dados["prazo_medio_dias"], dados["observacoes"], dados["cnpj_cpf"],
+                    dados["numero_documento"], dados["favorecido"], dados["parceiro"], dados["historico"],
+                    dados["valor_pago"], dados["valor_liquido"], dados["origem_importacao"],
+                    existente["id"],
+                ))
+                resultado["atualizadas"] += 1
+            else:
+                cursor.execute(q("""
+                INSERT INTO movimentacoes_financeiras (
+                    data_vencimento, data_realizacao, tipo, categoria, descricao, valor,
+                    forma_pagamento, status, parcelas, parcela_atual, intervalo_dias,
+                    documento_id, data_documento, valor_documento, prazo_medio_dias, observacoes,
+                    import_key, cnpj_cpf, numero_documento, favorecido, parceiro, historico,
+                    valor_pago, valor_liquido, origem_importacao
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """), (
+                    dados["data_vencimento"], dados["data_realizacao"], dados["tipo"],
+                    dados["categoria"], dados["descricao"], dados["valor"], dados["forma_pagamento"],
+                    dados["status"], dados["parcelas"], dados["parcela_atual"], dados["intervalo_dias"],
+                    dados["documento_id"], dados["data_documento"], dados["valor_documento"],
+                    dados["prazo_medio_dias"], dados["observacoes"], dados["import_key"], dados["cnpj_cpf"],
+                    dados["numero_documento"], dados["favorecido"], dados["parceiro"], dados["historico"],
+                    dados["valor_pago"], dados["valor_liquido"], dados["origem_importacao"],
+                ))
+                resultado["importadas"] += 1
+        except Exception as erro:
+            resultado["erros"] += 1
+            resultado["detalhes_erros"].append(f"Linha {linha}: {erro}")
+
+    conn.commit()
+    conn.close()
+    return resultado
+
+
+def buscar_pendencias_classificacao():
+    criar_tabela_movimentacoes_financeiras()
+
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute(q("""
+    SELECT *
+    FROM movimentacoes_financeiras
+    WHERE categoria = ?
+    ORDER BY data_documento ASC, data_vencimento ASC, id ASC
+    """), (CATEGORIA_NAO_CLASSIFICADO,))
+    pendencias = cursor.fetchall()
+    conn.close()
+
+    total = sum(float(item["valor"] or 0) for item in pendencias)
+    return {
+        "quantidade": len(pendencias),
+        "valor_total": round(total, 2),
+        "movimentacoes": pendencias,
+    }

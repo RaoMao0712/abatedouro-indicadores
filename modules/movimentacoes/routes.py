@@ -16,9 +16,11 @@ from .services import (
     atualizar_movimentacao_financeira,
     buscar_movimentacao_financeira_por_id,
     buscar_movimentacoes_financeiras,
+    buscar_pendencias_classificacao,
     calcular_resumo_financeiro,
     criar_tabela_movimentacoes_financeiras,
     excluir_movimentacao_financeira,
+    importar_movimentacoes_financeiras_excel,
     salvar_movimentacao_financeira,
 )
 
@@ -124,6 +126,38 @@ def register_movimentacoes_routes(app):
         return render_template(
             "financeiro.html",
             **contexto_movimentacoes("estoque")
+        )
+
+
+    @app.route("/movimentacoes/importar", methods=["GET", "POST"])
+    @perfil_permitido("pcp")
+    def importar_movimentacoes_financeiras():
+        resultado = None
+
+        if request.method == "POST":
+            arquivo = request.files.get("arquivo")
+
+            if not arquivo or not arquivo.filename:
+                flash("Selecione uma planilha para importar.")
+            else:
+                try:
+                    resultado = importar_movimentacoes_financeiras_excel(arquivo)
+                    flash("Importacao de movimentacoes concluida.")
+                except Exception as erro:
+                    flash(f"Erro ao importar movimentacoes: {erro}")
+
+        return render_template(
+            "movimentacoes_importar.html",
+            resultado=resultado,
+        )
+
+
+    @app.route("/movimentacoes/pendencias")
+    @perfil_permitido("pcp")
+    def movimentacoes_pendencias():
+        return render_template(
+            "movimentacoes_pendencias.html",
+            pendencias=buscar_pendencias_classificacao(),
         )
 
 
