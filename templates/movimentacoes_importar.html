@@ -47,9 +47,11 @@
         <div><strong>Linhas lidas</strong><span>{{ resultado.linhas_lidas }}</span></div>
         <div><strong>Importadas</strong><span>{{ resultado.importadas }}</span></div>
         <div><strong>Atualizadas</strong><span>{{ resultado.atualizadas }}</span></div>
+        <div><strong>Ignoradas</strong><span>{{ resultado.ignoradas or 0 }}</span></div>
         <div><strong>Com erro</strong><span>{{ resultado.erros }}</span></div>
         <div><strong>Classificadas</strong><span>{{ resultado.classificadas }}</span></div>
         <div><strong>Nao classificadas</strong><span>{{ resultado.nao_classificadas }}</span></div>
+        <div><strong>Tempo</strong><span>{{ resultado.tempo_processamento_segundos or 0 }}s</span></div>
     </div>
 
     {% if resultado.detalhes_erros %}
