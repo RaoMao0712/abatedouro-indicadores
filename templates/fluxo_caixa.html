@@ -1,0 +1,210 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+
+<div class="fluxo-caixa-page">
+    <section class="hero-dashboard fluxo-caixa-hero">
+        <div>
+            <span class="eyebrow">Fluxo de Caixa</span>
+            <h2>Disponibilidade por vencimento</h2>
+            <p>Entradas e saidas projetadas exclusivamente por data de vencimento das movimentacoes financeiras.</p>
+
+            <div class="financeiro-hero-resumo">
+                <span class="financeiro-pill-info"><strong>Periodo</strong> {{ data_inicio }} a {{ data_fim }}</span>
+                <span class="financeiro-pill-info"><strong>Base</strong> movimentacoes_financeiras</span>
+                <span class="financeiro-pill-info"><strong>Data</strong> vencimento</span>
+            </div>
+        </div>
+
+        <form method="GET" action="{{ url_for('fluxo_caixa') }}" class="fluxo-caixa-filtro">
+            <div>
+                <label>Data inicial</label>
+                <input type="date" name="data_inicio" value="{{ data_inicio }}">
+            </div>
+
+            <div>
+                <label>Data final</label>
+                <input type="date" name="data_fim" value="{{ data_fim }}">
+            </div>
+
+            <div>
+                <label>Status</label>
+                <select name="status">
+                    {% for status in status_opcoes %}
+                    <option value="{{ status }}" {% if status_filtro == status %}selected{% endif %}>{{ status }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div>
+                <label>Tipo</label>
+                <select name="tipo">
+                    {% for tipo in tipo_opcoes %}
+                    <option value="{{ tipo }}" {% if tipo_filtro == tipo %}selected{% endif %}>{{ tipo }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div>
+                <label>Categoria</label>
+                <select name="categoria">
+                    <option value="Todas" {% if categoria_filtro == "Todas" %}selected{% endif %}>Todas</option>
+                    {% for categoria in categorias %}
+                    <option value="{{ categoria }}" {% if categoria_filtro == categoria %}selected{% endif %}>{{ categoria }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div>
+                <label>Conta</label>
+                <select disabled>
+                    <option>Futura</option>
+                </select>
+            </div>
+
+            <button type="submit">Filtrar</button>
+        </form>
+    </section>
+
+    <section class="fluxo-caixa-kpis">
+        <div class="card fluxo-caixa-kpi">
+            <span>Saldo inicial</span>
+            <strong>{{ resumo.saldo_inicial|br_moeda }}</strong>
+            <small>Realizado antes do periodo</small>
+        </div>
+
+        <div class="card fluxo-caixa-kpi entrada">
+            <span>Entradas previstas</span>
+            <strong>{{ resumo.entradas_previstas|br_moeda }}</strong>
+            <small>Direitos por vencimento</small>
+        </div>
+
+        <div class="card fluxo-caixa-kpi saida">
+            <span>Saidas previstas</span>
+            <strong>{{ resumo.saidas_previstas|br_moeda }}</strong>
+            <small>Obrigacoes por vencimento</small>
+        </div>
+
+        <div class="card fluxo-caixa-kpi saldo">
+            <span>Saldo previsto</span>
+            <strong>{{ resumo.saldo_previsto|br_moeda }}</strong>
+            <small>Inicial + previsto</small>
+        </div>
+
+        <div class="card fluxo-caixa-kpi entrada">
+            <span>Entradas realizadas</span>
+            <strong>{{ resumo.entradas_realizadas|br_moeda }}</strong>
+            <small>Recebimentos efetivos</small>
+        </div>
+
+        <div class="card fluxo-caixa-kpi saida">
+            <span>Saidas realizadas</span>
+            <strong>{{ resumo.saidas_realizadas|br_moeda }}</strong>
+            <small>Pagamentos efetivos</small>
+        </div>
+
+        <div class="card fluxo-caixa-kpi saldo {% if resumo.saldo_realizado < 0 %}negativo{% endif %}">
+            <span>Saldo realizado</span>
+            <strong>{{ resumo.saldo_realizado|br_moeda }}</strong>
+            <small>Inicial + realizado</small>
+        </div>
+    </section>
+
+    <section class="fluxo-caixa-layout">
+        <div class="card fluxo-caixa-card">
+            <div class="section-title-row">
+                <div>
+                    <span class="eyebrow">Linha do tempo</span>
+                    <h2>Saldo por vencimento</h2>
+                </div>
+            </div>
+
+            {% if linha_tempo %}
+            <div class="fluxo-caixa-timeline">
+                {% for item in linha_tempo %}
+                <div class="fluxo-caixa-dia">
+                    <strong>{{ item.data }}</strong>
+                    <span>{{ item.entradas_previstas|br_moeda }}</span>
+                    <span>{{ item.saidas_previstas|br_moeda }}</span>
+                    <span>{{ item.saldo_previsto|br_moeda }}</span>
+                    <small>{{ item.saldo_realizado|br_moeda }}</small>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <p class="obs">Nenhum vencimento encontrado para os filtros selecionados.</p>
+            {% endif %}
+        </div>
+
+        <div class="card fluxo-caixa-card fluxo-caixa-resumo">
+            <div class="section-title-row">
+                <div>
+                    <span class="eyebrow">Resumo financeiro</span>
+                    <h2>Leitura do periodo</h2>
+                </div>
+            </div>
+
+            <div class="fluxo-caixa-resumo-lista">
+                <div><span>Base de calculo</span><strong>Data de vencimento</strong></div>
+                <div><span>Status considerados</span><strong>{{ status_filtro }}</strong></div>
+                <div><span>Categoria</span><strong>{{ categoria_filtro }}</strong></div>
+                <div><span>Conta</span><strong>{% if conta_disponivel %}Filtrada{% else %}Nao cadastrada{% endif %}</strong></div>
+            </div>
+        </div>
+    </section>
+
+    <section class="card fluxo-caixa-card fluxo-caixa-detalhe">
+        <div class="section-title-row">
+            <div>
+                <span class="eyebrow">Tabela detalhada</span>
+                <h2>Movimentacoes do fluxo</h2>
+            </div>
+        </div>
+
+        {% if movimentacoes %}
+        <div class="tabela-responsiva financeiro-tabela">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Vencimento</th>
+                        <th>Tipo</th>
+                        <th>Categoria</th>
+                        <th>Descricao</th>
+                        <th>Valor</th>
+                        <th>Status</th>
+                        <th>Documento</th>
+                        <th>Parcela</th>
+                    </tr>
+                </thead>
+
+                <tbody>
+                    {% for item in movimentacoes %}
+                    <tr>
+                        <td>{{ item.data_vencimento }}</td>
+                        <td>{{ item.tipo }}</td>
+                        <td>{{ item.categoria }}</td>
+                        <td>
+                            <strong>{{ item.descricao }}</strong>
+                            {% if item.observacoes %}
+                            <small>{{ item.observacoes }}</small>
+                            {% endif %}
+                        </td>
+                        <td class="financeiro-valor {% if item.tipo == 'Saida' %}valor-saida{% endif %}">
+                            {{ item.valor|br_moeda }}
+                        </td>
+                        <td><span class="badge-status-financeiro {{ item.status_classe }}">{{ item.status_fluxo }}</span></td>
+                        <td>{{ item.data_documento or "-" }}</td>
+                        <td>{{ item.parcela_atual or 1 }}/{{ item.parcelas or 1 }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="obs">Nenhuma movimentacao encontrada para os filtros selecionados.</p>
+        {% endif %}
+    </section>
+</div>
+
+{% endblock %}
+
