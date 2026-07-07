@@ -19,6 +19,25 @@ def buscar_vendas_periodo(data_inicio, data_fim):
     return vendas
 
 
+def buscar_receita_bruta_movimentacoes(data_inicio, data_fim):
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute(q("""
+    SELECT COALESCE(SUM(valor), 0) as total
+    FROM movimentacoes_financeiras
+    WHERE tipo = ?
+      AND COALESCE(status, 'Pendente') <> ?
+      AND data_documento BETWEEN ? AND ?
+      AND (
+        categoria = ?
+        OR origem_importacao = ?
+      )
+    """), ("Entrada", "Cancelado", data_inicio, data_fim, "Receita Bruta", "IMPORTACAO VENDAS"))
+    item = cursor.fetchone()
+    conn.close()
+    return float(item["total"] or 0)
+
+
 def buscar_parametros_custos_por_sku():
     conn = conectar()
     cursor = conn.cursor()

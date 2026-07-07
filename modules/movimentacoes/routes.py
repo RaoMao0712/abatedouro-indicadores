@@ -9,7 +9,9 @@ from modules.auth.decorators import perfil_permitido
 from .services import (
     CATEGORIAS_FINANCEIRAS_ENTRADA,
     CATEGORIAS_FINANCEIRAS_SAIDA,
+    CATEGORIA_RECEITA_BRUTA,
     FORMAS_PAGAMENTO_FINANCEIRO,
+    ORIGEM_IMPORTACAO_VENDAS,
     STATUS_FINANCEIRO,
     STATUS_FINANCEIRO_FILTRO,
     agrupar_fluxo_por_dia,
@@ -149,6 +151,40 @@ def register_movimentacoes_routes(app):
         return render_template(
             "movimentacoes_importar.html",
             resultado=resultado,
+            titulo_importacao="Importar movimentacoes financeiras",
+            subtitulo_importacao="Importacao inicial via Excel com deduplicacao por documento, datas, favorecido, valor e historico.",
+            botao_importacao="Importar movimentacoes",
+        )
+
+    @app.route("/movimentacoes/importar-vendas", methods=["GET", "POST"])
+    @perfil_permitido("pcp")
+    def importar_vendas_financeiras():
+        resultado = None
+
+        if request.method == "POST":
+            arquivo = request.files.get("arquivo")
+
+            if not arquivo or not arquivo.filename:
+                flash("Selecione uma planilha de vendas para importar.")
+            else:
+                try:
+                    resultado = importar_movimentacoes_financeiras_excel(
+                        arquivo,
+                        natureza_padrao="RECEITA",
+                        categoria_padrao=CATEGORIA_RECEITA_BRUTA,
+                        origem_importacao=ORIGEM_IMPORTACAO_VENDAS,
+                        incluir_origem_import_key=True,
+                    )
+                    flash("Importacao de vendas concluida.")
+                except Exception as erro:
+                    flash(f"Erro ao importar vendas: {erro}")
+
+        return render_template(
+            "movimentacoes_importar.html",
+            resultado=resultado,
+            titulo_importacao="Importar vendas",
+            subtitulo_importacao="Importacao de receitas operacionais para a Central de Movimentacoes.",
+            botao_importacao="Importar vendas",
         )
 
 

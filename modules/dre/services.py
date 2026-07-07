@@ -210,7 +210,7 @@ def buscar_dados_dre_gerencial(competencia):
     ]
 
     vendas_por_sku_dict = {}
-    receita_bruta = 0
+    receita_bruta_vendas_diarias = 0
 
     for item in vendas_linhas:
         sku = item["sku"]
@@ -232,7 +232,10 @@ def buscar_dados_dre_gerencial(competencia):
         else:
             vendas_por_sku_dict[sku]["quantidade"] += item["quantidade_unidades"]
 
-        receita_bruta += item["receita"]
+        receita_bruta_vendas_diarias += item["receita"]
+
+    receita_bruta_movimentacoes = repository.buscar_receita_bruta_movimentacoes(data_inicio, data_fim)
+    receita_bruta = receita_bruta_movimentacoes or receita_bruta_vendas_diarias
 
     vendas_por_sku = []
 

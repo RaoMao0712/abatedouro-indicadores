@@ -28,6 +28,9 @@ def tentar_alter_table(cursor, conn, comando):
 CATEGORIAS_FINANCEIRAS_ENTRADA = categorias_entradas_financeiras()
 CATEGORIAS_FINANCEIRAS_SAIDA = categorias_saidas_financeiras()
 CATEGORIA_NAO_CLASSIFICADO = "Não Classificado"
+CATEGORIA_RECEITA_BRUTA = "Receita Bruta"
+ORIGEM_IMPORTACAO_DESPESAS = "excel_movimentacoes"
+ORIGEM_IMPORTACAO_VENDAS = "IMPORTACAO VENDAS"
 
 
 FORMAS_PAGAMENTO_FINANCEIRO = [
@@ -559,18 +562,19 @@ def normalizar_cabecalho_importacao(valor):
 MAPEAMENTO_CABECALHOS_IMPORTACAO = {
     "categoria": ["categoria", "classificacao", "classificacaofinanceira"],
     "natureza": ["natureza", "tipo", "receitadespesa", "entradasaida", "entradaousaida"],
-    "data_documento": ["datadocumento", "datadodocumento", "dataemissao", "emissao"],
+    "data_documento": ["datadocumento", "datadodocumento", "dataemissao", "emissao", "data", "datavenda", "datadavenda"],
     "cnpj_cpf": ["cnpjcpf", "cnpj", "cpf"],
-    "valor_documento": ["valordocumento", "valordodocumento", "valor"],
-    "numero_documento": ["numerodocumento", "numerododocumento", "documento", "numero", "nf", "notafiscal"],
-    "data_vencimento": ["datavencimento", "datadevencimento", "vencimento"],
-    "valor_pago": ["valorpago", "pago", "valorpagamento"],
-    "data_pagamento": ["datapagamento", "datadepagamento", "pagamento", "datarealizacao"],
-    "favorecido": ["favorecido", "fornecedor", "cliente"],
-    "valor_liquido": ["valorliquido", "liquido", "valorliquidado"],
-    "descricao": ["descricao", "descricaohistorico"],
-    "parceiro": ["parceiro", "razaosocial", "nome"],
-    "historico": ["historico", "histórico", "observacao", "observacoes"],
+    "valor_documento": ["valordocumento", "valordodocumento", "valor", "valorvenda", "valordavenda", "total", "totalvenda"],
+    "numero_documento": ["numerodocumento", "numerododocumento", "documento", "numero", "nf", "notafiscal", "nota", "cupom", "pedido"],
+    "data_vencimento": ["datavencimento", "datadevencimento", "vencimento", "datarecebimento", "previsaorecebimento"],
+    "valor_pago": ["valorpago", "pago", "valorpagamento", "valorrecebido", "recebido"],
+    "data_pagamento": ["datapagamento", "datadepagamento", "pagamento", "datarealizacao", "datarecebido", "datarecebimento"],
+    "favorecido": ["favorecido", "fornecedor", "cliente", "comprador"],
+    "valor_liquido": ["valorliquido", "liquido", "valorliquidado", "valorliquidovenda"],
+    "descricao": ["descricao", "descricaohistorico", "produto", "item"],
+    "parceiro": ["parceiro", "razaosocial", "nome", "nomecliente"],
+    "historico": ["historico", "histórico", "observacao", "observacoes", "historicodevenda"],
+    "forma_pagamento": ["formapagamento", "formaderecebimento", "meio", "meiopagamento", "meiorecebimento"],
 }
 
 
@@ -589,7 +593,7 @@ def mapear_cabecalhos_importacao(ws):
                 colunas[campo] = cabecalhos[chave]
                 break
 
-    obrigatorios = ["data_documento", "data_vencimento", "valor_documento"]
+    obrigatorios = ["data_documento", "valor_documento"]
     ausentes = [campo for campo in obrigatorios if campo not in colunas]
     return colunas, ausentes
 
@@ -679,7 +683,7 @@ def resolver_tipo_importacao(ws, linha, colunas, categoria, natureza_padrao):
     return natureza_por_categoria(categoria) or "Saída"
 
 
-def montar_import_key(dados):
+def montar_import_key(dados, incluir_origem=False):
     partes = [
         dados.get("numero_documento", ""),
         dados.get("data_documento", ""),
@@ -688,6 +692,8 @@ def montar_import_key(dados):
         f"{float(dados.get('valor_documento') or 0):.2f}",
         dados.get("historico", "") or dados.get("descricao", ""),
     ]
+    if incluir_origem:
+        partes.extend([dados.get("tipo", ""), dados.get("origem_importacao", "")])
     base = "|".join(str(parte).strip().lower() for parte in partes)
     return hashlib.sha256(base.encode("utf-8")).hexdigest()
 
@@ -703,11 +709,19 @@ def linha_planilha_importacao_vazia(ws, linha, colunas):
     )
 
 
-def preparar_linha_importacao(ws, linha, colunas, natureza_padrao="DESPESA"):
+def preparar_linha_importacao(
+    ws,
+    linha,
+    colunas,
+    natureza_padrao="DESPESA",
+    categoria_padrao=CATEGORIA_NAO_CLASSIFICADO,
+    origem_importacao=ORIGEM_IMPORTACAO_DESPESAS,
+    incluir_origem_import_key=False,
+):
     valor_documento_original = numero_importacao(valor_celula(ws, linha, colunas, "valor_documento"))
     valor_liquido_original = numero_importacao(valor_celula(ws, linha, colunas, "valor_liquido"))
     valor_pago_original = numero_importacao(valor_celula(ws, linha, colunas, "valor_pago"))
-    categoria = texto_importacao(valor_celula(ws, linha, colunas, "categoria")) or CATEGORIA_NAO_CLASSIFICADO
+    categoria = texto_importacao(valor_celula(ws, linha, colunas, "categoria")) or categoria_padrao
     descricao = texto_importacao(valor_celula(ws, linha, colunas, "descricao"))
     historico = texto_importacao(valor_celula(ws, linha, colunas, "historico"))
     favorecido = texto_importacao(valor_celula(ws, linha, colunas, "favorecido"))
@@ -733,7 +747,7 @@ def preparar_linha_importacao(ws, linha, colunas, natureza_padrao="DESPESA"):
         "categoria": categoria,
         "descricao": descricao_final,
         "valor": abs(valor_referencia) if valor_referencia else valor_documento,
-        "forma_pagamento": "",
+        "forma_pagamento": texto_importacao(valor_celula(ws, linha, colunas, "forma_pagamento")),
         "status": status,
         "parcelas": 1,
         "parcela_atual": 1,
@@ -750,9 +764,9 @@ def preparar_linha_importacao(ws, linha, colunas, natureza_padrao="DESPESA"):
         "historico": historico,
         "valor_pago": valor_pago,
         "valor_liquido": valor_liquido,
-        "origem_importacao": "excel_movimentacoes",
+        "origem_importacao": origem_importacao,
     }
-    dados["import_key"] = montar_import_key(dados)
+    dados["import_key"] = montar_import_key(dados, incluir_origem=incluir_origem_import_key)
     return dados
 
 
@@ -800,7 +814,13 @@ def valores_insert_importacao(dados):
     )
 
 
-def importar_movimentacoes_financeiras_excel(arquivo_excel, natureza_padrao="DESPESA"):
+def importar_movimentacoes_financeiras_excel(
+    arquivo_excel,
+    natureza_padrao="DESPESA",
+    categoria_padrao=CATEGORIA_NAO_CLASSIFICADO,
+    origem_importacao=ORIGEM_IMPORTACAO_DESPESAS,
+    incluir_origem_import_key=False,
+):
     inicio_processamento = time.perf_counter()
     criar_tabela_movimentacoes_financeiras()
 
@@ -831,7 +851,15 @@ def importar_movimentacoes_financeiras_excel(arquivo_excel, natureza_padrao="DES
                 resultado["ignoradas"] += 1
                 continue
 
-            dados = preparar_linha_importacao(ws, linha, colunas, natureza_padrao)
+            dados = preparar_linha_importacao(
+                ws,
+                linha,
+                colunas,
+                natureza_padrao=natureza_padrao,
+                categoria_padrao=categoria_padrao,
+                origem_importacao=origem_importacao,
+                incluir_origem_import_key=incluir_origem_import_key,
+            )
             if linha_importacao_vazia(dados):
                 resultado["ignoradas"] += 1
                 continue
@@ -952,6 +980,26 @@ def categorias_reclassificacao_financeira():
         item["nome"]
         for item in listar_plano_contas()
     ]
+
+
+def categorias_filtro_auditoria():
+    categorias = set(categorias_reclassificacao_financeira())
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute(q("""
+    SELECT DISTINCT categoria
+    FROM movimentacoes_financeiras
+    WHERE categoria IS NOT NULL
+      AND TRIM(categoria) <> ''
+    ORDER BY categoria ASC
+    """))
+    for item in cursor.fetchall():
+        categorias.add(item["categoria"])
+    conn.close()
+    return [CATEGORIA_NAO_CLASSIFICADO] + sorted(
+        categoria for categoria in categorias
+        if categoria != CATEGORIA_NAO_CLASSIFICADO
+    )
 
 
 def normalizar_filtros_auditoria(args):
@@ -1216,7 +1264,7 @@ def montar_contexto_auditoria_financeira(args, exportar=False):
             "query_proxima": montar_query_paginacao(filtros, proxima_pagina),
         },
         "categorias_reclassificacao": categorias_reclassificacao_financeira(),
-        "categorias_filtro": [CATEGORIA_NAO_CLASSIFICADO] + categorias_reclassificacao_financeira(),
+        "categorias_filtro": categorias_filtro_auditoria(),
     }
 
 
