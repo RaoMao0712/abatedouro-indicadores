@@ -144,7 +144,7 @@ def register_movimentacoes_routes(app):
                 flash("Selecione uma planilha para importar.")
             else:
                 try:
-                    resultado = importar_movimentacoes_financeiras_excel(arquivo)
+                    resultado = importar_movimentacoes_financeiras_excel(arquivo, natureza_padrao="DESPESA")
                     flash("Importacao de movimentacoes concluida.")
                 except Exception as erro:
                     flash(f"Erro ao importar movimentacoes: {erro}")

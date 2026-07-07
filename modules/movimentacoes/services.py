@@ -535,6 +535,7 @@ def normalizar_cabecalho_importacao(valor):
 
 MAPEAMENTO_CABECALHOS_IMPORTACAO = {
     "categoria": ["categoria", "classificacao", "classificacaofinanceira"],
+    "natureza": ["natureza", "tipo", "receitadespesa", "entradasaida", "entradaousaida"],
     "data_documento": ["datadocumento", "datadodocumento", "dataemissao", "emissao"],
     "cnpj_cpf": ["cnpjcpf", "cnpj", "cpf"],
     "valor_documento": ["valordocumento", "valordodocumento", "valor"],
@@ -632,6 +633,29 @@ def natureza_por_categoria(categoria):
     return ""
 
 
+def normalizar_natureza_importacao(valor):
+    texto = normalizar_cabecalho_importacao(valor)
+    if texto in ["receita", "receitas", "entrada", "entradas", "receber", "credito", "creditos"]:
+        return "Entrada"
+    if texto in ["despesa", "despesas", "saida", "saidas", "pagar", "debito", "debitos"]:
+        return "Saída"
+    return ""
+
+
+def resolver_tipo_importacao(ws, linha, colunas, categoria, natureza_padrao):
+    natureza_planilha = normalizar_natureza_importacao(valor_celula(ws, linha, colunas, "natureza"))
+    if natureza_planilha:
+        return natureza_planilha
+
+    natureza_padrao_normalizada = normalizar_cabecalho_importacao(natureza_padrao)
+    if natureza_padrao_normalizada in ["despesa", "despesas", "saida", "saidas"]:
+        return "Saída"
+    if natureza_padrao_normalizada in ["receita", "receitas", "entrada", "entradas"]:
+        return "Entrada"
+
+    return natureza_por_categoria(categoria) or "Saída"
+
+
 def montar_import_key(dados):
     partes = [
         dados.get("numero_documento", ""),
@@ -656,7 +680,7 @@ def linha_planilha_importacao_vazia(ws, linha, colunas):
     )
 
 
-def preparar_linha_importacao(ws, linha, colunas):
+def preparar_linha_importacao(ws, linha, colunas, natureza_padrao="DESPESA"):
     valor_documento_original = numero_importacao(valor_celula(ws, linha, colunas, "valor_documento"))
     valor_liquido_original = numero_importacao(valor_celula(ws, linha, colunas, "valor_liquido"))
     valor_pago_original = numero_importacao(valor_celula(ws, linha, colunas, "valor_pago"))
@@ -667,14 +691,7 @@ def preparar_linha_importacao(ws, linha, colunas):
     parceiro = texto_importacao(valor_celula(ws, linha, colunas, "parceiro"))
 
     valor_referencia = valor_liquido_original or valor_documento_original or valor_pago_original
-    natureza_categoria = natureza_por_categoria(categoria)
-    valores_com_sinal = [valor for valor in [valor_documento_original, valor_liquido_original] if valor]
-    tipo_por_sinal = "Entrada"
-    if any(valor < 0 for valor in valores_com_sinal):
-        tipo_por_sinal = "Saída"
-    elif any(valor > 0 for valor in valores_com_sinal):
-        tipo_por_sinal = "Entrada"
-    tipo = natureza_categoria or tipo_por_sinal
+    tipo = resolver_tipo_importacao(ws, linha, colunas, categoria, natureza_padrao)
 
     valor_documento = abs(valor_documento_original or valor_referencia)
     valor_liquido = abs(valor_liquido_original)
@@ -760,7 +777,7 @@ def valores_insert_importacao(dados):
     )
 
 
-def importar_movimentacoes_financeiras_excel(arquivo_excel):
+def importar_movimentacoes_financeiras_excel(arquivo_excel, natureza_padrao="DESPESA"):
     inicio_processamento = time.perf_counter()
     criar_tabela_movimentacoes_financeiras()
 
@@ -791,7 +808,7 @@ def importar_movimentacoes_financeiras_excel(arquivo_excel):
                 resultado["ignoradas"] += 1
                 continue
 
-            dados = preparar_linha_importacao(ws, linha, colunas)
+            dados = preparar_linha_importacao(ws, linha, colunas, natureza_padrao)
             if linha_importacao_vazia(dados):
                 resultado["ignoradas"] += 1
                 continue
