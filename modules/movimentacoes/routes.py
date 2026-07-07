@@ -18,7 +18,6 @@ from .services import (
     buscar_movimentacoes_financeiras,
     buscar_pendencias_classificacao,
     calcular_resumo_financeiro,
-    criar_tabela_movimentacoes_financeiras,
     excluir_movimentacao_financeira,
     gerar_excel_auditoria_financeira,
     importar_movimentacoes_financeiras_excel,
@@ -37,8 +36,6 @@ def register_movimentacoes_routes(app):
 
 
     def contexto_movimentacoes(visao, tipo_movimentacao=None):
-        criar_tabela_movimentacoes_financeiras()
-
         agora = datetime.now()
         hoje = agora.strftime("%Y-%m-%d")
         primeiro_dia_mes = agora.replace(day=1).strftime("%Y-%m-%d")
@@ -188,7 +185,7 @@ def register_movimentacoes_routes(app):
     @app.route("/movimentacoes/auditoria/exportar")
     @perfil_permitido("pcp")
     def movimentacoes_auditoria_exportar():
-        contexto = montar_contexto_auditoria_financeira(request.args)
+        contexto = montar_contexto_auditoria_financeira(request.args, exportar=True)
         arquivo = gerar_excel_auditoria_financeira(contexto)
         return send_file(
             arquivo,

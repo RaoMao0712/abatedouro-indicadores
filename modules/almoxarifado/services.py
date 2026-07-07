@@ -99,8 +99,6 @@ def salvar_insumo_almoxarifado(form):
 
 
 def buscar_insumos_almoxarifado(filtro_categoria="Todas", filtro_status="Todos", termo=""):
-    criar_tabelas_almoxarifado()
-
     condicoes = ["1 = 1"]
     parametros = []
 

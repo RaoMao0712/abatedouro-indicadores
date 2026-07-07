@@ -8,20 +8,8 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 from . import repositories as repository
-from modules.custos.services import CATEGORIAS_CUSTOS, criar_tabelas_custos
+from modules.custos.services import CATEGORIAS_CUSTOS
 from modules.financeiro.services import categoria_impacta_resultado_operacional
-
-_CRIAR_TABELA_VENDAS = None
-
-
-def configurar_integracoes(criar_tabela_vendas=None):
-    global _CRIAR_TABELA_VENDAS
-    _CRIAR_TABELA_VENDAS = criar_tabela_vendas
-
-
-def garantir_tabela_vendas():
-    if _CRIAR_TABELA_VENDAS:
-        _CRIAR_TABELA_VENDAS()
 
 
 def formatar_numero_br(valor, casas=2):
@@ -211,9 +199,6 @@ def normalizar_venda_para_dre(item):
 
 
 def buscar_dados_dre_gerencial(competencia):
-    criar_tabelas_custos()
-    garantir_tabela_vendas()
-
     ano, mes = competencia.split("-")
     ultimo_dia = calendar.monthrange(int(ano), int(mes))[1]
     data_inicio = f"{competencia}-01"

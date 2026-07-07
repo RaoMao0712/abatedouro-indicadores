@@ -6,6 +6,7 @@ import re
 import time
 import uuid
 from datetime import datetime, date
+from urllib.parse import urlencode
 
 from openpyxl import load_workbook
 from openpyxl import Workbook
@@ -195,6 +196,30 @@ def criar_tabela_movimentacoes_financeiras():
         conn,
         "CREATE INDEX IF NOT EXISTS idx_movimentacoes_financeiras_import_key "
         "ON movimentacoes_financeiras (import_key)"
+    )
+    tentar_alter_table(
+        cursor,
+        conn,
+        "CREATE INDEX IF NOT EXISTS idx_mov_fin_vencimento_tipo_status "
+        "ON movimentacoes_financeiras (data_vencimento, tipo, status)"
+    )
+    tentar_alter_table(
+        cursor,
+        conn,
+        "CREATE INDEX IF NOT EXISTS idx_mov_fin_tipo_documento_status_categoria "
+        "ON movimentacoes_financeiras (tipo, data_documento, status, categoria)"
+    )
+    tentar_alter_table(
+        cursor,
+        conn,
+        "CREATE INDEX IF NOT EXISTS idx_mov_fin_categoria "
+        "ON movimentacoes_financeiras (categoria)"
+    )
+    tentar_alter_table(
+        cursor,
+        conn,
+        "CREATE INDEX IF NOT EXISTS idx_mov_fin_origem_importacao "
+        "ON movimentacoes_financeiras (origem_importacao)"
     )
 
     conn.commit()
@@ -403,8 +428,6 @@ def excluir_movimentacao_financeira(movimentacao_id):
 
 
 def buscar_movimentacoes_financeiras(data_inicio, data_fim, tipo_filtro, status_filtro):
-    criar_tabela_movimentacoes_financeiras()
-
     condicoes = ["data_vencimento BETWEEN ? AND ?"]
     parametros = [data_inicio, data_fim]
 
@@ -905,8 +928,6 @@ def importar_movimentacoes_financeiras_excel(arquivo_excel, natureza_padrao="DES
 
 
 def buscar_pendencias_classificacao():
-    criar_tabela_movimentacoes_financeiras()
-
     conn = conectar()
     cursor = conn.cursor()
     cursor.execute(q("""
@@ -934,6 +955,22 @@ def categorias_reclassificacao_financeira():
 
 
 def normalizar_filtros_auditoria(args):
+    try:
+        pagina = int(args.get("pagina", 1) or 1)
+    except (TypeError, ValueError):
+        pagina = 1
+
+    try:
+        por_pagina = int(args.get("por_pagina", 50) or 50)
+    except (TypeError, ValueError):
+        por_pagina = 50
+
+    if pagina < 1:
+        pagina = 1
+
+    if por_pagina not in [50, 100, 200]:
+        por_pagina = 50
+
     return {
         "data_inicio": args.get("data_inicio", "").strip(),
         "data_fim": args.get("data_fim", "").strip(),
@@ -943,12 +980,12 @@ def normalizar_filtros_auditoria(args):
         "historico": args.get("historico", "").strip(),
         "mes": args.get("mes", "").strip(),
         "somente_nao_classificados": args.get("somente_nao_classificados") == "1",
+        "pagina": pagina,
+        "por_pagina": por_pagina,
     }
 
 
-def buscar_movimentacoes_auditoria(filtros):
-    criar_tabela_movimentacoes_financeiras()
-
+def montar_where_auditoria(filtros, somente_pendencias=False):
     condicoes = ["(import_key IS NOT NULL OR origem_importacao = ?)"]
     parametros = ["excel_movimentacoes"]
 
@@ -986,112 +1023,198 @@ def buscar_movimentacoes_auditoria(filtros):
         condicoes.append("categoria = ?")
         parametros.append(CATEGORIA_NAO_CLASSIFICADO)
 
+    if somente_pendencias and not filtros["somente_nao_classificados"]:
+        condicoes.append("categoria = ?")
+        parametros.append(CATEGORIA_NAO_CLASSIFICADO)
+
+    return " AND ".join(condicoes), parametros
+
+
+def buscar_movimentacoes_auditoria(filtros, somente_pendencias=False, limite=None, offset=0):
+    where_sql, parametros = montar_where_auditoria(filtros, somente_pendencias)
+
     conn = conectar()
     cursor = conn.cursor()
+
+    limite_sql = ""
+    if limite is not None:
+        limite_sql = " LIMIT ? OFFSET ?"
+        parametros.extend([limite, offset])
+
     cursor.execute(q(f"""
     SELECT *
     FROM movimentacoes_financeiras
-    WHERE {" AND ".join(condicoes)}
+    WHERE {where_sql}
     ORDER BY COALESCE(data_documento, data_vencimento) ASC, id ASC
+    {limite_sql}
     """), tuple(parametros))
     movimentacoes = [dict(item) for item in cursor.fetchall()]
     conn.close()
     return movimentacoes
 
 
-def _tipo_auditoria(item):
-    return "Entrada" if item.get("tipo") == "Entrada" else "Saida"
+def buscar_indicadores_auditoria(filtros):
+    where_sql, parametros = montar_where_auditoria(filtros)
 
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute(q(f"""
+    SELECT
+        COUNT(*) as total_movimentacoes,
+        COALESCE(SUM(CASE WHEN tipo = ? THEN valor ELSE 0 END), 0) as total_receitas,
+        COALESCE(SUM(CASE WHEN tipo = ? THEN 0 ELSE valor END), 0) as total_despesas,
+        COALESCE(SUM(CASE WHEN categoria = ? THEN 1 ELSE 0 END), 0) as qtd_nao_classificado,
+        COALESCE(SUM(CASE WHEN categoria = ? THEN valor ELSE 0 END), 0) as valor_nao_classificado
+    FROM movimentacoes_financeiras
+    WHERE {where_sql}
+    """), tuple(["Entrada", "Entrada", CATEGORIA_NAO_CLASSIFICADO, CATEGORIA_NAO_CLASSIFICADO] + parametros))
+    item = cursor.fetchone()
+    conn.close()
 
-def montar_indicadores_auditoria(movimentacoes):
-    total_receitas = 0
-    total_despesas = 0
-    qtd_nao_classificado = 0
-    valor_nao_classificado = 0
-
-    for item in movimentacoes:
-        valor = float(item.get("valor") or 0)
-        if _tipo_auditoria(item) == "Entrada":
-            total_receitas += valor
-        else:
-            total_despesas += valor
-
-        if item.get("categoria") == CATEGORIA_NAO_CLASSIFICADO:
-            qtd_nao_classificado += 1
-            valor_nao_classificado += valor
-
+    total_receitas = float(item["total_receitas"] or 0)
+    total_despesas = float(item["total_despesas"] or 0)
     return {
-        "total_movimentacoes": len(movimentacoes),
+        "total_movimentacoes": int(item["total_movimentacoes"] or 0),
         "total_receitas": round(total_receitas, 2),
         "total_despesas": round(total_despesas, 2),
         "saldo_liquido": round(total_receitas - total_despesas, 2),
-        "qtd_nao_classificado": qtd_nao_classificado,
-        "valor_nao_classificado": round(valor_nao_classificado, 2),
+        "qtd_nao_classificado": int(item["qtd_nao_classificado"] or 0),
+        "valor_nao_classificado": round(float(item["valor_nao_classificado"] or 0), 2),
     }
 
 
-def montar_totais_categoria_auditoria(movimentacoes):
-    total_geral = sum(float(item.get("valor") or 0) for item in movimentacoes)
-    categorias = {}
-    for item in movimentacoes:
-        categoria = item.get("categoria") or CATEGORIA_NAO_CLASSIFICADO
-        categorias.setdefault(categoria, {"categoria": categoria, "quantidade": 0, "valor_total": 0})
-        categorias[categoria]["quantidade"] += 1
-        categorias[categoria]["valor_total"] += float(item.get("valor") or 0)
+def buscar_totais_categoria_auditoria(filtros):
+    where_sql, parametros = montar_where_auditoria(filtros)
+    indicadores = buscar_indicadores_auditoria(filtros)
+    total_geral = indicadores["total_receitas"] + indicadores["total_despesas"]
+
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute(q(f"""
+    SELECT
+        COALESCE(categoria, ?) as categoria,
+        COUNT(*) as quantidade,
+        COALESCE(SUM(valor), 0) as valor_total
+    FROM movimentacoes_financeiras
+    WHERE {where_sql}
+    GROUP BY COALESCE(categoria, ?)
+    ORDER BY valor_total DESC
+    """), tuple([CATEGORIA_NAO_CLASSIFICADO] + parametros + [CATEGORIA_NAO_CLASSIFICADO]))
+    linhas = cursor.fetchall()
+    conn.close()
 
     resultado = []
-    for item in categorias.values():
-        percentual = (item["valor_total"] / total_geral * 100) if total_geral else 0
+    for item in linhas:
+        valor_total = float(item["valor_total"] or 0)
+        percentual = (valor_total / total_geral * 100) if total_geral else 0
         resultado.append({
             "categoria": item["categoria"],
-            "quantidade": item["quantidade"],
-            "valor_total": round(item["valor_total"], 2),
+            "quantidade": int(item["quantidade"] or 0),
+            "valor_total": round(valor_total, 2),
             "percentual": round(percentual, 2),
         })
-    return sorted(resultado, key=lambda item: item["valor_total"], reverse=True)
+    return resultado
 
 
-def montar_totais_mes_auditoria(movimentacoes):
-    meses = {}
-    for item in movimentacoes:
-        data_base = (item.get("data_documento") or item.get("data_vencimento") or "")[:7] or "Sem data"
-        meses.setdefault(data_base, {
-            "mes": data_base,
-            "total_receitas": 0,
-            "total_despesas": 0,
-            "saldo": 0,
-            "quantidade": 0,
-        })
-        valor = float(item.get("valor") or 0)
-        if _tipo_auditoria(item) == "Entrada":
-            meses[data_base]["total_receitas"] += valor
-        else:
-            meses[data_base]["total_despesas"] += valor
-        meses[data_base]["quantidade"] += 1
+def buscar_totais_mes_auditoria(filtros):
+    where_sql, parametros = montar_where_auditoria(filtros)
+
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute(q(f"""
+    SELECT
+        COALESCE(substr(COALESCE(data_documento, data_vencimento), 1, 7), 'Sem data') as mes,
+        COALESCE(SUM(CASE WHEN tipo = ? THEN valor ELSE 0 END), 0) as total_receitas,
+        COALESCE(SUM(CASE WHEN tipo = ? THEN 0 ELSE valor END), 0) as total_despesas,
+        COUNT(*) as quantidade
+    FROM movimentacoes_financeiras
+    WHERE {where_sql}
+    GROUP BY COALESCE(substr(COALESCE(data_documento, data_vencimento), 1, 7), 'Sem data')
+    ORDER BY mes ASC
+    """), tuple(["Entrada", "Entrada"] + parametros))
+    linhas = cursor.fetchall()
+    conn.close()
 
     resultado = []
-    for item in meses.values():
-        item["saldo"] = item["total_receitas"] - item["total_despesas"]
-        for chave in ["total_receitas", "total_despesas", "saldo"]:
-            item[chave] = round(item[chave], 2)
-        resultado.append(item)
-    return sorted(resultado, key=lambda item: item["mes"])
+    for item in linhas:
+        total_receitas = float(item["total_receitas"] or 0)
+        total_despesas = float(item["total_despesas"] or 0)
+        resultado.append({
+            "mes": item["mes"],
+            "total_receitas": round(total_receitas, 2),
+            "total_despesas": round(total_despesas, 2),
+            "saldo": round(total_receitas - total_despesas, 2),
+            "quantidade": int(item["quantidade"] or 0),
+        })
+    return resultado
 
 
-def montar_contexto_auditoria_financeira(args):
+def contar_pendencias_auditoria(filtros):
+    where_sql, parametros = montar_where_auditoria(filtros, somente_pendencias=True)
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute(q(f"""
+    SELECT COUNT(*) as total
+    FROM movimentacoes_financeiras
+    WHERE {where_sql}
+    """), tuple(parametros))
+    total = int(cursor.fetchone()["total"] or 0)
+    conn.close()
+    return total
+
+
+def montar_query_paginacao(filtros, pagina):
+    parametros = {
+        "data_inicio": filtros["data_inicio"],
+        "data_fim": filtros["data_fim"],
+        "categoria": filtros["categoria"],
+        "favorecido": filtros["favorecido"],
+        "descricao": filtros["descricao"],
+        "historico": filtros["historico"],
+        "mes": filtros["mes"],
+        "por_pagina": filtros["por_pagina"],
+        "pagina": pagina,
+    }
+    if filtros["somente_nao_classificados"]:
+        parametros["somente_nao_classificados"] = "1"
+    return urlencode({chave: valor for chave, valor in parametros.items() if valor not in ["", None]})
+
+
+def montar_contexto_auditoria_financeira(args, exportar=False):
     filtros = normalizar_filtros_auditoria(args)
-    movimentacoes = buscar_movimentacoes_auditoria(filtros)
-    pendencias = [
-        item for item in movimentacoes
-        if item.get("categoria") == CATEGORIA_NAO_CLASSIFICADO
-    ]
+    total_pendencias = contar_pendencias_auditoria(filtros)
+    total_paginas = max(1, (total_pendencias + filtros["por_pagina"] - 1) // filtros["por_pagina"])
+
+    if filtros["pagina"] > total_paginas:
+        filtros["pagina"] = total_paginas
+
+    offset = (filtros["pagina"] - 1) * filtros["por_pagina"]
+    limite = None if exportar else filtros["por_pagina"]
+    pendencias = buscar_movimentacoes_auditoria(
+        filtros,
+        somente_pendencias=True,
+        limite=limite,
+        offset=offset,
+    )
+    pagina_anterior = max(1, filtros["pagina"] - 1)
+    proxima_pagina = min(total_paginas, filtros["pagina"] + 1)
 
     return {
         "filtros": filtros,
-        "indicadores": montar_indicadores_auditoria(movimentacoes),
-        "totais_categoria": montar_totais_categoria_auditoria(movimentacoes),
-        "totais_mes": montar_totais_mes_auditoria(movimentacoes),
+        "indicadores": buscar_indicadores_auditoria(filtros),
+        "totais_categoria": buscar_totais_categoria_auditoria(filtros),
+        "totais_mes": buscar_totais_mes_auditoria(filtros),
         "pendencias": pendencias,
+        "paginacao": {
+            "pagina": filtros["pagina"],
+            "por_pagina": filtros["por_pagina"],
+            "total_paginas": total_paginas,
+            "total_registros": total_pendencias,
+            "tem_anterior": filtros["pagina"] > 1,
+            "tem_proxima": filtros["pagina"] < total_paginas,
+            "query_anterior": montar_query_paginacao(filtros, pagina_anterior),
+            "query_proxima": montar_query_paginacao(filtros, proxima_pagina),
+        },
         "categorias_reclassificacao": categorias_reclassificacao_financeira(),
         "categorias_filtro": [CATEGORIA_NAO_CLASSIFICADO] + categorias_reclassificacao_financeira(),
     }

@@ -78,6 +78,15 @@
             <input type="text" name="historico" value="{{ filtros.historico }}">
         </div>
 
+        <div>
+            <label>Por pagina</label>
+            <select name="por_pagina">
+                <option value="50" {% if filtros.por_pagina == 50 %}selected{% endif %}>50</option>
+                <option value="100" {% if filtros.por_pagina == 100 %}selected{% endif %}>100</option>
+                <option value="200" {% if filtros.por_pagina == 200 %}selected{% endif %}>200</option>
+            </select>
+        </div>
+
         <label class="checkbox-inline">
             <input type="checkbox" name="somente_nao_classificados" value="1" {% if filtros.somente_nao_classificados %}checked{% endif %}>
             Somente nao classificados
@@ -201,6 +210,10 @@
             <div>
                 <span class="eyebrow">Pendencias</span>
                 <h2>Reclassificacao em Lote</h2>
+                <p class="obs">
+                    Exibindo pagina {{ paginacao.pagina }} de {{ paginacao.total_paginas }}
+                    - {{ paginacao.total_registros }} pendencia(s).
+                </p>
             </div>
 
             <div class="dre-acoes-topo dre-acoes-compactas">
@@ -251,6 +264,17 @@
         </div>
         {% else %}
         <p class="obs">Nao existem movimentacoes pendentes de classificacao nos filtros atuais.</p>
+        {% endif %}
+
+        {% if paginacao.total_paginas > 1 %}
+        <div class="dre-acoes-topo dre-acoes-compactas" style="margin-top: 1rem;">
+            {% if paginacao.tem_anterior %}
+            <a href="{{ url_for('movimentacoes_auditoria') }}?{{ paginacao.query_anterior }}" class="botao-dre-imprimir">Anterior</a>
+            {% endif %}
+            {% if paginacao.tem_proxima %}
+            <a href="{{ url_for('movimentacoes_auditoria') }}?{{ paginacao.query_proxima }}" class="botao-dre-exportar">Proxima</a>
+            {% endif %}
+        </div>
         {% endif %}
     </form>
 </div>

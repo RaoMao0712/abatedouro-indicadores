@@ -6,13 +6,10 @@ from flask import render_template, request, send_file
 
 from modules.auth.decorators import perfil_permitido
 
-from .services import configurar_integracoes, buscar_dados_dre_gerencial, gerar_excel_dre_gerencial
+from .services import buscar_dados_dre_gerencial, gerar_excel_dre_gerencial
 
 
 def register_dre_routes(app, integracoes=None):
-    integracoes = integracoes or {}
-    configurar_integracoes(criar_tabela_vendas=integracoes.get("criar_tabela_vendas"))
-
     @app.route("/dre-gerencial/exportar-excel")
     @perfil_permitido("pcp")
     def exportar_dre_gerencial_excel():

@@ -1387,8 +1387,6 @@ def calcular_resumo_estoque_pa(saldos):
 
 
 def buscar_expedicoes(data_inicio=None, data_fim=None, status=None):
-    criar_tabelas_expedicao()
-
     filtros = []
     parametros = []
 
