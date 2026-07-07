@@ -11,7 +11,7 @@
 
     <link
         rel="stylesheet"
-        href="{{ url_for('static', filename='style.css') }}"
+        href="{{ url_for('static', filename='style.css', v='prumo-operacional-20260707d') }}"
     >
 </head>
 
@@ -19,7 +19,7 @@
 
 <div class="app-shell layout-sidebar">
 
-    <header class="topo topo-compacto">
+    <header class="topo topo-compacto prumo-topbar">
 
         <div class="brand">
 
@@ -35,12 +35,14 @@
 
             </h1>
 
-            <p>
-                Gestão Industrial para Frigoríficos
-                <small>Produção • Qualidade • Custos • Resultados</small>
-            </p>
-
         </div>
+
+        {% if session.get("usuario_id") %}
+        <div class="topbar-user">
+            <span>{{ session.get("nome", "Usuario") }}</span>
+            <a href="{{ url_for('sair') }}">Sair</a>
+        </div>
+        {% endif %}
 
     </header>
 
