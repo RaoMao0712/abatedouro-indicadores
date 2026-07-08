@@ -8,6 +8,7 @@ from database import DATABASE_URL, conectar, q
 from modules.auth.services import nome_usuario_atual, usuario_eh_admin
 from services import manutencao_service
 from utils import calcular_horas_programadas, normalizar_chave_setor, setores_padrao
+from .etiquetas import montar_payload_etiqueta
 
 
 PESO_CAIXA_MAXIMO_KG = float(os.getenv("PESAGEM_PESO_MAXIMO_KG", "80"))
@@ -186,26 +187,6 @@ def calcular_validade_pesagem(data_fabricacao):
     return validade.strftime("%Y-%m-%d")
 
 
-def gerar_dados_etiqueta_pesagem(op, caixa):
-    if not op or not caixa:
-        return None
-
-    numero_caixa = caixa["op_numero_caixa"] or 0
-    codigo_barras = f"OP{int(op['id']):05d}CX{int(numero_caixa):03d}"
-
-    return {
-        "produto": op["sku"] or "Galinha Cortada",
-        "op": op["id"],
-        "lote": f"OP-{int(op['id']):05d}",
-        "validade": caixa["data_validade"] or calcular_validade_pesagem(op["data"]),
-        "data_fabricacao": caixa["data_fabricacao"] or op["data"],
-        "numero_caixa": numero_caixa,
-        "peso_liquido": float(caixa["peso_liquido"] or 0),
-        "codigo_barras": codigo_barras,
-        "estabelecimento": "FrigoDatta",
-    }
-
-
 def buscar_caixas_pesagem_op(cursor, op_id):
     cursor.execute(q("""
     SELECT cx.*
@@ -219,7 +200,21 @@ def buscar_caixas_pesagem_op(cursor, op_id):
     return cursor.fetchall()
 
 
-def buscar_contexto_pesagem_op(op_id):
+def buscar_caixa_pesagem_op_por_id(cursor, op_id, caixa_id):
+    cursor.execute(q("""
+    SELECT cx.*
+    FROM pa_caixas cx
+    INNER JOIN pa_caixa_composicao comp ON comp.caixa_id = cx.id
+    WHERE comp.op_id = ?
+      AND cx.id = ?
+      AND COALESCE(cx.origem, '') = ?
+    LIMIT 1
+    """), (op_id, caixa_id, "Pesagem OP"))
+
+    return cursor.fetchone()
+
+
+def buscar_contexto_pesagem_op(op_id, caixa_etiqueta_id=None):
     criar_estrutura_pesagem_op()
 
     op = buscar_op_por_id(op_id)
@@ -230,6 +225,9 @@ def buscar_contexto_pesagem_op(op_id):
     cursor = conn.cursor()
 
     caixas = buscar_caixas_pesagem_op(cursor, op_id)
+    caixa_etiqueta = None
+    if caixa_etiqueta_id:
+        caixa_etiqueta = buscar_caixa_pesagem_op_por_id(cursor, op_id, caixa_etiqueta_id)
 
     cursor.execute(q("""
     SELECT COALESCE(SUM(quantidade), 0) AS total_kg
@@ -246,6 +244,8 @@ def buscar_contexto_pesagem_op(op_id):
         if (caixa["status"] or "") != "Cancelada"
     ]
     ultima_caixa = caixas_ativas[-1] if caixas_ativas else None
+    if caixa_etiqueta is None:
+        caixa_etiqueta = ultima_caixa
     proximo_numero = (max([int(caixa["op_numero_caixa"] or 0) for caixa in caixas] or [0]) + 1)
     peso_total = sum(float(caixa["peso_liquido"] or 0) for caixa in caixas_ativas)
 
@@ -257,11 +257,12 @@ def buscar_contexto_pesagem_op(op_id):
         "caixas": caixas,
         "caixas_ativas": caixas_ativas,
         "ultima_caixa": ultima_caixa,
+        "caixa_etiqueta": caixa_etiqueta,
         "proximo_numero": proximo_numero,
         "total_caixas": len(caixas_ativas),
         "peso_total": round(peso_total, 3),
         "ultimo_peso": float(ultima_caixa["peso_liquido"] or 0) if ultima_caixa else 0,
-        "etiqueta": gerar_dados_etiqueta_pesagem(op, ultima_caixa),
+        "etiqueta": montar_payload_etiqueta(op, caixa_etiqueta),
         "peso_maximo": PESO_CAIXA_MAXIMO_KG,
     }
 
@@ -363,7 +364,7 @@ def registrar_peso_caixa_op(op_id, peso_raw):
     finally:
         conn.close()
 
-    return buscar_contexto_pesagem_op(op_id)
+    return buscar_contexto_pesagem_op(op_id, caixa_id)
 
 
 def cancelar_ultima_caixa_pesagem_op(op_id):
@@ -414,7 +415,7 @@ def cancelar_ultima_caixa_pesagem_op(op_id):
     finally:
         conn.close()
 
-    return buscar_contexto_pesagem_op(op_id)
+    return buscar_contexto_pesagem_op(op_id, caixa["id"])
 
 
 def buscar_fornecedores():
