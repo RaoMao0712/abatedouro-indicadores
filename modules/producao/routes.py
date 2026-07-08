@@ -16,10 +16,13 @@ from .services import (
     buscar_ordens,
     buscar_ordens_abertas,
     buscar_tempos_setor_por_op,
+    buscar_contexto_pesagem_op,
     calcular_resumo_op,
+    cancelar_ultima_caixa_pesagem_op,
     contexto_apontamento,
     copiar_mao_obra_de_op,
     gerar_producao_automatica_setores,
+    registrar_peso_caixa_op,
     salvar_apontamento_mao_obra,
     salvar_apontamento_parada,
     salvar_tempos_setor,
@@ -208,6 +211,40 @@ def register_producao_routes(app, integracoes=None):
             tempos_por_setor=tempos_por_setor,
             normalizar_chave_setor=normalizar_chave_setor
         )
+
+
+    @app.route("/ordem-producao/<int:op_id>/pesagem", methods=["GET", "POST"])
+    @perfil_permitido("pcp", "producao")
+    def pesagem_op(op_id):
+        if request.method == "POST":
+            try:
+                contexto = registrar_peso_caixa_op(op_id, request.form.get("peso_caixa"))
+                caixa = contexto["ultima_caixa"]
+                flash(f"Caixa {caixa['op_numero_caixa']} registrada com {caixa['peso_liquido']:.3f} kg.")
+            except ValueError as erro:
+                flash(str(erro))
+
+            return redirect(url_for("pesagem_op", op_id=op_id))
+
+        try:
+            contexto = buscar_contexto_pesagem_op(op_id)
+        except ValueError as erro:
+            flash(str(erro))
+            return redirect(url_for("consultar_op"))
+
+        return render_template("pesagem_op.html", **contexto)
+
+
+    @app.route("/ordem-producao/<int:op_id>/pesagem/cancelar-ultima", methods=["POST"])
+    @perfil_permitido("pcp", "producao")
+    def cancelar_ultima_pesagem_op(op_id):
+        try:
+            cancelar_ultima_caixa_pesagem_op(op_id)
+            flash("Ultima caixa cancelada com seguranca.")
+        except ValueError as erro:
+            flash(str(erro))
+
+        return redirect(url_for("pesagem_op", op_id=op_id))
 
 
     @app.route("/op/<int:op_id>/editar", methods=["GET", "POST"])

@@ -1,12 +1,16 @@
 """Regras operacionais do m?dulo de Produ??o."""
 
+import os
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from database import DATABASE_URL, conectar, q
 from modules.auth.services import nome_usuario_atual, usuario_eh_admin
 from services import manutencao_service
 from utils import calcular_horas_programadas, normalizar_chave_setor, setores_padrao
+
+
+PESO_CAIXA_MAXIMO_KG = float(os.getenv("PESAGEM_PESO_MAXIMO_KG", "80"))
 
 
 def criar_tabela_tempos_setor():
@@ -42,6 +46,375 @@ def criar_tabela_tempos_setor():
 
     conn.commit()
     conn.close()
+
+
+def _alterar_tabela_se_necessario(cursor, sql):
+    try:
+        cursor.execute(sql)
+    except Exception:
+        pass
+
+
+def criar_estrutura_pesagem_op():
+    conn = conectar()
+    cursor = conn.cursor()
+
+    if DATABASE_URL:
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS pa_caixas (
+            id SERIAL PRIMARY KEY,
+            codigo_caixa TEXT UNIQUE NOT NULL,
+            sku TEXT NOT NULL,
+            data_fabricacao TEXT,
+            data_validade TEXT,
+            peso_bruto REAL DEFAULT 0,
+            peso_liquido REAL DEFAULT 0,
+            quantidade_bandejas REAL DEFAULT 0,
+            status TEXT DEFAULT 'Em estoque',
+            origem TEXT,
+            observacoes TEXT,
+            criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
+
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS pa_caixa_composicao (
+            id SERIAL PRIMARY KEY,
+            caixa_id INTEGER NOT NULL,
+            op_id INTEGER NOT NULL,
+            quantidade_bandejas REAL DEFAULT 0,
+            criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
+
+        for coluna in [
+            "ALTER TABLE pa_caixas ADD COLUMN IF NOT EXISTS op_numero_caixa INTEGER",
+            "ALTER TABLE pa_caixas ADD COLUMN IF NOT EXISTS peso_tara REAL DEFAULT 0",
+            "ALTER TABLE pa_caixas ADD COLUMN IF NOT EXISTS usuario_pesagem TEXT",
+            "ALTER TABLE pa_caixas ADD COLUMN IF NOT EXISTS data_hora_pesagem TEXT",
+            "ALTER TABLE pa_caixas ADD COLUMN IF NOT EXISTS cancelado_em TEXT",
+            "ALTER TABLE pa_caixas ADD COLUMN IF NOT EXISTS cancelado_por TEXT",
+        ]:
+            cursor.execute(coluna)
+    else:
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS pa_caixas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            codigo_caixa TEXT UNIQUE NOT NULL,
+            sku TEXT NOT NULL,
+            data_fabricacao TEXT,
+            data_validade TEXT,
+            peso_bruto REAL DEFAULT 0,
+            peso_liquido REAL DEFAULT 0,
+            quantidade_bandejas REAL DEFAULT 0,
+            status TEXT DEFAULT 'Em estoque',
+            origem TEXT,
+            observacoes TEXT,
+            criado_em TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
+
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS pa_caixa_composicao (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            caixa_id INTEGER NOT NULL,
+            op_id INTEGER NOT NULL,
+            quantidade_bandejas REAL DEFAULT 0,
+            criado_em TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
+
+        for coluna in [
+            "ALTER TABLE pa_caixas ADD COLUMN op_numero_caixa INTEGER",
+            "ALTER TABLE pa_caixas ADD COLUMN peso_tara REAL DEFAULT 0",
+            "ALTER TABLE pa_caixas ADD COLUMN usuario_pesagem TEXT",
+            "ALTER TABLE pa_caixas ADD COLUMN data_hora_pesagem TEXT",
+            "ALTER TABLE pa_caixas ADD COLUMN cancelado_em TEXT",
+            "ALTER TABLE pa_caixas ADD COLUMN cancelado_por TEXT",
+        ]:
+            _alterar_tabela_se_necessario(cursor, coluna)
+
+    conn.commit()
+    conn.close()
+
+
+def normalizar_peso(valor):
+    texto = str(valor or "").strip()
+    if not texto:
+        raise ValueError("Informe o peso da caixa.")
+
+    texto = texto.replace(" ", "")
+    if "," in texto and "." in texto:
+        texto = texto.replace(".", "").replace(",", ".")
+    else:
+        texto = texto.replace(",", ".")
+
+    try:
+        peso = float(texto)
+    except ValueError:
+        raise ValueError("Peso invalido. Use apenas numeros, virgula ou ponto.")
+
+    return round(peso, 3)
+
+
+def validar_peso(peso):
+    if peso <= 0:
+        raise ValueError("O peso da caixa precisa ser maior que zero.")
+
+    if peso > PESO_CAIXA_MAXIMO_KG:
+        raise ValueError(f"Peso acima do limite configurado de {PESO_CAIXA_MAXIMO_KG:g} kg.")
+
+
+def ler_peso_balanca():
+    return None
+
+
+def calcular_validade_pesagem(data_fabricacao):
+    if not data_fabricacao:
+        return ""
+
+    try:
+        data_base = datetime.strptime(data_fabricacao, "%Y-%m-%d")
+    except ValueError:
+        return ""
+
+    try:
+        validade = data_base.replace(year=data_base.year + 1)
+    except ValueError:
+        validade = data_base + timedelta(days=365)
+
+    return validade.strftime("%Y-%m-%d")
+
+
+def gerar_dados_etiqueta_pesagem(op, caixa):
+    if not op or not caixa:
+        return None
+
+    numero_caixa = caixa["op_numero_caixa"] or 0
+    codigo_barras = f"OP{int(op['id']):05d}CX{int(numero_caixa):03d}"
+
+    return {
+        "produto": op["sku"] or "Galinha Cortada",
+        "op": op["id"],
+        "lote": f"OP-{int(op['id']):05d}",
+        "validade": caixa["data_validade"] or calcular_validade_pesagem(op["data"]),
+        "data_fabricacao": caixa["data_fabricacao"] or op["data"],
+        "numero_caixa": numero_caixa,
+        "peso_liquido": float(caixa["peso_liquido"] or 0),
+        "codigo_barras": codigo_barras,
+        "estabelecimento": "FrigoDatta",
+    }
+
+
+def buscar_caixas_pesagem_op(cursor, op_id):
+    cursor.execute(q("""
+    SELECT cx.*
+    FROM pa_caixas cx
+    INNER JOIN pa_caixa_composicao comp ON comp.caixa_id = cx.id
+    WHERE comp.op_id = ?
+      AND COALESCE(cx.origem, '') = ?
+    ORDER BY COALESCE(cx.op_numero_caixa, cx.id) ASC, cx.id ASC
+    """), (op_id, "Pesagem OP"))
+
+    return cursor.fetchall()
+
+
+def buscar_contexto_pesagem_op(op_id):
+    criar_estrutura_pesagem_op()
+
+    op = buscar_op_por_id(op_id)
+    if not op:
+        raise ValueError("OP nao encontrada.")
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    caixas = buscar_caixas_pesagem_op(cursor, op_id)
+
+    cursor.execute(q("""
+    SELECT COALESCE(SUM(quantidade), 0) AS total_kg
+    FROM apontamentos_producao
+    WHERE op_id = ?
+      AND LOWER(unidade) = 'kg'
+    """), (op_id,))
+    producao = cursor.fetchone()
+
+    conn.close()
+
+    caixas_ativas = [
+        caixa for caixa in caixas
+        if (caixa["status"] or "") != "Cancelada"
+    ]
+    ultima_caixa = caixas_ativas[-1] if caixas_ativas else None
+    proximo_numero = (max([int(caixa["op_numero_caixa"] or 0) for caixa in caixas] or [0]) + 1)
+    peso_total = sum(float(caixa["peso_liquido"] or 0) for caixa in caixas_ativas)
+
+    return {
+        "op": op,
+        "lote": f"OP-{int(op['id']):05d}",
+        "validade": calcular_validade_pesagem(op["data"]),
+        "quantidade_apontada": float(producao["total_kg"] or 0),
+        "caixas": caixas,
+        "caixas_ativas": caixas_ativas,
+        "ultima_caixa": ultima_caixa,
+        "proximo_numero": proximo_numero,
+        "total_caixas": len(caixas_ativas),
+        "peso_total": round(peso_total, 3),
+        "ultimo_peso": float(ultima_caixa["peso_liquido"] or 0) if ultima_caixa else 0,
+        "etiqueta": gerar_dados_etiqueta_pesagem(op, ultima_caixa),
+        "peso_maximo": PESO_CAIXA_MAXIMO_KG,
+    }
+
+
+def registrar_peso_caixa_op(op_id, peso_raw):
+    criar_estrutura_pesagem_op()
+    validar_op_aberta(op_id)
+
+    op = buscar_op_por_id(op_id)
+    if not op:
+        raise ValueError("OP nao encontrada.")
+
+    peso = normalizar_peso(peso_raw)
+    validar_peso(peso)
+
+    data_fabricacao = op["data"] or datetime.now().strftime("%Y-%m-%d")
+    data_validade = calcular_validade_pesagem(data_fabricacao)
+    usuario = nome_usuario_atual()
+    agora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute(q("""
+        SELECT COALESCE(MAX(cx.op_numero_caixa), 0) AS ultima
+        FROM pa_caixas cx
+        INNER JOIN pa_caixa_composicao comp ON comp.caixa_id = cx.id
+        WHERE comp.op_id = ?
+          AND COALESCE(cx.origem, '') = ?
+        """), (op_id, "Pesagem OP"))
+        numero_caixa = int(cursor.fetchone()["ultima"] or 0) + 1
+        codigo_caixa = f"OP{int(op_id):05d}-CX{numero_caixa:03d}"
+
+        if DATABASE_URL:
+            cursor.execute(q("""
+            INSERT INTO pa_caixas (
+                codigo_caixa, sku, data_fabricacao, data_validade,
+                peso_bruto, peso_tara, peso_liquido, quantidade_bandejas,
+                status, origem, observacoes, op_numero_caixa,
+                usuario_pesagem, data_hora_pesagem
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            RETURNING id
+            """), (
+                codigo_caixa,
+                op["sku"] or "Galinha Cortada",
+                data_fabricacao,
+                data_validade,
+                peso,
+                0,
+                peso,
+                0,
+                "Em estoque",
+                "Pesagem OP",
+                "Caixa registrada no Modo de Pesagem da OP.",
+                numero_caixa,
+                usuario,
+                agora,
+            ))
+            caixa_id = cursor.fetchone()["id"]
+        else:
+            cursor.execute(q("""
+            INSERT INTO pa_caixas (
+                codigo_caixa, sku, data_fabricacao, data_validade,
+                peso_bruto, peso_tara, peso_liquido, quantidade_bandejas,
+                status, origem, observacoes, op_numero_caixa,
+                usuario_pesagem, data_hora_pesagem
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """), (
+                codigo_caixa,
+                op["sku"] or "Galinha Cortada",
+                data_fabricacao,
+                data_validade,
+                peso,
+                0,
+                peso,
+                0,
+                "Em estoque",
+                "Pesagem OP",
+                "Caixa registrada no Modo de Pesagem da OP.",
+                numero_caixa,
+                usuario,
+                agora,
+            ))
+            caixa_id = cursor.lastrowid
+
+        cursor.execute(q("""
+        INSERT INTO pa_caixa_composicao (
+            caixa_id,
+            op_id,
+            quantidade_bandejas
+        ) VALUES (?, ?, ?)
+        """), (caixa_id, op_id, 0))
+
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+    return buscar_contexto_pesagem_op(op_id)
+
+
+def cancelar_ultima_caixa_pesagem_op(op_id):
+    criar_estrutura_pesagem_op()
+    validar_op_aberta(op_id)
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute(q("""
+        SELECT cx.*
+        FROM pa_caixas cx
+        INNER JOIN pa_caixa_composicao comp ON comp.caixa_id = cx.id
+        WHERE comp.op_id = ?
+          AND COALESCE(cx.origem, '') = ?
+          AND COALESCE(cx.status, '') <> ?
+        ORDER BY COALESCE(cx.op_numero_caixa, cx.id) DESC, cx.id DESC
+        LIMIT 1
+        """), (op_id, "Pesagem OP", "Cancelada"))
+        caixa = cursor.fetchone()
+
+        if not caixa:
+            raise ValueError("Nao ha caixa ativa para cancelar nesta OP.")
+
+        if (caixa["status"] or "") not in ["Em estoque", "Pesada"]:
+            raise ValueError("Nao e permitido cancelar caixa que ja saiu do estoque ou foi expedida.")
+
+        cursor.execute(q("""
+        UPDATE pa_caixas
+        SET status = ?,
+            cancelado_em = ?,
+            cancelado_por = ?,
+            observacoes = COALESCE(observacoes, '') || ?
+        WHERE id = ?
+        """), (
+            "Cancelada",
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            nome_usuario_atual(),
+            " | Cancelada no Modo de Pesagem da OP.",
+            caixa["id"],
+        ))
+
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+    return buscar_contexto_pesagem_op(op_id)
 
 
 def buscar_fornecedores():
