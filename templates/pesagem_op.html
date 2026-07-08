@@ -91,18 +91,35 @@
     <div class="section-title-row">
         <div>
             <span class="eyebrow">Preview Zebra</span>
-            <h2>Dados da etiqueta</h2>
+            <h2>Etiqueta da caixa #{{ etiqueta.numero_caixa }}</h2>
         </div>
+        <a
+            href="{{ url_for('etiqueta_pesagem_op', op_id=op.id, caixa_id=caixa_etiqueta.id) }}"
+            class="botao-editar"
+        >
+            Gerar etiqueta novamente
+        </a>
     </div>
-    <div class="etiqueta-preview">
+    <div class="etiqueta-preview {% if etiqueta.cancelada %}etiqueta-cancelada{% endif %}">
+        {% if etiqueta.cancelada %}
+        <div class="etiqueta-status-cancelada">CANCELADA</div>
+        {% endif %}
         <div><strong>{{ etiqueta.estabelecimento }}</strong></div>
         <div>Produto: {{ etiqueta.produto }}</div>
         <div>OP: {{ etiqueta.op }} | Caixa: {{ etiqueta.numero_caixa }}</div>
+        <div>Codigo caixa: {{ etiqueta.codigo_caixa }}</div>
         <div>Lote: {{ etiqueta.lote }}</div>
-        <div>Fabricacao: {{ etiqueta.data_fabricacao }} | Validade: {{ etiqueta.validade }}</div>
-        <div>Peso liquido: {{ etiqueta.peso_liquido|br_numero(3) }} kg</div>
+        <div>Fabricacao: {{ etiqueta.data_fabricacao_formatada }} | Validade: {{ etiqueta.validade_formatada }}</div>
+        <div>Peso bruto: {{ etiqueta.peso_bruto_formatado }} | Tara: {{ etiqueta.tara_formatada }}</div>
+        <div>Peso liquido: {{ etiqueta.peso_liquido_formatado }}</div>
+        <div>Pesagem: {{ etiqueta.data_hora_pesagem_formatada }}</div>
         <div class="etiqueta-codigo">{{ etiqueta.codigo_barras }}</div>
     </div>
+
+    <details class="etiqueta-zpl">
+        <summary>ZPL preparado</summary>
+        <textarea readonly rows="10">{{ etiqueta.zpl }}</textarea>
+    </details>
 </div>
 {% endif %}
 
@@ -127,6 +144,7 @@
                     <th>Status</th>
                     <th>Usuario</th>
                     <th>Data/hora</th>
+                    <th>Etiqueta</th>
                 </tr>
             </thead>
             <tbody>
@@ -139,6 +157,14 @@
                     <td>{{ caixa.status }}</td>
                     <td>{{ caixa.usuario_pesagem or "-" }}</td>
                     <td>{{ caixa.data_hora_pesagem or caixa.criado_em }}</td>
+                    <td>
+                        <a
+                            href="{{ url_for('etiqueta_pesagem_op', op_id=op.id, caixa_id=caixa.id) }}"
+                            class="botao-editar"
+                        >
+                            Visualizar
+                        </a>
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>

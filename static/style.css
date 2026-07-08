@@ -219,6 +219,21 @@ body {
     color: #111827;
 }
 
+.etiqueta-cancelada {
+    border-color: #b42318;
+    background: #fff1f2;
+}
+
+.etiqueta-status-cancelada {
+    margin-bottom: 8px;
+    padding: 8px;
+    background: #b42318;
+    color: #fff;
+    text-align: center;
+    font-weight: 900;
+    letter-spacing: 1px;
+}
+
 .etiqueta-codigo {
     margin-top: 10px;
     padding: 10px;
@@ -227,6 +242,23 @@ body {
     text-align: center;
     font-weight: 800;
     letter-spacing: 2px;
+}
+
+.etiqueta-zpl {
+    margin-top: 12px;
+    max-width: 620px;
+}
+
+.etiqueta-zpl summary {
+    cursor: pointer;
+    color: #1f3b4d;
+    font-weight: 800;
+}
+
+.etiqueta-zpl textarea {
+    margin-top: 8px;
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 12px;
 }
 
 label {

@@ -235,12 +235,31 @@ def register_producao_routes(app, integracoes=None):
         return render_template("pesagem_op.html", **contexto)
 
 
+    @app.route("/ordem-producao/<int:op_id>/pesagem/etiqueta/<int:caixa_id>")
+    @perfil_permitido("pcp", "producao")
+    def etiqueta_pesagem_op(op_id, caixa_id):
+        try:
+            contexto = buscar_contexto_pesagem_op(op_id, caixa_id)
+        except ValueError as erro:
+            flash(str(erro))
+            return redirect(url_for("consultar_op"))
+
+        if not contexto.get("caixa_etiqueta"):
+            flash("Caixa nao encontrada para esta OP.")
+            return redirect(url_for("pesagem_op", op_id=op_id))
+
+        return render_template("pesagem_op.html", **contexto)
+
+
     @app.route("/ordem-producao/<int:op_id>/pesagem/cancelar-ultima", methods=["POST"])
     @perfil_permitido("pcp", "producao")
     def cancelar_ultima_pesagem_op(op_id):
         try:
-            cancelar_ultima_caixa_pesagem_op(op_id)
+            contexto = cancelar_ultima_caixa_pesagem_op(op_id)
             flash("Ultima caixa cancelada com seguranca.")
+            caixa = contexto.get("caixa_etiqueta")
+            if caixa:
+                return redirect(url_for("etiqueta_pesagem_op", op_id=op_id, caixa_id=caixa["id"]))
         except ValueError as erro:
             flash(str(erro))
 
