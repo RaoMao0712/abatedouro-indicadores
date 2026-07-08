@@ -1108,6 +1108,7 @@ def calcular_fechamento_industrial_op(op_id):
     FROM pa_caixa_composicao comp
     INNER JOIN pa_caixas cx ON cx.id = comp.caixa_id
     WHERE comp.op_id = ?
+      AND COALESCE(cx.status, '') <> 'Cancelada'
     """), (op_id,))
     caixas = cursor.fetchone()
 

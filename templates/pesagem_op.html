@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+<div class="operational-page pesagem-op-page">
+
+<section class="hero-dashboard operational-hero">
+    <div>
+        <span class="eyebrow">Ordem de Producao</span>
+        <h2>Modo de Pesagem</h2>
+        <div class="hero-resumo-inline">
+            <span><strong>OP:</strong> {{ op.id }}</span>
+            <span><strong>Produto:</strong> {{ op.sku or "Galinha Cortada" }}</span>
+            <span><strong>Status:</strong> {{ op.status }}</span>
+        </div>
+    </div>
+</section>
+
+<div class="card pesagem-operacional">
+    <div class="pesagem-header">
+        <div>
+            <span class="eyebrow">Caixa atual</span>
+            <strong>#{{ proximo_numero }}</strong>
+        </div>
+        <div>
+            <span class="eyebrow">Lote</span>
+            <strong>{{ lote }}</strong>
+        </div>
+        <div>
+            <span class="eyebrow">Validade</span>
+            <strong>{{ validade or "-" }}</strong>
+        </div>
+        <div>
+            <span class="eyebrow">Data producao</span>
+            <strong>{{ op.data }}</strong>
+        </div>
+    </div>
+
+    <div class="pesagem-grid">
+        <div class="pesagem-destaque">
+            <span>Ultimo peso</span>
+            <strong>{{ ultimo_peso|br_numero(3) }} kg</strong>
+        </div>
+        <div class="pesagem-destaque">
+            <span>Total de caixas</span>
+            <strong>{{ total_caixas }}</strong>
+        </div>
+        <div class="pesagem-destaque">
+            <span>Peso total</span>
+            <strong>{{ peso_total|br_numero(3) }} kg</strong>
+        </div>
+        <div class="pesagem-destaque">
+            <span>Producao apontada</span>
+            <strong>{{ quantidade_apontada|br_numero(3) }} kg</strong>
+        </div>
+    </div>
+
+    {% if op.status == "Encerrada" and session.get("perfil") != "admin" %}
+        <p class="obs">Esta OP esta encerrada. Novas pesagens estao bloqueadas.</p>
+    {% else %}
+    <form method="post" class="pesagem-form" data-pesagem-form>
+        <label>Peso da caixa</label>
+        <div class="pesagem-input-row">
+            <input
+                type="text"
+                name="peso_caixa"
+                inputmode="decimal"
+                autocomplete="off"
+                placeholder="Ex.: 11,250"
+                required
+                autofocus
+                data-peso-caixa
+            >
+            <button type="submit" class="botao-principal">Registrar Peso</button>
+        </div>
+        <small class="obs">Aceita virgula ou ponto. Limite atual: {{ peso_maximo|br_numero(0) }} kg.</small>
+    </form>
+
+    <form
+        method="post"
+        action="{{ url_for('cancelar_ultima_pesagem_op', op_id=op.id) }}"
+        onsubmit="return confirm('Cancelar a ultima caixa registrada desta OP?')"
+        class="pesagem-cancelar-form"
+    >
+        <button type="submit" class="botao-excluir">Corrigir / Cancelar ultima caixa</button>
+    </form>
+    {% endif %}
+</div>
+
+{% if etiqueta %}
+<div class="card">
+    <div class="section-title-row">
+        <div>
+            <span class="eyebrow">Preview Zebra</span>
+            <h2>Dados da etiqueta</h2>
+        </div>
+    </div>
+    <div class="etiqueta-preview">
+        <div><strong>{{ etiqueta.estabelecimento }}</strong></div>
+        <div>Produto: {{ etiqueta.produto }}</div>
+        <div>OP: {{ etiqueta.op }} | Caixa: {{ etiqueta.numero_caixa }}</div>
+        <div>Lote: {{ etiqueta.lote }}</div>
+        <div>Fabricacao: {{ etiqueta.data_fabricacao }} | Validade: {{ etiqueta.validade }}</div>
+        <div>Peso liquido: {{ etiqueta.peso_liquido|br_numero(3) }} kg</div>
+        <div class="etiqueta-codigo">{{ etiqueta.codigo_barras }}</div>
+    </div>
+</div>
+{% endif %}
+
+<div class="card">
+    <div class="section-title-row">
+        <div>
+            <span class="eyebrow">Conferencia</span>
+            <h2>Caixas pesadas da OP</h2>
+        </div>
+        <a href="{{ url_for('consultar_op', op_id=op.id) }}" class="botao-editar">Voltar para OP</a>
+    </div>
+
+    {% if caixas %}
+    <div class="tabela-responsiva tabela-executiva expedicao-tabela">
+        <table>
+            <thead>
+                <tr>
+                    <th>Caixa</th>
+                    <th>Codigo</th>
+                    <th>Peso bruto</th>
+                    <th>Peso liquido</th>
+                    <th>Status</th>
+                    <th>Usuario</th>
+                    <th>Data/hora</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for caixa in caixas|reverse %}
+                <tr>
+                    <td>#{{ caixa.op_numero_caixa }}</td>
+                    <td><strong>{{ caixa.codigo_caixa }}</strong></td>
+                    <td>{{ caixa.peso_bruto|br_numero(3) }} kg</td>
+                    <td>{{ caixa.peso_liquido|br_numero(3) }} kg</td>
+                    <td>{{ caixa.status }}</td>
+                    <td>{{ caixa.usuario_pesagem or "-" }}</td>
+                    <td>{{ caixa.data_hora_pesagem or caixa.criado_em }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+        <p class="obs">Nenhuma caixa pesada nesta OP.</p>
+    {% endif %}
+</div>
+
+</div>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    const campoPeso = document.querySelector("[data-peso-caixa]");
+    if (!campoPeso) return;
+
+    campoPeso.focus();
+    campoPeso.select();
+
+    campoPeso.addEventListener("keydown", function (evento) {
+        if (evento.key === "Enter") {
+            evento.preventDefault();
+            campoPeso.closest("form").requestSubmit();
+        }
+    });
+});
+</script>
+{% endblock %}
