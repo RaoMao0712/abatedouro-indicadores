@@ -1,16 +1,22 @@
 """Servicos de Financeiro e Movimentacoes."""
 
 import calendar
+import csv
 import hashlib
+import json
 import re
 import time
 import uuid
 from datetime import datetime, date
+from io import BytesIO
+from pathlib import Path
 from urllib.parse import urlencode
 
 from openpyxl import load_workbook
 from openpyxl import Workbook
+from openpyxl.utils import get_column_letter
 from openpyxl.utils.datetime import from_excel
+from openpyxl.worksheet.datavalidation import DataValidation
 
 from database import DATABASE_URL, conectar, q
 from database.migrations import executar_alteracao_segura
@@ -37,6 +43,40 @@ ORIGEM_IMPORTACAO_DESPESAS = "excel_movimentacoes"
 ORIGEM_IMPORTACAO_VENDAS = "IMPORTACAO VENDAS"
 _PLANO_CONTAS_SYNC_EXECUTADO = False
 
+TABELAS_RESET_FINANCEIRO = [
+    "movimentacoes_financeiras",
+    "vendas_diarias",
+    "custos_mensais",
+]
+
+TABELAS_FINANCEIRAS_OPCIONAIS = [
+    "financeiro",
+    "financeiro_lancamentos",
+    "importacoes_financeiras",
+    "logs_importacao_financeira",
+    "importacao_financeira_logs",
+]
+
+CAMPOS_PLANILHA_OFICIAL = [
+    "Data do Documento",
+    "Data de Vencimento",
+    "Data de Pagamento",
+    "Numero do Documento",
+    "CNPJ/CPF",
+    "Favorecido/Cliente",
+    "Descricao",
+    "Historico",
+    "Tipo/Natureza",
+    "Categoria",
+    "Subcategoria",
+    "Centro de Analise",
+    "Valor do Documento",
+    "Valor Pago",
+    "Valor Liquido",
+    "Origem",
+    "Observacoes",
+]
+
 
 def derivar_plano_movimentacao(categoria, plano_conta_id=None):
     conta = resolver_conta_plano(categoria=categoria, plano_conta_id=plano_conta_id)
@@ -44,6 +84,37 @@ def derivar_plano_movimentacao(categoria, plano_conta_id=None):
     if not campos["categoria_movimentacao"]:
         campos["categoria_movimentacao"] = categoria or CATEGORIA_NAO_CLASSIFICADO
     return campos
+
+
+def normalizar_texto_plano(valor):
+    return normalizar_cabecalho_importacao(valor)
+
+
+def buscar_conta_plano_importacao(categoria, subcategoria=""):
+    categoria_norm = normalizar_texto_plano(categoria)
+    subcategoria_norm = normalizar_texto_plano(subcategoria)
+    if not categoria_norm:
+        return None
+
+    candidatos = []
+    for conta in listar_plano_contas():
+        if normalizar_texto_plano(conta["categoria"]) == categoria_norm:
+            candidatos.append(conta)
+        elif normalizar_texto_plano(conta["nome"]) == categoria_norm and not subcategoria_norm:
+            return conta
+
+    if subcategoria_norm:
+        for conta in candidatos:
+            if normalizar_texto_plano(conta["subcategoria"]) == subcategoria_norm:
+                return conta
+        return None
+
+    sem_subcategoria = [conta for conta in candidatos if not conta["subcategoria"]]
+    if len(sem_subcategoria) == 1:
+        return sem_subcategoria[0]
+    if len(candidatos) == 1:
+        return candidatos[0]
+    return resolver_conta_plano(categoria=categoria)
 
 
 FORMAS_PAGAMENTO_FINANCEIRO = [
@@ -261,6 +332,124 @@ def criar_tabela_movimentacoes_financeiras():
     conn.commit()
     conn.close()
     sincronizar_movimentacoes_plano_contas()
+
+
+def listar_tabelas_banco(cursor):
+    if DATABASE_URL:
+        cursor.execute("""
+        SELECT table_name as name
+        FROM information_schema.tables
+        WHERE table_schema = 'public'
+        ORDER BY table_name
+        """)
+    else:
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+    return [item["name"] for item in cursor.fetchall()]
+
+
+def contar_registros_tabela(cursor, tabela):
+    cursor.execute(f"SELECT COUNT(*) as total FROM {tabela}")
+    return int(cursor.fetchone()["total"] or 0)
+
+
+def tabelas_financeiras_existentes(cursor):
+    existentes = set(listar_tabelas_banco(cursor))
+    candidatas = TABELAS_RESET_FINANCEIRO + TABELAS_FINANCEIRAS_OPCIONAIS
+    return [tabela for tabela in candidatas if tabela in existentes]
+
+
+def auditar_reset_financeiro():
+    criar_tabela_movimentacoes_financeiras()
+    conn = conectar()
+    cursor = conn.cursor()
+    try:
+        tabelas = tabelas_financeiras_existentes(cursor)
+        return {
+            "tabelas_limpeza": [
+                {"tabela": tabela, "registros": contar_registros_tabela(cursor, tabela)}
+                for tabela in tabelas
+            ],
+            "tabelas_preservadas": [
+                "plano_contas_mestre",
+                "parametros_custos",
+                "usuarios",
+                "ordens_producao",
+                "apontamentos_producao",
+                "apontamentos_setor",
+                "apontamentos_descartes",
+                "almoxarifado_insumos",
+                "expedicoes",
+                "expedicao_itens",
+            ],
+        }
+    finally:
+        conn.close()
+
+
+def gerar_backup_reset_financeiro(pasta_base=None):
+    criar_tabela_movimentacoes_financeiras()
+    pasta_raiz = Path(pasta_base or "backups/reset_financeiro")
+    pasta_backup = pasta_raiz / datetime.now().strftime("%Y%m%d_%H%M%S")
+    pasta_backup.mkdir(parents=True, exist_ok=True)
+
+    conn = conectar()
+    cursor = conn.cursor()
+    manifest = {
+        "criado_em": datetime.now().isoformat(timespec="seconds"),
+        "tabelas": [],
+    }
+    try:
+        for tabela in tabelas_financeiras_existentes(cursor):
+            cursor.execute(f"SELECT * FROM {tabela}")
+            linhas = cursor.fetchall()
+            colunas = [desc[0] for desc in cursor.description]
+            caminho_csv = pasta_backup / f"{tabela}.csv"
+            with caminho_csv.open("w", newline="", encoding="utf-8-sig") as arquivo:
+                writer = csv.writer(arquivo)
+                writer.writerow(colunas)
+                for linha in linhas:
+                    writer.writerow([linha[coluna] for coluna in colunas])
+            manifest["tabelas"].append({
+                "tabela": tabela,
+                "registros": len(linhas),
+                "arquivo": caminho_csv.name,
+            })
+
+        (pasta_backup / "manifest.json").write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        return {
+            "pasta": str(pasta_backup),
+            "manifest": manifest,
+        }
+    finally:
+        conn.close()
+
+
+def executar_reset_financeiro_controlado(pasta_backup=None, confirmar=False):
+    if not confirmar:
+        raise ValueError("Reset financeiro exige confirmacao explicita.")
+
+    backup = gerar_backup_reset_financeiro(pasta_backup)
+    conn = conectar()
+    cursor = conn.cursor()
+    limpas = []
+    try:
+        for item in backup["manifest"]["tabelas"]:
+            tabela = item["tabela"]
+            cursor.execute(f"DELETE FROM {tabela}")
+            limpas.append(tabela)
+        conn.commit()
+        return {
+            "backup": backup,
+            "tabelas_limpas": limpas,
+        }
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def sincronizar_movimentacoes_plano_contas():
@@ -669,7 +858,9 @@ def normalizar_cabecalho_importacao(valor):
 
 MAPEAMENTO_CABECALHOS_IMPORTACAO = {
     "categoria": ["categoria", "classificacao", "classificacaofinanceira"],
-    "natureza": ["natureza", "tipo", "receitadespesa", "entradasaida", "entradaousaida"],
+    "subcategoria": ["subcategoria", "subcategoriafinanceira"],
+    "centro_analise": ["centroanalise", "centrodeanalise", "centrodecusto", "centro"],
+    "natureza": ["natureza", "tipo", "tiponatureza", "receitadespesa", "entradasaida", "entradaousaida"],
     "data_documento": ["datadocumento", "datadodocumento", "dataemissao", "emissao", "data", "datavenda", "datadavenda"],
     "cnpj_cpf": ["cnpjcpf", "cnpj", "cpf"],
     "valor_documento": ["valordocumento", "valordodocumento", "valor", "valorvenda", "valordavenda", "total", "totalvenda"],
@@ -677,12 +868,14 @@ MAPEAMENTO_CABECALHOS_IMPORTACAO = {
     "data_vencimento": ["datavencimento", "datadevencimento", "vencimento", "datarecebimento", "previsaorecebimento"],
     "valor_pago": ["valorpago", "pago", "valorpagamento", "valorrecebido", "recebido"],
     "data_pagamento": ["datapagamento", "datadepagamento", "pagamento", "datarealizacao", "datarecebido", "datarecebimento"],
-    "favorecido": ["favorecido", "fornecedor", "cliente", "comprador"],
+    "favorecido": ["favorecido", "favorecidocliente", "fornecedor", "cliente", "comprador"],
     "valor_liquido": ["valorliquido", "liquido", "valorliquidado", "valorliquidovenda"],
     "descricao": ["descricao", "descricaohistorico", "produto", "item"],
     "parceiro": ["parceiro", "razaosocial", "nome", "nomecliente"],
     "historico": ["historico", "histórico", "observacao", "observacoes", "historicodevenda"],
     "forma_pagamento": ["formapagamento", "formaderecebimento", "meio", "meiopagamento", "meiorecebimento"],
+    "origem": ["origem", "origemimportacao", "origemdolancamento"],
+    "observacoes": ["observacoes", "observacao", "comentarios", "comentario"],
 }
 
 
@@ -701,7 +894,7 @@ def mapear_cabecalhos_importacao(ws):
                 colunas[campo] = cabecalhos[chave]
                 break
 
-    obrigatorios = ["data_documento", "valor_documento"]
+    obrigatorios = ["data_documento", "valor_documento", "natureza", "categoria"]
     ausentes = [campo for campo in obrigatorios if campo not in colunas]
     return colunas, ausentes
 
@@ -773,7 +966,9 @@ def normalizar_natureza_importacao(valor):
     if texto in ["receita", "receitas", "entrada", "entradas", "receber", "credito", "creditos"]:
         return "Entrada"
     if texto in ["despesa", "despesas", "saida", "saidas", "pagar", "debito", "debitos"]:
-        return "Saída"
+        return "Saida"
+    if texto in ["neutro", "neutra", "transferencia", "transferencias"]:
+        return "Neutro"
     return ""
 
 
@@ -784,11 +979,11 @@ def resolver_tipo_importacao(ws, linha, colunas, categoria, natureza_padrao):
 
     natureza_padrao_normalizada = normalizar_cabecalho_importacao(natureza_padrao)
     if natureza_padrao_normalizada in ["despesa", "despesas", "saida", "saidas"]:
-        return "Saída"
+        return "Saida"
     if natureza_padrao_normalizada in ["receita", "receitas", "entrada", "entradas"]:
         return "Entrada"
 
-    return natureza_por_categoria(categoria) or "Saída"
+    return natureza_por_categoria(categoria) or "Saida"
 
 
 def montar_import_key(dados, incluir_origem=False):
@@ -829,15 +1024,27 @@ def preparar_linha_importacao(
     valor_documento_original = numero_importacao(valor_celula(ws, linha, colunas, "valor_documento"))
     valor_liquido_original = numero_importacao(valor_celula(ws, linha, colunas, "valor_liquido"))
     valor_pago_original = numero_importacao(valor_celula(ws, linha, colunas, "valor_pago"))
-    categoria = texto_importacao(valor_celula(ws, linha, colunas, "categoria")) or categoria_padrao
+    categoria_informada = texto_importacao(valor_celula(ws, linha, colunas, "categoria"))
+    subcategoria_informada = texto_importacao(valor_celula(ws, linha, colunas, "subcategoria"))
+    centro_analise_informado = texto_importacao(valor_celula(ws, linha, colunas, "centro_analise"))
+    categoria = categoria_informada or categoria_padrao
     descricao = texto_importacao(valor_celula(ws, linha, colunas, "descricao"))
     historico = texto_importacao(valor_celula(ws, linha, colunas, "historico"))
     favorecido = texto_importacao(valor_celula(ws, linha, colunas, "favorecido"))
     parceiro = texto_importacao(valor_celula(ws, linha, colunas, "parceiro"))
+    natureza_informada = texto_importacao(valor_celula(ws, linha, colunas, "natureza"))
 
     valor_referencia = valor_liquido_original or valor_documento_original or valor_pago_original
+    if not natureza_informada:
+        raise ValueError("tipo/natureza obrigatorio")
     tipo = resolver_tipo_importacao(ws, linha, colunas, categoria, natureza_padrao)
-    plano = derivar_plano_movimentacao(categoria)
+    if not tipo:
+        raise ValueError("tipo/natureza obrigatorio")
+    conta_plano = buscar_conta_plano_importacao(categoria, subcategoria_informada)
+    if not conta_plano:
+        detalhe = f"{categoria} / {subcategoria_informada}" if subcategoria_informada else categoria
+        raise ValueError(f"categoria/subcategoria fora do Plano de Contas: {detalhe}")
+    plano = derivar_plano_movimentacao(categoria, conta_plano["id"])
     categoria = plano["categoria_movimentacao"]
 
     valor_documento = abs(valor_documento_original or valor_referencia)
@@ -866,7 +1073,7 @@ def preparar_linha_importacao(
         "data_documento": data_documento,
         "valor_documento": valor_documento,
         "prazo_medio_dias": 0,
-        "observacoes": f"Importado do Excel. Historico: {historico}".strip(),
+        "observacoes": texto_importacao(valor_celula(ws, linha, colunas, "observacoes")) or f"Importado do Excel. Historico: {historico}".strip(),
         "cnpj_cpf": texto_importacao(valor_celula(ws, linha, colunas, "cnpj_cpf")),
         "numero_documento": texto_importacao(valor_celula(ws, linha, colunas, "numero_documento")),
         "favorecido": favorecido,
@@ -874,12 +1081,12 @@ def preparar_linha_importacao(
         "historico": historico,
         "valor_pago": valor_pago,
         "valor_liquido": valor_liquido,
-        "origem_importacao": origem_importacao,
+        "origem_importacao": texto_importacao(valor_celula(ws, linha, colunas, "origem")) or origem_importacao,
         "plano_conta_id": plano["plano_conta_id"],
         "grupo_gerencial": plano["grupo_gerencial"],
         "categoria_plano": plano["categoria_plano"],
         "subcategoria": plano["subcategoria"],
-        "centro_analise": plano["centro_analise"],
+        "centro_analise": centro_analise_informado or plano["centro_analise"],
         "linha_dre": plano["linha_dre"],
         "tipo_conta": plano["tipo_conta"],
     }
@@ -982,8 +1189,8 @@ def importar_movimentacoes_financeiras_excel(
             if linha_importacao_vazia(dados):
                 resultado["ignoradas"] += 1
                 continue
-            if not dados["data_documento"] and not dados["data_vencimento"]:
-                raise ValueError("linha sem data do documento e sem vencimento")
+            if not dados["data_documento"]:
+                raise ValueError("linha sem data do documento")
             if float(dados["valor"] or 0) <= 0:
                 raise ValueError("linha sem valor financeiro valido")
 
@@ -1073,6 +1280,91 @@ def importar_movimentacoes_financeiras_excel(
 
     resultado["tempo_processamento_segundos"] = round(time.perf_counter() - inicio_processamento, 2)
     return resultado
+
+
+def gerar_planilha_modelo_importacao_financeira():
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Importacao Financeira"
+    ws.append(CAMPOS_PLANILHA_OFICIAL)
+
+    exemplo = [
+        "2026-01-01",
+        "2026-01-10",
+        "",
+        "NF-0001",
+        "",
+        "Cliente ou fornecedor",
+        "Descricao do lancamento",
+        "Historico complementar",
+        "Receita",
+        "Venda de Producao Propria",
+        "",
+        "",
+        0,
+        0,
+        0,
+        "NOVA BASE OFICIAL",
+        "",
+    ]
+    ws.append(exemplo)
+    ws.freeze_panes = "A2"
+
+    for indice, titulo in enumerate(CAMPOS_PLANILHA_OFICIAL, start=1):
+        ws.column_dimensions[get_column_letter(indice)].width = max(16, len(titulo) + 2)
+
+    plano_ws = wb.create_sheet("Plano de Contas")
+    plano_ws.append([
+        "ID",
+        "Categoria",
+        "Subcategoria",
+        "Conta",
+        "Grupo Gerencial",
+        "Linha DRE",
+        "Tipo Conta",
+    ])
+    contas = listar_plano_contas()
+    for conta in contas:
+        plano_ws.append([
+            conta["id"],
+            conta["categoria"],
+            conta["subcategoria"],
+            conta["nome"],
+            conta["grupo_gerencial"],
+            conta["linha_dre"],
+            conta["tipo_conta"],
+        ])
+
+    categorias_unicas = sorted({conta["categoria"] for conta in contas if conta["categoria"]})
+    subcategorias_unicas = sorted({conta["subcategoria"] for conta in contas if conta["subcategoria"]})
+    plano_ws["I1"] = "Categorias"
+    for linha, categoria in enumerate(categorias_unicas, start=2):
+        plano_ws.cell(linha, 9).value = categoria
+    plano_ws["J1"] = "Subcategorias"
+    for linha, subcategoria in enumerate(subcategorias_unicas, start=2):
+        plano_ws.cell(linha, 10).value = subcategoria
+
+    for coluna in range(1, 11):
+        plano_ws.column_dimensions[get_column_letter(coluna)].width = 24
+
+    max_linhas = 1000
+    validacoes = [
+        DataValidation(type="list", formula1='"Receita,Despesa,Neutro"', allow_blank=False),
+        DataValidation(type="list", formula1=f"'Plano de Contas'!$I$2:$I${len(categorias_unicas) + 1}", allow_blank=False),
+        DataValidation(type="list", formula1=f"'Plano de Contas'!$J$2:$J${len(subcategorias_unicas) + 1}", allow_blank=True),
+    ]
+    for validacao in validacoes:
+        ws.add_data_validation(validacao)
+
+    validacoes[0].add(f"I2:I{max_linhas}")
+    validacoes[1].add(f"J2:J{max_linhas}")
+    if subcategorias_unicas:
+        validacoes[2].add(f"K2:K{max_linhas}")
+
+    buffer = BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+    return buffer
 
 
 def buscar_pendencias_classificacao():
