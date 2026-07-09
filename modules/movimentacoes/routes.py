@@ -1,14 +1,9 @@
 """Rotas de Movimentacoes com compatibilidade para URLs antigas do Financeiro."""
 
-import json
-import zipfile
 from datetime import datetime
-from io import BytesIO
-from pathlib import Path
 
-from flask import abort, flash, redirect, render_template, request, send_file, url_for
+from flask import flash, redirect, render_template, request, send_file, url_for
 
-from database import conectar
 from modules.auth.decorators import perfil_permitido
 
 from .services import (
@@ -21,12 +16,10 @@ from .services import (
     STATUS_FINANCEIRO_FILTRO,
     agrupar_fluxo_por_dia,
     atualizar_movimentacao_financeira,
-    auditar_reset_financeiro,
     buscar_movimentacao_financeira_por_id,
     buscar_movimentacoes_financeiras,
     buscar_pendencias_classificacao,
     calcular_resumo_financeiro,
-    executar_reset_financeiro_controlado,
     excluir_movimentacao_financeira,
     gerar_excel_auditoria_financeira,
     gerar_planilha_modelo_importacao_financeira,
@@ -38,22 +31,6 @@ from .services import (
 
 
 def register_movimentacoes_routes(app):
-
-    def contar_tabelas_reset(tabelas):
-        conn = conectar()
-        cursor = conn.cursor()
-        try:
-            contagens = {}
-            for tabela in tabelas:
-                try:
-                    cursor.execute(f"SELECT COUNT(*) as total FROM {tabela}")
-                    contagens[tabela] = int(cursor.fetchone()["total"] or 0)
-                except Exception:
-                    contagens[tabela] = None
-            return contagens
-        finally:
-            conn.close()
-
 
     def destino_movimentacao_por_tipo(tipo):
         if tipo == "Saída":
@@ -190,59 +167,6 @@ def register_movimentacoes_routes(app):
             as_attachment=True,
             download_name="Modelo_Importacao_Financeira_Oficial.xlsx",
             mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
-
-
-    @app.route("/movimentacoes/reset-financeiro-controlado-executar", methods=["POST"])
-    @perfil_permitido("admin")
-    def reset_financeiro_controlado_executar():
-        if request.form.get("confirmacao") != "RESET_FINANCEIRO_PRODUCAO_AUTORIZADO":
-            abort(400)
-
-        auditoria_antes = auditar_reset_financeiro()
-        tabelas_preservadas = auditoria_antes["tabelas_preservadas"]
-        preservadas_antes = contar_tabelas_reset(tabelas_preservadas)
-
-        reset = executar_reset_financeiro_controlado(confirmar=True)
-
-        auditoria_depois = auditar_reset_financeiro()
-        preservadas_depois = contar_tabelas_reset(tabelas_preservadas)
-        tabelas_depois = {
-            item["tabela"]: item["registros"]
-            for item in auditoria_depois["tabelas_limpeza"]
-        }
-        exportadas = {
-            item["tabela"]: item["registros"]
-            for item in reset["backup"]["manifest"]["tabelas"]
-        }
-
-        relatorio = {
-            "backup_render": reset["backup"]["pasta"],
-            "tabelas_exportadas": exportadas,
-            "tabelas_apagadas": exportadas,
-            "tabelas_financeiras_apos_reset": tabelas_depois,
-            "tabelas_preservadas_antes": preservadas_antes,
-            "tabelas_preservadas_depois": preservadas_depois,
-            "tabelas_limpas": reset["tabelas_limpas"],
-        }
-
-        pasta_backup = Path(reset["backup"]["pasta"])
-        (pasta_backup / "reset_resultado.json").write_text(
-            json.dumps(relatorio, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-
-        arquivo_zip = BytesIO()
-        with zipfile.ZipFile(arquivo_zip, "w", zipfile.ZIP_DEFLATED) as pacote:
-            for caminho in pasta_backup.glob("*"):
-                pacote.write(caminho, caminho.name)
-        arquivo_zip.seek(0)
-
-        return send_file(
-            arquivo_zip,
-            as_attachment=True,
-            download_name=f"{pasta_backup.name}_reset_financeiro.zip",
-            mimetype="application/zip",
         )
 
 
