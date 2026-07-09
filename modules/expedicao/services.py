@@ -1,6 +1,7 @@
 """Servicos de Expedicao, Embalagem e estoques PI/PA."""
 
 from datetime import datetime, timedelta
+import unicodedata
 
 from database import DATABASE_URL, conectar, q
 from modules.auth.services import nome_usuario_atual
@@ -134,6 +135,23 @@ LOCAL_ESTOQUE_LSM = "Câmara Fria LSM"
 
 def sku_sem_embalagem_secundaria(sku):
     return (sku or "").strip().lower() == "galinha inteira"
+
+
+def destino_transferencia_valido(destino):
+    texto = (destino or "").strip()
+    try:
+        if "Ã" in texto or "Â" in texto:
+            texto = texto.encode("latin1").decode("utf-8")
+    except UnicodeError:
+        pass
+
+    texto = "".join(
+        caractere
+        for caractere in unicodedata.normalize("NFKD", texto)
+        if not unicodedata.combining(caractere)
+    ).lower()
+
+    return texto == "camara fria lsm"
 
 
 def obter_local_estoque_id_cursor(cursor, nome):
@@ -1645,14 +1663,15 @@ def salvar_romaneio_expedicao(form):
     criar_tabelas_expedicao()
 
     data_romaneio = (form.get("data") or "").strip()
-    destino = (form.get("destino") or LOCAL_ESTOQUE_LSM).strip()
+    destino_informado = (form.get("destino") or LOCAL_ESTOQUE_LSM).strip()
+    destino = LOCAL_ESTOQUE_LSM
     responsavel = (form.get("responsavel") or "").strip()
     observacoes = (form.get("observacoes") or "").strip()
 
     if not data_romaneio:
         raise ValueError("Informe a data do romaneio.")
 
-    if destino != LOCAL_ESTOQUE_LSM:
+    if not destino_transferencia_valido(destino_informado):
         raise ValueError("Nesta sprint o destino permitido e Camara Fria LSM.")
 
     numero_romaneio = gerar_numero_romaneio(data_romaneio)
@@ -1887,7 +1906,7 @@ def confirmar_transferencia_romaneio(expedicao_id, caixa_ids):
             raise ValueError("Somente romaneios abertos podem ser confirmados.")
         if expedicao["tipo_movimentacao"] != "TRANSFERENCIA":
             raise ValueError("Este romaneio nao e de transferencia.")
-        if expedicao["destino"] != LOCAL_ESTOQUE_LSM:
+        if not destino_transferencia_valido(expedicao["destino"]):
             raise ValueError("Nesta sprint o destino permitido e Camara Fria LSM.")
 
         origem_id = obter_local_estoque_id_cursor(cursor, LOCAL_ESTOQUE_ABATEDOURO)
