@@ -3,6 +3,15 @@
 import calendar
 
 from database import conectar, q
+from modules.financeiro.services import (
+    LINHA_DEDUCOES_RECEITA,
+    LINHA_DESPESAS_OPERACIONAIS,
+    LINHA_RECEITA_BRUTA,
+    LINHA_RESULTADO_NAO_OPERACIONAL,
+)
+
+
+TIPOS_SAIDA = ("Saida", "Saída", "SaÃ­da", "Sa?da")
 
 
 def buscar_vendas_periodo(data_inicio, data_fim):
@@ -29,13 +38,49 @@ def buscar_receita_bruta_movimentacoes(data_inicio, data_fim):
       AND COALESCE(status, 'Pendente') <> ?
       AND data_documento BETWEEN ? AND ?
       AND (
-        categoria = ?
-        OR origem_importacao = ?
+        linha_dre = ?
+        OR categoria IN (?, ?, ?)
       )
-    """), ("Entrada", "Cancelado", data_inicio, data_fim, "Receita Bruta", "IMPORTACAO VENDAS"))
+    """), (
+        "Entrada", "Cancelado", data_inicio, data_fim,
+        LINHA_RECEITA_BRUTA,
+        "Receita Bruta", "Venda de Producao Propria", "Venda de Mercadorias",
+    ))
     item = cursor.fetchone()
     conn.close()
     return float(item["total"] or 0)
+
+
+def buscar_deducoes_receita_movimentacoes(data_inicio, data_fim):
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute(q("""
+    SELECT COALESCE(SUM(valor), 0) as total
+    FROM movimentacoes_financeiras
+    WHERE COALESCE(status, 'Pendente') <> ?
+      AND data_documento BETWEEN ? AND ?
+      AND linha_dre = ?
+    """), ("Cancelado", data_inicio, data_fim, LINHA_DEDUCOES_RECEITA))
+    item = cursor.fetchone()
+    conn.close()
+    return float(item["total"] or 0)
+
+
+def buscar_resultado_nao_operacional_movimentacoes(data_inicio, data_fim):
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute(q("""
+    SELECT
+        COALESCE(SUM(CASE WHEN tipo = ? THEN valor ELSE 0 END), 0) as entradas,
+        COALESCE(SUM(CASE WHEN tipo = ? THEN 0 ELSE valor END), 0) as saidas
+    FROM movimentacoes_financeiras
+    WHERE COALESCE(status, 'Pendente') <> ?
+      AND data_documento BETWEEN ? AND ?
+      AND linha_dre = ?
+    """), ("Entrada", "Entrada", "Cancelado", data_inicio, data_fim, LINHA_RESULTADO_NAO_OPERACIONAL))
+    item = cursor.fetchone()
+    conn.close()
+    return float(item["entradas"] or 0) - float(item["saidas"] or 0)
 
 
 def buscar_parametros_custos_por_sku():
@@ -77,15 +122,20 @@ def buscar_custos_operacionais_movimentacoes_por_categoria(competencia):
     cursor = conn.cursor()
     cursor.execute(q("""
     SELECT
-        categoria,
+        COALESCE(NULLIF(categoria_plano, ''), categoria) as categoria,
         COALESCE(SUM(valor), 0) as total
     FROM movimentacoes_financeiras
-    WHERE tipo = ?
+    WHERE tipo IN (?, ?, ?, ?)
       AND COALESCE(status, 'Pendente') <> ?
       AND data_documento BETWEEN ? AND ?
-    GROUP BY categoria
+      AND (
+        linha_dre = ?
+        OR linha_dre IS NULL
+        OR TRIM(linha_dre) = ''
+      )
+    GROUP BY COALESCE(NULLIF(categoria_plano, ''), categoria)
     ORDER BY categoria
-    """), ("Saída", "Cancelado", data_inicio, data_fim))
+    """), (*TIPOS_SAIDA, "Cancelado", data_inicio, data_fim, LINHA_DESPESAS_OPERACIONAIS))
     custos = cursor.fetchall()
     conn.close()
     return custos

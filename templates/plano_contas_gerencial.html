@@ -61,10 +61,11 @@
         <table>
             <thead>
                 <tr>
-                    <th>Nome</th>
-                    <th>Natureza</th>
-                    <th>DRE</th>
-                    <th>Resultado Operacional</th>
+                    <th>Conta</th>
+                    <th>Categoria</th>
+                    <th>Subcategoria</th>
+                    <th>Linha DRE</th>
+                    <th>Tipo</th>
                     <th>Fluxo</th>
                     <th>Estoque</th>
                     <th>CMV</th>
@@ -77,9 +78,10 @@
                 {% for conta in contas %}
                 <tr>
                     <td><strong>{{ conta.nome }}</strong></td>
-                    <td>{{ conta.natureza }}</td>
-                    <td>{{ "Sim" if conta.impacta_dre else "Nao" }}</td>
-                    <td>{{ "Sim" if conta.impacta_resultado_operacional else "Nao" }}</td>
+                    <td>{{ conta.categoria }}</td>
+                    <td>{{ conta.subcategoria or "-" }}</td>
+                    <td>{{ conta.linha_dre }}</td>
+                    <td>{{ conta.tipo_conta }}</td>
                     <td>{{ "Sim" if conta.impacta_fluxo_caixa else "Nao" }}</td>
                     <td>{{ "Sim" if conta.formacao_estoque else "Nao" }}</td>
                     <td>{{ "Sim" if conta.cmv else "Nao" }}</td>

@@ -218,10 +218,10 @@
             </div>
 
             <div class="dre-acoes-topo dre-acoes-compactas">
-                <select name="nova_categoria" required>
-                    <option value="">Nova categoria</option>
-                    {% for categoria in categorias_reclassificacao %}
-                    <option value="{{ categoria }}">{{ categoria }}</option>
+                <select name="plano_conta_id" required>
+                    <option value="">Nova conta gerencial</option>
+                    {% for conta in contas_reclassificacao %}
+                    <option value="{{ conta.id }}">{{ conta.label }}</option>
                     {% endfor %}
                 </select>
                 <button type="submit" class="botao-dre-exportar">Aplicar</button>

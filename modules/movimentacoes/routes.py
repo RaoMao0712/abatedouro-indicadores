@@ -204,7 +204,7 @@ def register_movimentacoes_routes(app):
             try:
                 atualizadas = reclassificar_movimentacoes(
                     request.form.getlist("movimentacao_id"),
-                    request.form.get("nova_categoria", "")
+                    request.form.get("plano_conta_id", "")
                 )
                 flash(f"{atualizadas} movimentacao(oes) reclassificada(s) com sucesso.")
             except Exception as erro:

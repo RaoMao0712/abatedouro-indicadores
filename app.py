@@ -30,6 +30,7 @@ from modules.expedicao.services import (
     remover_movimentacoes_estoque_pi_por_op,
 )
 from modules.movimentacoes.services import criar_tabela_movimentacoes_financeiras
+from modules.financeiro.services import criar_tabela_plano_contas_mestre
 from modules.almoxarifado.services import (
     criar_tabelas_almoxarifado,
     criar_tabelas_estoque_almoxarifado,
@@ -556,6 +557,7 @@ def inicializar_schema_aplicacao():
         criar_tabelas_almoxarifado,
         criar_tabelas_estoque_almoxarifado,
         criar_tabelas_receitas_sku,
+        criar_tabela_plano_contas_mestre,
         criar_tabela_movimentacoes_financeiras,
         criar_tabela_fornecedores,
         manutencao_service.criar_tabelas_manutencao,
