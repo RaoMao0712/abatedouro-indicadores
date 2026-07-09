@@ -22,6 +22,7 @@ from .services import (
     calcular_resumo_financeiro,
     excluir_movimentacao_financeira,
     gerar_excel_auditoria_financeira,
+    gerar_planilha_modelo_importacao_financeira,
     importar_movimentacoes_financeiras_excel,
     montar_contexto_auditoria_financeira,
     reclassificar_movimentacoes,
@@ -155,6 +156,19 @@ def register_movimentacoes_routes(app):
             subtitulo_importacao="Importacao inicial via Excel com deduplicacao por documento, datas, favorecido, valor e historico.",
             botao_importacao="Importar movimentacoes",
         )
+
+
+    @app.route("/movimentacoes/modelo-importacao-oficial")
+    @perfil_permitido("pcp")
+    def modelo_importacao_financeira_oficial():
+        arquivo = gerar_planilha_modelo_importacao_financeira()
+        return send_file(
+            arquivo,
+            as_attachment=True,
+            download_name="Modelo_Importacao_Financeira_Oficial.xlsx",
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
 
     @app.route("/movimentacoes/importar-vendas", methods=["GET", "POST"])
     @perfil_permitido("pcp")
