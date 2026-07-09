@@ -48,6 +48,44 @@
 <div class="card expedicao-card">
     <div class="section-title-row">
         <div>
+            <span class="eyebrow">Produto Acabado</span>
+            <h2>Saldo PA por local</h2>
+        </div>
+    </div>
+
+    {% if saldo_pa_por_local %}
+    <div class="tabela-responsiva tabela-executiva expedicao-tabela">
+        <table>
+            <thead>
+                <tr>
+                    <th>Local</th>
+                    <th>SKU</th>
+                    <th>Caixas</th>
+                    <th>Peso liquido</th>
+                    <th>Peso bruto</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in saldo_pa_por_local %}
+                <tr>
+                    <td><strong>{{ item.local_estoque }}</strong></td>
+                    <td>{{ item.sku }}</td>
+                    <td>{{ item.quantidade_caixas }}</td>
+                    <td>{{ item.peso_liquido_total|br_numero }}</td>
+                    <td>{{ item.peso_bruto_total|br_numero }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+        <p class="obs">Nenhum saldo de PA por local registrado ainda.</p>
+    {% endif %}
+</div>
+
+<div class="card expedicao-card">
+    <div class="section-title-row">
+        <div>
             <span class="eyebrow">Produto Intermediário</span>
             <h2>Saldo de PI por OP</h2>
         </div>
@@ -106,6 +144,7 @@
                     <th>SKU</th>
                     <th>Fabricação</th>
                     <th>Validade</th>
+                    <th>Local</th>
                     <th>Unid./Bandejas</th>
                     <th>Peso líquido</th>
                     <th>Status</th>
@@ -118,6 +157,7 @@
                     <td>{{ caixa.sku }}</td>
                     <td>{{ caixa.data_fabricacao or "-" }}</td>
                     <td>{{ caixa.data_validade or "-" }}</td>
+                    <td>{{ caixa.local_estoque or "Abatedouro" }}</td>
                     <td>{{ caixa.quantidade_bandejas|br_numero }}</td>
                     <td>{{ caixa.peso_liquido|br_numero }}</td>
                     <td>

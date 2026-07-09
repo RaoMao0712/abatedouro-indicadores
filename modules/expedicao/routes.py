@@ -19,6 +19,7 @@ from .services import (
     buscar_movimentacoes_estoque_pi,
     buscar_ops_com_saldo_pi,
     buscar_ops_para_embalagem_primaria,
+    buscar_saldo_pa_por_local,
     buscar_saldos_estoque_pi,
     calcular_fechamento_industrial_op,
     calcular_resumo_expedicao,
@@ -102,6 +103,7 @@ def register_expedicao_routes(app, integracoes=None):
         saldos_pi = buscar_saldos_estoque_pi()
         movimentacoes_pi = buscar_movimentacoes_estoque_pi()
         caixas_pa = buscar_caixas_pa()
+        saldo_pa_por_local = buscar_saldo_pa_por_local()
         resumo = calcular_resumo_estoques_pi_pa(saldos_pi, caixas_pa)
 
         return render_template(
@@ -109,6 +111,7 @@ def register_expedicao_routes(app, integracoes=None):
             saldos_pi=saldos_pi,
             movimentacoes_pi=movimentacoes_pi,
             caixas_pa=caixas_pa,
+            saldo_pa_por_local=saldo_pa_por_local,
             resumo=resumo
         )
 

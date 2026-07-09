@@ -12,6 +12,8 @@ from .etiquetas import montar_payload_etiqueta
 
 
 PESO_CAIXA_MAXIMO_KG = float(os.getenv("PESAGEM_PESO_MAXIMO_KG", "80"))
+LOCAL_ESTOQUE_ABATEDOURO = "Abatedouro"
+LOCAL_ESTOQUE_LSM = "Câmara Fria LSM"
 
 
 def criar_tabela_tempos_setor():
@@ -56,11 +58,49 @@ def _alterar_tabela_se_necessario(cursor, sql):
         pass
 
 
+def obter_local_estoque_id_cursor(cursor, nome):
+    cursor.execute(q("""
+    SELECT id
+    FROM locais_estoque
+    WHERE nome = ?
+    """), (nome,))
+    local = cursor.fetchone()
+    if not local:
+        raise ValueError(f"Local de estoque nao encontrado: {nome}")
+    return local["id"]
+
+
+def inicializar_locais_estoque(cursor):
+    for nome, tipo in [
+        (LOCAL_ESTOQUE_ABATEDOURO, "interno"),
+        (LOCAL_ESTOQUE_LSM, "interno"),
+    ]:
+        cursor.execute(q("""
+        INSERT INTO locais_estoque (nome, tipo, ativo)
+        SELECT ?, ?, ?
+        WHERE NOT EXISTS (
+            SELECT 1 FROM locais_estoque WHERE nome = ?
+        )
+        """), (nome, tipo, "Sim", nome))
+
+    return obter_local_estoque_id_cursor(cursor, LOCAL_ESTOQUE_ABATEDOURO)
+
+
 def criar_estrutura_pesagem_op():
     conn = conectar()
     cursor = conn.cursor()
 
     if DATABASE_URL:
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS locais_estoque (
+            id SERIAL PRIMARY KEY,
+            nome TEXT UNIQUE NOT NULL,
+            tipo TEXT NOT NULL DEFAULT 'interno',
+            ativo TEXT NOT NULL DEFAULT 'Sim',
+            criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
+
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS pa_caixas (
             id SERIAL PRIMARY KEY,
@@ -74,6 +114,7 @@ def criar_estrutura_pesagem_op():
             status TEXT DEFAULT 'Em estoque',
             origem TEXT,
             observacoes TEXT,
+            local_estoque_id INTEGER,
             criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         """)
@@ -95,9 +136,20 @@ def criar_estrutura_pesagem_op():
             "ALTER TABLE pa_caixas ADD COLUMN IF NOT EXISTS data_hora_pesagem TEXT",
             "ALTER TABLE pa_caixas ADD COLUMN IF NOT EXISTS cancelado_em TEXT",
             "ALTER TABLE pa_caixas ADD COLUMN IF NOT EXISTS cancelado_por TEXT",
+            "ALTER TABLE pa_caixas ADD COLUMN IF NOT EXISTS local_estoque_id INTEGER",
         ]:
             cursor.execute(coluna)
     else:
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS locais_estoque (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nome TEXT UNIQUE NOT NULL,
+            tipo TEXT NOT NULL DEFAULT 'interno',
+            ativo TEXT NOT NULL DEFAULT 'Sim',
+            criado_em TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
+
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS pa_caixas (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -111,6 +163,7 @@ def criar_estrutura_pesagem_op():
             status TEXT DEFAULT 'Em estoque',
             origem TEXT,
             observacoes TEXT,
+            local_estoque_id INTEGER,
             criado_em TEXT DEFAULT CURRENT_TIMESTAMP
         )
         """)
@@ -132,8 +185,17 @@ def criar_estrutura_pesagem_op():
             "ALTER TABLE pa_caixas ADD COLUMN data_hora_pesagem TEXT",
             "ALTER TABLE pa_caixas ADD COLUMN cancelado_em TEXT",
             "ALTER TABLE pa_caixas ADD COLUMN cancelado_por TEXT",
+            "ALTER TABLE pa_caixas ADD COLUMN local_estoque_id INTEGER",
         ]:
             _alterar_tabela_se_necessario(cursor, coluna)
+
+    local_abatedouro_id = inicializar_locais_estoque(cursor)
+    cursor.execute(q("""
+    UPDATE pa_caixas
+    SET local_estoque_id = ?
+    WHERE local_estoque_id IS NULL
+       OR local_estoque_id = 0
+    """), (local_abatedouro_id,))
 
     conn.commit()
     conn.close()
@@ -287,6 +349,8 @@ def registrar_peso_caixa_op(op_id, peso_raw):
     cursor = conn.cursor()
 
     try:
+        local_abatedouro_id = obter_local_estoque_id_cursor(cursor, LOCAL_ESTOQUE_ABATEDOURO)
+
         cursor.execute(q("""
         SELECT COALESCE(MAX(cx.op_numero_caixa), 0) AS ultima
         FROM pa_caixas cx
@@ -303,8 +367,8 @@ def registrar_peso_caixa_op(op_id, peso_raw):
                 codigo_caixa, sku, data_fabricacao, data_validade,
                 peso_bruto, peso_tara, peso_liquido, quantidade_bandejas,
                 status, origem, observacoes, op_numero_caixa,
-                usuario_pesagem, data_hora_pesagem
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                usuario_pesagem, data_hora_pesagem, local_estoque_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             RETURNING id
             """), (
                 codigo_caixa,
@@ -321,6 +385,7 @@ def registrar_peso_caixa_op(op_id, peso_raw):
                 numero_caixa,
                 usuario,
                 agora,
+                local_abatedouro_id,
             ))
             caixa_id = cursor.fetchone()["id"]
         else:
@@ -329,8 +394,8 @@ def registrar_peso_caixa_op(op_id, peso_raw):
                 codigo_caixa, sku, data_fabricacao, data_validade,
                 peso_bruto, peso_tara, peso_liquido, quantidade_bandejas,
                 status, origem, observacoes, op_numero_caixa,
-                usuario_pesagem, data_hora_pesagem
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                usuario_pesagem, data_hora_pesagem, local_estoque_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """), (
                 codigo_caixa,
                 op["sku"] or "Galinha Cortada",
@@ -346,6 +411,7 @@ def registrar_peso_caixa_op(op_id, peso_raw):
                 numero_caixa,
                 usuario,
                 agora,
+                local_abatedouro_id,
             ))
             caixa_id = cursor.lastrowid
 
