@@ -94,10 +94,44 @@ def criar_tabelas_expedicao():
 # ============================================================
 
 BANDEJAS_POR_CAIXA = 12
+LOCAL_ESTOQUE_ABATEDOURO = "Abatedouro"
+LOCAL_ESTOQUE_LSM = "Câmara Fria LSM"
 
 
 def sku_sem_embalagem_secundaria(sku):
     return (sku or "").strip().lower() == "galinha inteira"
+
+
+def obter_local_estoque_id_cursor(cursor, nome):
+    cursor.execute(q("""
+    SELECT id
+    FROM locais_estoque
+    WHERE nome = ?
+    """), (nome,))
+    local = cursor.fetchone()
+    if not local:
+        raise ValueError(f"Local de estoque nao encontrado: {nome}")
+    return local["id"]
+
+
+def obter_local_abatedouro_id(cursor):
+    return obter_local_estoque_id_cursor(cursor, LOCAL_ESTOQUE_ABATEDOURO)
+
+
+def inicializar_locais_estoque(cursor):
+    for nome, tipo in [
+        (LOCAL_ESTOQUE_ABATEDOURO, "interno"),
+        (LOCAL_ESTOQUE_LSM, "interno"),
+    ]:
+        cursor.execute(q("""
+        INSERT INTO locais_estoque (nome, tipo, ativo)
+        SELECT ?, ?, ?
+        WHERE NOT EXISTS (
+            SELECT 1 FROM locais_estoque WHERE nome = ?
+        )
+        """), (nome, tipo, "Sim", nome))
+
+    return obter_local_abatedouro_id(cursor)
 
 
 def criar_tabelas_estoque_pi_pa():
@@ -120,6 +154,16 @@ def criar_tabelas_estoque_pi_pa():
 
     if DATABASE_URL:
         cursor.execute("""
+        CREATE TABLE IF NOT EXISTS locais_estoque (
+            id SERIAL PRIMARY KEY,
+            nome TEXT UNIQUE NOT NULL,
+            tipo TEXT NOT NULL DEFAULT 'interno',
+            ativo TEXT NOT NULL DEFAULT 'Sim',
+            criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
+
+        cursor.execute("""
         CREATE TABLE IF NOT EXISTS estoque_produto_intermediario (
             id SERIAL PRIMARY KEY,
             data_movimentacao TEXT NOT NULL,
@@ -158,6 +202,7 @@ def criar_tabelas_estoque_pi_pa():
             status TEXT DEFAULT 'Em estoque',
             origem TEXT,
             observacoes TEXT,
+            local_estoque_id INTEGER,
             criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         """)
@@ -171,8 +216,19 @@ def criar_tabelas_estoque_pi_pa():
             criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         """)
+        cursor.execute("ALTER TABLE pa_caixas ADD COLUMN IF NOT EXISTS local_estoque_id INTEGER")
     else:
         cursor.execute("""
+        CREATE TABLE IF NOT EXISTS locais_estoque (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nome TEXT UNIQUE NOT NULL,
+            tipo TEXT NOT NULL DEFAULT 'interno',
+            ativo TEXT NOT NULL DEFAULT 'Sim',
+            criado_em TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
+
+        cursor.execute("""
         CREATE TABLE IF NOT EXISTS estoque_produto_intermediario (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             data_movimentacao TEXT NOT NULL,
@@ -211,6 +267,7 @@ def criar_tabelas_estoque_pi_pa():
             status TEXT DEFAULT 'Em estoque',
             origem TEXT,
             observacoes TEXT,
+            local_estoque_id INTEGER,
             criado_em TEXT DEFAULT CURRENT_TIMESTAMP
         )
         """)
@@ -224,6 +281,18 @@ def criar_tabelas_estoque_pi_pa():
             criado_em TEXT DEFAULT CURRENT_TIMESTAMP
         )
         """)
+        try:
+            cursor.execute("ALTER TABLE pa_caixas ADD COLUMN local_estoque_id INTEGER")
+        except Exception:
+            pass
+
+    local_abatedouro_id = inicializar_locais_estoque(cursor)
+    cursor.execute(q("""
+    UPDATE pa_caixas
+    SET local_estoque_id = ?
+    WHERE local_estoque_id IS NULL
+       OR local_estoque_id = 0
+    """), (local_abatedouro_id,))
 
     conn.commit()
     conn.close()
@@ -354,6 +423,7 @@ def registrar_lote_pa_galinha_inteira(cursor, op, unidades_vendaveis, aves_embal
     data_fabricacao = op["data"] or datetime.now().strftime("%Y-%m-%d")
     data_validade = calcular_validade_padrao(data_fabricacao)
     observacao_lote = observacoes or f"Lote Galinha Inteira. Aves embaladas: {aves_embaladas:g}."
+    local_abatedouro_id = obter_local_abatedouro_id(cursor)
 
     if DATABASE_URL:
         cursor.execute(q("""
@@ -367,8 +437,9 @@ def registrar_lote_pa_galinha_inteira(cursor, op, unidades_vendaveis, aves_embal
             quantidade_bandejas,
             status,
             origem,
-            observacoes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            observacoes,
+            local_estoque_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         RETURNING id
         """), (
             codigo_lote,
@@ -380,7 +451,8 @@ def registrar_lote_pa_galinha_inteira(cursor, op, unidades_vendaveis, aves_embal
             unidades_vendaveis,
             "Em estoque",
             "Embalagem Primaria",
-            observacao_lote
+            observacao_lote,
+            local_abatedouro_id
         ))
         caixa_id = cursor.fetchone()["id"]
     else:
@@ -395,8 +467,9 @@ def registrar_lote_pa_galinha_inteira(cursor, op, unidades_vendaveis, aves_embal
             quantidade_bandejas,
             status,
             origem,
-            observacoes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            observacoes,
+            local_estoque_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """), (
             codigo_lote,
             op["sku"] or "Galinha Inteira",
@@ -407,7 +480,8 @@ def registrar_lote_pa_galinha_inteira(cursor, op, unidades_vendaveis, aves_embal
             unidades_vendaveis,
             "Em estoque",
             "Embalagem Primaria",
-            observacao_lote
+            observacao_lote,
+            local_abatedouro_id
         ))
         caixa_id = cursor.lastrowid
 
@@ -700,11 +774,14 @@ def buscar_caixas_pa(limite=80):
     cursor = conn.cursor()
 
     cursor.execute(q("""
-    SELECT *
-    FROM pa_caixas
-    ORDER BY id DESC
+    SELECT
+        cx.*,
+        COALESCE(le.nome, ?) AS local_estoque
+    FROM pa_caixas cx
+    LEFT JOIN locais_estoque le ON le.id = cx.local_estoque_id
+    ORDER BY cx.id DESC
     LIMIT ?
-    """), (limite,))
+    """), (LOCAL_ESTOQUE_ABATEDOURO, limite))
 
     caixas = cursor.fetchall()
     conn.close()
@@ -864,6 +941,8 @@ def validar_saldo_pi_para_composicoes(composicoes):
 
 
 def inserir_caixa_pa(cursor, codigo_caixa, sku, data_fabricacao, data_validade, peso_bruto, peso_liquido, total_bandejas, observacoes, composicao):
+    local_abatedouro_id = obter_local_abatedouro_id(cursor)
+
     if DATABASE_URL:
         cursor.execute(q("""
         INSERT INTO pa_caixas (
@@ -876,8 +955,9 @@ def inserir_caixa_pa(cursor, codigo_caixa, sku, data_fabricacao, data_validade, 
             quantidade_bandejas,
             status,
             origem,
-            observacoes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            observacoes,
+            local_estoque_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         RETURNING id
         """), (
             codigo_caixa,
@@ -889,7 +969,8 @@ def inserir_caixa_pa(cursor, codigo_caixa, sku, data_fabricacao, data_validade, 
             total_bandejas,
             "Em estoque",
             "Embalagem Secundária",
-            observacoes or ""
+            observacoes or "",
+            local_abatedouro_id
         ))
         caixa_id = cursor.fetchone()["id"]
     else:
@@ -904,8 +985,9 @@ def inserir_caixa_pa(cursor, codigo_caixa, sku, data_fabricacao, data_validade, 
             quantidade_bandejas,
             status,
             origem,
-            observacoes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            observacoes,
+            local_estoque_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """), (
             codigo_caixa,
             sku,
@@ -916,7 +998,8 @@ def inserir_caixa_pa(cursor, codigo_caixa, sku, data_fabricacao, data_validade, 
             total_bandejas,
             "Em estoque",
             "Embalagem Secundária",
-            observacoes or ""
+            observacoes or "",
+            local_abatedouro_id
         ))
         caixa_id = cursor.lastrowid
 
@@ -1346,6 +1429,42 @@ def buscar_resumo_pa_completo():
         "saldo_pa_bandejas": float(resumo["saldo_pa_bandejas"] or 0),
         "saldo_pa_kg": float(resumo["saldo_pa_kg"] or 0),
     }
+
+
+def buscar_saldo_pa_por_local():
+    """
+    Visao de fundacao para romaneios futuros.
+
+    Nesta sprint o local atual da caixa nasce em Abatedouro. Transferencias,
+    vendas e o livro pa_movimentacoes serao acoplados em sprints futuras.
+    """
+    criar_tabelas_estoque_pi_pa()
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q("""
+    SELECT
+        COALESCE(le.nome, ?) AS local_estoque,
+        cx.sku,
+        COALESCE(COUNT(CASE WHEN cx.status = ? THEN 1 END), 0) AS quantidade_caixas,
+        COALESCE(SUM(CASE WHEN cx.status = ? THEN cx.peso_liquido ELSE 0 END), 0) AS peso_liquido_total,
+        COALESCE(SUM(CASE WHEN cx.status = ? THEN cx.peso_bruto ELSE 0 END), 0) AS peso_bruto_total
+    FROM pa_caixas cx
+    LEFT JOIN locais_estoque le ON le.id = cx.local_estoque_id
+    GROUP BY COALESCE(le.nome, ?), cx.sku
+    ORDER BY local_estoque ASC, cx.sku ASC
+    """), (
+        LOCAL_ESTOQUE_ABATEDOURO,
+        "Em estoque",
+        "Em estoque",
+        "Em estoque",
+        LOCAL_ESTOQUE_ABATEDOURO,
+    ))
+
+    saldos = cursor.fetchall()
+    conn.close()
+    return saldos
 
 
 def calcular_resumo_estoques_pi_pa(saldos_pi, caixas_pa=None):
