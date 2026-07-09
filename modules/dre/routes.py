@@ -36,6 +36,8 @@ def register_dre_routes(app, integracoes=None):
             "dre_gerencial.html",
             competencia=competencia,
             receita_bruta=dados["receita_bruta"],
+            deducoes_receita=dados["deducoes_receita"],
+            receita_operacional_liquida=dados["receita_operacional_liquida"],
             vendas_por_sku=dados["vendas_por_sku"],
             cmv_total=dados["cmv_total"],
             cmv_percentual=dados["cmv_percentual"],
@@ -48,5 +50,7 @@ def register_dre_routes(app, integracoes=None):
             linhas_custos_executivas=dados.get("linhas_custos_executivas", dados["linhas_custos"]),
             despesas_grafico=dados.get("despesas_grafico", {}),
             resultado_operacional=dados["resultado_operacional"],
+            resultado_nao_operacional=dados["resultado_nao_operacional"],
+            resultado_gerencial_periodo=dados["resultado_gerencial_periodo"],
             margem_operacional_percentual=dados["margem_operacional_percentual"]
         )

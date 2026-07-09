@@ -204,14 +204,14 @@ def buscar_dados_dre_gerencial(competencia):
     data_inicio = f"{competencia}-01"
     data_fim = f"{competencia}-{ultimo_dia:02d}"
 
+    # CMV temporariamente congelado: vendas_diarias ainda fornece quantidades/SKUs
+    # para o calculo do CMV, mas nao alimenta mais Receita Bruta.
     vendas_linhas = [
         normalizar_venda_para_dre(item)
         for item in repository.buscar_vendas_periodo(data_inicio, data_fim)
     ]
 
     vendas_por_sku_dict = {}
-    receita_bruta_vendas_diarias = 0
-
     for item in vendas_linhas:
         sku = item["sku"]
 
@@ -232,10 +232,8 @@ def buscar_dados_dre_gerencial(competencia):
         else:
             vendas_por_sku_dict[sku]["quantidade"] += item["quantidade_unidades"]
 
-        receita_bruta_vendas_diarias += item["receita"]
-
     receita_bruta_movimentacoes = repository.buscar_receita_bruta_movimentacoes(data_inicio, data_fim)
-    receita_bruta = receita_bruta_movimentacoes or receita_bruta_vendas_diarias
+    receita_bruta = receita_bruta_movimentacoes
     deducoes_receita = repository.buscar_deducoes_receita_movimentacoes(data_inicio, data_fim)
     receita_operacional_liquida = receita_bruta - deducoes_receita
 
@@ -431,12 +429,19 @@ def gerar_excel_dre_gerencial(competencia, dados):
         celula.alignment = Alignment(horizontal="center")
         celula.border = borda
 
+    def perc_excel(valor, base):
+        return (valor / base * 100) if base else 0
+
     kpis = [
-        ("Receita Bruta", dados["receita_bruta"], 100 if dados["receita_bruta"] > 0 else 0, "Venda de galinhas"),
+        ("Receita Bruta", dados["receita_bruta"], 100 if dados["receita_bruta"] > 0 else 0, "Central de Movimentacoes"),
+        ("Deducoes da Receita", dados["deducoes_receita"], perc_excel(dados["deducoes_receita"], dados["receita_bruta"]), "Reducoes validas da receita"),
+        ("Receita Operacional Liquida", dados["receita_operacional_liquida"], perc_excel(dados["receita_operacional_liquida"], dados["receita_bruta"]), "Receita Bruta - Deducoes"),
         ("CMV", dados["cmv_total"], dados["cmv_percentual"], "Custo das vendas"),
         ("Margem Bruta", dados["margem_bruta"], dados["margem_bruta_percentual"], "Receita - CMV"),
         ("Custos Operacionais", dados["custos_operacionais_total"], dados["custos_operacionais_percentual"], "Custos mensais"),
-        ("Resultado Operacional", dados["resultado_operacional"], dados["margem_operacional_percentual"], "Margem Bruta - Custos")
+        ("Resultado Operacional", dados["resultado_operacional"], dados["margem_operacional_percentual"], "Margem Bruta - Custos"),
+        ("Resultado Nao Operacional", dados["resultado_nao_operacional"], perc_excel(dados["resultado_nao_operacional"], dados["receita_bruta"]), "Financeiro e eventos nao operacionais"),
+        ("Resultado Liquido Gerencial", dados["resultado_gerencial_periodo"], perc_excel(dados["resultado_gerencial_periodo"], dados["receita_bruta"]), "Resultado Operacional + Nao Operacional")
     ]
 
     for item in kpis:
@@ -466,9 +471,8 @@ def gerar_excel_dre_gerencial(competencia, dados):
     linhas_dre = []
 
     linhas_dre.append(("Receita Bruta", dados["receita_bruta"], "receita"))
-
-    for venda in dados["vendas_por_sku"]:
-        linhas_dre.append((f"  Venda — {venda['sku']}", venda["receita"], "subitem"))
+    linhas_dre.append(("(-) Deducoes da Receita", dados["deducoes_receita"], "normal"))
+    linhas_dre.append(("= Receita Operacional Liquida", dados["receita_operacional_liquida"], "total"))
 
     linhas_dre.append(("(-) CMV", dados["cmv_total"], "normal"))
 
@@ -483,6 +487,8 @@ def gerar_excel_dre_gerencial(competencia, dados):
 
     linhas_dre.append(("Total de Custos Operacionais", dados["custos_operacionais_total"], "total"))
     linhas_dre.append(("= Resultado Operacional", dados["resultado_operacional"], "resultado"))
+    linhas_dre.append(("(+/-) Resultado Nao Operacional", dados["resultado_nao_operacional"], "normal"))
+    linhas_dre.append(("= Resultado Liquido Gerencial", dados["resultado_gerencial_periodo"], "resultado"))
 
     for descricao, valor, tipo in linhas_dre:
         linha += 1

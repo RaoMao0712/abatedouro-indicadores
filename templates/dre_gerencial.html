@@ -53,20 +53,17 @@
                 <strong>{{ 100|br_percentual if receita_bruta > 0 else 0|br_percentual }}</strong>
             </div>
 
-            {% for item in vendas_por_sku %}
-            <div class="dre-tabela-oficial-row subitem">
-                <div>
-                    <strong>Venda — {{ item.sku }}</strong>
-                    {% if item.sku == 'Galinha Cortada' %}
-                        <small>{{ item.quantidade_unidades|br_numero }} bandejas • {{ item.quantidade_kg|br_numero }} kg vendidos</small>
-                    {% else %}
-                        <small>{{ (item.quantidade_unidades or item.quantidade or 0)|br_numero }} unidades vendidas</small>
-                    {% endif %}
-                </div>
-                <span>{{ item.receita|br_moeda }}</span>
-                <span>{{ ((item.receita / receita_bruta * 100) if receita_bruta > 0 else 0)|br_percentual }}</span>
+            <div class="dre-tabela-oficial-row saida">
+                <div><strong>(-) Deducoes da Receita</strong><small>Devolucoes, bonificacoes, descontos e tributos sobre vendas</small></div>
+                <strong>- {{ deducoes_receita|br_moeda }}</strong>
+                <strong>{{ ((deducoes_receita / receita_bruta * 100) if receita_bruta > 0 else 0)|br_percentual }}</strong>
             </div>
-            {% endfor %}
+
+            <div class="dre-tabela-oficial-row total">
+                <div><strong>= Receita Operacional Liquida</strong><small>Receita Bruta menos deducoes</small></div>
+                <strong>{{ receita_operacional_liquida|br_moeda }}</strong>
+                <strong>{{ ((receita_operacional_liquida / receita_bruta * 100) if receita_bruta > 0 else 0)|br_percentual }}</strong>
+            </div>
 
             <div class="dre-tabela-oficial-row saida">
                 <div><strong>(-) CMV</strong><small>Custo das mercadorias vendidas</small></div>
@@ -90,6 +87,18 @@
                 <div><strong>= Resultado Operacional</strong><small>Margem operacional</small></div>
                 <strong>{% if resultado_operacional < 0 %}- {% endif %}{{ (resultado_operacional|abs)|br_moeda }}</strong>
                 <strong>{{ margem_operacional_percentual|br_percentual }}</strong>
+            </div>
+
+            <div class="dre-tabela-oficial-row {% if resultado_nao_operacional >= 0 %}receita{% else %}saida{% endif %}">
+                <div><strong>(+/-) Resultado Nao Operacional</strong><small>Financeiro, investimentos e eventos nao operacionais</small></div>
+                <strong>{% if resultado_nao_operacional < 0 %}- {% endif %}{{ (resultado_nao_operacional|abs)|br_moeda }}</strong>
+                <strong>{{ ((resultado_nao_operacional / receita_bruta * 100) if receita_bruta > 0 else 0)|br_percentual }}</strong>
+            </div>
+
+            <div class="dre-tabela-oficial-row resultado {% if resultado_gerencial_periodo >= 0 %}positivo{% else %}negativo{% endif %}">
+                <div><strong>= Resultado Liquido Gerencial</strong><small>Resultado Operacional mais Resultado Nao Operacional</small></div>
+                <strong>{% if resultado_gerencial_periodo < 0 %}- {% endif %}{{ (resultado_gerencial_periodo|abs)|br_moeda }}</strong>
+                <strong>{{ ((resultado_gerencial_periodo / receita_bruta * 100) if receita_bruta > 0 else 0)|br_percentual }}</strong>
             </div>
         </div>
     </section>

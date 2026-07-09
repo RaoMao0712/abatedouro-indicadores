@@ -60,7 +60,9 @@ def buscar_deducoes_receita_movimentacoes(data_inicio, data_fim):
     WHERE COALESCE(status, 'Pendente') <> ?
       AND data_documento BETWEEN ? AND ?
       AND linha_dre = ?
-    """), ("Cancelado", data_inicio, data_fim, LINHA_DEDUCOES_RECEITA))
+      AND tipo IN (?, ?, ?, ?)
+      AND COALESCE(tipo_conta, 'Saida') <> ?
+    """), ("Cancelado", data_inicio, data_fim, LINHA_DEDUCOES_RECEITA, *TIPOS_SAIDA, "Neutro"))
     item = cursor.fetchone()
     conn.close()
     return float(item["total"] or 0)
@@ -71,16 +73,22 @@ def buscar_resultado_nao_operacional_movimentacoes(data_inicio, data_fim):
     cursor = conn.cursor()
     cursor.execute(q("""
     SELECT
-        COALESCE(SUM(CASE WHEN tipo = ? THEN valor ELSE 0 END), 0) as entradas,
-        COALESCE(SUM(CASE WHEN tipo = ? THEN 0 ELSE valor END), 0) as saidas
+        COALESCE(SUM(
+            CASE
+                WHEN tipo = ? THEN valor
+                WHEN tipo IN (?, ?, ?, ?) THEN -valor
+                ELSE 0
+            END
+        ), 0) as total
     FROM movimentacoes_financeiras
     WHERE COALESCE(status, 'Pendente') <> ?
       AND data_documento BETWEEN ? AND ?
       AND linha_dre = ?
-    """), ("Entrada", "Entrada", "Cancelado", data_inicio, data_fim, LINHA_RESULTADO_NAO_OPERACIONAL))
+      AND COALESCE(tipo_conta, '') <> ?
+    """), ("Entrada", *TIPOS_SAIDA, "Cancelado", data_inicio, data_fim, LINHA_RESULTADO_NAO_OPERACIONAL, "Neutro"))
     item = cursor.fetchone()
     conn.close()
-    return float(item["entradas"] or 0) - float(item["saidas"] or 0)
+    return float(item["total"] or 0)
 
 
 def buscar_parametros_custos_por_sku():
