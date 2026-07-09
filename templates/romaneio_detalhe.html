@@ -6,12 +6,12 @@
 
     <section class="hero-dashboard expedicao-hero">
         <div>
-            <span class="eyebrow">Expedição</span>
+            <span class="eyebrow">Expedicao</span>
             <h2>{{ expedicao.numero_romaneio }}</h2>
             <div class="hero-resumo-inline">
                 <span><strong>Data:</strong> {{ expedicao.data }}</span>
+                <span><strong>Origem:</strong> Abatedouro</span>
                 <span><strong>Destino:</strong> {{ expedicao.destino }}</span>
-                <span><strong>Responsável:</strong> {{ expedicao.responsavel or '-' }}</span>
                 <span><strong>Status:</strong> {{ expedicao.status }}</span>
             </div>
         </div>
@@ -19,128 +19,145 @@
         <div class="hero-meta-resumo">
             <div>
                 <span><strong>Tipo:</strong> {{ expedicao.tipo_movimentacao }}</span>
-                <span><strong>Itens:</strong> {{ resumo_itens.total_itens|br_numero(0) }}</span>
-                <span><strong>Unidades:</strong> {{ resumo_itens.total_unidades|br_numero(2) }}</span>
-                <span><strong>Kg:</strong> {{ resumo_itens.total_kg|br_numero(2) }}</span>
+                <span><strong>Caixas:</strong> {{ resumo_itens.total_itens|br_numero(0) }}</span>
+                <span><strong>Peso liquido:</strong> {{ resumo_itens.total_kg|br_numero(2) }} kg</span>
+                <span><strong>Usuario:</strong> {{ expedicao.responsavel or '-' }}</span>
             </div>
         </div>
     </section>
 
     <section class="expedicao-kpis">
         <div class="card expedicao-kpi azul">
-            <span>Itens</span>
+            <span>Caixas</span>
             <strong>{{ resumo_itens.total_itens|br_numero(0) }}</strong>
-            <small>Total de linhas no romaneio</small>
+            <small>Total no romaneio</small>
         </div>
 
         <div class="card expedicao-kpi verde">
-            <span>Unidades</span>
-            <strong>{{ resumo_itens.total_unidades|br_numero(2) }}</strong>
-            <small>Quantidade total informada</small>
+            <span>Peso liquido</span>
+            <strong>{{ resumo_itens.total_kg|br_numero(2) }}</strong>
+            <small>Kg transferidos</small>
         </div>
 
         <div class="card expedicao-kpi">
-            <span>Kg</span>
-            <strong>{{ resumo_itens.total_kg|br_numero(2) }}</strong>
-            <small>Peso total informado</small>
+            <span>Origem</span>
+            <strong>Abatedouro</strong>
+            <small>Local atual antes da confirmacao</small>
         </div>
 
         <div class="card expedicao-kpi vermelho">
-            <span>Status</span>
-            <strong>{{ expedicao.status }}</strong>
-            <small>Situação do romaneio</small>
+            <span>Destino</span>
+            <strong>LSM</strong>
+            <small>Camara Fria LSM</small>
         </div>
     </section>
 
+    {% if expedicao.status == "Aberto" %}
     <section class="card">
         <div class="section-title-row">
             <div>
-                <span class="eyebrow">Itens</span>
-                <h2>Adicionar Item Manual</h2>
+                <span class="eyebrow">Selecao</span>
+                <h2>Caixas disponiveis no Abatedouro</h2>
             </div>
 
             <a href="{{ url_for('expedicao') }}" class="botao-secundario">
-                Voltar para Expedição
+                Voltar para Expedicao
             </a>
         </div>
 
-        {% if expedicao.status == "Aberto" %}
-        <form method="POST" class="form-grid">
-            <div>
-                <label>SKU</label>
-                <select name="sku" required>
-                    <option value="">Selecione</option>
-                    {% for sku in skus %}
-                        <option value="{{ sku }}">{{ sku }}</option>
-                    {% endfor %}
-                </select>
+        {% if caixas_disponiveis %}
+        <form method="POST">
+            <div class="tabela-responsiva tabela-executiva expedicao-tabela">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Selecionar</th>
+                            <th>Codigo</th>
+                            <th>OP</th>
+                            <th>Lote</th>
+                            <th>Validade</th>
+                            <th>Produto</th>
+                            <th>Peso liquido</th>
+                            <th>Local atual</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for caixa in caixas_disponiveis %}
+                        <tr>
+                            <td>
+                                <input type="checkbox" name="caixa_ids" value="{{ caixa.id }}">
+                            </td>
+                            <td><strong>{{ caixa.codigo_caixa }}</strong></td>
+                            <td>{% if caixa.op_id %}#{{ caixa.op_id }}{% else %}-{% endif %}</td>
+                            <td>{% if caixa.op_id %}OP-{{ "%05d"|format(caixa.op_id) }}{% else %}-{% endif %}</td>
+                            <td>{{ caixa.data_validade or "-" }}</td>
+                            <td>{{ caixa.sku }}</td>
+                            <td>{{ caixa.peso_liquido|br_numero }}</td>
+                            <td>{{ caixa.local_estoque }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
             </div>
 
-            <div>
-                <label>Quantidade Unidades</label>
-                <input type="number" name="quantidade_unidades" step="0.01" min="0" value="0">
-            </div>
-
-            <div>
-                <label>Quantidade Kg</label>
-                <input type="number" name="quantidade_kg" step="0.01" min="0" value="0">
-            </div>
-
-            <div>
+            <div style="margin-top: 1rem;">
                 <button type="submit">
-                    Adicionar Item
+                    Confirmar Transferencia para Camara Fria LSM
                 </button>
             </div>
         </form>
         {% else %}
-            <div class="alerta-suave">
-                Este romaneio não está aberto. Não é possível adicionar novos itens.
+            <div class="expedicao-vazio">
+                <strong>Nenhuma caixa disponivel no Abatedouro.</strong>
+                Apenas caixas em estoque e no local Abatedouro podem ser transferidas nesta sprint.
             </div>
         {% endif %}
     </section>
+    {% endif %}
 
     <section class="card">
         <div class="section-title-row">
             <div>
-                <span class="eyebrow">Composição</span>
-                <h2>Itens do Romaneio</h2>
+                <span class="eyebrow">Relatorio</span>
+                <h2>Caixas do Romaneio</h2>
             </div>
         </div>
 
         <div class="expedicao-tabela">
             <div class="expedicao-tabela-header">
-                <span>SKU</span>
+                <span>Caixa</span>
                 <span>OP</span>
-                <span>Unidades</span>
-                <span>Kg</span>
-                <span>Origem</span>
-                <span>Status</span>
+                <span>Produto</span>
+                <span>Peso liquido</span>
+                <span>Peso bruto</span>
+                <span>Local atual</span>
+                <span>Transferencia</span>
             </div>
 
             {% if itens %}
                 {% for item in itens %}
                 <div class="expedicao-tabela-row">
-                    <strong>{{ item.sku }}</strong>
-                    <span>{{ item.op_id or '-' }}</span>
-                    <span>{{ item.quantidade_unidades|br_numero(2) }}</span>
-                    <span>{{ item.quantidade_kg|br_numero(2) }}</span>
-                    <span>Manual</span>
-                    <span><b class="badge-expedicao aberto">Registrado</b></span>
+                    <strong>{{ item.codigo_caixa or '-' }}</strong>
+                    <span>{% if item.op_id %}#{{ item.op_id }}{% else %}-{% endif %}</span>
+                    <span>{{ item.sku }}</span>
+                    <span>{{ item.peso_liquido|br_numero }}</span>
+                    <span>{{ item.peso_bruto|br_numero }}</span>
+                    <span>{{ item.local_atual or '-' }}</span>
+                    <span>{{ item.data_transferencia or '-' }}</span>
                 </div>
                 {% endfor %}
             {% else %}
                 <div class="expedicao-vazio">
-                    <strong>Nenhum item adicionado.</strong>
-                    Cadastre os itens manualmente nesta sprint. O vínculo com OP entra na próxima etapa.
+                    <strong>Nenhuma caixa transferida.</strong>
+                    Selecione caixas reais no Abatedouro e confirme o romaneio.
                 </div>
             {% endif %}
         </div>
     </section>
 
     <div class="expedicao-aviso">
-        <strong>Nota da Sprint 1.2:</strong>
-        os itens cadastrados aqui são informativos e manuais. Ainda não há baixa de estoque,
-        vínculo com OP, venda, movimentação financeira ou impacto na DRE.
+        <strong>Separacao SIG:</strong>
+        este romaneio e uma movimentacao logistica. Ele nao cria receita, financeiro, contas a receber, CMV, FIFO ou DRE.
     </div>
 
 </div>

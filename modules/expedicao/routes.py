@@ -13,9 +13,11 @@ from .services import (
     buscar_apontamento_embalagem_primaria_por_op,
     buscar_apontamentos_embalagem_primaria,
     buscar_caixas_pa,
+    buscar_caixas_disponiveis_transferencia,
     buscar_expedicao_por_id,
     buscar_expedicoes,
     buscar_itens_expedicao,
+    buscar_movimentacoes_pa,
     buscar_movimentacoes_estoque_pi,
     buscar_ops_com_saldo_pi,
     buscar_ops_para_embalagem_primaria,
@@ -25,13 +27,13 @@ from .services import (
     calcular_resumo_expedicao,
     calcular_resumo_estoques_pi_pa,
     calcular_resumo_itens_expedicao,
+    confirmar_transferencia_romaneio,
     configurar_integracoes,
     finalizar_embalagem_secundaria_op,
     registrar_apontamento_embalagem_primaria,
     registrar_caixa_pa_manual,
     registrar_caixas_pa_lote,
     resetar_processamento_op,
-    salvar_item_expedicao,
     salvar_romaneio_expedicao,
 )
 
@@ -102,6 +104,7 @@ def register_expedicao_routes(app, integracoes=None):
     def estoque_produtos():
         saldos_pi = buscar_saldos_estoque_pi()
         movimentacoes_pi = buscar_movimentacoes_estoque_pi()
+        movimentacoes_pa = buscar_movimentacoes_pa()
         caixas_pa = buscar_caixas_pa()
         saldo_pa_por_local = buscar_saldo_pa_por_local()
         resumo = calcular_resumo_estoques_pi_pa(saldos_pi, caixas_pa)
@@ -110,6 +113,7 @@ def register_expedicao_routes(app, integracoes=None):
             "estoque_produtos.html",
             saldos_pi=saldos_pi,
             movimentacoes_pi=movimentacoes_pi,
+            movimentacoes_pa=movimentacoes_pa,
             caixas_pa=caixas_pa,
             saldo_pa_por_local=saldo_pa_por_local,
             resumo=resumo
@@ -281,19 +285,30 @@ def register_expedicao_routes(app, integracoes=None):
 
         if request.method == "POST":
             try:
-                salvar_item_expedicao(expedicao_id, request.form)
-                flash("Item adicionado ao romaneio com sucesso.")
+                resultado = confirmar_transferencia_romaneio(
+                    expedicao_id,
+                    request.form.getlist("caixa_ids")
+                )
+                flash(
+                    "Romaneio de transferencia concluido. "
+                    f"Caixas: {resultado['caixas']} | "
+                    f"Peso liquido: {resultado['peso_liquido']:.3f} kg."
+                )
                 return redirect(url_for("detalhe_romaneio_expedicao", expedicao_id=expedicao_id))
             except Exception as erro:
-                flash(f"Erro ao adicionar item: {erro}")
+                flash(f"Erro ao confirmar transferencia: {erro}")
 
         itens = buscar_itens_expedicao(expedicao_id)
         resumo_itens = calcular_resumo_itens_expedicao(itens)
+        caixas_disponiveis = []
+        if expedicao["status"] == "Aberto":
+            caixas_disponiveis = buscar_caixas_disponiveis_transferencia()
 
         return render_template(
             "romaneio_detalhe.html",
             expedicao=expedicao,
             itens=itens,
             resumo_itens=resumo_itens,
+            caixas_disponiveis=caixas_disponiveis,
             skus=["Galinha Cortada", "Galinha Inteira"]
         )
