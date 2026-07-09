@@ -6,19 +6,19 @@
 
     <section class="hero-dashboard expedicao-hero">
         <div>
-            <span class="eyebrow">Expedição</span>
+            <span class="eyebrow">Expedicao</span>
             <h2>Novo Romaneio</h2>
             <div class="hero-resumo-inline">
-                <span><strong>Etapa:</strong> Sprint 1.1 — cabeçalho do romaneio</span>
-                <span><strong>Escopo:</strong> Transferência interna • Sem baixa de estoque • Sem impacto na DRE</span>
+                <span><strong>Tipo:</strong> Transferencia de PA</span>
+                <span><strong>Fluxo:</strong> Abatedouro para Camara Fria LSM</span>
             </div>
         </div>
 
         <div class="hero-meta-resumo">
             <div>
                 <span><strong>Status:</strong> Aberto</span>
-                <span><strong>Tipo:</strong> Transferência Interna</span>
-                <span><strong>Itens:</strong> Adicionados após salvar</span>
+                <span><strong>Origem:</strong> Abatedouro</span>
+                <span><strong>Destino:</strong> Camara Fria LSM</span>
             </div>
         </div>
     </section>
@@ -27,7 +27,7 @@
         <div class="section-title-row">
             <div>
                 <span class="eyebrow">Cadastro</span>
-                <h2>Cabeçalho do Romaneio</h2>
+                <h2>Cabecalho do Romaneio</h2>
             </div>
 
             <a href="{{ url_for('expedicao') }}" class="botao-secundario">
@@ -42,50 +42,50 @@
             </div>
 
             <div>
-                <label>Tipo de Movimentação</label>
-                <input type="text" value="Transferência Interna" disabled>
+                <label>Tipo de Movimentacao</label>
+                <input type="text" value="TRANSFERENCIA" disabled>
+            </div>
+
+            <div>
+                <label>Origem</label>
+                <input type="text" value="Abatedouro" disabled>
             </div>
 
             <div>
                 <label>Destino</label>
-                <input
-                    type="text"
-                    name="destino"
-                    placeholder="Ex.: LSM / Câmara fria / Cliente interno"
-                    required
-                >
+                <input type="text" value="Camara Fria LSM" disabled>
+                <input type="hidden" name="destino" value="Câmara Fria LSM">
             </div>
 
             <div>
-                <label>Responsável</label>
+                <label>Responsavel</label>
                 <input
                     type="text"
                     name="responsavel"
-                    placeholder="Nome do responsável"
+                    placeholder="Nome do responsavel"
                 >
             </div>
 
             <div style="grid-column: 1 / -1;">
-                <label>Observações</label>
+                <label>Observacoes</label>
                 <textarea
                     name="observacoes"
                     rows="4"
-                    placeholder="Observações operacionais do romaneio"
+                    placeholder="Observacoes operacionais do romaneio"
                 ></textarea>
             </div>
 
             <div style="grid-column: 1 / -1;">
                 <button type="submit">
-                    Salvar Romaneio
+                    Criar Romaneio de Transferencia
                 </button>
             </div>
         </form>
     </section>
 
     <div class="expedicao-aviso">
-        <strong>Nota da Sprint 1.1:</strong>
-        esta etapa cria apenas o cabeçalho do romaneio. A inclusão de itens acontece na tela de detalhe.
-        Ainda não há baixa de estoque, vínculo com vendas, movimentação financeira ou impacto na DRE.
+        <strong>Regra operacional:</strong>
+        transferencia movimenta somente o local fisico das caixas. Nao gera financeiro, receita, CMV ou DRE.
     </div>
 
 </div>

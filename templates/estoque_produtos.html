@@ -180,6 +180,52 @@
 <div class="card expedicao-card">
     <div class="section-title-row">
         <div>
+            <span class="eyebrow">Auditoria PA</span>
+            <h2>Ultimas movimentacoes de Produto Acabado</h2>
+        </div>
+    </div>
+
+    {% if movimentacoes_pa %}
+    <div class="tabela-responsiva tabela-executiva expedicao-tabela">
+        <table>
+            <thead>
+                <tr>
+                    <th>Data</th>
+                    <th>Tipo</th>
+                    <th>Romaneio</th>
+                    <th>Caixa</th>
+                    <th>OP</th>
+                    <th>Produto</th>
+                    <th>Origem</th>
+                    <th>Destino</th>
+                    <th>Usuario</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for mov in movimentacoes_pa %}
+                <tr>
+                    <td>{{ mov.criado_em }}</td>
+                    <td><span class="badge-expedicao neutro">{{ mov.tipo }}</span></td>
+                    <td>{{ mov.numero_romaneio or "-" }}</td>
+                    <td><strong>{{ mov.codigo_caixa }}</strong></td>
+                    <td>{% if mov.op_id %}#{{ mov.op_id }}{% else %}-{% endif %}</td>
+                    <td>{{ mov.sku }}</td>
+                    <td>{{ mov.origem_nome or "-" }}</td>
+                    <td>{{ mov.destino_nome or "-" }}</td>
+                    <td>{{ mov.usuario or "-" }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+        <p class="obs">Nenhuma movimentacao de PA registrada ainda.</p>
+    {% endif %}
+</div>
+
+<div class="card expedicao-card">
+    <div class="section-title-row">
+        <div>
             <span class="eyebrow">Movimentações PI</span>
             <h2>Últimas movimentações do produto intermediário</h2>
         </div>

@@ -3,6 +3,7 @@
 from datetime import datetime, timedelta
 
 from database import DATABASE_URL, conectar, q
+from modules.auth.services import nome_usuario_atual
 from modules.producao.services import buscar_op_por_id, gerar_producao_automatica_setores
 
 _CRIAR_BANCO = None
@@ -50,10 +51,25 @@ def criar_tabelas_expedicao():
         CREATE TABLE IF NOT EXISTS expedicao_itens (
             id SERIAL PRIMARY KEY,
             expedicao_id INTEGER NOT NULL,
+            caixa_id INTEGER,
             op_id INTEGER,
             sku TEXT NOT NULL,
             quantidade_unidades REAL DEFAULT 0,
             quantidade_kg REAL DEFAULT 0,
+            criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
+        cursor.execute("ALTER TABLE expedicao_itens ADD COLUMN IF NOT EXISTS caixa_id INTEGER")
+
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS pa_movimentacoes (
+            id SERIAL PRIMARY KEY,
+            caixa_id INTEGER NOT NULL,
+            local_origem_id INTEGER,
+            local_destino_id INTEGER,
+            tipo TEXT NOT NULL,
+            expedicao_id INTEGER,
+            usuario TEXT,
             criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         """)
@@ -76,10 +92,28 @@ def criar_tabelas_expedicao():
         CREATE TABLE IF NOT EXISTS expedicao_itens (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             expedicao_id INTEGER NOT NULL,
+            caixa_id INTEGER,
             op_id INTEGER,
             sku TEXT NOT NULL,
             quantidade_unidades REAL DEFAULT 0,
             quantidade_kg REAL DEFAULT 0,
+            criado_em TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
+        try:
+            cursor.execute("ALTER TABLE expedicao_itens ADD COLUMN caixa_id INTEGER")
+        except Exception:
+            pass
+
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS pa_movimentacoes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            caixa_id INTEGER NOT NULL,
+            local_origem_id INTEGER,
+            local_destino_id INTEGER,
+            tipo TEXT NOT NULL,
+            expedicao_id INTEGER,
+            usuario TEXT,
             criado_em TEXT DEFAULT CURRENT_TIMESTAMP
         )
         """)
@@ -1611,15 +1645,15 @@ def salvar_romaneio_expedicao(form):
     criar_tabelas_expedicao()
 
     data_romaneio = (form.get("data") or "").strip()
-    destino = (form.get("destino") or "").strip()
+    destino = (form.get("destino") or LOCAL_ESTOQUE_LSM).strip()
     responsavel = (form.get("responsavel") or "").strip()
     observacoes = (form.get("observacoes") or "").strip()
 
     if not data_romaneio:
         raise ValueError("Informe a data do romaneio.")
 
-    if not destino:
-        raise ValueError("Informe o destino do romaneio.")
+    if destino != LOCAL_ESTOQUE_LSM:
+        raise ValueError("Nesta sprint o destino permitido e Camara Fria LSM.")
 
     numero_romaneio = gerar_numero_romaneio(data_romaneio)
 
@@ -1676,16 +1710,278 @@ def buscar_itens_expedicao(expedicao_id):
     cursor = conn.cursor()
 
     cursor.execute(q("""
-    SELECT *
-    FROM expedicao_itens
-    WHERE expedicao_id = ?
-    ORDER BY id ASC
-    """), (expedicao_id,))
+    SELECT
+        i.*,
+        cx.codigo_caixa,
+        cx.data_fabricacao,
+        cx.data_validade,
+        cx.peso_bruto,
+        cx.peso_liquido,
+        cx.quantidade_bandejas,
+        cx.status AS status_caixa,
+        COALESCE(le.nome, ?) AS local_atual,
+        mov.usuario AS usuario_transferencia,
+        mov.criado_em AS data_transferencia
+    FROM expedicao_itens i
+    LEFT JOIN pa_caixas cx ON cx.id = i.caixa_id
+    LEFT JOIN locais_estoque le ON le.id = cx.local_estoque_id
+    LEFT JOIN pa_movimentacoes mov ON mov.expedicao_id = i.expedicao_id
+        AND mov.caixa_id = i.caixa_id
+        AND mov.tipo = ?
+    WHERE i.expedicao_id = ?
+    ORDER BY i.id ASC
+    """), (LOCAL_ESTOQUE_ABATEDOURO, "TRANSFERENCIA", expedicao_id))
 
     itens = cursor.fetchall()
     conn.close()
 
     return itens
+
+
+def buscar_caixas_disponiveis_transferencia():
+    criar_tabelas_expedicao()
+    criar_tabelas_estoque_pi_pa()
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    local_abatedouro_id = obter_local_estoque_id_cursor(cursor, LOCAL_ESTOQUE_ABATEDOURO)
+
+    cursor.execute(q("""
+    SELECT
+        cx.id,
+        cx.codigo_caixa,
+        cx.sku,
+        cx.data_fabricacao,
+        cx.data_validade,
+        cx.peso_bruto,
+        cx.peso_liquido,
+        cx.quantidade_bandejas,
+        cx.status,
+        cx.local_estoque_id,
+        MIN(comp.op_id) AS op_id,
+        ? AS local_estoque
+    FROM pa_caixas cx
+    LEFT JOIN pa_caixa_composicao comp ON comp.caixa_id = cx.id
+    WHERE cx.local_estoque_id = ?
+      AND cx.status = ?
+    GROUP BY
+        cx.id,
+        cx.codigo_caixa,
+        cx.sku,
+        cx.data_fabricacao,
+        cx.data_validade,
+        cx.peso_bruto,
+        cx.peso_liquido,
+        cx.quantidade_bandejas,
+        cx.status,
+        cx.local_estoque_id
+    ORDER BY cx.data_validade ASC, cx.id ASC
+    """), (LOCAL_ESTOQUE_ABATEDOURO, local_abatedouro_id, "Em estoque"))
+
+    caixas = cursor.fetchall()
+    conn.close()
+    return caixas
+
+
+def buscar_historico_caixa_pa(caixa_id):
+    criar_tabelas_expedicao()
+    criar_tabelas_estoque_pi_pa()
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q("""
+    SELECT
+        mov.*,
+        origem.nome AS origem_nome,
+        destino.nome AS destino_nome,
+        e.numero_romaneio
+    FROM pa_movimentacoes mov
+    LEFT JOIN locais_estoque origem ON origem.id = mov.local_origem_id
+    LEFT JOIN locais_estoque destino ON destino.id = mov.local_destino_id
+    LEFT JOIN expedicoes e ON e.id = mov.expedicao_id
+    WHERE mov.caixa_id = ?
+    ORDER BY mov.criado_em ASC, mov.id ASC
+    """), (caixa_id,))
+
+    historico = cursor.fetchall()
+    conn.close()
+    return historico
+
+
+def buscar_movimentacoes_pa(limite=80):
+    criar_tabelas_expedicao()
+    criar_tabelas_estoque_pi_pa()
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q("""
+    SELECT
+        mov.*,
+        cx.codigo_caixa,
+        cx.sku,
+        MIN(comp.op_id) AS op_id,
+        origem.nome AS origem_nome,
+        destino.nome AS destino_nome,
+        e.numero_romaneio
+    FROM pa_movimentacoes mov
+    INNER JOIN pa_caixas cx ON cx.id = mov.caixa_id
+    LEFT JOIN pa_caixa_composicao comp ON comp.caixa_id = cx.id
+    LEFT JOIN locais_estoque origem ON origem.id = mov.local_origem_id
+    LEFT JOIN locais_estoque destino ON destino.id = mov.local_destino_id
+    LEFT JOIN expedicoes e ON e.id = mov.expedicao_id
+    GROUP BY
+        mov.id,
+        mov.caixa_id,
+        mov.local_origem_id,
+        mov.local_destino_id,
+        mov.tipo,
+        mov.expedicao_id,
+        mov.usuario,
+        mov.criado_em,
+        cx.codigo_caixa,
+        cx.sku,
+        origem.nome,
+        destino.nome,
+        e.numero_romaneio
+    ORDER BY mov.criado_em DESC, mov.id DESC
+    LIMIT ?
+    """), (limite,))
+
+    movimentacoes = cursor.fetchall()
+    conn.close()
+    return movimentacoes
+
+
+def confirmar_transferencia_romaneio(expedicao_id, caixa_ids):
+    criar_tabelas_expedicao()
+    criar_tabelas_estoque_pi_pa()
+
+    ids = []
+    for caixa_id in caixa_ids:
+        try:
+            caixa_id_int = int(caixa_id)
+        except (TypeError, ValueError):
+            raise ValueError("Caixa invalida selecionada.")
+        ids.append(caixa_id_int)
+
+    if not ids:
+        raise ValueError("Selecione ao menos uma caixa para transferir.")
+
+    if len(ids) != len(set(ids)):
+        raise ValueError("A mesma caixa nao pode ser transferida duas vezes no romaneio.")
+
+    usuario = nome_usuario_atual() or "Sistema"
+    agora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    try:
+        expedicao = buscar_expedicao_por_id(expedicao_id)
+        if not expedicao:
+            raise ValueError("Romaneio nao encontrado.")
+        if expedicao["status"] != "Aberto":
+            raise ValueError("Somente romaneios abertos podem ser confirmados.")
+        if expedicao["tipo_movimentacao"] != "TRANSFERENCIA":
+            raise ValueError("Este romaneio nao e de transferencia.")
+        if expedicao["destino"] != LOCAL_ESTOQUE_LSM:
+            raise ValueError("Nesta sprint o destino permitido e Camara Fria LSM.")
+
+        origem_id = obter_local_estoque_id_cursor(cursor, LOCAL_ESTOQUE_ABATEDOURO)
+        destino_id = obter_local_estoque_id_cursor(cursor, LOCAL_ESTOQUE_LSM)
+
+        caixas = []
+        for caixa_id in ids:
+            cursor.execute(q("""
+            SELECT cx.*, comp.op_id
+            FROM pa_caixas cx
+            LEFT JOIN pa_caixa_composicao comp ON comp.caixa_id = cx.id
+            WHERE cx.id = ?
+            LIMIT 1
+            """), (caixa_id,))
+            caixa = cursor.fetchone()
+
+            if not caixa:
+                raise ValueError(f"Caixa inexistente: {caixa_id}.")
+            if caixa["status"] != "Em estoque":
+                raise ValueError(f"Caixa {caixa['codigo_caixa']} nao esta disponivel para transferencia.")
+            if int(caixa["local_estoque_id"] or 0) != int(origem_id):
+                raise ValueError(f"Caixa {caixa['codigo_caixa']} nao esta no Abatedouro.")
+
+            caixas.append(caixa)
+
+        for caixa in caixas:
+            cursor.execute(q("""
+            UPDATE pa_caixas
+            SET local_estoque_id = ?
+            WHERE id = ?
+              AND local_estoque_id = ?
+              AND status = ?
+            """), (destino_id, caixa["id"], origem_id, "Em estoque"))
+
+            if cursor.rowcount != 1:
+                raise ValueError(f"Caixa {caixa['codigo_caixa']} nao pode ser transferida.")
+
+            cursor.execute(q("""
+            INSERT INTO expedicao_itens (
+                expedicao_id,
+                caixa_id,
+                op_id,
+                sku,
+                quantidade_unidades,
+                quantidade_kg
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """), (
+                expedicao_id,
+                caixa["id"],
+                caixa["op_id"],
+                caixa["sku"],
+                1,
+                float(caixa["peso_liquido"] or 0),
+            ))
+
+            cursor.execute(q("""
+            INSERT INTO pa_movimentacoes (
+                caixa_id,
+                local_origem_id,
+                local_destino_id,
+                tipo,
+                expedicao_id,
+                usuario,
+                criado_em
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """), (
+                caixa["id"],
+                origem_id,
+                destino_id,
+                "TRANSFERENCIA",
+                expedicao_id,
+                usuario,
+                agora,
+            ))
+
+        cursor.execute(q("""
+        UPDATE expedicoes
+        SET status = ?,
+            responsavel = COALESCE(NULLIF(responsavel, ''), ?)
+        WHERE id = ?
+        """), ("Concluído", usuario, expedicao_id))
+
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+    return {
+        "caixas": len(caixas),
+        "peso_liquido": round(sum(float(caixa["peso_liquido"] or 0) for caixa in caixas), 3),
+        "peso_bruto": round(sum(float(caixa["peso_bruto"] or 0) for caixa in caixas), 3),
+    }
 
 
 def calcular_resumo_itens_expedicao(itens):
