@@ -236,6 +236,8 @@ def buscar_dados_dre_gerencial(competencia):
 
     receita_bruta_movimentacoes = repository.buscar_receita_bruta_movimentacoes(data_inicio, data_fim)
     receita_bruta = receita_bruta_movimentacoes or receita_bruta_vendas_diarias
+    deducoes_receita = repository.buscar_deducoes_receita_movimentacoes(data_inicio, data_fim)
+    receita_operacional_liquida = receita_bruta - deducoes_receita
 
     vendas_por_sku = []
 
@@ -326,8 +328,10 @@ def buscar_dados_dre_gerencial(competencia):
         custos[categoria] = custos.get(categoria, 0) + valor
 
     custos_operacionais_total = sum(custos.values())
-    margem_bruta = receita_bruta - cmv_total
+    margem_bruta = receita_operacional_liquida - cmv_total
     resultado_operacional = margem_bruta - custos_operacionais_total
+    resultado_nao_operacional = repository.buscar_resultado_nao_operacional_movimentacoes(data_inicio, data_fim)
+    resultado_gerencial_periodo = resultado_operacional + resultado_nao_operacional
 
     def perc(valor):
         if receita_bruta > 0:
@@ -349,6 +353,8 @@ def buscar_dados_dre_gerencial(competencia):
 
     return {
         "receita_bruta": round(receita_bruta, 2),
+        "deducoes_receita": round(deducoes_receita, 2),
+        "receita_operacional_liquida": round(receita_operacional_liquida, 2),
         "vendas_por_sku": vendas_por_sku,
         "cmv_total": round(cmv_total, 2),
         "cmv_percentual": round(perc(cmv_total), 2),
@@ -361,6 +367,8 @@ def buscar_dados_dre_gerencial(competencia):
         "linhas_custos_executivas": linhas_custos_executivas,
         "despesas_grafico": despesas_grafico,
         "resultado_operacional": round(resultado_operacional, 2),
+        "resultado_nao_operacional": round(resultado_nao_operacional, 2),
+        "resultado_gerencial_periodo": round(resultado_gerencial_periodo, 2),
         "margem_operacional_percentual": round(perc(resultado_operacional), 2)
     }
 

@@ -15,9 +15,13 @@ from openpyxl.utils.datetime import from_excel
 from database import DATABASE_URL, conectar, q
 from database.migrations import executar_alteracao_segura
 from modules.financeiro.services import (
+    campos_derivados_conta,
     categorias_entradas_financeiras,
     categorias_saidas_financeiras,
+    criar_tabela_plano_contas_mestre,
     listar_plano_contas,
+    opcoes_reclassificacao_plano,
+    resolver_conta_plano,
 )
 
 
@@ -31,6 +35,15 @@ CATEGORIA_NAO_CLASSIFICADO = "Não Classificado"
 CATEGORIA_RECEITA_BRUTA = "Receita Bruta"
 ORIGEM_IMPORTACAO_DESPESAS = "excel_movimentacoes"
 ORIGEM_IMPORTACAO_VENDAS = "IMPORTACAO VENDAS"
+_PLANO_CONTAS_SYNC_EXECUTADO = False
+
+
+def derivar_plano_movimentacao(categoria, plano_conta_id=None):
+    conta = resolver_conta_plano(categoria=categoria, plano_conta_id=plano_conta_id)
+    campos = campos_derivados_conta(conta)
+    if not campos["categoria_movimentacao"]:
+        campos["categoria_movimentacao"] = categoria or CATEGORIA_NAO_CLASSIFICADO
+    return campos
 
 
 FORMAS_PAGAMENTO_FINANCEIRO = [
@@ -130,6 +143,7 @@ def preparar_movimentacoes_financeiras_para_tela(movimentacoes, status_filtro="T
 
 
 def criar_tabela_movimentacoes_financeiras():
+    criar_tabela_plano_contas_mestre()
     conn = conectar()
     cursor = conn.cursor()
 
@@ -194,6 +208,13 @@ def criar_tabela_movimentacoes_financeiras():
     tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN valor_pago REAL DEFAULT 0")
     tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN valor_liquido REAL DEFAULT 0")
     tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN origem_importacao TEXT")
+    tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN plano_conta_id INTEGER")
+    tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN grupo_gerencial TEXT")
+    tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN categoria_plano TEXT")
+    tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN subcategoria TEXT")
+    tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN centro_analise TEXT")
+    tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN linha_dre TEXT")
+    tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN tipo_conta TEXT")
     tentar_alter_table(
         cursor,
         conn,
@@ -224,9 +245,65 @@ def criar_tabela_movimentacoes_financeiras():
         "CREATE INDEX IF NOT EXISTS idx_mov_fin_origem_importacao "
         "ON movimentacoes_financeiras (origem_importacao)"
     )
+    tentar_alter_table(
+        cursor,
+        conn,
+        "CREATE INDEX IF NOT EXISTS idx_mov_fin_plano_conta "
+        "ON movimentacoes_financeiras (plano_conta_id)"
+    )
+    tentar_alter_table(
+        cursor,
+        conn,
+        "CREATE INDEX IF NOT EXISTS idx_mov_fin_linha_dre "
+        "ON movimentacoes_financeiras (linha_dre, data_documento, status)"
+    )
 
     conn.commit()
     conn.close()
+    sincronizar_movimentacoes_plano_contas()
+
+
+def sincronizar_movimentacoes_plano_contas():
+    global _PLANO_CONTAS_SYNC_EXECUTADO
+    if _PLANO_CONTAS_SYNC_EXECUTADO:
+        return
+
+    conn = conectar()
+    cursor = conn.cursor()
+    try:
+        for conta in listar_plano_contas():
+            campos = campos_derivados_conta(conta)
+            chaves = [conta["nome"], conta["categoria"]]
+            chaves.extend(conta.get("aliases", []))
+            for categoria in {chave for chave in chaves if chave}:
+                cursor.execute(q("""
+                UPDATE movimentacoes_financeiras
+                SET plano_conta_id = ?,
+                    grupo_gerencial = ?,
+                    categoria_plano = ?,
+                    subcategoria = ?,
+                    centro_analise = ?,
+                    linha_dre = ?,
+                    tipo_conta = ?
+                WHERE (plano_conta_id IS NULL OR plano_conta_id = 0 OR COALESCE(linha_dre, '') = '')
+                  AND categoria = ?
+                """), (
+                    campos["plano_conta_id"],
+                    campos["grupo_gerencial"],
+                    campos["categoria_plano"],
+                    campos["subcategoria"],
+                    campos["centro_analise"],
+                    campos["linha_dre"],
+                    campos["tipo_conta"],
+                    categoria,
+                ))
+        conn.commit()
+        _PLANO_CONTAS_SYNC_EXECUTADO = True
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def adicionar_meses(data_base, meses):
@@ -308,6 +385,8 @@ def salvar_movimentacao_financeira(form):
     prazo_medio_dias = prazo_ponderado / valor_documento if valor_documento > 0 else 0
     documento_id = uuid.uuid4().hex
     total_parcelas = len(parcelas_validas)
+    plano = derivar_plano_movimentacao(categoria, form.get("plano_conta_id"))
+    categoria = plano["categoria_movimentacao"]
 
     conn = conectar()
     cursor = conn.cursor()
@@ -335,8 +414,15 @@ def salvar_movimentacao_financeira(form):
             data_documento,
             valor_documento,
             prazo_medio_dias,
-            observacoes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            observacoes,
+            plano_conta_id,
+            grupo_gerencial,
+            categoria_plano,
+            subcategoria,
+            centro_analise,
+            linha_dre,
+            tipo_conta
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """), (
             parcela["vencimento"],
             data_realizacao if status == "Realizado" else "",
@@ -353,7 +439,14 @@ def salvar_movimentacao_financeira(form):
             data_documento,
             valor_documento,
             round(prazo_medio_dias, 2),
-            observacoes
+            observacoes,
+            plano["plano_conta_id"],
+            plano["grupo_gerencial"],
+            plano["categoria_plano"],
+            plano["subcategoria"],
+            plano["centro_analise"],
+            plano["linha_dre"],
+            plano["tipo_conta"],
         ))
 
     conn.commit()
@@ -380,6 +473,7 @@ def buscar_movimentacao_financeira_por_id(movimentacao_id):
 
 def atualizar_movimentacao_financeira(movimentacao_id, form):
     criar_tabela_movimentacoes_financeiras()
+    plano = derivar_plano_movimentacao(form.get("categoria", ""), form.get("plano_conta_id"))
 
     conn = conectar()
     cursor = conn.cursor()
@@ -395,19 +489,33 @@ def atualizar_movimentacao_financeira(movimentacao_id, form):
         forma_pagamento = ?,
         status = ?,
         intervalo_dias = ?,
-        observacoes = ?
+        observacoes = ?,
+        plano_conta_id = ?,
+        grupo_gerencial = ?,
+        categoria_plano = ?,
+        subcategoria = ?,
+        centro_analise = ?,
+        linha_dre = ?,
+        tipo_conta = ?
     WHERE id = ?
     """), (
         form.get("data_vencimento", ""),
         form.get("data_realizacao", ""),
         form.get("tipo", ""),
-        form.get("categoria", ""),
+        plano["categoria_movimentacao"],
         form.get("descricao", ""),
         float(form.get("valor") or 0),
         form.get("forma_pagamento", ""),
         form.get("status", ""),
         int(form.get("intervalo_dias") or 30),
         form.get("observacoes", ""),
+        plano["plano_conta_id"],
+        plano["grupo_gerencial"],
+        plano["categoria_plano"],
+        plano["subcategoria"],
+        plano["centro_analise"],
+        plano["linha_dre"],
+        plano["tipo_conta"],
         movimentacao_id
     ))
 
@@ -729,6 +837,8 @@ def preparar_linha_importacao(
 
     valor_referencia = valor_liquido_original or valor_documento_original or valor_pago_original
     tipo = resolver_tipo_importacao(ws, linha, colunas, categoria, natureza_padrao)
+    plano = derivar_plano_movimentacao(categoria)
+    categoria = plano["categoria_movimentacao"]
 
     valor_documento = abs(valor_documento_original or valor_referencia)
     valor_liquido = abs(valor_liquido_original)
@@ -765,6 +875,13 @@ def preparar_linha_importacao(
         "valor_pago": valor_pago,
         "valor_liquido": valor_liquido,
         "origem_importacao": origem_importacao,
+        "plano_conta_id": plano["plano_conta_id"],
+        "grupo_gerencial": plano["grupo_gerencial"],
+        "categoria_plano": plano["categoria_plano"],
+        "subcategoria": plano["subcategoria"],
+        "centro_analise": plano["centro_analise"],
+        "linha_dre": plano["linha_dre"],
+        "tipo_conta": plano["tipo_conta"],
     }
     dados["import_key"] = montar_import_key(dados, incluir_origem=incluir_origem_import_key)
     return dados
@@ -811,6 +928,8 @@ def valores_insert_importacao(dados):
         dados["prazo_medio_dias"], dados["observacoes"], dados["import_key"], dados["cnpj_cpf"],
         dados["numero_documento"], dados["favorecido"], dados["parceiro"], dados["historico"],
         dados["valor_pago"], dados["valor_liquido"], dados["origem_importacao"],
+        dados["plano_conta_id"], dados["grupo_gerencial"], dados["categoria_plano"],
+        dados["subcategoria"], dados["centro_analise"], dados["linha_dre"], dados["tipo_conta"],
     )
 
 
@@ -939,8 +1058,9 @@ def importar_movimentacoes_financeiras_excel(
                 forma_pagamento, status, parcelas, parcela_atual, intervalo_dias,
                 documento_id, data_documento, valor_documento, prazo_medio_dias, observacoes,
                 import_key, cnpj_cpf, numero_documento, favorecido, parceiro, historico,
-                valor_pago, valor_liquido, origem_importacao
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                valor_pago, valor_liquido, origem_importacao, plano_conta_id, grupo_gerencial,
+                categoria_plano, subcategoria, centro_analise, linha_dre, tipo_conta
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """), novos)
             resultado["importadas"] = len(novos)
 
@@ -980,6 +1100,10 @@ def categorias_reclassificacao_financeira():
         item["nome"]
         for item in listar_plano_contas()
     ]
+
+
+def contas_reclassificacao_financeira():
+    return opcoes_reclassificacao_plano()
 
 
 def categorias_filtro_auditoria():
@@ -1264,11 +1388,12 @@ def montar_contexto_auditoria_financeira(args, exportar=False):
             "query_proxima": montar_query_paginacao(filtros, proxima_pagina),
         },
         "categorias_reclassificacao": categorias_reclassificacao_financeira(),
+        "contas_reclassificacao": contas_reclassificacao_financeira(),
         "categorias_filtro": categorias_filtro_auditoria(),
     }
 
 
-def reclassificar_movimentacoes(ids, nova_categoria):
+def reclassificar_movimentacoes(ids, plano_conta_id):
     criar_tabela_movimentacoes_financeiras()
 
     ids_validos = []
@@ -1281,7 +1406,8 @@ def reclassificar_movimentacoes(ids, nova_categoria):
     if not ids_validos:
         raise ValueError("Selecione ao menos uma movimentacao.")
 
-    if nova_categoria not in categorias_reclassificacao_financeira():
+    plano = derivar_plano_movimentacao("", plano_conta_id)
+    if not plano["plano_conta_id"]:
         raise ValueError("Categoria invalida para reclassificacao.")
 
     conn = conectar()
@@ -1290,9 +1416,26 @@ def reclassificar_movimentacoes(ids, nova_categoria):
     for movimentacao_id in ids_validos:
         cursor.execute(q("""
         UPDATE movimentacoes_financeiras
-        SET categoria = ?
+        SET categoria = ?,
+            plano_conta_id = ?,
+            grupo_gerencial = ?,
+            categoria_plano = ?,
+            subcategoria = ?,
+            centro_analise = ?,
+            linha_dre = ?,
+            tipo_conta = ?
         WHERE id = ?
-        """), (nova_categoria, movimentacao_id))
+        """), (
+            plano["categoria_movimentacao"],
+            plano["plano_conta_id"],
+            plano["grupo_gerencial"],
+            plano["categoria_plano"],
+            plano["subcategoria"],
+            plano["centro_analise"],
+            plano["linha_dre"],
+            plano["tipo_conta"],
+            movimentacao_id,
+        ))
         atualizadas += cursor.rowcount
     conn.commit()
     conn.close()
