@@ -1663,16 +1663,12 @@ def salvar_romaneio_expedicao(form):
     criar_tabelas_expedicao()
 
     data_romaneio = (form.get("data") or "").strip()
-    destino_informado = (form.get("destino") or LOCAL_ESTOQUE_LSM).strip()
     destino = LOCAL_ESTOQUE_LSM
     responsavel = (form.get("responsavel") or "").strip()
     observacoes = (form.get("observacoes") or "").strip()
 
     if not data_romaneio:
         raise ValueError("Informe a data do romaneio.")
-
-    if not destino_transferencia_valido(destino_informado):
-        raise ValueError("Nesta sprint o destino permitido e Camara Fria LSM.")
 
     numero_romaneio = gerar_numero_romaneio(data_romaneio)
 
