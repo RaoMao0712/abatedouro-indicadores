@@ -54,7 +54,21 @@
         <div><strong>Classificadas</strong><span>{{ resultado.classificadas }}</span></div>
         <div><strong>Nao classificadas</strong><span>{{ resultado.nao_classificadas }}</span></div>
         <div><strong>Tempo</strong><span>{{ resultado.tempo_processamento_segundos or 0 }}s</span></div>
+        <div><strong>Lotes insert</strong><span>{{ resultado.lotes_insert or 0 }}</span></div>
+        <div><strong>Lotes update</strong><span>{{ resultado.lotes_update or 0 }}</span></div>
+        <div><strong>Transacao</strong><span>{{ resultado.transacao or "-" }}</span></div>
     </div>
+
+    {% if resultado.tempos_etapas %}
+    <div class="plano-diagnostico-grid">
+        <div>
+            <strong>Tempos por etapa</strong>
+            {% for etapa, segundos in resultado.tempos_etapas.items() %}
+            <span>{{ etapa }}: {{ segundos }}s</span>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
 
     {% if resultado.detalhes_erros %}
     <div class="plano-diagnostico-grid">

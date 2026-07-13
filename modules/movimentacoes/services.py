@@ -43,6 +43,7 @@ CATEGORIA_RECEITA_BRUTA = "Receita Bruta"
 ORIGEM_IMPORTACAO_DESPESAS = "excel_movimentacoes"
 ORIGEM_IMPORTACAO_VENDAS = "IMPORTACAO VENDAS"
 _PLANO_CONTAS_SYNC_EXECUTADO = False
+TAMANHO_LOTE_GRAVACAO_IMPORTACAO = 500
 
 TABELAS_RESET_FINANCEIRO = [
     "movimentacoes_financeiras",
@@ -85,6 +86,19 @@ def derivar_plano_movimentacao(categoria, plano_conta_id=None):
     if not campos["categoria_movimentacao"]:
         campos["categoria_movimentacao"] = categoria or CATEGORIA_NAO_CLASSIFICADO
     return campos
+
+
+def somar_tempo_importacao(resultado, etapa, segundos):
+    resultado["tempos_etapas"][etapa] = resultado["tempos_etapas"].get(etapa, 0) + float(segundos or 0)
+
+
+def finalizar_tempos_importacao(resultado):
+    resultado["tempo_processamento_segundos"] = round(resultado["tempo_processamento_segundos"], 2)
+    resultado["tempos_etapas"] = {
+        etapa: round(segundos, 4)
+        for etapa, segundos in resultado.get("tempos_etapas", {}).items()
+    }
+    return resultado
 
 
 def normalizar_texto_plano(valor):
@@ -1141,6 +1155,7 @@ def preparar_linha_importacao(
     categoria_padrao=CATEGORIA_NAO_CLASSIFICADO,
     origem_importacao=ORIGEM_IMPORTACAO_DESPESAS,
     incluir_origem_import_key=False,
+    resultado_metricas=None,
 ):
     valor_documento_original = numero_importacao(valor_celula(ws, linha, colunas, "valor_documento"))
     valor_liquido_original = numero_importacao(valor_celula(ws, linha, colunas, "valor_liquido"))
@@ -1162,11 +1177,20 @@ def preparar_linha_importacao(
     tipo = resolver_tipo_importacao(ws, linha, colunas, categoria, natureza_padrao)
     if not tipo:
         raise ValueError("tipo/natureza obrigatorio")
-    conta_plano = resolver_conta_plano_importacao(
-        grupo_gerencial_informado,
-        categoria,
-        subcategoria_informada,
-    )
+    inicio_plano = time.perf_counter()
+    try:
+        conta_plano = resolver_conta_plano_importacao(
+            grupo_gerencial_informado,
+            categoria,
+            subcategoria_informada,
+        )
+    finally:
+        if resultado_metricas is not None:
+            somar_tempo_importacao(
+                resultado_metricas,
+                "resolucao_plano_contas",
+                time.perf_counter() - inicio_plano,
+            )
     plano = derivar_plano_movimentacao(categoria, conta_plano["id"])
     categoria = plano["categoria_movimentacao"]
 
@@ -1239,12 +1263,14 @@ def buscar_import_keys_existentes(cursor, import_keys):
 def valores_update_importacao(dados, movimentacao_id):
     return (
         dados["data_vencimento"], dados["data_realizacao"], dados["tipo"],
-        dados["descricao"], dados["valor"], dados["forma_pagamento"],
+        dados["categoria"], dados["descricao"], dados["valor"], dados["forma_pagamento"],
         dados["status"], dados["parcelas"], dados["parcela_atual"], dados["intervalo_dias"],
         dados["documento_id"], dados["data_documento"], dados["valor_documento"],
         dados["prazo_medio_dias"], dados["observacoes"], dados["cnpj_cpf"],
         dados["numero_documento"], dados["favorecido"], dados["parceiro"], dados["historico"],
         dados["valor_pago"], dados["valor_liquido"], dados["origem_importacao"],
+        dados["plano_conta_id"], dados["grupo_gerencial"], dados["categoria_plano"],
+        dados["subcategoria"], dados["centro_analise"], dados["linha_dre"], dados["tipo_conta"],
         movimentacao_id,
     )
 
@@ -1263,6 +1289,87 @@ def valores_insert_importacao(dados):
     )
 
 
+SQL_UPDATE_IMPORTACAO = """
+UPDATE movimentacoes_financeiras
+SET data_vencimento = ?,
+    data_realizacao = ?,
+    tipo = ?,
+    categoria = ?,
+    descricao = ?,
+    valor = ?,
+    forma_pagamento = ?,
+    status = ?,
+    parcelas = ?,
+    parcela_atual = ?,
+    intervalo_dias = ?,
+    documento_id = ?,
+    data_documento = ?,
+    valor_documento = ?,
+    prazo_medio_dias = ?,
+    observacoes = ?,
+    cnpj_cpf = ?,
+    numero_documento = ?,
+    favorecido = ?,
+    parceiro = ?,
+    historico = ?,
+    valor_pago = ?,
+    valor_liquido = ?,
+    origem_importacao = ?,
+    plano_conta_id = ?,
+    grupo_gerencial = ?,
+    categoria_plano = ?,
+    subcategoria = ?,
+    centro_analise = ?,
+    linha_dre = ?,
+    tipo_conta = ?
+WHERE id = ?
+"""
+
+
+SQL_INSERT_IMPORTACAO_SQLITE = """
+INSERT INTO movimentacoes_financeiras (
+    data_vencimento, data_realizacao, tipo, categoria, descricao, valor,
+    forma_pagamento, status, parcelas, parcela_atual, intervalo_dias,
+    documento_id, data_documento, valor_documento, prazo_medio_dias, observacoes,
+    import_key, cnpj_cpf, numero_documento, favorecido, parceiro, historico,
+    valor_pago, valor_liquido, origem_importacao, plano_conta_id, grupo_gerencial,
+    categoria_plano, subcategoria, centro_analise, linha_dre, tipo_conta
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+"""
+
+
+SQL_INSERT_IMPORTACAO_POSTGRES = """
+INSERT INTO movimentacoes_financeiras (
+    data_vencimento, data_realizacao, tipo, categoria, descricao, valor,
+    forma_pagamento, status, parcelas, parcela_atual, intervalo_dias,
+    documento_id, data_documento, valor_documento, prazo_medio_dias, observacoes,
+    import_key, cnpj_cpf, numero_documento, favorecido, parceiro, historico,
+    valor_pago, valor_liquido, origem_importacao, plano_conta_id, grupo_gerencial,
+    categoria_plano, subcategoria, centro_analise, linha_dre, tipo_conta
+) VALUES %s
+"""
+
+
+def executar_updates_importacao(cursor, atualizacoes, tamanho_lote=TAMANHO_LOTE_GRAVACAO_IMPORTACAO):
+    for lote in separar_em_lotes(atualizacoes, tamanho_lote):
+        if DATABASE_URL:
+            from psycopg2.extras import execute_batch
+
+            execute_batch(cursor, q(SQL_UPDATE_IMPORTACAO), lote, page_size=len(lote))
+        else:
+            cursor.executemany(q(SQL_UPDATE_IMPORTACAO), lote)
+
+
+def executar_inserts_importacao(cursor, novos, tamanho_lote=TAMANHO_LOTE_GRAVACAO_IMPORTACAO):
+    for lote in separar_em_lotes(novos, tamanho_lote):
+        if DATABASE_URL:
+            from psycopg2.extras import execute_values
+
+            execute_values(cursor, SQL_INSERT_IMPORTACAO_POSTGRES, lote, page_size=len(lote))
+        else:
+            cursor.executemany(q(SQL_INSERT_IMPORTACAO_SQLITE), lote)
+
+
 def importar_movimentacoes_financeiras_excel(
     arquivo_excel,
     natureza_padrao="DESPESA",
@@ -1273,6 +1380,7 @@ def importar_movimentacoes_financeiras_excel(
     inicio_processamento = time.perf_counter()
     criar_tabela_movimentacoes_financeiras()
 
+    inicio_leitura = time.perf_counter()
     wb = load_workbook(arquivo_excel, data_only=True)
     ws = wb.active
     colunas, ausentes = mapear_cabecalhos_importacao(ws)
@@ -1289,7 +1397,23 @@ def importar_movimentacoes_financeiras_excel(
         "nao_classificadas": 0,
         "detalhes_erros": [],
         "tempo_processamento_segundos": 0,
+        "tempos_etapas": {
+            "leitura_excel": 0,
+            "normalizacao_dados": 0,
+            "resolucao_plano_contas": 0,
+            "consulta_existentes": 0,
+            "preparacao_novos": 0,
+            "preparacao_atualizados": 0,
+            "insert": 0,
+            "update": 0,
+            "commit": 0,
+        },
+        "lotes_insert": 0,
+        "lotes_update": 0,
+        "tamanho_lote_gravacao": TAMANHO_LOTE_GRAVACAO_IMPORTACAO,
+        "transacao": "rollback_integral_antes_do_commit",
     }
+    somar_tempo_importacao(resultado, "leitura_excel", time.perf_counter() - inicio_leitura)
 
     registros_por_import_key = {}
 
@@ -1300,6 +1424,8 @@ def importar_movimentacoes_financeiras_excel(
                 resultado["ignoradas"] += 1
                 continue
 
+            inicio_normalizacao = time.perf_counter()
+            tempo_plano_antes = resultado["tempos_etapas"]["resolucao_plano_contas"]
             dados = preparar_linha_importacao(
                 ws,
                 linha,
@@ -1308,6 +1434,13 @@ def importar_movimentacoes_financeiras_excel(
                 categoria_padrao=categoria_padrao,
                 origem_importacao=origem_importacao,
                 incluir_origem_import_key=incluir_origem_import_key,
+                resultado_metricas=resultado,
+            )
+            tempo_plano_linha = resultado["tempos_etapas"]["resolucao_plano_contas"] - tempo_plano_antes
+            somar_tempo_importacao(
+                resultado,
+                "normalizacao_dados",
+                max((time.perf_counter() - inicio_normalizacao) - tempo_plano_linha, 0),
             )
             if linha_importacao_vazia(dados):
                 resultado["ignoradas"] += 1
@@ -1334,75 +1467,56 @@ def importar_movimentacoes_financeiras_excel(
     wb.close()
 
     if not registros_por_import_key:
-        resultado["tempo_processamento_segundos"] = round(time.perf_counter() - inicio_processamento, 2)
-        return resultado
+        resultado["tempo_processamento_segundos"] = time.perf_counter() - inicio_processamento
+        return finalizar_tempos_importacao(resultado)
 
     conn = conectar()
     cursor = conn.cursor()
     try:
+        inicio_consulta = time.perf_counter()
         existentes = buscar_import_keys_existentes(cursor, registros_por_import_key.keys())
+        somar_tempo_importacao(resultado, "consulta_existentes", time.perf_counter() - inicio_consulta)
         novos = []
         atualizacoes = []
 
         for import_key, dados in registros_por_import_key.items():
             movimentacao_id = existentes.get(import_key)
             if movimentacao_id:
+                inicio_preparacao_update = time.perf_counter()
                 atualizacoes.append(valores_update_importacao(dados, movimentacao_id))
+                somar_tempo_importacao(resultado, "preparacao_atualizados", time.perf_counter() - inicio_preparacao_update)
             else:
+                inicio_preparacao_insert = time.perf_counter()
                 novos.append(valores_insert_importacao(dados))
+                somar_tempo_importacao(resultado, "preparacao_novos", time.perf_counter() - inicio_preparacao_insert)
 
         if atualizacoes:
-            cursor.executemany(q("""
-            UPDATE movimentacoes_financeiras
-            SET data_vencimento = ?,
-                data_realizacao = ?,
-                tipo = ?,
-                descricao = ?,
-                valor = ?,
-                forma_pagamento = ?,
-                status = ?,
-                parcelas = ?,
-                parcela_atual = ?,
-                intervalo_dias = ?,
-                documento_id = ?,
-                data_documento = ?,
-                valor_documento = ?,
-                prazo_medio_dias = ?,
-                observacoes = ?,
-                cnpj_cpf = ?,
-                numero_documento = ?,
-                favorecido = ?,
-                parceiro = ?,
-                historico = ?,
-                valor_pago = ?,
-                valor_liquido = ?,
-                origem_importacao = ?
-            WHERE id = ?
-            """), atualizacoes)
+            inicio_update = time.perf_counter()
+            executar_updates_importacao(cursor, atualizacoes)
+            somar_tempo_importacao(resultado, "update", time.perf_counter() - inicio_update)
             resultado["atualizadas"] = len(atualizacoes)
+            resultado["lotes_update"] = len(list(separar_em_lotes(atualizacoes, TAMANHO_LOTE_GRAVACAO_IMPORTACAO)))
 
         if novos:
-            cursor.executemany(q("""
-            INSERT INTO movimentacoes_financeiras (
-                data_vencimento, data_realizacao, tipo, categoria, descricao, valor,
-                forma_pagamento, status, parcelas, parcela_atual, intervalo_dias,
-                documento_id, data_documento, valor_documento, prazo_medio_dias, observacoes,
-                import_key, cnpj_cpf, numero_documento, favorecido, parceiro, historico,
-                valor_pago, valor_liquido, origem_importacao, plano_conta_id, grupo_gerencial,
-                categoria_plano, subcategoria, centro_analise, linha_dre, tipo_conta
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """), novos)
+            inicio_insert = time.perf_counter()
+            executar_inserts_importacao(cursor, novos)
+            somar_tempo_importacao(resultado, "insert", time.perf_counter() - inicio_insert)
             resultado["importadas"] = len(novos)
+            resultado["lotes_insert"] = len(list(separar_em_lotes(novos, TAMANHO_LOTE_GRAVACAO_IMPORTACAO)))
 
+        inicio_commit = time.perf_counter()
         conn.commit()
+        somar_tempo_importacao(resultado, "commit", time.perf_counter() - inicio_commit)
+        resultado["transacao"] = "commit_unico_concluido"
     except Exception:
         conn.rollback()
+        resultado["transacao"] = "rollback_integral_executado"
         raise
     finally:
         conn.close()
 
-    resultado["tempo_processamento_segundos"] = round(time.perf_counter() - inicio_processamento, 2)
-    return resultado
+    resultado["tempo_processamento_segundos"] = time.perf_counter() - inicio_processamento
+    return finalizar_tempos_importacao(resultado)
 
 
 def gerar_planilha_modelo_importacao_financeira():
