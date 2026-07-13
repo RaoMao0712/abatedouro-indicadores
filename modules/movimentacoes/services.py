@@ -914,14 +914,56 @@ MAPEAMENTO_CONTAS_IMPORTACAO = {
     ("modeobra", "terceirizados"): "Mao de Obra - Terceiros",
     ("maodeobra", "terceiros"): "Mao de Obra - Terceiros",
     ("modeobra", "terceiros"): "Mao de Obra - Terceiros",
+    ("servicos", "terceiros"): "Mao de Obra - Terceiros",
+    ("servios", "terceiros"): "Mao de Obra - Terceiros",
+    ("servicos", "consultoria"): "Outras Despesas Operacionais",
+    ("servios", "consultoria"): "Outras Despesas Operacionais",
+    ("servicos", "responsabilidadetecnica"): "Outras Despesas Operacionais",
+    ("servios", "responsabilidadetcnica"): "Outras Despesas Operacionais",
     ("materiaisdeapoio", "produtosquimicos"): "Produtos Quimicos",
     ("materiaisdeapoio", "produtosqumicos"): "Produtos Quimicos",
-    ("materiaisdeapoio", "usoeconsumo"): "Uso e Consumo",
+    ("materiaisdeapoio", "usoeconsumo"): "Outras Despesas Operacionais",
+    ("materiaisdeapoio", "epis"): "EPIs",
+    ("materiaisdeapoio", "uniformes"): "Uniformes",
+    ("limpeza", "limpeza"): "Limpeza",
+    ("impostos", "encargos"): "Impostos",
+    ("comercial", "marketing"): "Marketing",
+    ("patrimonial", "aquisicaodeequipamentos"): "Equipamentos",
+    ("patrimonial", "aquisiesdeequipamentos"): "Equipamentos",
+    ("patrimonial", "obrasebenfeitorias"): "Obras e Benfeitorias",
     ("manutencao", "manutencaodeveiculos"): "Manutencao de Veiculos",
     ("manuteno", "manutenodeveculos"): "Manutencao de Veiculos",
+    ("manutencao", "manutencaodeequipamentos"): "Manutencao de Equipamentos",
+    ("manuteno", "manutenodeequipamentos"): "Manutencao de Equipamentos",
+    ("manutencao", "manutencaopredial"): "Manutencao Predial",
+    ("manuteno", "manutenopredial"): "Manutencao Predial",
     ("neutras", "aportes"): "Aportes",
     ("neutra", "aportes"): "Aportes",
 }
+
+
+def conta_padrao_mao_obra_importacao(subcategoria):
+    subcategoria_norm = normalizar_texto_plano(subcategoria)
+    if not subcategoria_norm:
+        return None
+
+    if any(termo in subcategoria_norm for termo in [
+        "fgts", "inss", "irrf", "darf", "previdenciario", "previdencirio",
+        "encargo", "encargos",
+    ]):
+        return "Mao de Obra - Encargos"
+    if any(termo in subcategoria_norm for termo in [
+        "rescisao", "resciso", "rescisorio", "rescisrio", "termode",
+        "acordojudicial", "acordotrabalhista",
+    ]):
+        return "Mao de Obra - Rescisoes"
+    if any(termo in subcategoria_norm for termo in ["ferias", "frias"]):
+        return "Mao de Obra - Ferias"
+    if any(termo in subcategoria_norm for termo in [
+        "folha", "salario", "salrios", "pagamento", "horasextras",
+    ]):
+        return "Mao de Obra - CLT"
+    return None
 
 
 def localizar_conta_plano_por_nome(nome_conta):
@@ -978,6 +1020,13 @@ def formatar_rejeicao_plano_importacao(grupo_gerencial, categoria, subcategoria,
 
 
 def resolver_conta_plano_importacao(grupo_gerencial, categoria, subcategoria=""):
+    if normalizar_texto_plano(categoria) in ["maodeobra", "modeobra"]:
+        conta_esperada = conta_padrao_mao_obra_importacao(subcategoria)
+        if conta_esperada:
+            conta = localizar_conta_plano_por_nome(conta_esperada)
+            if conta:
+                return conta
+
     for chave in combinacoes_classificacao_importacao(grupo_gerencial, categoria, subcategoria):
         conta_esperada = MAPEAMENTO_CONTAS_IMPORTACAO.get(chave)
         if not conta_esperada:
@@ -1132,8 +1181,17 @@ def montar_import_key(dados, incluir_origem=False):
     ]
     if incluir_origem:
         partes.extend([dados.get("tipo", ""), dados.get("origem_importacao", "")])
+    ocorrencia = int(dados.get("ocorrencia_import_key") or 1)
+    if ocorrencia > 1:
+        partes.append(f"ocorrencia:{ocorrencia}")
     base = "|".join(str(parte).strip().lower() for parte in partes)
     return hashlib.sha256(base.encode("utf-8")).hexdigest()
+
+
+def aplicar_ocorrencia_import_key(dados, ocorrencia, incluir_origem=False):
+    dados["ocorrencia_import_key"] = ocorrencia
+    dados["import_key"] = montar_import_key(dados, incluir_origem=incluir_origem)
+    return dados["import_key"]
 
 
 def linha_importacao_vazia(dados):
@@ -1237,7 +1295,7 @@ def preparar_linha_importacao(
         "linha_dre": plano["linha_dre"],
         "tipo_conta": plano["tipo_conta"],
     }
-    dados["import_key"] = montar_import_key(dados, incluir_origem=incluir_origem_import_key)
+    aplicar_ocorrencia_import_key(dados, 1, incluir_origem=incluir_origem_import_key)
     return dados
 
 
@@ -1416,6 +1474,7 @@ def importar_movimentacoes_financeiras_excel(
     somar_tempo_importacao(resultado, "leitura_excel", time.perf_counter() - inicio_leitura)
 
     registros_por_import_key = {}
+    ocorrencias_por_import_key_base = {}
 
     for linha in range(2, ws.max_row + 1):
         resultado["linhas_lidas"] += 1
@@ -1449,6 +1508,15 @@ def importar_movimentacoes_financeiras_excel(
                 raise ValueError("linha sem data do documento")
             if float(dados["valor"] or 0) <= 0:
                 raise ValueError("linha sem valor financeiro valido")
+
+            import_key_base = dados["import_key"]
+            ocorrencia_import_key = ocorrencias_por_import_key_base.get(import_key_base, 0) + 1
+            ocorrencias_por_import_key_base[import_key_base] = ocorrencia_import_key
+            aplicar_ocorrencia_import_key(
+                dados,
+                ocorrencia_import_key,
+                incluir_origem=incluir_origem_import_key,
+            )
 
             if dados["import_key"] in registros_por_import_key:
                 resultado["ignoradas"] += 1
