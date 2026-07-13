@@ -22,9 +22,11 @@ from .services import (
     calcular_resumo_financeiro,
     excluir_movimentacao_financeira,
     gerar_excel_auditoria_financeira,
+    gerar_excel_liquidacao_financeira,
     gerar_planilha_modelo_importacao_financeira,
     importar_movimentacoes_financeiras_excel,
     montar_contexto_auditoria_financeira,
+    montar_contexto_liquidacao_financeira,
     reclassificar_movimentacoes,
     salvar_movimentacao_financeira,
 )
@@ -129,6 +131,29 @@ def register_movimentacoes_routes(app):
         return render_template(
             "financeiro.html",
             **contexto_movimentacoes("estoque")
+        )
+
+
+    @app.route("/movimentacoes/liquidacao")
+    @perfil_permitido("pcp")
+    def movimentacoes_liquidacao():
+        return render_template(
+            "movimentacoes_liquidacao.html",
+            **montar_contexto_liquidacao_financeira(request.args),
+            query_string=request.query_string.decode("utf-8"),
+        )
+
+
+    @app.route("/movimentacoes/liquidacao/exportar")
+    @perfil_permitido("pcp")
+    def movimentacoes_liquidacao_exportar():
+        contexto = montar_contexto_liquidacao_financeira(request.args, exportar=True)
+        arquivo = gerar_excel_liquidacao_financeira(contexto)
+        return send_file(
+            arquivo,
+            as_attachment=True,
+            download_name="liquidacao_financeira.xlsx",
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
 
 

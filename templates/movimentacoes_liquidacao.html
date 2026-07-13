@@ -1,0 +1,197 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+
+<section class="hero-dashboard financeiro-hero-executivo movimentacoes-hero">
+    <div class="financeiro-hero-titulo">
+        <span class="eyebrow">Movimentacoes</span>
+        <h2>Liquidacao Financeira</h2>
+        <p>Visao de caixa sobre a base ja importada, sem alterar DRE, classificacao ou registros originais.</p>
+
+        <div class="financeiro-hero-resumo">
+            <span class="financeiro-pill-info"><strong>Base</strong> movimentacoes_financeiras</span>
+            <span class="financeiro-pill-info"><strong>Titulos</strong> {{ total_filtrado }}</span>
+        </div>
+    </div>
+
+    <div class="dre-acoes-topo dre-acoes-compactas">
+        <a href="{{ url_for('movimentacoes_liquidacao') }}?relatorio=vencidos_sem_baixa" class="botao-dre-exportar">Vencidos sem Baixa</a>
+        <a href="{{ url_for('movimentacoes_liquidacao_exportar') }}{% if query_string %}?{{ query_string }}{% endif %}" class="botao-dre-exportar">Exportar Excel</a>
+        <a href="{{ url_for('movimentacoes_auditoria') }}" class="botao-dre-imprimir">Auditoria</a>
+    </div>
+</section>
+
+<nav class="movimentacoes-fichas" aria-label="Navegacao de movimentacoes">
+    <a href="{{ url_for('movimentacoes_entradas') }}" class="movimentacoes-ficha">Vendas / Entradas</a>
+    <a href="{{ url_for('movimentacoes_despesas') }}" class="movimentacoes-ficha">Custos / Despesas</a>
+    <a href="{{ url_for('movimentacoes_estoque') }}" class="movimentacoes-ficha">Estoque</a>
+    <a href="{{ url_for('movimentacoes_liquidacao') }}" class="movimentacoes-ficha ativa">Liquidacao</a>
+    <a href="{{ url_for('importar_movimentacoes_financeiras') }}" class="movimentacoes-ficha">Importar Excel</a>
+    <a href="{{ url_for('importar_vendas_financeiras') }}" class="movimentacoes-ficha">Importar Vendas</a>
+    <a href="{{ url_for('movimentacoes_auditoria') }}" class="movimentacoes-ficha">Auditoria</a>
+    <a href="{{ url_for('movimentacoes_pendencias') }}" class="movimentacoes-ficha">Pendencias</a>
+</nav>
+
+<div class="card financeiro-form-card movimentacoes-form-card">
+    <div class="section-title-row">
+        <div>
+            <span class="eyebrow">Filtros</span>
+            <h2>Consulta de liquidacao</h2>
+        </div>
+    </div>
+
+    <form method="GET" action="{{ url_for('movimentacoes_liquidacao') }}" class="financeiro-filtro-form">
+        <div>
+            <label>Documento inicial</label>
+            <input type="date" name="data_documento_inicio" value="{{ filtros.data_documento_inicio }}">
+        </div>
+        <div>
+            <label>Documento final</label>
+            <input type="date" name="data_documento_fim" value="{{ filtros.data_documento_fim }}">
+        </div>
+        <div>
+            <label>Vencimento inicial</label>
+            <input type="date" name="data_vencimento_inicio" value="{{ filtros.data_vencimento_inicio }}">
+        </div>
+        <div>
+            <label>Vencimento final</label>
+            <input type="date" name="data_vencimento_fim" value="{{ filtros.data_vencimento_fim }}">
+        </div>
+        <div>
+            <label>Status</label>
+            <select name="status">
+                {% for status in status_opcoes %}
+                <option value="{{ status }}" {% if filtros.status == status %}selected{% endif %}>{{ status }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label>Favorecido</label>
+            <input type="text" name="favorecido" value="{{ filtros.favorecido }}">
+        </div>
+        <div>
+            <label>Categoria</label>
+            <select name="categoria">
+                <option value="Todas" {% if filtros.categoria == 'Todas' %}selected{% endif %}>Todas</option>
+                {% for categoria in categorias_filtro %}
+                <option value="{{ categoria }}" {% if filtros.categoria == categoria %}selected{% endif %}>{{ categoria }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label>Subcategoria</label>
+            <select name="subcategoria">
+                <option value="Todas" {% if filtros.subcategoria == 'Todas' %}selected{% endif %}>Todas</option>
+                {% for subcategoria in subcategorias_filtro %}
+                <option value="{{ subcategoria }}" {% if filtros.subcategoria == subcategoria %}selected{% endif %}>{{ subcategoria }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label>Natureza</label>
+            <select name="natureza">
+                {% for natureza in naturezas_filtro %}
+                <option value="{{ natureza }}" {% if filtros.natureza == natureza %}selected{% endif %}>{{ natureza }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label>Faixa de atraso</label>
+            <select name="faixa_atraso">
+                <option value="Todas" {% if filtros.faixa_atraso == 'Todas' %}selected{% endif %}>Todas</option>
+                <option value="1_30" {% if filtros.faixa_atraso == '1_30' %}selected{% endif %}>1 a 30 dias</option>
+                <option value="31_60" {% if filtros.faixa_atraso == '31_60' %}selected{% endif %}>31 a 60 dias</option>
+                <option value="61_90" {% if filtros.faixa_atraso == '61_90' %}selected{% endif %}>61 a 90 dias</option>
+                <option value="acima_90" {% if filtros.faixa_atraso == 'acima_90' %}selected{% endif %}>Acima de 90 dias</option>
+            </select>
+        </div>
+        <label class="checkbox-inline"><input type="checkbox" name="somente_vencidos" value="1" {% if filtros.somente_vencidos %}checked{% endif %}> Somente vencidos</label>
+        <label class="checkbox-inline"><input type="checkbox" name="somente_abertos" value="1" {% if filtros.somente_abertos %}checked{% endif %}> Somente em aberto</label>
+        <label class="checkbox-inline"><input type="checkbox" name="somente_parciais" value="1" {% if filtros.somente_parciais %}checked{% endif %}> Somente parciais</label>
+        <label class="checkbox-inline"><input type="checkbox" name="somente_inconsistentes" value="1" {% if filtros.somente_inconsistentes %}checked{% endif %}> Somente inconsistentes</label>
+        {% if filtros.relatorio %}
+        <input type="hidden" name="relatorio" value="{{ filtros.relatorio }}">
+        {% endif %}
+        <button type="submit" class="botao-hero-filtro">Filtrar</button>
+    </form>
+</div>
+
+<div class="cards-executivos financeiro-kpis movimentacoes-kpis">
+    <div class="card kpi-card destaque"><span class="kpi-label">Total dos titulos</span><strong>{{ resumo.total_titulos|br_moeda }}</strong><small>{{ resumo.quantidade_total }} titulo(s)</small></div>
+    <div class="card kpi-card resultado-positivo"><span class="kpi-label">Total liquidado</span><strong>{{ resumo.total_liquidado|br_moeda }}</strong><small>{{ resumo.qtd_liquidado }} liquidado(s)</small></div>
+    <div class="card kpi-card alerta"><span class="kpi-label">Saldo em aberto</span><strong>{{ resumo.saldo_em_aberto|br_moeda }}</strong><small>Saldo nao liquidado</small></div>
+    <div class="card kpi-card resultado-negativo"><span class="kpi-label">Vencido sem baixa</span><strong>{{ resumo.saldo_vencido|br_moeda }}</strong><small>{{ resumo.qtd_vencido }} vencido(s)</small></div>
+    <div class="card kpi-card"><span class="kpi-label">A vencer</span><strong>{{ resumo.saldo_a_vencer|br_moeda }}</strong><small>{{ resumo.qtd_a_vencer }} titulo(s)</small></div>
+    <div class="card kpi-card"><span class="kpi-label">Parcialmente liquidado</span><strong>{{ resumo.valor_parcial|br_moeda }}</strong><small>{{ resumo.qtd_parcial }} titulo(s)</small></div>
+    <div class="card kpi-card alerta"><span class="kpi-label">Inconsistencias</span><strong>{{ resumo.valor_inconsistente|br_moeda }}</strong><small>{{ resumo.qtd_inconsistente }} titulo(s)</small></div>
+</div>
+
+<div class="card financeiro-extrato-card movimentacoes-extrato-card">
+    <div class="section-title-row">
+        <div>
+            <span class="eyebrow">Detalhamento</span>
+            <h2>{% if filtros.relatorio == 'vencidos_sem_baixa' %}Vencidos sem Baixa{% else %}Titulos analisados{% endif %}</h2>
+        </div>
+    </div>
+
+    <div class="tabela-responsiva tabela-executiva financeiro-tabela">
+        <table>
+            <thead>
+                <tr>
+                    <th>Data Doc.</th>
+                    <th>Vencimento</th>
+                    <th>Baixa</th>
+                    <th>Documento</th>
+                    <th>Favorecido</th>
+                    <th>Categoria</th>
+                    <th>Subcategoria</th>
+                    <th>Historico</th>
+                    <th>Valor Doc.</th>
+                    <th>Valor Baixa</th>
+                    <th>Saldo</th>
+                    <th>Status</th>
+                    <th>Dias atraso</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in movimentacoes %}
+                <tr>
+                    <td>{{ item.data_documento or "-" }}</td>
+                    <td>{{ item.data_vencimento or "-" }}</td>
+                    <td>{{ item.data_realizacao or "-" }}</td>
+                    <td>{{ item.numero_documento or item.documento_id or "-" }}</td>
+                    <td>{{ item.favorecido or item.parceiro or "-" }}</td>
+                    <td>{{ item.categoria or "-" }}</td>
+                    <td>{{ item.subcategoria or "-" }}</td>
+                    <td>{{ item.historico or item.observacoes or "-" }}</td>
+                    <td class="financeiro-valor">{{ item.valor_documento_liquidacao|br_moeda }}</td>
+                    <td class="financeiro-valor">{{ item.valor_baixado|br_moeda }}</td>
+                    <td class="financeiro-valor">{{ item.saldo_em_aberto|br_moeda }}</td>
+                    <td>{{ item.status_liquidacao }}</td>
+                    <td>{% if item.dias_em_atraso %}{{ item.dias_em_atraso }}{% else %}-{% endif %}</td>
+                </tr>
+                {% if item.motivo_inconsistencia %}
+                <tr>
+                    <td colspan="13"><small class="obs">{{ item.motivo_inconsistencia }}</small></td>
+                </tr>
+                {% endif %}
+                {% else %}
+                <tr><td colspan="13">Nenhum titulo encontrado para os filtros selecionados.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    {% if paginacao.total_paginas > 1 %}
+    <div class="dre-acoes-topo dre-acoes-compactas" style="margin-top: 1rem;">
+        {% if paginacao.tem_anterior %}
+        <a href="{{ url_for('movimentacoes_liquidacao') }}?{{ paginacao.query_anterior }}" class="botao-dre-imprimir">Anterior</a>
+        {% endif %}
+        {% if paginacao.tem_proxima %}
+        <a href="{{ url_for('movimentacoes_liquidacao') }}?{{ paginacao.query_proxima }}" class="botao-dre-exportar">Proxima</a>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+
+{% endblock %}

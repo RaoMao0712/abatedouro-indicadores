@@ -1922,6 +1922,365 @@ def montar_contexto_auditoria_financeira(args, exportar=False):
     }
 
 
+STATUS_LIQUIDACAO_OPCOES = [
+    "Todos",
+    "Liquidado",
+    "Parcialmente liquidado",
+    "Em aberto",
+    "Vencido",
+    "Inconsistente",
+]
+
+
+FAIXAS_ATRASO_LIQUIDACAO = {
+    "1_30": (1, 30),
+    "31_60": (31, 60),
+    "61_90": (61, 90),
+    "acima_90": (91, None),
+}
+
+
+def data_iso_para_date(valor):
+    texto = str(valor or "").strip()
+    if not texto:
+        return None
+    try:
+        return datetime.strptime(texto[:10], "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+def valor_float(valor):
+    try:
+        return round(float(valor or 0), 2)
+    except (TypeError, ValueError):
+        return 0
+
+
+def calcular_status_liquidacao(movimentacao, data_referencia=None):
+    data_ref = data_referencia or date.today()
+    data_vencimento = data_iso_para_date(movimentacao.get("data_vencimento"))
+    data_baixa = data_iso_para_date(movimentacao.get("data_realizacao"))
+    valor_documento = valor_float(movimentacao.get("valor_documento") or movimentacao.get("valor"))
+    valor_baixado = valor_float(movimentacao.get("valor_pago"))
+    baixa_tem_data = data_baixa is not None
+    baixa_tem_valor = valor_baixado > 0
+    dias_em_atraso = 0
+    status = "Em aberto"
+    inconsistente = False
+    motivo = ""
+
+    if data_vencimento and data_vencimento < data_ref:
+        dias_em_atraso = (data_ref - data_vencimento).days
+
+    if baixa_tem_data and not baixa_tem_valor:
+        status = "Inconsistente"
+        inconsistente = True
+        motivo = "Data da baixa preenchida sem valor da baixa."
+    elif baixa_tem_valor and not baixa_tem_data:
+        status = "Inconsistente"
+        inconsistente = True
+        motivo = "Valor da baixa preenchido sem data da baixa."
+    elif valor_baixado > valor_documento and valor_documento > 0:
+        status = "Inconsistente"
+        inconsistente = True
+        motivo = "Valor da baixa superior ao valor do documento."
+    elif baixa_tem_data and baixa_tem_valor and valor_baixado >= valor_documento:
+        status = "Liquidado"
+    elif baixa_tem_valor and valor_baixado < valor_documento:
+        status = "Parcialmente liquidado"
+    elif data_vencimento and data_vencimento < data_ref:
+        status = "Vencido"
+    else:
+        status = "Em aberto"
+
+    saldo_em_aberto = max(valor_documento - valor_baixado, 0)
+    if status == "Inconsistente" and valor_baixado > valor_documento:
+        saldo_em_aberto = 0
+    if status == "Liquidado":
+        saldo_em_aberto = 0
+
+    return {
+        "status_liquidacao": status,
+        "valor_documento_liquidacao": valor_documento,
+        "valor_baixado": valor_baixado,
+        "saldo_em_aberto": round(saldo_em_aberto, 2),
+        "dias_em_atraso": dias_em_atraso if status in ["Vencido", "Parcialmente liquidado", "Inconsistente"] else 0,
+        "inconsistente": inconsistente,
+        "motivo_inconsistencia": motivo,
+    }
+
+
+def movimentacao_compativel_contas_pagar(movimentacao):
+    if movimentacao.get("status") == "Cancelado":
+        return False
+    if normalizar_texto_plano(movimentacao.get("tipo")) != "saida":
+        return False
+    if movimentacao.get("tipo_conta") == "Neutro":
+        return False
+    if movimentacao.get("linha_dre") == "Neutro":
+        return False
+    return True
+
+
+def normalizar_filtros_liquidacao(args):
+    try:
+        pagina = int(args.get("pagina", 1) or 1)
+    except (TypeError, ValueError):
+        pagina = 1
+    try:
+        por_pagina = int(args.get("por_pagina", 50) or 50)
+    except (TypeError, ValueError):
+        por_pagina = 50
+    if pagina < 1:
+        pagina = 1
+    if por_pagina not in [50, 100, 200]:
+        por_pagina = 50
+    return {
+        "data_documento_inicio": args.get("data_documento_inicio", "").strip(),
+        "data_documento_fim": args.get("data_documento_fim", "").strip(),
+        "data_vencimento_inicio": args.get("data_vencimento_inicio", "").strip(),
+        "data_vencimento_fim": args.get("data_vencimento_fim", "").strip(),
+        "status": args.get("status", "Todos").strip() or "Todos",
+        "favorecido": args.get("favorecido", "").strip(),
+        "categoria": args.get("categoria", "Todas").strip() or "Todas",
+        "subcategoria": args.get("subcategoria", "Todas").strip() or "Todas",
+        "natureza": args.get("natureza", "Saida").strip() or "Saida",
+        "somente_vencidos": args.get("somente_vencidos") == "1",
+        "somente_abertos": args.get("somente_abertos") == "1",
+        "somente_parciais": args.get("somente_parciais") == "1",
+        "somente_inconsistentes": args.get("somente_inconsistentes") == "1",
+        "faixa_atraso": args.get("faixa_atraso", "Todas").strip() or "Todas",
+        "relatorio": args.get("relatorio", "").strip(),
+        "pagina": pagina,
+        "por_pagina": por_pagina,
+    }
+
+
+def montar_where_liquidacao(filtros):
+    condicoes = ["(import_key IS NOT NULL OR origem_importacao = ?)"]
+    parametros = ["excel_movimentacoes"]
+    if filtros["data_documento_inicio"]:
+        condicoes.append("COALESCE(data_documento, data_vencimento) >= ?")
+        parametros.append(filtros["data_documento_inicio"])
+    if filtros["data_documento_fim"]:
+        condicoes.append("COALESCE(data_documento, data_vencimento) <= ?")
+        parametros.append(filtros["data_documento_fim"])
+    if filtros["data_vencimento_inicio"]:
+        condicoes.append("data_vencimento >= ?")
+        parametros.append(filtros["data_vencimento_inicio"])
+    if filtros["data_vencimento_fim"]:
+        condicoes.append("data_vencimento <= ?")
+        parametros.append(filtros["data_vencimento_fim"])
+    if filtros["favorecido"]:
+        condicoes.append("(COALESCE(favorecido, '') LIKE ? OR COALESCE(parceiro, '') LIKE ?)")
+        termo = f"%{filtros['favorecido']}%"
+        parametros.extend([termo, termo])
+    if filtros["categoria"] != "Todas":
+        condicoes.append("categoria = ?")
+        parametros.append(filtros["categoria"])
+    if filtros["subcategoria"] != "Todas":
+        condicoes.append("COALESCE(subcategoria, '') = ?")
+        parametros.append(filtros["subcategoria"])
+    if filtros["natureza"] != "Todas":
+        if normalizar_texto_plano(filtros["natureza"]) == "saida":
+            condicoes.append("tipo IN (?, ?)")
+            parametros.extend(["Saida", "Saída"])
+            return " AND ".join(condicoes), parametros
+        condicoes.append("tipo = ?")
+        parametros.append(filtros["natureza"])
+    return " AND ".join(condicoes), parametros
+
+
+def buscar_movimentacoes_base_liquidacao(filtros):
+    where_sql, parametros = montar_where_liquidacao(filtros)
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute(q(f"""
+    SELECT *
+    FROM movimentacoes_financeiras
+    WHERE {where_sql}
+    ORDER BY data_vencimento ASC, COALESCE(valor_documento, valor) DESC, id ASC
+    """), tuple(parametros))
+    itens = [dict(item) for item in cursor.fetchall()]
+    conn.close()
+    return itens
+
+
+def aplicar_filtros_liquidacao(movimentacoes, filtros, data_referencia=None):
+    resultado = []
+    for item in movimentacoes:
+        if not movimentacao_compativel_contas_pagar(item):
+            continue
+        liquidacao = calcular_status_liquidacao(item, data_referencia)
+        item = {**item, **liquidacao}
+
+        if filtros["relatorio"] == "vencidos_sem_baixa":
+            if item["status_liquidacao"] not in ["Vencido", "Parcialmente liquidado"]:
+                continue
+            if item["dias_em_atraso"] <= 0 or item["saldo_em_aberto"] <= 0:
+                continue
+        if filtros["status"] != "Todos" and item["status_liquidacao"] != filtros["status"]:
+            continue
+        if filtros["somente_vencidos"] and item["status_liquidacao"] != "Vencido":
+            continue
+        if filtros["somente_abertos"] and item["status_liquidacao"] not in ["Em aberto", "Vencido", "Parcialmente liquidado"]:
+            continue
+        if filtros["somente_parciais"] and item["status_liquidacao"] != "Parcialmente liquidado":
+            continue
+        if filtros["somente_inconsistentes"] and item["status_liquidacao"] != "Inconsistente":
+            continue
+        if filtros["faixa_atraso"] in FAIXAS_ATRASO_LIQUIDACAO:
+            inicio, fim = FAIXAS_ATRASO_LIQUIDACAO[filtros["faixa_atraso"]]
+            dias = item["dias_em_atraso"]
+            if dias < inicio or (fim is not None and dias > fim):
+                continue
+        resultado.append(item)
+
+    resultado.sort(key=lambda item: (-int(item["dias_em_atraso"] or 0), -float(item["saldo_em_aberto"] or 0), item.get("data_vencimento") or ""))
+    return resultado
+
+
+def resumir_liquidacao(movimentacoes):
+    resumo = {
+        "quantidade_total": len(movimentacoes),
+        "total_titulos": 0,
+        "total_liquidado": 0,
+        "saldo_em_aberto": 0,
+        "saldo_vencido": 0,
+        "saldo_a_vencer": 0,
+        "qtd_liquidado": 0,
+        "qtd_em_aberto": 0,
+        "qtd_vencido": 0,
+        "qtd_a_vencer": 0,
+        "qtd_parcial": 0,
+        "valor_parcial": 0,
+        "qtd_inconsistente": 0,
+        "valor_inconsistente": 0,
+    }
+    for item in movimentacoes:
+        resumo["total_titulos"] += float(item["valor_documento_liquidacao"] or 0)
+        resumo["total_liquidado"] += float(item["valor_baixado"] or 0)
+        resumo["saldo_em_aberto"] += float(item["saldo_em_aberto"] or 0)
+        status = item["status_liquidacao"]
+        if status == "Liquidado":
+            resumo["qtd_liquidado"] += 1
+        elif status == "Vencido":
+            resumo["qtd_vencido"] += 1
+            resumo["saldo_vencido"] += float(item["saldo_em_aberto"] or 0)
+        elif status == "Em aberto":
+            resumo["qtd_em_aberto"] += 1
+            resumo["qtd_a_vencer"] += 1
+            resumo["saldo_a_vencer"] += float(item["saldo_em_aberto"] or 0)
+        elif status == "Parcialmente liquidado":
+            resumo["qtd_parcial"] += 1
+            resumo["valor_parcial"] += float(item["saldo_em_aberto"] or 0)
+            if int(item["dias_em_atraso"] or 0) > 0:
+                resumo["qtd_vencido"] += 1
+                resumo["saldo_vencido"] += float(item["saldo_em_aberto"] or 0)
+            else:
+                resumo["qtd_a_vencer"] += 1
+                resumo["saldo_a_vencer"] += float(item["saldo_em_aberto"] or 0)
+        elif status == "Inconsistente":
+            resumo["qtd_inconsistente"] += 1
+            resumo["valor_inconsistente"] += float(item["valor_documento_liquidacao"] or 0)
+
+    for chave, valor in list(resumo.items()):
+        if chave.startswith("qtd") or chave == "quantidade_total":
+            resumo[chave] = int(valor)
+        else:
+            resumo[chave] = round(float(valor or 0), 2)
+    return resumo
+
+
+def filtros_query_liquidacao(filtros, pagina=None):
+    dados = {chave: valor for chave, valor in filtros.items() if valor not in ["", None, False, "Todas"]}
+    dados.pop("pagina", None)
+    if pagina is not None:
+        dados["pagina"] = pagina
+    return urlencode(dados)
+
+
+def montar_contexto_liquidacao_financeira(args, exportar=False):
+    filtros = normalizar_filtros_liquidacao(args)
+    base = buscar_movimentacoes_base_liquidacao(filtros)
+    movimentacoes = aplicar_filtros_liquidacao(base, filtros)
+    resumo = resumir_liquidacao(movimentacoes)
+    total_paginas = max(1, (len(movimentacoes) + filtros["por_pagina"] - 1) // filtros["por_pagina"])
+    if filtros["pagina"] > total_paginas:
+        filtros["pagina"] = total_paginas
+    inicio = (filtros["pagina"] - 1) * filtros["por_pagina"]
+    fim = inicio + filtros["por_pagina"]
+    itens_pagina = movimentacoes if exportar else movimentacoes[inicio:fim]
+    return {
+        "filtros": filtros,
+        "resumo": resumo,
+        "movimentacoes": itens_pagina,
+        "total_filtrado": len(movimentacoes),
+        "status_opcoes": STATUS_LIQUIDACAO_OPCOES,
+        "categorias_filtro": categorias_filtro_auditoria(),
+        "subcategorias_filtro": sorted({item.get("subcategoria") for item in base if item.get("subcategoria")}),
+        "naturezas_filtro": ["Todas", "Saida", "Entrada", "Neutro"],
+        "faixas_atraso": FAIXAS_ATRASO_LIQUIDACAO,
+        "paginacao": {
+            "pagina": filtros["pagina"],
+            "total_paginas": total_paginas,
+            "tem_anterior": filtros["pagina"] > 1,
+            "tem_proxima": filtros["pagina"] < total_paginas,
+            "query_anterior": filtros_query_liquidacao(filtros, filtros["pagina"] - 1),
+            "query_proxima": filtros_query_liquidacao(filtros, filtros["pagina"] + 1),
+        },
+    }
+
+
+def gerar_excel_liquidacao_financeira(contexto):
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Liquidacao"
+    ws.append(["Gerado em", datetime.now().strftime("%Y-%m-%d %H:%M:%S")])
+    ws.append([])
+    ws.append(["Filtros"])
+    for chave, valor in contexto["filtros"].items():
+        ws.append([chave, valor])
+    ws.append([])
+    ws.append(["Indicador", "Valor"])
+    for chave, valor in contexto["resumo"].items():
+        ws.append([chave, valor])
+    ws.append([])
+    ws.append([
+        "Data documento", "Data vencimento", "Data baixa", "Numero documento", "Favorecido",
+        "Categoria", "Subcategoria", "Historico", "Valor documento", "Valor baixa",
+        "Saldo em aberto", "Status", "Dias em atraso", "Inconsistencia"
+    ])
+    for item in contexto["movimentacoes"]:
+        ws.append([
+            item.get("data_documento") or "",
+            item.get("data_vencimento") or "",
+            item.get("data_realizacao") or "",
+            item.get("numero_documento") or item.get("documento_id") or "",
+            item.get("favorecido") or item.get("parceiro") or "",
+            item.get("categoria") or "",
+            item.get("subcategoria") or "",
+            item.get("historico") or item.get("observacoes") or "",
+            item.get("valor_documento_liquidacao") or 0,
+            item.get("valor_baixado") or 0,
+            item.get("saldo_em_aberto") or 0,
+            item.get("status_liquidacao") or "",
+            item.get("dias_em_atraso") or 0,
+            item.get("motivo_inconsistencia") or "",
+        ])
+    ws.append([])
+    ws.append(["Totais consolidados"])
+    for chave, valor in contexto["resumo"].items():
+        ws.append([chave, valor])
+    for coluna in range(1, 15):
+        ws.column_dimensions[get_column_letter(coluna)].width = 22
+    buffer = BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+    return buffer
+
+
 def reclassificar_movimentacoes(ids, plano_conta_id):
     criar_tabela_movimentacoes_financeiras()
 
