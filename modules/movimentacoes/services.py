@@ -6,6 +6,7 @@ import hashlib
 import json
 import re
 import time
+import unicodedata
 import uuid
 from datetime import datetime, date
 from io import BytesIO
@@ -853,10 +854,13 @@ def normalizar_cabecalho_importacao(valor):
     }
     for origem, destino in substituicoes.items():
         texto = texto.replace(origem, destino)
+    texto = unicodedata.normalize("NFKD", texto)
+    texto = "".join(ch for ch in texto if not unicodedata.combining(ch))
     return re.sub(r"[^a-z0-9]+", "", texto)
 
 
 MAPEAMENTO_CABECALHOS_IMPORTACAO = {
+    "grupo_gerencial": ["grupo", "grupogerencial", "grupooperacional", "linha", "linhagerencial"],
     "categoria": ["categoria", "classificacao", "classificacaofinanceira"],
     "subcategoria": ["subcategoria", "subcategoriafinanceira"],
     "centro_analise": ["centroanalise", "centrodeanalise", "centrodecusto", "centro"],
@@ -877,6 +881,123 @@ MAPEAMENTO_CABECALHOS_IMPORTACAO = {
     "origem": ["origem", "origemimportacao", "origemdolancamento"],
     "observacoes": ["observacoes", "observacao", "comentarios", "comentario"],
 }
+
+
+MAPEAMENTO_CONTAS_IMPORTACAO = {
+    ("receitabruta", "vendadeproducaopropria"): "Venda de Producao Propria",
+    ("receitabruta", "vendadeproduoprpria"): "Venda de Producao Propria",
+    ("deducoesdareceita", "devolucoesdevenda"): "Devolucoes",
+    ("deduesdareceita", "devoluesdevenda"): "Devolucoes",
+    ("cmv", "materiaprima"): "Materia Prima",
+    ("cmv", "matriaprima"): "Materia Prima",
+    ("cmv", "embalagens"): "Embalagens",
+    ("financeiro", "despesasfinanceiras"): "Despesas Financeiras",
+    ("maodeobra", "salariosclt"): "Mao de Obra - CLT",
+    ("modeobra", "salriosclt"): "Mao de Obra - CLT",
+    ("maodeobra", "clt"): "Mao de Obra - CLT",
+    ("modeobra", "clt"): "Mao de Obra - CLT",
+    ("maodeobra", "terceirizados"): "Mao de Obra - Terceiros",
+    ("modeobra", "terceirizados"): "Mao de Obra - Terceiros",
+    ("maodeobra", "terceiros"): "Mao de Obra - Terceiros",
+    ("modeobra", "terceiros"): "Mao de Obra - Terceiros",
+    ("materiaisdeapoio", "produtosquimicos"): "Produtos Quimicos",
+    ("materiaisdeapoio", "produtosqumicos"): "Produtos Quimicos",
+    ("materiaisdeapoio", "usoeconsumo"): "Uso e Consumo",
+    ("manutencao", "manutencaodeveiculos"): "Manutencao de Veiculos",
+    ("manuteno", "manutenodeveculos"): "Manutencao de Veiculos",
+    ("neutras", "aportes"): "Aportes",
+    ("neutra", "aportes"): "Aportes",
+}
+
+
+def localizar_conta_plano_por_nome(nome_conta):
+    nome_norm = normalizar_texto_plano(nome_conta)
+    for conta in listar_plano_contas():
+        if normalizar_texto_plano(conta["nome"]) == nome_norm:
+            return conta
+    return resolver_conta_plano(categoria=nome_conta)
+
+
+def combinacoes_classificacao_importacao(grupo_gerencial, categoria, subcategoria):
+    partes = [
+        normalizar_texto_plano(valor)
+        for valor in [grupo_gerencial, categoria, subcategoria]
+        if normalizar_texto_plano(valor)
+    ]
+
+    deduplicadas = []
+    for parte in partes:
+        if not deduplicadas or deduplicadas[-1] != parte:
+            deduplicadas.append(parte)
+
+    candidatos = []
+    if len(deduplicadas) >= 2:
+        candidatos.append((deduplicadas[0], deduplicadas[-1]))
+        candidatos.append(tuple(deduplicadas[-2:]))
+    if len(deduplicadas) >= 3:
+        candidatos.append(tuple(deduplicadas))
+
+    categoria_norm = normalizar_texto_plano(categoria)
+    subcategoria_norm = normalizar_texto_plano(subcategoria)
+    grupo_norm = normalizar_texto_plano(grupo_gerencial)
+    if categoria_norm and subcategoria_norm:
+        candidatos.append((categoria_norm, subcategoria_norm))
+    if grupo_norm and categoria_norm:
+        candidatos.append((grupo_norm, categoria_norm))
+
+    unicos = []
+    for candidato in candidatos:
+        if candidato not in unicos:
+            unicos.append(candidato)
+    return unicos
+
+
+def formatar_rejeicao_plano_importacao(grupo_gerencial, categoria, subcategoria, conta_esperada, motivo):
+    return (
+        "Categoria/Subcategoria fora do Plano de Contas. "
+        f"Grupo recebido: {grupo_gerencial or '-'} | "
+        f"Categoria recebida: {categoria or '-'} | "
+        f"Subcategoria recebida: {subcategoria or '-'} | "
+        f"Conta esperada: {conta_esperada or '-'} | "
+        f"Motivo: {motivo}"
+    )
+
+
+def resolver_conta_plano_importacao(grupo_gerencial, categoria, subcategoria=""):
+    for chave in combinacoes_classificacao_importacao(grupo_gerencial, categoria, subcategoria):
+        conta_esperada = MAPEAMENTO_CONTAS_IMPORTACAO.get(chave)
+        if not conta_esperada:
+            continue
+
+        conta = localizar_conta_plano_por_nome(conta_esperada)
+        if conta:
+            return conta
+
+        raise ValueError(formatar_rejeicao_plano_importacao(
+            grupo_gerencial,
+            categoria,
+            subcategoria,
+            conta_esperada,
+            "Conta esperada nao existe no Plano de Contas.",
+        ))
+
+    conta = buscar_conta_plano_importacao(categoria, subcategoria)
+    if conta:
+        return conta
+
+    conta_esperada = None
+    for chave in combinacoes_classificacao_importacao(grupo_gerencial, categoria, subcategoria):
+        if chave in MAPEAMENTO_CONTAS_IMPORTACAO:
+            conta_esperada = MAPEAMENTO_CONTAS_IMPORTACAO[chave]
+            break
+
+    raise ValueError(formatar_rejeicao_plano_importacao(
+        grupo_gerencial,
+        categoria,
+        subcategoria,
+        conta_esperada,
+        "Sem mapeamento para a classificacao operacional recebida.",
+    ))
 
 
 def mapear_cabecalhos_importacao(ws):
@@ -1024,6 +1145,7 @@ def preparar_linha_importacao(
     valor_documento_original = numero_importacao(valor_celula(ws, linha, colunas, "valor_documento"))
     valor_liquido_original = numero_importacao(valor_celula(ws, linha, colunas, "valor_liquido"))
     valor_pago_original = numero_importacao(valor_celula(ws, linha, colunas, "valor_pago"))
+    grupo_gerencial_informado = texto_importacao(valor_celula(ws, linha, colunas, "grupo_gerencial"))
     categoria_informada = texto_importacao(valor_celula(ws, linha, colunas, "categoria"))
     subcategoria_informada = texto_importacao(valor_celula(ws, linha, colunas, "subcategoria"))
     centro_analise_informado = texto_importacao(valor_celula(ws, linha, colunas, "centro_analise"))
@@ -1040,10 +1162,11 @@ def preparar_linha_importacao(
     tipo = resolver_tipo_importacao(ws, linha, colunas, categoria, natureza_padrao)
     if not tipo:
         raise ValueError("tipo/natureza obrigatorio")
-    conta_plano = buscar_conta_plano_importacao(categoria, subcategoria_informada)
-    if not conta_plano:
-        detalhe = f"{categoria} / {subcategoria_informada}" if subcategoria_informada else categoria
-        raise ValueError(f"categoria/subcategoria fora do Plano de Contas: {detalhe}")
+    conta_plano = resolver_conta_plano_importacao(
+        grupo_gerencial_informado,
+        categoria,
+        subcategoria_informada,
+    )
     plano = derivar_plano_movimentacao(categoria, conta_plano["id"])
     categoria = plano["categoria_movimentacao"]
 
