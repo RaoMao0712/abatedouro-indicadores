@@ -43,6 +43,7 @@ CATEGORIA_RECEITA_BRUTA = "Receita Bruta"
 ORIGEM_IMPORTACAO_DESPESAS = "excel_movimentacoes"
 ORIGEM_IMPORTACAO_VENDAS = "IMPORTACAO VENDAS"
 _PLANO_CONTAS_SYNC_EXECUTADO = False
+_SCHEMA_MOVIMENTACOES_FINANCEIRAS_INICIALIZADO = False
 TAMANHO_LOTE_GRAVACAO_IMPORTACAO = 500
 
 TABELAS_RESET_FINANCEIRO = [
@@ -229,130 +230,141 @@ def preparar_movimentacoes_financeiras_para_tela(movimentacoes, status_filtro="T
 
 
 def criar_tabela_movimentacoes_financeiras():
+    global _SCHEMA_MOVIMENTACOES_FINANCEIRAS_INICIALIZADO
+
+    if _SCHEMA_MOVIMENTACOES_FINANCEIRAS_INICIALIZADO:
+        return
+
     criar_tabela_plano_contas_mestre()
     conn = conectar()
     cursor = conn.cursor()
 
-    if DATABASE_URL:
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS movimentacoes_financeiras (
-            id SERIAL PRIMARY KEY,
-            data_vencimento TEXT NOT NULL,
-            data_realizacao TEXT,
-            tipo TEXT NOT NULL,
-            categoria TEXT NOT NULL,
-            descricao TEXT NOT NULL,
-            valor REAL NOT NULL,
-            forma_pagamento TEXT,
-            status TEXT DEFAULT 'Pendente',
-            parcelas INTEGER DEFAULT 1,
-            parcela_atual INTEGER DEFAULT 1,
-            intervalo_dias INTEGER DEFAULT 30,
-            documento_id TEXT,
-            data_documento TEXT,
-            valor_documento REAL DEFAULT 0,
-            prazo_medio_dias REAL DEFAULT 0,
-            observacoes TEXT,
-            criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-        """)
-    else:
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS movimentacoes_financeiras (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            data_vencimento TEXT NOT NULL,
-            data_realizacao TEXT,
-            tipo TEXT NOT NULL,
-            categoria TEXT NOT NULL,
-            descricao TEXT NOT NULL,
-            valor REAL NOT NULL,
-            forma_pagamento TEXT,
-            status TEXT DEFAULT 'Pendente',
-            parcelas INTEGER DEFAULT 1,
-            parcela_atual INTEGER DEFAULT 1,
-            intervalo_dias INTEGER DEFAULT 30,
-            documento_id TEXT,
-            data_documento TEXT,
-            valor_documento REAL DEFAULT 0,
-            prazo_medio_dias REAL DEFAULT 0,
-            observacoes TEXT,
-            criado_em TEXT DEFAULT CURRENT_TIMESTAMP
-        )
-        """)
+    try:
+        if DATABASE_URL:
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS movimentacoes_financeiras (
+                id SERIAL PRIMARY KEY,
+                data_vencimento TEXT NOT NULL,
+                data_realizacao TEXT,
+                tipo TEXT NOT NULL,
+                categoria TEXT NOT NULL,
+                descricao TEXT NOT NULL,
+                valor REAL NOT NULL,
+                forma_pagamento TEXT,
+                status TEXT DEFAULT 'Pendente',
+                parcelas INTEGER DEFAULT 1,
+                parcela_atual INTEGER DEFAULT 1,
+                intervalo_dias INTEGER DEFAULT 30,
+                documento_id TEXT,
+                data_documento TEXT,
+                valor_documento REAL DEFAULT 0,
+                prazo_medio_dias REAL DEFAULT 0,
+                observacoes TEXT,
+                criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """)
+        else:
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS movimentacoes_financeiras (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                data_vencimento TEXT NOT NULL,
+                data_realizacao TEXT,
+                tipo TEXT NOT NULL,
+                categoria TEXT NOT NULL,
+                descricao TEXT NOT NULL,
+                valor REAL NOT NULL,
+                forma_pagamento TEXT,
+                status TEXT DEFAULT 'Pendente',
+                parcelas INTEGER DEFAULT 1,
+                parcela_atual INTEGER DEFAULT 1,
+                intervalo_dias INTEGER DEFAULT 30,
+                documento_id TEXT,
+                data_documento TEXT,
+                valor_documento REAL DEFAULT 0,
+                prazo_medio_dias REAL DEFAULT 0,
+                observacoes TEXT,
+                criado_em TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+            """)
 
-    tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN intervalo_dias INTEGER DEFAULT 30")
-    tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN documento_id TEXT")
-    tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN data_documento TEXT")
-    tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN valor_documento REAL DEFAULT 0")
-    tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN prazo_medio_dias REAL DEFAULT 0")
-    tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN import_key TEXT")
-    tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN cnpj_cpf TEXT")
-    tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN numero_documento TEXT")
-    tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN favorecido TEXT")
-    tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN parceiro TEXT")
-    tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN historico TEXT")
-    tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN valor_pago REAL DEFAULT 0")
-    tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN valor_liquido REAL DEFAULT 0")
-    tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN origem_importacao TEXT")
-    tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN plano_conta_id INTEGER")
-    tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN grupo_gerencial TEXT")
-    tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN categoria_plano TEXT")
-    tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN subcategoria TEXT")
-    tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN centro_analise TEXT")
-    tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN linha_dre TEXT")
-    tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN tipo_conta TEXT")
-    tentar_alter_table(
-        cursor,
-        conn,
-        "CREATE INDEX IF NOT EXISTS idx_movimentacoes_financeiras_import_key "
-        "ON movimentacoes_financeiras (import_key)"
-    )
-    tentar_alter_table(
-        cursor,
-        conn,
-        "CREATE INDEX IF NOT EXISTS idx_mov_fin_vencimento_tipo_status "
-        "ON movimentacoes_financeiras (data_vencimento, tipo, status)"
-    )
-    tentar_alter_table(
-        cursor,
-        conn,
-        "CREATE INDEX IF NOT EXISTS idx_mov_fin_realizacao_tipo_status "
-        "ON movimentacoes_financeiras (data_realizacao, tipo, status)"
-    )
-    tentar_alter_table(
-        cursor,
-        conn,
-        "CREATE INDEX IF NOT EXISTS idx_mov_fin_tipo_documento_status_categoria "
-        "ON movimentacoes_financeiras (tipo, data_documento, status, categoria)"
-    )
-    tentar_alter_table(
-        cursor,
-        conn,
-        "CREATE INDEX IF NOT EXISTS idx_mov_fin_categoria "
-        "ON movimentacoes_financeiras (categoria)"
-    )
-    tentar_alter_table(
-        cursor,
-        conn,
-        "CREATE INDEX IF NOT EXISTS idx_mov_fin_origem_importacao "
-        "ON movimentacoes_financeiras (origem_importacao)"
-    )
-    tentar_alter_table(
-        cursor,
-        conn,
-        "CREATE INDEX IF NOT EXISTS idx_mov_fin_plano_conta "
-        "ON movimentacoes_financeiras (plano_conta_id)"
-    )
-    tentar_alter_table(
-        cursor,
-        conn,
-        "CREATE INDEX IF NOT EXISTS idx_mov_fin_linha_dre "
-        "ON movimentacoes_financeiras (linha_dre, data_documento, status)"
-    )
+        tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN intervalo_dias INTEGER DEFAULT 30")
+        tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN documento_id TEXT")
+        tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN data_documento TEXT")
+        tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN valor_documento REAL DEFAULT 0")
+        tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN prazo_medio_dias REAL DEFAULT 0")
+        tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN import_key TEXT")
+        tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN cnpj_cpf TEXT")
+        tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN numero_documento TEXT")
+        tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN favorecido TEXT")
+        tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN parceiro TEXT")
+        tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN historico TEXT")
+        tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN valor_pago REAL DEFAULT 0")
+        tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN valor_liquido REAL DEFAULT 0")
+        tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN origem_importacao TEXT")
+        tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN plano_conta_id INTEGER")
+        tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN grupo_gerencial TEXT")
+        tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN categoria_plano TEXT")
+        tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN subcategoria TEXT")
+        tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN centro_analise TEXT")
+        tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN linha_dre TEXT")
+        tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN tipo_conta TEXT")
+        tentar_alter_table(
+            cursor,
+            conn,
+            "CREATE INDEX IF NOT EXISTS idx_movimentacoes_financeiras_import_key "
+            "ON movimentacoes_financeiras (import_key)"
+        )
+        tentar_alter_table(
+            cursor,
+            conn,
+            "CREATE INDEX IF NOT EXISTS idx_mov_fin_vencimento_tipo_status "
+            "ON movimentacoes_financeiras (data_vencimento, tipo, status)"
+        )
+        tentar_alter_table(
+            cursor,
+            conn,
+            "CREATE INDEX IF NOT EXISTS idx_mov_fin_realizacao_tipo_status "
+            "ON movimentacoes_financeiras (data_realizacao, tipo, status)"
+        )
+        tentar_alter_table(
+            cursor,
+            conn,
+            "CREATE INDEX IF NOT EXISTS idx_mov_fin_tipo_documento_status_categoria "
+            "ON movimentacoes_financeiras (tipo, data_documento, status, categoria)"
+        )
+        tentar_alter_table(
+            cursor,
+            conn,
+            "CREATE INDEX IF NOT EXISTS idx_mov_fin_categoria "
+            "ON movimentacoes_financeiras (categoria)"
+        )
+        tentar_alter_table(
+            cursor,
+            conn,
+            "CREATE INDEX IF NOT EXISTS idx_mov_fin_origem_importacao "
+            "ON movimentacoes_financeiras (origem_importacao)"
+        )
+        tentar_alter_table(
+            cursor,
+            conn,
+            "CREATE INDEX IF NOT EXISTS idx_mov_fin_plano_conta "
+            "ON movimentacoes_financeiras (plano_conta_id)"
+        )
+        tentar_alter_table(
+            cursor,
+            conn,
+            "CREATE INDEX IF NOT EXISTS idx_mov_fin_linha_dre "
+            "ON movimentacoes_financeiras (linha_dre, data_documento, status)"
+        )
 
-    conn.commit()
-    conn.close()
-    sincronizar_movimentacoes_plano_contas()
+        conn.commit()
+        sincronizar_movimentacoes_plano_contas()
+        _SCHEMA_MOVIMENTACOES_FINANCEIRAS_INICIALIZADO = True
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def listar_tabelas_banco(cursor):
