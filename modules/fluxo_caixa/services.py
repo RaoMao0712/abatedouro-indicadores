@@ -92,6 +92,7 @@ def listar_categorias_fluxo_caixa():
     FROM movimentacoes_financeiras
     WHERE categoria IS NOT NULL
       AND categoria <> ''
+      AND COALESCE(impacta_fluxo_caixa, 1) = 1
     ORDER BY categoria
     """))
     categorias = [item["categoria"] for item in cursor.fetchall()]
@@ -120,7 +121,10 @@ def _montar_filtros_movimentacoes(tipo_filtro, categoria_filtro):
 def buscar_movimentacoes_fluxo_caixa(data_inicio, data_fim, tipo_filtro, categoria_filtro):
     criar_tabela_movimentacoes_financeiras()
 
-    condicoes = ["data_vencimento BETWEEN ? AND ?"]
+    condicoes = [
+        "data_vencimento BETWEEN ? AND ?",
+        "COALESCE(impacta_fluxo_caixa, 1) = 1",
+    ]
     parametros = [data_inicio, data_fim]
     filtros, parametros_filtros = _montar_filtros_movimentacoes(tipo_filtro, categoria_filtro)
     condicoes.extend(filtros)
@@ -147,6 +151,7 @@ def buscar_movimentacoes_realizadas_fluxo_caixa(data_inicio, data_fim, tipo_filt
         "data_realizacao BETWEEN ? AND ?",
         "COALESCE(data_realizacao, '') <> ?",
         "COALESCE(status, 'Pendente') IN (?, ?, ?)",
+        "COALESCE(impacta_fluxo_caixa, 1) = 1",
     ]
     parametros = [data_inicio, data_fim, "", *STATUS_REALIZADOS_SQL]
     filtros, parametros_filtros = _montar_filtros_movimentacoes(tipo_filtro, categoria_filtro)
@@ -188,6 +193,7 @@ def buscar_saldos_iniciais(data_inicio, tipo_filtro="Todos", categoria_filtro="T
     condicoes_previsto = [
         "data_vencimento < ?",
         "COALESCE(status, 'Pendente') <> ?",
+        "COALESCE(impacta_fluxo_caixa, 1) = 1",
     ] + filtros
     parametros_previsto = [data_inicio, "Cancelado"] + parametros_filtros
 
@@ -195,6 +201,7 @@ def buscar_saldos_iniciais(data_inicio, tipo_filtro="Todos", categoria_filtro="T
         "data_realizacao < ?",
         "COALESCE(data_realizacao, '') <> ?",
         "COALESCE(status, 'Pendente') <> ?",
+        "COALESCE(impacta_fluxo_caixa, 1) = 1",
     ] + filtros
     parametros_realizado = [data_inicio, "", "Cancelado"] + parametros_filtros
 

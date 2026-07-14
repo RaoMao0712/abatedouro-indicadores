@@ -66,7 +66,8 @@
                     <th>Subcategoria</th>
                     <th>Linha DRE</th>
                     <th>Tipo</th>
-                    <th>Fluxo</th>
+                    <th>Impacta DRE</th>
+                    <th>Impacta Caixa</th>
                     <th>Estoque</th>
                     <th>CMV</th>
                     <th>Imobilizado</th>
@@ -82,6 +83,7 @@
                     <td>{{ conta.subcategoria or "-" }}</td>
                     <td>{{ conta.linha_dre }}</td>
                     <td>{{ conta.tipo_conta }}</td>
+                    <td>{{ "Sim" if conta.impacta_dre else "Nao" }}</td>
                     <td>{{ "Sim" if conta.impacta_fluxo_caixa else "Nao" }}</td>
                     <td>{{ "Sim" if conta.formacao_estoque else "Nao" }}</td>
                     <td>{{ "Sim" if conta.cmv else "Nao" }}</td>

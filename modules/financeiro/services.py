@@ -53,6 +53,7 @@ def conta_mestre(
     imobilizado=False,
     financeiro=False,
     transferencia_neutro=False,
+    impacta_fluxo_caixa=True,
 ):
     nome = categoria if not subcategoria else f"{categoria} - {subcategoria}"
     impacta_dre = linha_dre not in ("", LINHA_NEUTRA)
@@ -76,7 +77,7 @@ def conta_mestre(
         "natureza": tipo_normalizado,
         "impacta_dre": impacta_dre,
         "impacta_resultado_operacional": impacta_resultado_operacional,
-        "impacta_fluxo_caixa": True,
+        "impacta_fluxo_caixa": bool(impacta_fluxo_caixa),
         "formacao_estoque": bool(formacao_estoque),
         "cmv": bool(cmv),
         "imobilizado": bool(imobilizado),
@@ -131,12 +132,12 @@ PLANO_CONTAS_MESTRE = [
 
     conta_mestre(5001, "Resultado Nao Operacional", "Receitas Financeiras", linha_dre=LINHA_RESULTADO_NAO_OPERACIONAL, tipo_conta="Entrada", ordem_exibicao=500, financeiro=True),
     conta_mestre(5002, "Resultado Nao Operacional", "Despesas Financeiras", linha_dre=LINHA_RESULTADO_NAO_OPERACIONAL, tipo_conta="Saida", ordem_exibicao=510, aliases=["Juros", "Tarifas Bancarias", "IOF"], financeiro=True),
-    conta_mestre(5003, "Resultado Nao Operacional", "Aportes", linha_dre=LINHA_RESULTADO_NAO_OPERACIONAL, tipo_conta="Entrada", ordem_exibicao=520, aliases=["Aporte"], transferencia_neutro=True),
-    conta_mestre(5004, "Resultado Nao Operacional", "Transferencias", linha_dre=LINHA_RESULTADO_NAO_OPERACIONAL, tipo_conta="Neutro", ordem_exibicao=530, aliases=["Mutuos", "Transferencias entre contas"], transferencia_neutro=True),
-    conta_mestre(5005, "Resultado Nao Operacional", "Investimentos", linha_dre=LINHA_RESULTADO_NAO_OPERACIONAL, tipo_conta="Saida", ordem_exibicao=540, imobilizado=True),
-    conta_mestre(5006, "Resultado Nao Operacional", "Equipamentos", linha_dre=LINHA_RESULTADO_NAO_OPERACIONAL, tipo_conta="Saida", ordem_exibicao=550, aliases=["Aquisicao de Equipamentos", "Aquisição de Equipamentos"], imobilizado=True),
-    conta_mestre(5007, "Resultado Nao Operacional", "Veiculos", linha_dre=LINHA_RESULTADO_NAO_OPERACIONAL, tipo_conta="Saida", ordem_exibicao=560, imobilizado=True),
-    conta_mestre(5008, "Resultado Nao Operacional", "Obras e Benfeitorias", linha_dre=LINHA_RESULTADO_NAO_OPERACIONAL, tipo_conta="Saida", ordem_exibicao=570, aliases=["Obras", "Reformas", "Maquinas", "Benfeitorias"], imobilizado=True),
+    conta_mestre(5003, "Resultado Nao Operacional", "Aportes", linha_dre=LINHA_NEUTRA, tipo_conta="Entrada", ordem_exibicao=520, aliases=["Aporte"], transferencia_neutro=True),
+    conta_mestre(5004, "Resultado Nao Operacional", "Transferencias", linha_dre=LINHA_NEUTRA, tipo_conta="Neutro", ordem_exibicao=530, aliases=["Mutuos", "Transferencias entre contas", "Transferencia entre contas da empresa"], transferencia_neutro=True, impacta_fluxo_caixa=False),
+    conta_mestre(5005, "Resultado Nao Operacional", "Investimentos", linha_dre=LINHA_NEUTRA, tipo_conta="Saida", ordem_exibicao=540, imobilizado=True),
+    conta_mestre(5006, "Resultado Nao Operacional", "Equipamentos", linha_dre=LINHA_NEUTRA, tipo_conta="Saida", ordem_exibicao=550, aliases=["Aquisicao de Equipamentos", "Aquisição de Equipamentos"], imobilizado=True),
+    conta_mestre(5007, "Resultado Nao Operacional", "Veiculos", linha_dre=LINHA_NEUTRA, tipo_conta="Saida", ordem_exibicao=560, imobilizado=True),
+    conta_mestre(5008, "Resultado Nao Operacional", "Obras e Benfeitorias", linha_dre=LINHA_NEUTRA, tipo_conta="Saida", ordem_exibicao=570, aliases=["Obras", "Reformas", "Maquinas", "Benfeitorias"], imobilizado=True),
     conta_mestre(5009, "Resultado Nao Operacional", "Ganhos Extraordinarios", linha_dre=LINHA_RESULTADO_NAO_OPERACIONAL, tipo_conta="Entrada", ordem_exibicao=580),
     conta_mestre(5010, "Resultado Nao Operacional", "Perdas Extraordinarias", linha_dre=LINHA_RESULTADO_NAO_OPERACIONAL, tipo_conta="Saida", ordem_exibicao=590),
     conta_mestre(5011, "Resultado Nao Operacional", "Marketing", linha_dre=LINHA_RESULTADO_NAO_OPERACIONAL, tipo_conta="Saida", ordem_exibicao=600, aliases=["Comercial Marketing"]),
@@ -148,7 +149,7 @@ PLANO_CONTAS_MESTRE = [
 
     conta_mestre(9001, "Transferencias", "Retiradas", linha_dre=LINHA_NEUTRA, tipo_conta="Saida", ordem_exibicao=900, transferencia_neutro=True),
     conta_mestre(9002, "Transferencias", "Adiantamentos", linha_dre=LINHA_NEUTRA, tipo_conta="Saida", ordem_exibicao=910, transferencia_neutro=True),
-    conta_mestre(9003, "Financeiro", "Emprestimos", linha_dre=LINHA_NEUTRA, tipo_conta="Saida", ordem_exibicao=920, aliases=["Emprestimos e financiamentos", "Financiamentos", "Emprestimo recebido"], financeiro=True),
+    conta_mestre(9003, "Financeiro", "Emprestimos", linha_dre=LINHA_NEUTRA, tipo_conta="Saida", ordem_exibicao=920, aliases=["Emprestimos e financiamentos", "Financiamentos", "Emprestimo recebido", "Emprestimos Recebidos", "Amortizacao de Emprestimos"], financeiro=True),
 ]
 
 
@@ -190,6 +191,7 @@ def campos_derivados_conta(conta):
             "centro_analise": "",
             "linha_dre": "",
             "tipo_conta": "",
+            "impacta_fluxo_caixa": True,
             "categoria_movimentacao": "",
         }
     return {
@@ -200,6 +202,7 @@ def campos_derivados_conta(conta):
         "centro_analise": conta["centro_analise_opcional"],
         "linha_dre": conta["linha_dre"],
         "tipo_conta": conta["tipo_conta"],
+        "impacta_fluxo_caixa": conta["impacta_fluxo_caixa"],
         "categoria_movimentacao": conta["nome"],
     }
 
@@ -270,6 +273,8 @@ def criar_tabela_plano_contas_mestre():
         centro_analise_opcional TEXT,
         linha_dre TEXT NOT NULL,
         tipo_conta TEXT NOT NULL,
+        impacta_dre INTEGER DEFAULT 1,
+        impacta_fluxo_caixa INTEGER DEFAULT 1,
         aceita_subcategoria INTEGER DEFAULT 0,
         aceita_centro_analise INTEGER DEFAULT 0,
         ativo INTEGER DEFAULT 1,
@@ -280,12 +285,15 @@ def criar_tabela_plano_contas_mestre():
     """)
     executar_alteracao_segura(cursor, conn, "CREATE INDEX IF NOT EXISTS idx_plano_contas_mestre_linha_dre ON plano_contas_mestre (linha_dre)")
     executar_alteracao_segura(cursor, conn, "CREATE INDEX IF NOT EXISTS idx_plano_contas_mestre_categoria ON plano_contas_mestre (categoria, subcategoria)")
+    executar_alteracao_segura(cursor, conn, "ALTER TABLE plano_contas_mestre ADD COLUMN impacta_dre INTEGER DEFAULT 1")
+    executar_alteracao_segura(cursor, conn, "ALTER TABLE plano_contas_mestre ADD COLUMN impacta_fluxo_caixa INTEGER DEFAULT 1")
 
     agora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     valores = [
         (
             item["id"], item["grupo_gerencial"], item["categoria"], item["subcategoria"],
             item["centro_analise_opcional"], item["linha_dre"], item["tipo_conta"],
+            int(item["impacta_dre"]), int(item["impacta_fluxo_caixa"]),
             int(item["aceita_subcategoria"]), int(item["aceita_centro_analise"]),
             int(item["ativo"]), item["ordem_exibicao"], agora, agora,
         )
@@ -296,9 +304,10 @@ def criar_tabela_plano_contas_mestre():
         cursor.executemany(q("""
         INSERT INTO plano_contas_mestre (
             id, grupo_gerencial, categoria, subcategoria, centro_analise_opcional,
-            linha_dre, tipo_conta, aceita_subcategoria, aceita_centro_analise,
+            linha_dre, tipo_conta, impacta_dre, impacta_fluxo_caixa,
+            aceita_subcategoria, aceita_centro_analise,
             ativo, ordem_exibicao, criado_em, atualizado_em
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (id) DO UPDATE SET
             grupo_gerencial = EXCLUDED.grupo_gerencial,
             categoria = EXCLUDED.categoria,
@@ -306,6 +315,8 @@ def criar_tabela_plano_contas_mestre():
             centro_analise_opcional = EXCLUDED.centro_analise_opcional,
             linha_dre = EXCLUDED.linha_dre,
             tipo_conta = EXCLUDED.tipo_conta,
+            impacta_dre = EXCLUDED.impacta_dre,
+            impacta_fluxo_caixa = EXCLUDED.impacta_fluxo_caixa,
             aceita_subcategoria = EXCLUDED.aceita_subcategoria,
             aceita_centro_analise = EXCLUDED.aceita_centro_analise,
             ativo = EXCLUDED.ativo,
@@ -316,9 +327,10 @@ def criar_tabela_plano_contas_mestre():
         cursor.executemany(q("""
         INSERT INTO plano_contas_mestre (
             id, grupo_gerencial, categoria, subcategoria, centro_analise_opcional,
-            linha_dre, tipo_conta, aceita_subcategoria, aceita_centro_analise,
+            linha_dre, tipo_conta, impacta_dre, impacta_fluxo_caixa,
+            aceita_subcategoria, aceita_centro_analise,
             ativo, ordem_exibicao, criado_em, atualizado_em
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
             grupo_gerencial = excluded.grupo_gerencial,
             categoria = excluded.categoria,
@@ -326,6 +338,8 @@ def criar_tabela_plano_contas_mestre():
             centro_analise_opcional = excluded.centro_analise_opcional,
             linha_dre = excluded.linha_dre,
             tipo_conta = excluded.tipo_conta,
+            impacta_dre = excluded.impacta_dre,
+            impacta_fluxo_caixa = excluded.impacta_fluxo_caixa,
             aceita_subcategoria = excluded.aceita_subcategoria,
             aceita_centro_analise = excluded.aceita_centro_analise,
             ativo = excluded.ativo,

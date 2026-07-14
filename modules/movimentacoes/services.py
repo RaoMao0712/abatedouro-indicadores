@@ -308,6 +308,7 @@ def criar_tabela_movimentacoes_financeiras():
         tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN centro_analise TEXT")
         tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN linha_dre TEXT")
         tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN tipo_conta TEXT")
+        tentar_alter_table(cursor, conn, "ALTER TABLE movimentacoes_financeiras ADD COLUMN impacta_fluxo_caixa INTEGER DEFAULT 1")
         tentar_alter_table(
             cursor,
             conn,
@@ -355,6 +356,12 @@ def criar_tabela_movimentacoes_financeiras():
             conn,
             "CREATE INDEX IF NOT EXISTS idx_mov_fin_linha_dre "
             "ON movimentacoes_financeiras (linha_dre, data_documento, status)"
+        )
+        tentar_alter_table(
+            cursor,
+            conn,
+            "CREATE INDEX IF NOT EXISTS idx_mov_fin_impacta_fluxo "
+            "ON movimentacoes_financeiras (impacta_fluxo_caixa, data_vencimento, data_realizacao)"
         )
 
         conn.commit()
@@ -506,8 +513,16 @@ def sincronizar_movimentacoes_plano_contas():
                     subcategoria = ?,
                     centro_analise = ?,
                     linha_dre = ?,
-                    tipo_conta = ?
-                WHERE (plano_conta_id IS NULL OR plano_conta_id = 0 OR COALESCE(linha_dre, '') = '')
+                    tipo_conta = ?,
+                    impacta_fluxo_caixa = ?
+                WHERE (
+                    plano_conta_id IS NULL
+                    OR plano_conta_id = 0
+                    OR COALESCE(linha_dre, '') = ''
+                    OR COALESCE(impacta_fluxo_caixa, -1) <> ?
+                    OR linha_dre <> ?
+                    OR tipo_conta <> ?
+                )
                   AND categoria = ?
                 """), (
                     campos["plano_conta_id"],
@@ -515,6 +530,10 @@ def sincronizar_movimentacoes_plano_contas():
                     campos["categoria_plano"],
                     campos["subcategoria"],
                     campos["centro_analise"],
+                    campos["linha_dre"],
+                    campos["tipo_conta"],
+                    int(campos["impacta_fluxo_caixa"]),
+                    int(campos["impacta_fluxo_caixa"]),
                     campos["linha_dre"],
                     campos["tipo_conta"],
                     categoria,
@@ -643,8 +662,9 @@ def salvar_movimentacao_financeira(form):
             subcategoria,
             centro_analise,
             linha_dre,
-            tipo_conta
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            tipo_conta,
+            impacta_fluxo_caixa
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """), (
             parcela["vencimento"],
             data_realizacao if status == "Realizado" else "",
@@ -669,6 +689,7 @@ def salvar_movimentacao_financeira(form):
             plano["centro_analise"],
             plano["linha_dre"],
             plano["tipo_conta"],
+            int(plano["impacta_fluxo_caixa"]),
         ))
 
     conn.commit()
@@ -718,7 +739,8 @@ def atualizar_movimentacao_financeira(movimentacao_id, form):
         subcategoria = ?,
         centro_analise = ?,
         linha_dre = ?,
-        tipo_conta = ?
+        tipo_conta = ?,
+        impacta_fluxo_caixa = ?
     WHERE id = ?
     """), (
         form.get("data_vencimento", ""),
@@ -738,6 +760,7 @@ def atualizar_movimentacao_financeira(movimentacao_id, form):
         plano["centro_analise"],
         plano["linha_dre"],
         plano["tipo_conta"],
+        int(plano["impacta_fluxo_caixa"]),
         movimentacao_id
     ))
 
@@ -1312,6 +1335,7 @@ def preparar_linha_importacao(
         "centro_analise": centro_analise_informado or plano["centro_analise"],
         "linha_dre": plano["linha_dre"],
         "tipo_conta": plano["tipo_conta"],
+        "impacta_fluxo_caixa": int(plano["impacta_fluxo_caixa"]),
     }
     aplicar_ocorrencia_import_key(dados, 1, incluir_origem=incluir_origem_import_key)
     return dados
@@ -1347,6 +1371,7 @@ def valores_update_importacao(dados, movimentacao_id):
         dados["valor_pago"], dados["valor_liquido"], dados["origem_importacao"],
         dados["plano_conta_id"], dados["grupo_gerencial"], dados["categoria_plano"],
         dados["subcategoria"], dados["centro_analise"], dados["linha_dre"], dados["tipo_conta"],
+        dados["impacta_fluxo_caixa"],
         movimentacao_id,
     )
 
@@ -1362,6 +1387,7 @@ def valores_insert_importacao(dados):
         dados["valor_pago"], dados["valor_liquido"], dados["origem_importacao"],
         dados["plano_conta_id"], dados["grupo_gerencial"], dados["categoria_plano"],
         dados["subcategoria"], dados["centro_analise"], dados["linha_dre"], dados["tipo_conta"],
+        dados["impacta_fluxo_caixa"],
     )
 
 
@@ -1397,7 +1423,8 @@ SET data_vencimento = ?,
     subcategoria = ?,
     centro_analise = ?,
     linha_dre = ?,
-    tipo_conta = ?
+    tipo_conta = ?,
+    impacta_fluxo_caixa = ?
 WHERE id = ?
 """
 
@@ -1409,8 +1436,9 @@ INSERT INTO movimentacoes_financeiras (
     documento_id, data_documento, valor_documento, prazo_medio_dias, observacoes,
     import_key, cnpj_cpf, numero_documento, favorecido, parceiro, historico,
     valor_pago, valor_liquido, origem_importacao, plano_conta_id, grupo_gerencial,
-    categoria_plano, subcategoria, centro_analise, linha_dre, tipo_conta
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    categoria_plano, subcategoria, centro_analise, linha_dre, tipo_conta,
+    impacta_fluxo_caixa
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 
@@ -1421,7 +1449,8 @@ INSERT INTO movimentacoes_financeiras (
     documento_id, data_documento, valor_documento, prazo_medio_dias, observacoes,
     import_key, cnpj_cpf, numero_documento, favorecido, parceiro, historico,
     valor_pago, valor_liquido, origem_importacao, plano_conta_id, grupo_gerencial,
-    categoria_plano, subcategoria, centro_analise, linha_dre, tipo_conta
+    categoria_plano, subcategoria, centro_analise, linha_dre, tipo_conta,
+    impacta_fluxo_caixa
 ) VALUES %s
 """
 
@@ -2397,7 +2426,8 @@ def reclassificar_movimentacoes(ids, plano_conta_id):
             subcategoria = ?,
             centro_analise = ?,
             linha_dre = ?,
-            tipo_conta = ?
+            tipo_conta = ?,
+            impacta_fluxo_caixa = ?
         WHERE id = ?
         """), (
             plano["categoria_movimentacao"],
@@ -2408,6 +2438,7 @@ def reclassificar_movimentacoes(ids, plano_conta_id):
             plano["centro_analise"],
             plano["linha_dre"],
             plano["tipo_conta"],
+            int(plano["impacta_fluxo_caixa"]),
             movimentacao_id,
         ))
         atualizadas += cursor.rowcount
