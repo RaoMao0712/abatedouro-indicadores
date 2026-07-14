@@ -30,6 +30,7 @@ from .services import (
     confirmar_transferencia_romaneio,
     configurar_integracoes,
     finalizar_embalagem_secundaria_op,
+    montar_contexto_estoque_produtos,
     registrar_apontamento_embalagem_primaria,
     registrar_caixa_pa_manual,
     registrar_caixas_pa_lote,
@@ -102,21 +103,11 @@ def register_expedicao_routes(app, integracoes=None):
     @app.route("/estoque-produtos")
     @perfil_permitido("pcp")
     def estoque_produtos():
-        saldos_pi = buscar_saldos_estoque_pi()
-        movimentacoes_pi = buscar_movimentacoes_estoque_pi()
-        movimentacoes_pa = buscar_movimentacoes_pa()
-        caixas_pa = buscar_caixas_pa()
-        saldo_pa_por_local = buscar_saldo_pa_por_local()
-        resumo = calcular_resumo_estoques_pi_pa(saldos_pi, caixas_pa)
+        contexto = montar_contexto_estoque_produtos()
 
         return render_template(
             "estoque_produtos.html",
-            saldos_pi=saldos_pi,
-            movimentacoes_pi=movimentacoes_pi,
-            movimentacoes_pa=movimentacoes_pa,
-            caixas_pa=caixas_pa,
-            saldo_pa_por_local=saldo_pa_por_local,
-            resumo=resumo
+            **contexto
         )
 
 

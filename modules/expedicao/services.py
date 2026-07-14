@@ -1940,6 +1940,148 @@ def buscar_movimentacoes_pa(limite=80):
     return movimentacoes
 
 
+def montar_contexto_estoque_produtos():
+    """
+    Monta a tela de estoque PI/PA com uma unica conexao de leitura.
+
+    As funcoes publicas continuam existindo para as demais telas, mas a rota
+    /estoque-produtos evita pagar o custo de varias conexoes curtas ao banco.
+    """
+    criar_tabelas_expedicao()
+    criar_tabelas_estoque_pi_pa()
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute(q("""
+        SELECT
+            pi.op_id,
+            op.data AS data_op,
+            pi.sku,
+            COALESCE(SUM(
+                CASE
+                    WHEN pi.tipo LIKE 'ENTRADA%' THEN pi.quantidade_bandejas
+                    WHEN pi.tipo LIKE 'SAIDA%' THEN -pi.quantidade_bandejas
+                    ELSE pi.quantidade_bandejas
+                END
+            ), 0) AS saldo_bandejas
+        FROM estoque_produto_intermediario pi
+        LEFT JOIN ordens_producao op ON op.id = pi.op_id
+        GROUP BY pi.op_id, op.data, pi.sku
+        HAVING COALESCE(SUM(
+                CASE
+                    WHEN pi.tipo LIKE 'ENTRADA%' THEN pi.quantidade_bandejas
+                    WHEN pi.tipo LIKE 'SAIDA%' THEN -pi.quantidade_bandejas
+                    ELSE pi.quantidade_bandejas
+                END
+            ), 0) <> 0
+        ORDER BY op.data ASC, pi.op_id ASC
+        """))
+        saldos_pi = cursor.fetchall()
+
+        cursor.execute(q("""
+        SELECT *
+        FROM estoque_produto_intermediario
+        ORDER BY data_movimentacao DESC, id DESC
+        LIMIT ?
+        """), (50,))
+        movimentacoes_pi = cursor.fetchall()
+
+        cursor.execute(q("""
+        SELECT
+            mov.*,
+            cx.codigo_caixa,
+            cx.sku,
+            MIN(comp.op_id) AS op_id,
+            origem.nome AS origem_nome,
+            destino.nome AS destino_nome,
+            e.numero_romaneio
+        FROM pa_movimentacoes mov
+        INNER JOIN pa_caixas cx ON cx.id = mov.caixa_id
+        LEFT JOIN pa_caixa_composicao comp ON comp.caixa_id = cx.id
+        LEFT JOIN locais_estoque origem ON origem.id = mov.local_origem_id
+        LEFT JOIN locais_estoque destino ON destino.id = mov.local_destino_id
+        LEFT JOIN expedicoes e ON e.id = mov.expedicao_id
+        GROUP BY
+            mov.id,
+            mov.caixa_id,
+            mov.local_origem_id,
+            mov.local_destino_id,
+            mov.tipo,
+            mov.expedicao_id,
+            mov.usuario,
+            mov.criado_em,
+            cx.codigo_caixa,
+            cx.sku,
+            origem.nome,
+            destino.nome,
+            e.numero_romaneio
+        ORDER BY mov.criado_em DESC, mov.id DESC
+        LIMIT ?
+        """), (80,))
+        movimentacoes_pa = cursor.fetchall()
+
+        cursor.execute(q("""
+        SELECT
+            cx.*,
+            COALESCE(le.nome, ?) AS local_estoque
+        FROM pa_caixas cx
+        LEFT JOIN locais_estoque le ON le.id = cx.local_estoque_id
+        ORDER BY cx.id DESC
+        LIMIT ?
+        """), (LOCAL_ESTOQUE_ABATEDOURO, 80))
+        caixas_pa = cursor.fetchall()
+
+        cursor.execute(q("""
+        SELECT
+            COALESCE(le.nome, ?) AS local_estoque,
+            cx.sku,
+            COALESCE(COUNT(CASE WHEN cx.status = ? THEN 1 END), 0) AS quantidade_caixas,
+            COALESCE(SUM(CASE WHEN cx.status = ? THEN cx.peso_liquido ELSE 0 END), 0) AS peso_liquido_total,
+            COALESCE(SUM(CASE WHEN cx.status = ? THEN cx.peso_bruto ELSE 0 END), 0) AS peso_bruto_total
+        FROM pa_caixas cx
+        LEFT JOIN locais_estoque le ON le.id = cx.local_estoque_id
+        GROUP BY COALESCE(le.nome, ?), cx.sku
+        ORDER BY local_estoque ASC, cx.sku ASC
+        """), (
+            LOCAL_ESTOQUE_ABATEDOURO,
+            "Em estoque",
+            "Em estoque",
+            "Em estoque",
+            LOCAL_ESTOQUE_ABATEDOURO,
+        ))
+        saldo_pa_por_local = cursor.fetchall()
+
+        cursor.execute(q("""
+        SELECT
+            COALESCE(COUNT(CASE WHEN status = ? THEN 1 END), 0) AS saldo_pa_caixas,
+            COALESCE(SUM(CASE WHEN status = ? THEN quantidade_bandejas ELSE 0 END), 0) AS saldo_pa_bandejas,
+            COALESCE(SUM(CASE WHEN status = ? THEN peso_liquido ELSE 0 END), 0) AS saldo_pa_kg
+        FROM pa_caixas
+        """), ("Em estoque", "Em estoque", "Em estoque"))
+        resumo_pa = cursor.fetchone()
+    finally:
+        conn.close()
+
+    resumo = {
+        "saldo_pi_bandejas": sum(float(item["saldo_bandejas"] or 0) for item in saldos_pi),
+        "ops_com_pi": len({item["op_id"] for item in saldos_pi}),
+        "saldo_pa_caixas": int(resumo_pa["saldo_pa_caixas"] or 0),
+        "saldo_pa_bandejas": float(resumo_pa["saldo_pa_bandejas"] or 0),
+        "saldo_pa_kg": float(resumo_pa["saldo_pa_kg"] or 0),
+    }
+
+    return {
+        "saldos_pi": saldos_pi,
+        "movimentacoes_pi": movimentacoes_pi,
+        "movimentacoes_pa": movimentacoes_pa,
+        "caixas_pa": caixas_pa,
+        "saldo_pa_por_local": saldo_pa_por_local,
+        "resumo": resumo,
+    }
+
+
 def confirmar_transferencia_romaneio(expedicao_id, caixa_ids):
     criar_tabelas_expedicao()
     criar_tabelas_estoque_pi_pa()
