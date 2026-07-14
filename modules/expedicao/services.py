@@ -8,6 +8,8 @@ from modules.auth.services import nome_usuario_atual
 from modules.producao.services import buscar_op_por_id, gerar_producao_automatica_setores
 
 _CRIAR_BANCO = None
+_SCHEMA_EXPEDICAO_INICIALIZADO = False
+_SCHEMA_ESTOQUE_PI_PA_INICIALIZADO = False
 
 
 def configurar_integracoes(criar_banco=None):
@@ -22,105 +24,137 @@ def garantir_schema_producao():
 
 def criar_tabelas_expedicao():
     """
-    Cria a fundação do módulo de Expedição.
+    Cria a fundacao do modulo de Expedicao.
 
     Sprint 1.0:
     - Apenas estrutura, listagem e ponto de entrada no menu.
-    - Não baixa estoque.
-    - Não gera venda.
-    - Não interfere na DRE nem no Financeiro.
+    - Nao baixa estoque.
+    - Nao gera venda.
+    - Nao interfere na DRE nem no Financeiro.
     """
+    global _SCHEMA_EXPEDICAO_INICIALIZADO
+
+    if _SCHEMA_EXPEDICAO_INICIALIZADO:
+        return
+
     conn = conectar()
     cursor = conn.cursor()
 
-    if DATABASE_URL:
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS expedicoes (
-            id SERIAL PRIMARY KEY,
-            numero_romaneio TEXT UNIQUE NOT NULL,
-            data TEXT NOT NULL,
-            tipo_movimentacao TEXT NOT NULL DEFAULT 'TRANSFERENCIA',
-            destino TEXT NOT NULL,
-            responsavel TEXT,
-            observacoes TEXT,
-            status TEXT NOT NULL DEFAULT 'Aberto',
-            criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-        """)
+    try:
+        if DATABASE_URL:
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS expedicoes (
+                id SERIAL PRIMARY KEY,
+                numero_romaneio TEXT UNIQUE NOT NULL,
+                data TEXT NOT NULL,
+                tipo_movimentacao TEXT NOT NULL DEFAULT 'TRANSFERENCIA',
+                destino TEXT NOT NULL,
+                responsavel TEXT,
+                observacoes TEXT,
+                status TEXT NOT NULL DEFAULT 'Aberto',
+                criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """)
+
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS expedicao_itens (
+                id SERIAL PRIMARY KEY,
+                expedicao_id INTEGER NOT NULL,
+                caixa_id INTEGER,
+                op_id INTEGER,
+                sku TEXT NOT NULL,
+                quantidade_unidades REAL DEFAULT 0,
+                quantidade_kg REAL DEFAULT 0,
+                criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """)
+            cursor.execute("ALTER TABLE expedicao_itens ADD COLUMN IF NOT EXISTS caixa_id INTEGER")
+
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS pa_movimentacoes (
+                id SERIAL PRIMARY KEY,
+                caixa_id INTEGER NOT NULL,
+                local_origem_id INTEGER,
+                local_destino_id INTEGER,
+                tipo TEXT NOT NULL,
+                expedicao_id INTEGER,
+                usuario TEXT,
+                criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """)
+        else:
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS expedicoes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                numero_romaneio TEXT UNIQUE NOT NULL,
+                data TEXT NOT NULL,
+                tipo_movimentacao TEXT NOT NULL DEFAULT 'TRANSFERENCIA',
+                destino TEXT NOT NULL,
+                responsavel TEXT,
+                observacoes TEXT,
+                status TEXT NOT NULL DEFAULT 'Aberto',
+                criado_em TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+            """)
+
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS expedicao_itens (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                expedicao_id INTEGER NOT NULL,
+                caixa_id INTEGER,
+                op_id INTEGER,
+                sku TEXT NOT NULL,
+                quantidade_unidades REAL DEFAULT 0,
+                quantidade_kg REAL DEFAULT 0,
+                criado_em TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+            """)
+            try:
+                cursor.execute("ALTER TABLE expedicao_itens ADD COLUMN caixa_id INTEGER")
+            except Exception:
+                pass
+
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS pa_movimentacoes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                caixa_id INTEGER NOT NULL,
+                local_origem_id INTEGER,
+                local_destino_id INTEGER,
+                tipo TEXT NOT NULL,
+                expedicao_id INTEGER,
+                usuario TEXT,
+                criado_em TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+            """)
 
         cursor.execute("""
-        CREATE TABLE IF NOT EXISTS expedicao_itens (
-            id SERIAL PRIMARY KEY,
-            expedicao_id INTEGER NOT NULL,
-            caixa_id INTEGER,
-            op_id INTEGER,
-            sku TEXT NOT NULL,
-            quantidade_unidades REAL DEFAULT 0,
-            quantidade_kg REAL DEFAULT 0,
-            criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
+        CREATE INDEX IF NOT EXISTS idx_expedicoes_tipo_status_data
+        ON expedicoes (tipo_movimentacao, status, data)
         """)
-        cursor.execute("ALTER TABLE expedicao_itens ADD COLUMN IF NOT EXISTS caixa_id INTEGER")
-
         cursor.execute("""
-        CREATE TABLE IF NOT EXISTS pa_movimentacoes (
-            id SERIAL PRIMARY KEY,
-            caixa_id INTEGER NOT NULL,
-            local_origem_id INTEGER,
-            local_destino_id INTEGER,
-            tipo TEXT NOT NULL,
-            expedicao_id INTEGER,
-            usuario TEXT,
-            criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
+        CREATE INDEX IF NOT EXISTS idx_expedicao_itens_expedicao_id
+        ON expedicao_itens (expedicao_id)
         """)
-    else:
         cursor.execute("""
-        CREATE TABLE IF NOT EXISTS expedicoes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            numero_romaneio TEXT UNIQUE NOT NULL,
-            data TEXT NOT NULL,
-            tipo_movimentacao TEXT NOT NULL DEFAULT 'TRANSFERENCIA',
-            destino TEXT NOT NULL,
-            responsavel TEXT,
-            observacoes TEXT,
-            status TEXT NOT NULL DEFAULT 'Aberto',
-            criado_em TEXT DEFAULT CURRENT_TIMESTAMP
-        )
+        CREATE INDEX IF NOT EXISTS idx_expedicao_itens_expedicao_caixa
+        ON expedicao_itens (expedicao_id, caixa_id)
+        """)
+        cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_pa_movimentacoes_caixa_data
+        ON pa_movimentacoes (caixa_id, criado_em)
+        """)
+        cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_pa_movimentacoes_expedicao_tipo
+        ON pa_movimentacoes (expedicao_id, tipo)
         """)
 
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS expedicao_itens (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            expedicao_id INTEGER NOT NULL,
-            caixa_id INTEGER,
-            op_id INTEGER,
-            sku TEXT NOT NULL,
-            quantidade_unidades REAL DEFAULT 0,
-            quantidade_kg REAL DEFAULT 0,
-            criado_em TEXT DEFAULT CURRENT_TIMESTAMP
-        )
-        """)
-        try:
-            cursor.execute("ALTER TABLE expedicao_itens ADD COLUMN caixa_id INTEGER")
-        except Exception:
-            pass
-
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS pa_movimentacoes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            caixa_id INTEGER NOT NULL,
-            local_origem_id INTEGER,
-            local_destino_id INTEGER,
-            tipo TEXT NOT NULL,
-            expedicao_id INTEGER,
-            usuario TEXT,
-            criado_em TEXT DEFAULT CURRENT_TIMESTAMP
-        )
-        """)
-
-    conn.commit()
-    conn.close()
+        conn.commit()
+        _SCHEMA_EXPEDICAO_INICIALIZADO = True
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 
@@ -190,164 +224,200 @@ def criar_tabelas_estoque_pi_pa():
     """
     Cria a estrutura de estoque em duas etapas:
 
-    1) Produto Intermediário (PI)
+    1) Produto Intermediario (PI)
        - nasce no encerramento da OP;
        - controla bandejas por OP/lote;
-       - nenhuma bandeja fica sem vínculo com OP.
+       - nenhuma bandeja fica sem vinculo com OP.
 
     2) Produto Acabado (PA)
-       - nasce na Embalagem Secundária;
-       - controla caixas físicas;
-       - permite composição da caixa por uma ou mais OPs;
-       - preparado para integração futura com balança, Zebra e leitor.
+       - nasce na Embalagem Secundaria;
+       - controla caixas fisicas;
+       - permite composicao da caixa por uma ou mais OPs;
+       - preparado para integracao futura com balanca, Zebra e leitor.
     """
+    global _SCHEMA_ESTOQUE_PI_PA_INICIALIZADO
+
+    if _SCHEMA_ESTOQUE_PI_PA_INICIALIZADO:
+        return
+
     conn = conectar()
     cursor = conn.cursor()
 
-    if DATABASE_URL:
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS locais_estoque (
-            id SERIAL PRIMARY KEY,
-            nome TEXT UNIQUE NOT NULL,
-            tipo TEXT NOT NULL DEFAULT 'interno',
-            ativo TEXT NOT NULL DEFAULT 'Sim',
-            criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-        """)
+    try:
+        if DATABASE_URL:
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS locais_estoque (
+                id SERIAL PRIMARY KEY,
+                nome TEXT UNIQUE NOT NULL,
+                tipo TEXT NOT NULL DEFAULT 'interno',
+                ativo TEXT NOT NULL DEFAULT 'Sim',
+                criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """)
+
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS estoque_produto_intermediario (
+                id SERIAL PRIMARY KEY,
+                data_movimentacao TEXT NOT NULL,
+                tipo TEXT NOT NULL,
+                op_id INTEGER,
+                sku TEXT NOT NULL,
+                quantidade_bandejas REAL DEFAULT 0,
+                origem TEXT,
+                observacoes TEXT,
+                criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """)
+
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS embalagem_primaria_apontamentos (
+                id SERIAL PRIMARY KEY,
+                op_id INTEGER NOT NULL,
+                data_apontamento TEXT NOT NULL,
+                sku TEXT NOT NULL,
+                quantidade_bandejas REAL DEFAULT 0,
+                observacoes TEXT,
+                criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """)
+
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS pa_caixas (
+                id SERIAL PRIMARY KEY,
+                codigo_caixa TEXT UNIQUE NOT NULL,
+                sku TEXT NOT NULL,
+                data_fabricacao TEXT,
+                data_validade TEXT,
+                peso_bruto REAL DEFAULT 0,
+                peso_liquido REAL DEFAULT 0,
+                quantidade_bandejas REAL DEFAULT 0,
+                status TEXT DEFAULT 'Em estoque',
+                origem TEXT,
+                observacoes TEXT,
+                local_estoque_id INTEGER,
+                criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """)
+
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS pa_caixa_composicao (
+                id SERIAL PRIMARY KEY,
+                caixa_id INTEGER NOT NULL,
+                op_id INTEGER NOT NULL,
+                quantidade_bandejas REAL DEFAULT 0,
+                criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """)
+            cursor.execute("ALTER TABLE pa_caixas ADD COLUMN IF NOT EXISTS local_estoque_id INTEGER")
+        else:
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS locais_estoque (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nome TEXT UNIQUE NOT NULL,
+                tipo TEXT NOT NULL DEFAULT 'interno',
+                ativo TEXT NOT NULL DEFAULT 'Sim',
+                criado_em TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+            """)
+
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS estoque_produto_intermediario (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                data_movimentacao TEXT NOT NULL,
+                tipo TEXT NOT NULL,
+                op_id INTEGER,
+                sku TEXT NOT NULL,
+                quantidade_bandejas REAL DEFAULT 0,
+                origem TEXT,
+                observacoes TEXT,
+                criado_em TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+            """)
+
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS embalagem_primaria_apontamentos (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                op_id INTEGER NOT NULL,
+                data_apontamento TEXT NOT NULL,
+                sku TEXT NOT NULL,
+                quantidade_bandejas REAL DEFAULT 0,
+                observacoes TEXT,
+                criado_em TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+            """)
+
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS pa_caixas (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                codigo_caixa TEXT UNIQUE NOT NULL,
+                sku TEXT NOT NULL,
+                data_fabricacao TEXT,
+                data_validade TEXT,
+                peso_bruto REAL DEFAULT 0,
+                peso_liquido REAL DEFAULT 0,
+                quantidade_bandejas REAL DEFAULT 0,
+                status TEXT DEFAULT 'Em estoque',
+                origem TEXT,
+                observacoes TEXT,
+                local_estoque_id INTEGER,
+                criado_em TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+            """)
+
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS pa_caixa_composicao (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                caixa_id INTEGER NOT NULL,
+                op_id INTEGER NOT NULL,
+                quantidade_bandejas REAL DEFAULT 0,
+                criado_em TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+            """)
+            try:
+                cursor.execute("ALTER TABLE pa_caixas ADD COLUMN local_estoque_id INTEGER")
+            except Exception:
+                pass
+
+        local_abatedouro_id = inicializar_locais_estoque(cursor)
+        cursor.execute(q("""
+        UPDATE pa_caixas
+        SET local_estoque_id = ?
+        WHERE local_estoque_id IS NULL
+           OR local_estoque_id = 0
+        """), (local_abatedouro_id,))
 
         cursor.execute("""
-        CREATE TABLE IF NOT EXISTS estoque_produto_intermediario (
-            id SERIAL PRIMARY KEY,
-            data_movimentacao TEXT NOT NULL,
-            tipo TEXT NOT NULL,
-            op_id INTEGER,
-            sku TEXT NOT NULL,
-            quantidade_bandejas REAL DEFAULT 0,
-            origem TEXT,
-            observacoes TEXT,
-            criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
+        CREATE INDEX IF NOT EXISTS idx_pa_caixas_local_status_sku
+        ON pa_caixas (local_estoque_id, status, sku)
         """)
-
         cursor.execute("""
-        CREATE TABLE IF NOT EXISTS embalagem_primaria_apontamentos (
-            id SERIAL PRIMARY KEY,
-            op_id INTEGER NOT NULL,
-            data_apontamento TEXT NOT NULL,
-            sku TEXT NOT NULL,
-            quantidade_bandejas REAL DEFAULT 0,
-            observacoes TEXT,
-            criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
+        CREATE INDEX IF NOT EXISTS idx_pa_caixas_status_local
+        ON pa_caixas (status, local_estoque_id)
         """)
-
         cursor.execute("""
-        CREATE TABLE IF NOT EXISTS pa_caixas (
-            id SERIAL PRIMARY KEY,
-            codigo_caixa TEXT UNIQUE NOT NULL,
-            sku TEXT NOT NULL,
-            data_fabricacao TEXT,
-            data_validade TEXT,
-            peso_bruto REAL DEFAULT 0,
-            peso_liquido REAL DEFAULT 0,
-            quantidade_bandejas REAL DEFAULT 0,
-            status TEXT DEFAULT 'Em estoque',
-            origem TEXT,
-            observacoes TEXT,
-            local_estoque_id INTEGER,
-            criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
+        CREATE INDEX IF NOT EXISTS idx_estoque_pi_op_sku
+        ON estoque_produto_intermediario (op_id, sku)
         """)
-
         cursor.execute("""
-        CREATE TABLE IF NOT EXISTS pa_caixa_composicao (
-            id SERIAL PRIMARY KEY,
-            caixa_id INTEGER NOT NULL,
-            op_id INTEGER NOT NULL,
-            quantidade_bandejas REAL DEFAULT 0,
-            criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
+        CREATE INDEX IF NOT EXISTS idx_estoque_pi_data_id
+        ON estoque_produto_intermediario (data_movimentacao, id)
         """)
-        cursor.execute("ALTER TABLE pa_caixas ADD COLUMN IF NOT EXISTS local_estoque_id INTEGER")
-    else:
         cursor.execute("""
-        CREATE TABLE IF NOT EXISTS locais_estoque (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            nome TEXT UNIQUE NOT NULL,
-            tipo TEXT NOT NULL DEFAULT 'interno',
-            ativo TEXT NOT NULL DEFAULT 'Sim',
-            criado_em TEXT DEFAULT CURRENT_TIMESTAMP
-        )
+        CREATE INDEX IF NOT EXISTS idx_pa_composicao_caixa
+        ON pa_caixa_composicao (caixa_id)
         """)
-
         cursor.execute("""
-        CREATE TABLE IF NOT EXISTS estoque_produto_intermediario (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            data_movimentacao TEXT NOT NULL,
-            tipo TEXT NOT NULL,
-            op_id INTEGER,
-            sku TEXT NOT NULL,
-            quantidade_bandejas REAL DEFAULT 0,
-            origem TEXT,
-            observacoes TEXT,
-            criado_em TEXT DEFAULT CURRENT_TIMESTAMP
-        )
+        CREATE INDEX IF NOT EXISTS idx_pa_composicao_op
+        ON pa_caixa_composicao (op_id)
         """)
 
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS embalagem_primaria_apontamentos (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            op_id INTEGER NOT NULL,
-            data_apontamento TEXT NOT NULL,
-            sku TEXT NOT NULL,
-            quantidade_bandejas REAL DEFAULT 0,
-            observacoes TEXT,
-            criado_em TEXT DEFAULT CURRENT_TIMESTAMP
-        )
-        """)
-
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS pa_caixas (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            codigo_caixa TEXT UNIQUE NOT NULL,
-            sku TEXT NOT NULL,
-            data_fabricacao TEXT,
-            data_validade TEXT,
-            peso_bruto REAL DEFAULT 0,
-            peso_liquido REAL DEFAULT 0,
-            quantidade_bandejas REAL DEFAULT 0,
-            status TEXT DEFAULT 'Em estoque',
-            origem TEXT,
-            observacoes TEXT,
-            local_estoque_id INTEGER,
-            criado_em TEXT DEFAULT CURRENT_TIMESTAMP
-        )
-        """)
-
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS pa_caixa_composicao (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            caixa_id INTEGER NOT NULL,
-            op_id INTEGER NOT NULL,
-            quantidade_bandejas REAL DEFAULT 0,
-            criado_em TEXT DEFAULT CURRENT_TIMESTAMP
-        )
-        """)
-        try:
-            cursor.execute("ALTER TABLE pa_caixas ADD COLUMN local_estoque_id INTEGER")
-        except Exception:
-            pass
-
-    local_abatedouro_id = inicializar_locais_estoque(cursor)
-    cursor.execute(q("""
-    UPDATE pa_caixas
-    SET local_estoque_id = ?
-    WHERE local_estoque_id IS NULL
-       OR local_estoque_id = 0
-    """), (local_abatedouro_id,))
-
-    conn.commit()
-    conn.close()
+        conn.commit()
+        _SCHEMA_ESTOQUE_PI_PA_INICIALIZADO = True
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def remover_movimentacoes_estoque_pi_por_op(op_id):
