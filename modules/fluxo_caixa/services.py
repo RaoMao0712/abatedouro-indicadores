@@ -202,34 +202,34 @@ def buscar_saldos_iniciais(data_inicio, tipo_filtro="Todos", categoria_filtro="T
     cursor = conn.cursor()
 
     cursor.execute(q(f"""
-    SELECT
-        COALESCE(SUM(CASE
-            WHEN tipo = ? THEN valor
-            ELSE -valor
-        END), 0) AS saldo
+    SELECT *
     FROM movimentacoes_financeiras
     WHERE {" AND ".join(condicoes_previsto)}
-    """), ("Entrada", *parametros_previsto))
-    saldo_previsto = float(cursor.fetchone()["saldo"] or 0)
+    ORDER BY data_vencimento ASC, id ASC
+    """), tuple(parametros_previsto))
+    movimentacoes_previstas = [
+        preparar_movimentacao_fluxo(item)
+        for item in cursor.fetchall()
+    ]
 
     cursor.execute(q(f"""
-    SELECT
-        COALESCE(SUM(CASE
-            WHEN tipo = ? THEN valor
-            ELSE -valor
-        END), 0) AS saldo
+    SELECT *
     FROM movimentacoes_financeiras
     WHERE {" AND ".join(condicoes_realizado)}
       AND COALESCE(status, 'Pendente') IN (?, ?, ?)
-    """), ("Entrada", *parametros_realizado, *STATUS_REALIZADOS_SQL))
-    saldo_realizado = float(cursor.fetchone()["saldo"] or 0)
+    ORDER BY data_realizacao ASC, id ASC
+    """), tuple(parametros_realizado + list(STATUS_REALIZADOS_SQL)))
+    movimentacoes_realizadas = [
+        item for item in [preparar_movimentacao_fluxo(item) for item in cursor.fetchall()]
+        if item["realizado"]
+    ]
     conn.close()
 
     return {
-        "saldo_inicial_previsto": round(saldo_previsto, 2),
-        "saldo_inicial_realizado": round(saldo_realizado, 2),
-        "memoria_previsto": [],
-        "memoria_realizado": [],
+        "saldo_inicial_previsto": _somar_impacto(movimentacoes_previstas),
+        "saldo_inicial_realizado": _somar_impacto(movimentacoes_realizadas),
+        "memoria_previsto": movimentacoes_previstas,
+        "memoria_realizado": movimentacoes_realizadas,
     }
 
 
