@@ -316,6 +316,12 @@ def criar_tabela_movimentacoes_financeiras():
     tentar_alter_table(
         cursor,
         conn,
+        "CREATE INDEX IF NOT EXISTS idx_mov_fin_realizacao_tipo_status "
+        "ON movimentacoes_financeiras (data_realizacao, tipo, status)"
+    )
+    tentar_alter_table(
+        cursor,
+        conn,
         "CREATE INDEX IF NOT EXISTS idx_mov_fin_tipo_documento_status_categoria "
         "ON movimentacoes_financeiras (tipo, data_documento, status, categoria)"
     )

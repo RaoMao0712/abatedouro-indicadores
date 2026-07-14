@@ -12,6 +12,7 @@ from modules.movimentacoes.services import criar_tabela_movimentacoes_financeira
 
 STATUS_FLUXO_CAIXA = ["Todos", "Pendente", "Recebido", "Pago", "Cancelado"]
 TIPOS_FLUXO_CAIXA = ["Todos", "Entrada", "Saida"]
+STATUS_REALIZADOS_SQL = ("Pago", "Recebido", "Realizado")
 
 
 def _hoje():
@@ -145,9 +146,9 @@ def buscar_movimentacoes_realizadas_fluxo_caixa(data_inicio, data_fim, tipo_filt
     condicoes = [
         "data_realizacao BETWEEN ? AND ?",
         "COALESCE(data_realizacao, '') <> ?",
-        "COALESCE(status, 'Pendente') <> ?",
+        "COALESCE(status, 'Pendente') IN (?, ?, ?)",
     ]
-    parametros = [data_inicio, data_fim, "", "Cancelado"]
+    parametros = [data_inicio, data_fim, "", *STATUS_REALIZADOS_SQL]
     filtros, parametros_filtros = _montar_filtros_movimentacoes(tipo_filtro, categoria_filtro)
     condicoes.extend(filtros)
     parametros.extend(parametros_filtros)
@@ -201,33 +202,34 @@ def buscar_saldos_iniciais(data_inicio, tipo_filtro="Todos", categoria_filtro="T
     cursor = conn.cursor()
 
     cursor.execute(q(f"""
-    SELECT *
+    SELECT
+        COALESCE(SUM(CASE
+            WHEN tipo = ? THEN valor
+            ELSE -valor
+        END), 0) AS saldo
     FROM movimentacoes_financeiras
     WHERE {" AND ".join(condicoes_previsto)}
-    ORDER BY data_vencimento ASC, id ASC
-    """), tuple(parametros_previsto))
-    movimentacoes_previstas = [
-        preparar_movimentacao_fluxo(item)
-        for item in cursor.fetchall()
-    ]
+    """), ("Entrada", *parametros_previsto))
+    saldo_previsto = float(cursor.fetchone()["saldo"] or 0)
 
     cursor.execute(q(f"""
-    SELECT *
+    SELECT
+        COALESCE(SUM(CASE
+            WHEN tipo = ? THEN valor
+            ELSE -valor
+        END), 0) AS saldo
     FROM movimentacoes_financeiras
     WHERE {" AND ".join(condicoes_realizado)}
-    ORDER BY data_realizacao ASC, id ASC
-    """), tuple(parametros_realizado))
-    movimentacoes_realizadas = [
-        item for item in [preparar_movimentacao_fluxo(item) for item in cursor.fetchall()]
-        if item["realizado"]
-    ]
+      AND COALESCE(status, 'Pendente') IN (?, ?, ?)
+    """), ("Entrada", *parametros_realizado, *STATUS_REALIZADOS_SQL))
+    saldo_realizado = float(cursor.fetchone()["saldo"] or 0)
     conn.close()
 
     return {
-        "saldo_inicial_previsto": _somar_impacto(movimentacoes_previstas),
-        "saldo_inicial_realizado": _somar_impacto(movimentacoes_realizadas),
-        "memoria_previsto": movimentacoes_previstas,
-        "memoria_realizado": movimentacoes_realizadas,
+        "saldo_inicial_previsto": round(saldo_previsto, 2),
+        "saldo_inicial_realizado": round(saldo_realizado, 2),
+        "memoria_previsto": [],
+        "memoria_realizado": [],
     }
 
 
