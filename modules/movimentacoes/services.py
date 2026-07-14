@@ -45,6 +45,8 @@ ORIGEM_IMPORTACAO_VENDAS = "IMPORTACAO VENDAS"
 _PLANO_CONTAS_SYNC_EXECUTADO = False
 _SCHEMA_MOVIMENTACOES_FINANCEIRAS_INICIALIZADO = False
 TAMANHO_LOTE_GRAVACAO_IMPORTACAO = 500
+HOTFIX_APORTES_NATUREZA_CHAVE = "20260714_aportes_entrada_fluxo"
+TABELA_BACKUP_APORTES_NATUREZA = "movimentacoes_financeiras_backup_aportes_natureza_20260714"
 
 TABELAS_RESET_FINANCEIRO = [
     "movimentacoes_financeiras",
@@ -104,6 +106,24 @@ def finalizar_tempos_importacao(resultado):
 
 def normalizar_texto_plano(valor):
     return normalizar_cabecalho_importacao(valor)
+
+
+def conta_eh_aportes(conta=None, categoria=None):
+    if conta:
+        campos = [
+            conta.get("nome"),
+            conta.get("categoria"),
+            conta.get("categoria_plano"),
+        ]
+        if any(normalizar_texto_plano(campo) == "aportes" for campo in campos):
+            return True
+    return normalizar_texto_plano(categoria) == "aportes"
+
+
+def resolver_tipo_caixa_importacao(tipo_informado, conta_plano):
+    if conta_eh_aportes(conta_plano):
+        return "Entrada"
+    return tipo_informado
 
 
 def buscar_conta_plano_importacao(categoria, subcategoria=""):
@@ -366,6 +386,7 @@ def criar_tabela_movimentacoes_financeiras():
 
         conn.commit()
         sincronizar_movimentacoes_plano_contas()
+        corrigir_natureza_aportes_fluxo_caixa()
         _SCHEMA_MOVIMENTACOES_FINANCEIRAS_INICIALIZADO = True
     except Exception:
         conn.rollback()
@@ -540,6 +561,99 @@ def sincronizar_movimentacoes_plano_contas():
                 ))
         conn.commit()
         _PLANO_CONTAS_SYNC_EXECUTADO = True
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def criar_tabelas_controle_hotfix_aportes(cursor):
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS hotfix_aportes_natureza_fluxo (
+        chave TEXT PRIMARY KEY,
+        executado_em TEXT NOT NULL,
+        quantidade_corrigida INTEGER NOT NULL,
+        valor_corrigido REAL NOT NULL
+    )
+    """)
+    cursor.execute(f"""
+    CREATE TABLE IF NOT EXISTS {TABELA_BACKUP_APORTES_NATUREZA} AS
+    SELECT *
+    FROM movimentacoes_financeiras
+    WHERE 1 = 0
+    """)
+
+
+def hotfix_aportes_ja_executado(cursor):
+    cursor.execute(q("""
+    SELECT chave
+    FROM hotfix_aportes_natureza_fluxo
+    WHERE chave = ?
+    """), (HOTFIX_APORTES_NATUREZA_CHAVE,))
+    return cursor.fetchone() is not None
+
+
+def corrigir_natureza_aportes_fluxo_caixa():
+    conn = conectar()
+    cursor = conn.cursor()
+    try:
+        criar_tabelas_controle_hotfix_aportes(cursor)
+        if hotfix_aportes_ja_executado(cursor):
+            conn.commit()
+            return {"executado": False, "motivo": "hotfix_ja_aplicado"}
+
+        cursor.execute(q("""
+        SELECT COUNT(*) as quantidade,
+               COALESCE(SUM(valor), 0) as valor_total
+        FROM movimentacoes_financeiras
+        WHERE categoria = ?
+          AND COALESCE(tipo, '') <> ?
+        """), ("Aportes", "Entrada"))
+        alvo = cursor.fetchone()
+        quantidade = int(alvo["quantidade"] or 0)
+        valor_total = round(float(alvo["valor_total"] or 0), 2)
+
+        cursor.execute(q(f"""
+        INSERT INTO {TABELA_BACKUP_APORTES_NATUREZA}
+        SELECT m.*
+        FROM movimentacoes_financeiras m
+        WHERE m.categoria = ?
+          AND COALESCE(m.tipo, '') <> ?
+          AND NOT EXISTS (
+              SELECT 1
+              FROM {TABELA_BACKUP_APORTES_NATUREZA} b
+              WHERE b.id = m.id
+          )
+        """), ("Aportes", "Entrada"))
+
+        cursor.execute(q("""
+        UPDATE movimentacoes_financeiras
+        SET tipo = ?,
+            tipo_conta = ?,
+            linha_dre = ?,
+            impacta_fluxo_caixa = ?
+        WHERE categoria = ?
+          AND COALESCE(tipo, '') <> ?
+        """), ("Entrada", "Entrada", "Neutro", 1, "Aportes", "Entrada"))
+
+        cursor.execute(q("""
+        INSERT INTO hotfix_aportes_natureza_fluxo (
+            chave, executado_em, quantidade_corrigida, valor_corrigido
+        ) VALUES (?, ?, ?, ?)
+        """), (
+            HOTFIX_APORTES_NATUREZA_CHAVE,
+            datetime.now().isoformat(timespec="seconds"),
+            quantidade,
+            valor_total,
+        ))
+        conn.commit()
+        return {
+            "executado": True,
+            "quantidade_corrigida": quantidade,
+            "valor_corrigido": valor_total,
+            "backup": TABELA_BACKUP_APORTES_NATUREZA,
+        }
     except Exception:
         conn.rollback()
         raise
@@ -1292,6 +1406,7 @@ def preparar_linha_importacao(
             )
     plano = derivar_plano_movimentacao(categoria, conta_plano["id"])
     categoria = plano["categoria_movimentacao"]
+    tipo = resolver_tipo_caixa_importacao(tipo, conta_plano)
 
     valor_documento = abs(valor_documento_original or valor_referencia)
     valor_liquido = abs(valor_liquido_original)
