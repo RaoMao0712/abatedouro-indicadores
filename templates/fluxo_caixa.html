@@ -11,8 +11,8 @@
 
             <div class="financeiro-hero-resumo">
                 <span class="financeiro-pill-info"><strong>Periodo</strong> {{ data_inicio }} a {{ data_fim }}</span>
-                <span class="financeiro-pill-info"><strong>Base</strong> movimentacoes_financeiras</span>
-                <span class="financeiro-pill-info"><strong>Data</strong> vencimento</span>
+                <span class="financeiro-pill-info"><strong>Fonte</strong> Central de Movimentacoes</span>
+                <span class="financeiro-pill-info"><strong>Datas</strong> vencimento e realizacao</span>
             </div>
         </div>
 
@@ -55,12 +55,14 @@
                 </select>
             </div>
 
+            {% if conta_disponivel %}
             <div>
                 <label>Conta</label>
-                <select disabled>
-                    <option>Futura</option>
+                <select name="conta">
+                    <option>Todas</option>
                 </select>
             </div>
+            {% endif %}
 
             <button type="submit">Filtrar</button>
         </form>
@@ -68,9 +70,15 @@
 
     <section class="fluxo-caixa-kpis">
         <div class="card fluxo-caixa-kpi">
-            <span>Saldo inicial</span>
-            <strong>{{ resumo.saldo_inicial|br_moeda }}</strong>
-            <small>Realizado antes do periodo</small>
+            <span>Saldo inicial previsto</span>
+            <strong>{{ resumo.saldo_inicial_previsto|br_moeda }}</strong>
+            <small>Vencimentos anteriores ao periodo</small>
+        </div>
+
+        <div class="card fluxo-caixa-kpi">
+            <span>Saldo inicial realizado</span>
+            <strong>{{ resumo.saldo_inicial_realizado|br_moeda }}</strong>
+            <small>Baixas anteriores ao periodo</small>
         </div>
 
         <div class="card fluxo-caixa-kpi entrada">
@@ -88,7 +96,7 @@
         <div class="card fluxo-caixa-kpi saldo">
             <span>Saldo previsto</span>
             <strong>{{ resumo.saldo_previsto|br_moeda }}</strong>
-            <small>Inicial + previsto</small>
+            <small>Inicial previsto + periodo</small>
         </div>
 
         <div class="card fluxo-caixa-kpi entrada">
@@ -106,7 +114,7 @@
         <div class="card fluxo-caixa-kpi saldo {% if resumo.saldo_realizado < 0 %}negativo{% endif %}">
             <span>Saldo realizado</span>
             <strong>{{ resumo.saldo_realizado|br_moeda }}</strong>
-            <small>Inicial + realizado</small>
+            <small>Inicial realizado + periodo</small>
         </div>
     </section>
 
@@ -115,7 +123,7 @@
             <div class="section-title-row">
                 <div>
                     <span class="eyebrow">Linha do tempo</span>
-                    <h2>Saldo por vencimento</h2>
+                    <h2>Saldo por data</h2>
                 </div>
             </div>
 
@@ -145,10 +153,13 @@
             </div>
 
             <div class="fluxo-caixa-resumo-lista">
-                <div><span>Base de calculo</span><strong>Data de vencimento</strong></div>
+                <div><span>Base prevista</span><strong>Data de vencimento</strong></div>
+                <div><span>Base realizada</span><strong>Data de realizacao</strong></div>
                 <div><span>Status considerados</span><strong>{{ status_filtro }}</strong></div>
                 <div><span>Categoria</span><strong>{{ categoria_filtro }}</strong></div>
+                {% if conta_disponivel %}
                 <div><span>Conta</span><strong>{% if conta_disponivel %}Filtrada{% else %}Nao cadastrada{% endif %}</strong></div>
+                {% endif %}
             </div>
         </div>
     </section>
@@ -207,4 +218,3 @@
 </div>
 
 {% endblock %}
-

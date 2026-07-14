@@ -1,6 +1,7 @@
 """Servicos do Fluxo de Caixa.
 
-O modulo usa exclusivamente movimentacoes_financeiras por data_vencimento.
+O modulo usa exclusivamente movimentacoes_financeiras. A leitura prevista usa
+data_vencimento; a leitura realizada usa data_realizacao.
 """
 
 from datetime import datetime
@@ -97,11 +98,9 @@ def listar_categorias_fluxo_caixa():
     return categorias
 
 
-def buscar_movimentacoes_fluxo_caixa(data_inicio, data_fim, tipo_filtro, categoria_filtro):
-    criar_tabela_movimentacoes_financeiras()
-
-    condicoes = ["data_vencimento BETWEEN ? AND ?"]
-    parametros = [data_inicio, data_fim]
+def _montar_filtros_movimentacoes(tipo_filtro, categoria_filtro):
+    condicoes = []
+    parametros = []
 
     if tipo_filtro == "Entrada":
         condicoes.append("tipo = ?")
@@ -113,6 +112,18 @@ def buscar_movimentacoes_fluxo_caixa(data_inicio, data_fim, tipo_filtro, categor
     if categoria_filtro and categoria_filtro != "Todas":
         condicoes.append("categoria = ?")
         parametros.append(categoria_filtro)
+
+    return condicoes, parametros
+
+
+def buscar_movimentacoes_fluxo_caixa(data_inicio, data_fim, tipo_filtro, categoria_filtro):
+    criar_tabela_movimentacoes_financeiras()
+
+    condicoes = ["data_vencimento BETWEEN ? AND ?"]
+    parametros = [data_inicio, data_fim]
+    filtros, parametros_filtros = _montar_filtros_movimentacoes(tipo_filtro, categoria_filtro)
+    condicoes.extend(filtros)
+    parametros.extend(parametros_filtros)
 
     conn = conectar()
     cursor = conn.cursor()
@@ -128,32 +139,100 @@ def buscar_movimentacoes_fluxo_caixa(data_inicio, data_fim, tipo_filtro, categor
     return [preparar_movimentacao_fluxo(item) for item in movimentacoes]
 
 
-def buscar_saldo_inicial(data_inicio):
+def buscar_movimentacoes_realizadas_fluxo_caixa(data_inicio, data_fim, tipo_filtro, categoria_filtro):
     criar_tabela_movimentacoes_financeiras()
+
+    condicoes = [
+        "data_realizacao BETWEEN ? AND ?",
+        "COALESCE(data_realizacao, '') <> ?",
+        "COALESCE(status, 'Pendente') <> ?",
+    ]
+    parametros = [data_inicio, data_fim, "", "Cancelado"]
+    filtros, parametros_filtros = _montar_filtros_movimentacoes(tipo_filtro, categoria_filtro)
+    condicoes.extend(filtros)
+    parametros.extend(parametros_filtros)
 
     conn = conectar()
     cursor = conn.cursor()
-    cursor.execute(q("""
+    cursor.execute(q(f"""
     SELECT *
     FROM movimentacoes_financeiras
-    WHERE data_vencimento < ?
-      AND COALESCE(status, 'Pendente') <> ?
-    """), (data_inicio, "Cancelado"))
+    WHERE {" AND ".join(condicoes)}
+    ORDER BY data_realizacao ASC, id ASC
+    """), tuple(parametros))
     movimentacoes = cursor.fetchall()
     conn.close()
 
+    return [
+        item for item in [preparar_movimentacao_fluxo(item) for item in movimentacoes]
+        if item["realizado"]
+    ]
+
+
+def _somar_impacto(movimentacoes):
     saldo = 0
     for item in movimentacoes:
-        preparado = preparar_movimentacao_fluxo(item)
-        if not preparado["realizado"]:
+        if item["status_fluxo"] == "Cancelado":
             continue
-
-        if preparado["tipo"] == "Entrada":
-            saldo += preparado["valor"]
-        elif preparado["tipo"] == "Saida":
-            saldo -= preparado["valor"]
+        saldo += float(item["valor"] or 0) * item["sinal"]
 
     return round(saldo, 2)
+
+
+def buscar_saldos_iniciais(data_inicio, tipo_filtro="Todos", categoria_filtro="Todas"):
+    criar_tabela_movimentacoes_financeiras()
+
+    filtros, parametros_filtros = _montar_filtros_movimentacoes(tipo_filtro, categoria_filtro)
+
+    condicoes_previsto = [
+        "data_vencimento < ?",
+        "COALESCE(status, 'Pendente') <> ?",
+    ] + filtros
+    parametros_previsto = [data_inicio, "Cancelado"] + parametros_filtros
+
+    condicoes_realizado = [
+        "data_realizacao < ?",
+        "COALESCE(data_realizacao, '') <> ?",
+        "COALESCE(status, 'Pendente') <> ?",
+    ] + filtros
+    parametros_realizado = [data_inicio, "", "Cancelado"] + parametros_filtros
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q(f"""
+    SELECT *
+    FROM movimentacoes_financeiras
+    WHERE {" AND ".join(condicoes_previsto)}
+    ORDER BY data_vencimento ASC, id ASC
+    """), tuple(parametros_previsto))
+    movimentacoes_previstas = [
+        preparar_movimentacao_fluxo(item)
+        for item in cursor.fetchall()
+    ]
+
+    cursor.execute(q(f"""
+    SELECT *
+    FROM movimentacoes_financeiras
+    WHERE {" AND ".join(condicoes_realizado)}
+    ORDER BY data_realizacao ASC, id ASC
+    """), tuple(parametros_realizado))
+    movimentacoes_realizadas = [
+        item for item in [preparar_movimentacao_fluxo(item) for item in cursor.fetchall()]
+        if item["realizado"]
+    ]
+    conn.close()
+
+    return {
+        "saldo_inicial_previsto": _somar_impacto(movimentacoes_previstas),
+        "saldo_inicial_realizado": _somar_impacto(movimentacoes_realizadas),
+        "memoria_previsto": movimentacoes_previstas,
+        "memoria_realizado": movimentacoes_realizadas,
+    }
+
+
+def buscar_saldo_inicial(data_inicio):
+    return buscar_saldos_iniciais(data_inicio)["saldo_inicial_realizado"]
 
 
 def preparar_movimentacao_fluxo(item):
@@ -186,13 +265,13 @@ def filtrar_por_status(movimentacoes, status_filtro):
     ]
 
 
-def calcular_resumo_fluxo_caixa(movimentacoes, saldo_inicial):
+def calcular_resumo_fluxo_caixa(movimentacoes_previstas, movimentacoes_realizadas, saldos_iniciais):
     entradas_previstas = 0
     saidas_previstas = 0
     entradas_realizadas = 0
     saidas_realizadas = 0
 
-    for item in movimentacoes:
+    for item in movimentacoes_previstas:
         if item["status_fluxo"] == "Cancelado":
             continue
 
@@ -200,18 +279,29 @@ def calcular_resumo_fluxo_caixa(movimentacoes, saldo_inicial):
 
         if item["tipo"] == "Entrada":
             entradas_previstas += valor
-            if item["realizado"]:
-                entradas_realizadas += valor
         elif item["tipo"] == "Saida":
             saidas_previstas += valor
-            if item["realizado"]:
-                saidas_realizadas += valor
 
-    saldo_previsto = saldo_inicial + entradas_previstas - saidas_previstas
-    saldo_realizado = saldo_inicial + entradas_realizadas - saidas_realizadas
+    for item in movimentacoes_realizadas:
+        if item["status_fluxo"] == "Cancelado":
+            continue
+
+        valor = float(item["valor"] or 0)
+
+        if item["tipo"] == "Entrada":
+            entradas_realizadas += valor
+        elif item["tipo"] == "Saida":
+            saidas_realizadas += valor
+
+    saldo_inicial_previsto = saldos_iniciais["saldo_inicial_previsto"]
+    saldo_inicial_realizado = saldos_iniciais["saldo_inicial_realizado"]
+    saldo_previsto = saldo_inicial_previsto + entradas_previstas - saidas_previstas
+    saldo_realizado = saldo_inicial_realizado + entradas_realizadas - saidas_realizadas
 
     return {
-        "saldo_inicial": round(saldo_inicial, 2),
+        "saldo_inicial": round(saldo_inicial_realizado, 2),
+        "saldo_inicial_previsto": round(saldo_inicial_previsto, 2),
+        "saldo_inicial_realizado": round(saldo_inicial_realizado, 2),
         "entradas_previstas": round(entradas_previstas, 2),
         "saidas_previstas": round(saidas_previstas, 2),
         "saldo_previsto": round(saldo_previsto, 2),
@@ -221,16 +311,16 @@ def calcular_resumo_fluxo_caixa(movimentacoes, saldo_inicial):
     }
 
 
-def montar_linha_tempo(movimentacoes, saldo_inicial):
+def montar_linha_tempo(movimentacoes_previstas, movimentacoes_realizadas, saldos_iniciais):
     por_data = {}
-    saldo_previsto = saldo_inicial
-    saldo_realizado = saldo_inicial
+    saldo_previsto = saldos_iniciais["saldo_inicial_previsto"]
+    saldo_realizado = saldos_iniciais["saldo_inicial_realizado"]
 
-    for item in movimentacoes:
+    for item in movimentacoes_previstas:
         if item["status_fluxo"] == "Cancelado":
             continue
 
-        data = item["data_vencimento"]
+        data = item.get("data_vencimento")
         if data not in por_data:
             por_data[data] = {
                 "data": data,
@@ -245,12 +335,32 @@ def montar_linha_tempo(movimentacoes, saldo_inicial):
         valor = float(item["valor"] or 0)
         if item["tipo"] == "Entrada":
             por_data[data]["entradas_previstas"] += valor
-            if item["realizado"]:
-                por_data[data]["entradas_realizadas"] += valor
         elif item["tipo"] == "Saida":
             por_data[data]["saidas_previstas"] += valor
-            if item["realizado"]:
-                por_data[data]["saidas_realizadas"] += valor
+
+    for item in movimentacoes_realizadas:
+        if item["status_fluxo"] == "Cancelado":
+            continue
+
+        data = item.get("data_realizacao")
+        if not data:
+            continue
+        if data not in por_data:
+            por_data[data] = {
+                "data": data,
+                "entradas_previstas": 0,
+                "saidas_previstas": 0,
+                "entradas_realizadas": 0,
+                "saidas_realizadas": 0,
+                "saldo_previsto": 0,
+                "saldo_realizado": 0,
+            }
+
+        valor = float(item["valor"] or 0)
+        if item["tipo"] == "Entrada":
+            por_data[data]["entradas_realizadas"] += valor
+        elif item["tipo"] == "Saida":
+            por_data[data]["saidas_realizadas"] += valor
 
     linha_tempo = []
     for data in sorted(por_data):
@@ -273,22 +383,33 @@ def montar_linha_tempo(movimentacoes, saldo_inicial):
 
 def montar_contexto_fluxo_caixa(args):
     filtros = normalizar_filtros(args)
-    saldo_inicial = buscar_saldo_inicial(filtros["data_inicio"])
-    movimentacoes_periodo = buscar_movimentacoes_fluxo_caixa(
+    saldos_iniciais = buscar_saldos_iniciais(
+        filtros["data_inicio"],
+        filtros["tipo_filtro"],
+        filtros["categoria_filtro"],
+    )
+    movimentacoes_periodo_previstas = buscar_movimentacoes_fluxo_caixa(
         filtros["data_inicio"],
         filtros["data_fim"],
         filtros["tipo_filtro"],
         filtros["categoria_filtro"],
     )
-    movimentacoes = filtrar_por_status(movimentacoes_periodo, filtros["status_filtro"])
+    movimentacoes_periodo_realizadas = buscar_movimentacoes_realizadas_fluxo_caixa(
+        filtros["data_inicio"],
+        filtros["data_fim"],
+        filtros["tipo_filtro"],
+        filtros["categoria_filtro"],
+    )
+    movimentacoes = filtrar_por_status(movimentacoes_periodo_previstas, filtros["status_filtro"])
+    movimentacoes_realizadas = filtrar_por_status(movimentacoes_periodo_realizadas, filtros["status_filtro"])
 
     return {
         **filtros,
         "status_opcoes": STATUS_FLUXO_CAIXA,
         "tipo_opcoes": TIPOS_FLUXO_CAIXA,
         "categorias": listar_categorias_fluxo_caixa(),
-        "resumo": calcular_resumo_fluxo_caixa(movimentacoes, saldo_inicial),
-        "linha_tempo": montar_linha_tempo(movimentacoes, saldo_inicial),
+        "resumo": calcular_resumo_fluxo_caixa(movimentacoes, movimentacoes_realizadas, saldos_iniciais),
+        "linha_tempo": montar_linha_tempo(movimentacoes, movimentacoes_realizadas, saldos_iniciais),
         "movimentacoes": movimentacoes,
         "conta_disponivel": False,
     }
