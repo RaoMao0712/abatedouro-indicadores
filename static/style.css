@@ -1105,6 +1105,7 @@ button:hover {
 }
 
 .container-com-sidebar {
+    box-sizing: border-box;
     max-width: none;
     width: calc(100% - 254px);
     margin-left: 254px;
@@ -7223,6 +7224,7 @@ body {
 }
 
 .container-com-sidebar {
+    box-sizing: border-box;
     width: calc(100% - 238px) !important;
     margin-left: 238px !important;
     padding: 12px 16px 20px !important;
@@ -7237,7 +7239,8 @@ body {
 .movimentacoes-page,
 .almoxarifado-page,
 .expedicao-page,
-.dre-page {
+.dre-page,
+.fluxo-caixa-page {
     width: 100% !important;
     max-width: 100% !important;
     min-width: 0 !important;
@@ -7859,9 +7862,11 @@ small {
 
 .fluxo-caixa-kpis {
     display: grid;
-    grid-template-columns: minmax(250px, 0.78fr) minmax(360px, 1.1fr) minmax(360px, 1.1fr);
-    gap: 10px;
+    grid-template-columns: minmax(232px, 0.72fr) minmax(330px, 1fr) minmax(330px, 1fr);
+    gap: 12px;
     align-items: stretch;
+    max-width: 100%;
+    min-width: 0;
 }
 
 .fluxo-caixa-kpi-grupo {
@@ -7870,6 +7875,8 @@ small {
     gap: 8px;
     min-width: 0;
     align-content: start;
+    padding-top: 8px;
+    border-top: 3px solid #94a3b8;
 }
 
 .fluxo-caixa-kpi-grupo.previsto,
@@ -7877,33 +7884,50 @@ small {
     grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.fluxo-caixa-kpi-grupo.previsto {
+    border-top-color: #2563eb;
+}
+
+.fluxo-caixa-kpi-grupo.realizado {
+    border-top-color: #16a34a;
+}
+
 .fluxo-caixa-kpi-grupo-titulo {
     grid-column: 1 / -1;
     display: block;
-    color: #526274;
-    font-size: 9px;
-    font-weight: 900;
-    letter-spacing: 0.5px;
-    line-height: 1;
+    margin-bottom: 2px;
+    color: #475569;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.45px;
+    line-height: 1.15;
     text-transform: uppercase;
+}
+
+.fluxo-caixa-kpi-grupo.previsto .fluxo-caixa-kpi-grupo-titulo {
+    color: #1d4ed8;
+}
+
+.fluxo-caixa-kpi-grupo.realizado .fluxo-caixa-kpi-grupo-titulo {
+    color: #15803d;
 }
 
 .fluxo-caixa-kpi.card,
 .fluxo-caixa-kpi {
     display: grid !important;
-    grid-template-rows: auto 1fr auto;
+    grid-template-rows: 26px 1fr 28px;
     align-content: start;
     min-width: 0;
-    min-height: 104px !important;
+    min-height: 106px !important;
     height: 100%;
     margin-bottom: 0 !important;
-    padding: 12px 12px 10px !important;
+    padding: 12px 10px 10px !important;
     border-radius: 8px !important;
     border-left-width: 4px !important;
 }
 
 .fluxo-caixa-kpi span {
-    min-height: 24px;
+    min-height: 0;
     margin-bottom: 6px !important;
     font-size: 9px !important;
     line-height: 1.2;
@@ -7916,7 +7940,7 @@ small {
     min-width: 0;
     margin: 0 !important;
     color: #1f3b4d;
-    font-size: 18px !important;
+    font-size: clamp(15px, 0.96vw, 18px) !important;
     font-variant-numeric: tabular-nums;
     font-weight: 900;
     letter-spacing: 0 !important;
@@ -7930,6 +7954,11 @@ small {
     line-height: 1.25;
 }
 
+.fluxo-caixa-detalhe .financeiro-tabela {
+    max-width: 100%;
+    overflow-x: auto;
+}
+
 .fluxo-caixa-detalhe .financeiro-tabela table {
     min-width: 1160px;
 }
@@ -7939,7 +7968,7 @@ small {
     margin-bottom: 3px;
 }
 
-@media (max-width: 1600px) {
+@media (max-width: 1480px) {
     .fluxo-caixa-kpis {
         grid-template-columns: 1fr;
     }
@@ -7947,7 +7976,7 @@ small {
     .fluxo-caixa-kpi-grupo,
     .fluxo-caixa-kpi-grupo.previsto,
     .fluxo-caixa-kpi-grupo.realizado {
-        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
     }
 }
 
@@ -7966,11 +7995,12 @@ small {
     }
 
     .fluxo-caixa-kpi {
+        grid-template-rows: auto auto auto;
         min-height: 92px !important;
     }
 
     .fluxo-caixa-kpi strong {
-        font-size: 17px !important;
+        font-size: 16px !important;
     }
 }
 
