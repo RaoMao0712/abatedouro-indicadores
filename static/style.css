@@ -7844,3 +7844,133 @@ small {
     }
 }
 
+/* Fluxo de Caixa - acabamento visual e hierarquia Categoria/Subcategoria */
+.fluxo-caixa-filtro {
+    grid-template-columns: repeat(4, minmax(132px, 1fr)) minmax(104px, 0.7fr);
+    align-items: end;
+}
+
+.fluxo-caixa-filtro select:disabled {
+    color: #64748b;
+    background: #e2e8f0;
+    cursor: not-allowed;
+    opacity: 0.82;
+}
+
+.fluxo-caixa-kpis {
+    display: grid;
+    grid-template-columns: minmax(250px, 0.78fr) minmax(360px, 1.1fr) minmax(360px, 1.1fr);
+    gap: 10px;
+    align-items: stretch;
+}
+
+.fluxo-caixa-kpi-grupo {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    min-width: 0;
+    align-content: start;
+}
+
+.fluxo-caixa-kpi-grupo.previsto,
+.fluxo-caixa-kpi-grupo.realizado {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.fluxo-caixa-kpi-grupo-titulo {
+    grid-column: 1 / -1;
+    display: block;
+    color: #526274;
+    font-size: 9px;
+    font-weight: 900;
+    letter-spacing: 0.5px;
+    line-height: 1;
+    text-transform: uppercase;
+}
+
+.fluxo-caixa-kpi.card,
+.fluxo-caixa-kpi {
+    display: grid !important;
+    grid-template-rows: auto 1fr auto;
+    align-content: start;
+    min-width: 0;
+    min-height: 104px !important;
+    height: 100%;
+    margin-bottom: 0 !important;
+    padding: 12px 12px 10px !important;
+    border-radius: 8px !important;
+    border-left-width: 4px !important;
+}
+
+.fluxo-caixa-kpi span {
+    min-height: 24px;
+    margin-bottom: 6px !important;
+    font-size: 9px !important;
+    line-height: 1.2;
+}
+
+.fluxo-caixa-kpi strong {
+    display: block;
+    align-self: center;
+    width: 100%;
+    min-width: 0;
+    margin: 0 !important;
+    color: #1f3b4d;
+    font-size: 18px !important;
+    font-variant-numeric: tabular-nums;
+    font-weight: 900;
+    letter-spacing: 0 !important;
+    line-height: 1.05 !important;
+    white-space: nowrap;
+}
+
+.fluxo-caixa-kpi small {
+    margin-top: 6px !important;
+    font-size: 10px !important;
+    line-height: 1.25;
+}
+
+.fluxo-caixa-detalhe .financeiro-tabela table {
+    min-width: 1160px;
+}
+
+.fluxo-caixa-detalhe .financeiro-tabela td:nth-child(5) strong {
+    display: block;
+    margin-bottom: 3px;
+}
+
+@media (max-width: 1600px) {
+    .fluxo-caixa-kpis {
+        grid-template-columns: 1fr;
+    }
+
+    .fluxo-caixa-kpi-grupo,
+    .fluxo-caixa-kpi-grupo.previsto,
+    .fluxo-caixa-kpi-grupo.realizado {
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    }
+}
+
+@media (max-width: 1120px) {
+    .fluxo-caixa-filtro {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 720px) {
+    .fluxo-caixa-filtro,
+    .fluxo-caixa-kpi-grupo,
+    .fluxo-caixa-kpi-grupo.previsto,
+    .fluxo-caixa-kpi-grupo.realizado {
+        grid-template-columns: 1fr;
+    }
+
+    .fluxo-caixa-kpi {
+        min-height: 92px !important;
+    }
+
+    .fluxo-caixa-kpi strong {
+        font-size: 17px !important;
+    }
+}
+
