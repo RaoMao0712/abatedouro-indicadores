@@ -55,6 +55,16 @@
                 </select>
             </div>
 
+            <div>
+                <label>Subcategoria</label>
+                <select name="subcategoria" {% if categoria_filtro == "Todas" %}disabled{% endif %}>
+                    <option value="Todas" {% if subcategoria_filtro == "Todas" %}selected{% endif %}>Todas</option>
+                    {% for subcategoria in subcategorias %}
+                    <option value="{{ subcategoria }}" {% if subcategoria_filtro == subcategoria %}selected{% endif %}>{{ subcategoria }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
             {% if conta_disponivel %}
             <div>
                 <label>Conta</label>
@@ -69,52 +79,61 @@
     </section>
 
     <section class="fluxo-caixa-kpis">
-        <div class="card fluxo-caixa-kpi">
-            <span>Saldo inicial previsto</span>
-            <strong>{{ resumo.saldo_inicial_previsto|br_moeda }}</strong>
-            <small>Vencimentos anteriores ao periodo</small>
+        <div class="fluxo-caixa-kpi-grupo contexto">
+            <span class="fluxo-caixa-kpi-grupo-titulo">Contexto</span>
+            <div class="card fluxo-caixa-kpi">
+                <span>Saldo inicial previsto</span>
+                <strong>{{ resumo.saldo_inicial_previsto|br_moeda }}</strong>
+                <small>Vencimentos anteriores ao periodo</small>
+            </div>
+
+            <div class="card fluxo-caixa-kpi">
+                <span>Saldo inicial realizado</span>
+                <strong>{{ resumo.saldo_inicial_realizado|br_moeda }}</strong>
+                <small>Baixas anteriores ao periodo</small>
+            </div>
         </div>
 
-        <div class="card fluxo-caixa-kpi">
-            <span>Saldo inicial realizado</span>
-            <strong>{{ resumo.saldo_inicial_realizado|br_moeda }}</strong>
-            <small>Baixas anteriores ao periodo</small>
+        <div class="fluxo-caixa-kpi-grupo previsto">
+            <span class="fluxo-caixa-kpi-grupo-titulo">Previsto</span>
+            <div class="card fluxo-caixa-kpi entrada">
+                <span>Entradas previstas</span>
+                <strong>{{ resumo.entradas_previstas|br_moeda }}</strong>
+                <small>Direitos por vencimento</small>
+            </div>
+
+            <div class="card fluxo-caixa-kpi saida">
+                <span>Saidas previstas</span>
+                <strong>{{ resumo.saidas_previstas|br_moeda }}</strong>
+                <small>Obrigacoes por vencimento</small>
+            </div>
+
+            <div class="card fluxo-caixa-kpi saldo {% if resumo.saldo_previsto < 0 %}negativo{% endif %}">
+                <span>Saldo previsto</span>
+                <strong>{{ resumo.saldo_previsto|br_moeda }}</strong>
+                <small>Inicial previsto + periodo</small>
+            </div>
         </div>
 
-        <div class="card fluxo-caixa-kpi entrada">
-            <span>Entradas previstas</span>
-            <strong>{{ resumo.entradas_previstas|br_moeda }}</strong>
-            <small>Direitos por vencimento</small>
-        </div>
+        <div class="fluxo-caixa-kpi-grupo realizado">
+            <span class="fluxo-caixa-kpi-grupo-titulo">Realizado</span>
+            <div class="card fluxo-caixa-kpi entrada">
+                <span>Entradas realizadas</span>
+                <strong>{{ resumo.entradas_realizadas|br_moeda }}</strong>
+                <small>Recebimentos efetivos</small>
+            </div>
 
-        <div class="card fluxo-caixa-kpi saida">
-            <span>Saidas previstas</span>
-            <strong>{{ resumo.saidas_previstas|br_moeda }}</strong>
-            <small>Obrigacoes por vencimento</small>
-        </div>
+            <div class="card fluxo-caixa-kpi saida">
+                <span>Saidas realizadas</span>
+                <strong>{{ resumo.saidas_realizadas|br_moeda }}</strong>
+                <small>Pagamentos efetivos</small>
+            </div>
 
-        <div class="card fluxo-caixa-kpi saldo">
-            <span>Saldo previsto</span>
-            <strong>{{ resumo.saldo_previsto|br_moeda }}</strong>
-            <small>Inicial previsto + periodo</small>
-        </div>
-
-        <div class="card fluxo-caixa-kpi entrada">
-            <span>Entradas realizadas</span>
-            <strong>{{ resumo.entradas_realizadas|br_moeda }}</strong>
-            <small>Recebimentos efetivos</small>
-        </div>
-
-        <div class="card fluxo-caixa-kpi saida">
-            <span>Saidas realizadas</span>
-            <strong>{{ resumo.saidas_realizadas|br_moeda }}</strong>
-            <small>Pagamentos efetivos</small>
-        </div>
-
-        <div class="card fluxo-caixa-kpi saldo {% if resumo.saldo_realizado < 0 %}negativo{% endif %}">
-            <span>Saldo realizado</span>
-            <strong>{{ resumo.saldo_realizado|br_moeda }}</strong>
-            <small>Inicial realizado + periodo</small>
+            <div class="card fluxo-caixa-kpi saldo {% if resumo.saldo_realizado < 0 %}negativo{% endif %}">
+                <span>Saldo realizado</span>
+                <strong>{{ resumo.saldo_realizado|br_moeda }}</strong>
+                <small>Inicial realizado + periodo</small>
+            </div>
         </div>
     </section>
 
@@ -157,6 +176,7 @@
                 <div><span>Base realizada</span><strong>Data de realizacao</strong></div>
                 <div><span>Status considerados</span><strong>{{ status_filtro }}</strong></div>
                 <div><span>Categoria</span><strong>{{ categoria_filtro }}</strong></div>
+                <div><span>Subcategoria</span><strong>{{ subcategoria_filtro }}</strong></div>
                 {% if conta_disponivel %}
                 <div><span>Conta</span><strong>{% if conta_disponivel %}Filtrada{% else %}Nao cadastrada{% endif %}</strong></div>
                 {% endif %}
@@ -180,6 +200,7 @@
                         <th>Vencimento</th>
                         <th>Tipo</th>
                         <th>Categoria</th>
+                        <th>Subcategoria</th>
                         <th>Descricao</th>
                         <th>Valor</th>
                         <th>Status</th>
@@ -193,9 +214,13 @@
                     <tr>
                         <td>{{ item.data_vencimento }}</td>
                         <td>{{ item.tipo }}</td>
-                        <td>{{ item.categoria }}</td>
+                        <td>{{ item.categoria_fluxo or item.categoria }}</td>
+                        <td>{{ item.subcategoria_fluxo or "-" }}</td>
                         <td>
                             <strong>{{ item.descricao }}</strong>
+                            {% if item.categoria != item.categoria_fluxo %}
+                            <small>{{ item.categoria }}</small>
+                            {% endif %}
                             {% if item.observacoes %}
                             <small>{{ item.observacoes }}</small>
                             {% endif %}

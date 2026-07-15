@@ -7,12 +7,30 @@ data_vencimento; a leitura realizada usa data_realizacao.
 from datetime import datetime
 
 from database import conectar, q
+from modules.financeiro.services import listar_plano_contas
 from modules.movimentacoes.services import criar_tabela_movimentacoes_financeiras
 
 
 STATUS_FLUXO_CAIXA = ["Todos", "Pendente", "Recebido", "Pago", "Cancelado"]
 TIPOS_FLUXO_CAIXA = ["Todos", "Entrada", "Saida"]
 STATUS_REALIZADOS_SQL = ("Pago", "Recebido", "Realizado")
+AGRUPAMENTOS_CATEGORIA_FLUXO = {
+    "Manutencao": [
+        "Manutencao de Equipamentos",
+        "Manutencao de Veiculos",
+        "Manutencao Predial",
+    ],
+}
+SUBCATEGORIA_POR_CATEGORIA_AGRUPADA = {
+    categoria_filha: categoria_filha
+    for categorias in AGRUPAMENTOS_CATEGORIA_FLUXO.values()
+    for categoria_filha in categorias
+}
+CATEGORIA_AGRUPADA_POR_FILHA = {
+    categoria_filha: categoria_pai
+    for categoria_pai, categorias in AGRUPAMENTOS_CATEGORIA_FLUXO.items()
+    for categoria_filha in categorias
+}
 
 
 def _hoje():
@@ -28,6 +46,7 @@ def normalizar_filtros(args):
     data_fim = args.get("data_fim") or hoje
     status = args.get("status") or "Todos"
     categoria = args.get("categoria") or "Todas"
+    subcategoria = args.get("subcategoria") or "Todas"
     tipo = args.get("tipo") or "Todos"
 
     if status not in STATUS_FLUXO_CAIXA:
@@ -36,11 +55,15 @@ def normalizar_filtros(args):
     if tipo not in TIPOS_FLUXO_CAIXA:
         tipo = "Todos"
 
+    if categoria == "Todas":
+        subcategoria = "Todas"
+
     return {
         "data_inicio": data_inicio,
         "data_fim": data_fim,
         "status_filtro": status,
         "categoria_filtro": categoria,
+        "subcategoria_filtro": subcategoria,
         "tipo_filtro": tipo,
     }
 
@@ -85,22 +108,73 @@ def _classe_status(status):
 def listar_categorias_fluxo_caixa():
     criar_tabela_movimentacoes_financeiras()
 
+    categorias_plano = [
+        conta["categoria"]
+        for conta in listar_plano_contas()
+        if conta.get("impacta_fluxo_caixa") and conta.get("categoria")
+    ]
+
     conn = conectar()
     cursor = conn.cursor()
     cursor.execute(q("""
-    SELECT DISTINCT categoria
+    SELECT DISTINCT COALESCE(NULLIF(categoria_plano, ''), categoria) as categoria
     FROM movimentacoes_financeiras
-    WHERE categoria IS NOT NULL
-      AND categoria <> ''
+    WHERE COALESCE(NULLIF(categoria_plano, ''), categoria) IS NOT NULL
+      AND COALESCE(NULLIF(categoria_plano, ''), categoria) <> ''
       AND COALESCE(impacta_fluxo_caixa, 1) = 1
     ORDER BY categoria
     """))
-    categorias = [item["categoria"] for item in cursor.fetchall()]
+    categorias_movimentadas = [item["categoria"] for item in cursor.fetchall()]
     conn.close()
-    return categorias
+    categorias = set()
+    categorias_fragmentadas = set(CATEGORIA_AGRUPADA_POR_FILHA)
+    for categoria in categorias_plano + categorias_movimentadas:
+        if not categoria:
+            continue
+        categorias.add(CATEGORIA_AGRUPADA_POR_FILHA.get(categoria, categoria))
+    return sorted(categoria for categoria in categorias if categoria not in categorias_fragmentadas)
 
 
-def _montar_filtros_movimentacoes(tipo_filtro, categoria_filtro):
+def listar_subcategorias_fluxo_caixa(categoria_filtro):
+    if not categoria_filtro or categoria_filtro == "Todas":
+        return []
+
+    criar_tabela_movimentacoes_financeiras()
+    subcategorias_plano = [
+        conta["subcategoria"]
+        for conta in listar_plano_contas()
+        if conta.get("impacta_fluxo_caixa")
+        and conta.get("categoria") == categoria_filtro
+        and conta.get("subcategoria")
+    ]
+
+    if categoria_filtro in AGRUPAMENTOS_CATEGORIA_FLUXO:
+        subcategorias_plano.extend(AGRUPAMENTOS_CATEGORIA_FLUXO[categoria_filtro])
+
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute(q("""
+    SELECT DISTINCT COALESCE(NULLIF(subcategoria, ''), '') as subcategoria
+    FROM movimentacoes_financeiras
+    WHERE (
+        COALESCE(NULLIF(categoria_plano, ''), categoria) = ?
+        OR categoria = ?
+        OR categoria LIKE ?
+      )
+      AND COALESCE(NULLIF(subcategoria, ''), '') <> ''
+      AND COALESCE(impacta_fluxo_caixa, 1) = 1
+    ORDER BY subcategoria
+    """), (categoria_filtro, categoria_filtro, f"{categoria_filtro} - %"))
+    subcategorias_movimentadas = [item["subcategoria"] for item in cursor.fetchall()]
+    conn.close()
+    return sorted({item for item in subcategorias_plano + subcategorias_movimentadas if item})
+
+
+def categoria_fluxo_sql(categoria_filtro):
+    return AGRUPAMENTOS_CATEGORIA_FLUXO.get(categoria_filtro, [categoria_filtro])
+
+
+def _montar_filtros_movimentacoes(tipo_filtro, categoria_filtro, subcategoria_filtro="Todas"):
     condicoes = []
     parametros = []
 
@@ -112,13 +186,29 @@ def _montar_filtros_movimentacoes(tipo_filtro, categoria_filtro):
         parametros.append("Entrada")
 
     if categoria_filtro and categoria_filtro != "Todas":
-        condicoes.append("categoria = ?")
-        parametros.append(categoria_filtro)
+        categorias_consulta = categoria_fluxo_sql(categoria_filtro)
+        condicoes_categoria = []
+        for categoria_consulta in categorias_consulta:
+            condicoes_categoria.append("""(
+                COALESCE(NULLIF(categoria_plano, ''), categoria) = ?
+                OR categoria = ?
+                OR categoria LIKE ?
+            )""")
+            parametros.extend([categoria_consulta, categoria_consulta, f"{categoria_consulta} - %"])
+        condicoes.append("(" + " OR ".join(condicoes_categoria) + ")")
+
+        if subcategoria_filtro and subcategoria_filtro != "Todas":
+            condicoes.append("""(
+                COALESCE(NULLIF(subcategoria, ''), '') = ?
+                OR categoria = ?
+                OR COALESCE(NULLIF(categoria_plano, ''), categoria) = ?
+            )""")
+            parametros.extend([subcategoria_filtro, f"{categoria_filtro} - {subcategoria_filtro}", subcategoria_filtro])
 
     return condicoes, parametros
 
 
-def buscar_movimentacoes_fluxo_caixa(data_inicio, data_fim, tipo_filtro, categoria_filtro):
+def buscar_movimentacoes_fluxo_caixa(data_inicio, data_fim, tipo_filtro, categoria_filtro, subcategoria_filtro="Todas"):
     criar_tabela_movimentacoes_financeiras()
 
     condicoes = [
@@ -126,7 +216,7 @@ def buscar_movimentacoes_fluxo_caixa(data_inicio, data_fim, tipo_filtro, categor
         "COALESCE(impacta_fluxo_caixa, 1) = 1",
     ]
     parametros = [data_inicio, data_fim]
-    filtros, parametros_filtros = _montar_filtros_movimentacoes(tipo_filtro, categoria_filtro)
+    filtros, parametros_filtros = _montar_filtros_movimentacoes(tipo_filtro, categoria_filtro, subcategoria_filtro)
     condicoes.extend(filtros)
     parametros.extend(parametros_filtros)
 
@@ -144,7 +234,7 @@ def buscar_movimentacoes_fluxo_caixa(data_inicio, data_fim, tipo_filtro, categor
     return [preparar_movimentacao_fluxo(item) for item in movimentacoes]
 
 
-def buscar_movimentacoes_realizadas_fluxo_caixa(data_inicio, data_fim, tipo_filtro, categoria_filtro):
+def buscar_movimentacoes_realizadas_fluxo_caixa(data_inicio, data_fim, tipo_filtro, categoria_filtro, subcategoria_filtro="Todas"):
     criar_tabela_movimentacoes_financeiras()
 
     condicoes = [
@@ -154,7 +244,7 @@ def buscar_movimentacoes_realizadas_fluxo_caixa(data_inicio, data_fim, tipo_filt
         "COALESCE(impacta_fluxo_caixa, 1) = 1",
     ]
     parametros = [data_inicio, data_fim, "", *STATUS_REALIZADOS_SQL]
-    filtros, parametros_filtros = _montar_filtros_movimentacoes(tipo_filtro, categoria_filtro)
+    filtros, parametros_filtros = _montar_filtros_movimentacoes(tipo_filtro, categoria_filtro, subcategoria_filtro)
     condicoes.extend(filtros)
     parametros.extend(parametros_filtros)
 
@@ -185,10 +275,10 @@ def _somar_impacto(movimentacoes):
     return round(saldo, 2)
 
 
-def buscar_saldos_iniciais(data_inicio, tipo_filtro="Todos", categoria_filtro="Todas"):
+def buscar_saldos_iniciais(data_inicio, tipo_filtro="Todos", categoria_filtro="Todas", subcategoria_filtro="Todas"):
     criar_tabela_movimentacoes_financeiras()
 
-    filtros, parametros_filtros = _montar_filtros_movimentacoes(tipo_filtro, categoria_filtro)
+    filtros, parametros_filtros = _montar_filtros_movimentacoes(tipo_filtro, categoria_filtro, subcategoria_filtro)
 
     condicoes_previsto = [
         "data_vencimento < ?",
@@ -257,6 +347,12 @@ def preparar_movimentacao_fluxo(item):
     item_dict["realizado"] = _status_realizado_fluxo(item_dict)
     item_dict["sinal"] = 1 if tipo == "Entrada" else -1
     item_dict["valor_assinado"] = valor * item_dict["sinal"]
+    categoria_base = item_dict.get("categoria_plano") or item_dict.get("categoria") or ""
+    item_dict["categoria_fluxo"] = CATEGORIA_AGRUPADA_POR_FILHA.get(categoria_base, categoria_base)
+    item_dict["subcategoria_fluxo"] = (
+        item_dict.get("subcategoria")
+        or SUBCATEGORIA_POR_CATEGORIA_AGRUPADA.get(categoria_base, "")
+    )
 
     return item_dict
 
@@ -396,18 +492,21 @@ def montar_contexto_fluxo_caixa(args):
         filtros["data_inicio"],
         filtros["tipo_filtro"],
         filtros["categoria_filtro"],
+        filtros["subcategoria_filtro"],
     )
     movimentacoes_periodo_previstas = buscar_movimentacoes_fluxo_caixa(
         filtros["data_inicio"],
         filtros["data_fim"],
         filtros["tipo_filtro"],
         filtros["categoria_filtro"],
+        filtros["subcategoria_filtro"],
     )
     movimentacoes_periodo_realizadas = buscar_movimentacoes_realizadas_fluxo_caixa(
         filtros["data_inicio"],
         filtros["data_fim"],
         filtros["tipo_filtro"],
         filtros["categoria_filtro"],
+        filtros["subcategoria_filtro"],
     )
     movimentacoes = filtrar_por_status(movimentacoes_periodo_previstas, filtros["status_filtro"])
     movimentacoes_realizadas = filtrar_por_status(movimentacoes_periodo_realizadas, filtros["status_filtro"])
@@ -417,6 +516,7 @@ def montar_contexto_fluxo_caixa(args):
         "status_opcoes": STATUS_FLUXO_CAIXA,
         "tipo_opcoes": TIPOS_FLUXO_CAIXA,
         "categorias": listar_categorias_fluxo_caixa(),
+        "subcategorias": listar_subcategorias_fluxo_caixa(filtros["categoria_filtro"]),
         "resumo": calcular_resumo_fluxo_caixa(movimentacoes, movimentacoes_realizadas, saldos_iniciais),
         "linha_tempo": montar_linha_tempo(movimentacoes, movimentacoes_realizadas, saldos_iniciais),
         "movimentacoes": movimentacoes,
