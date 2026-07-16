@@ -162,6 +162,14 @@ def contexto_tem_linhas(contexto):
     return False
 
 
+def obter_cache(cache, chave, factory):
+    if cache is None:
+        return factory()
+    if chave not in cache:
+        cache[chave] = factory()
+    return cache[chave]
+
+
 def status_por_valor(valor, status_base=STATUS_DISPONIVEL):
     if valor is None:
         return STATUS_SEM_DADOS
@@ -180,7 +188,7 @@ def indicador_resultado(definicao, data_inicio, data_fim, valor, status=None, li
     }
 
 
-def resolver_dre(definicao, data_inicio, data_fim):
+def resolver_dre(definicao, data_inicio, data_fim, cache=None):
     campo = definicao["campo_origem"]
     total = 0.0
     tem_base = False
@@ -188,7 +196,7 @@ def resolver_dre(definicao, data_inicio, data_fim):
     if not meses:
         return indicador_resultado(definicao, data_inicio, data_fim, None)
     for competencia in meses:
-        dados = buscar_dados_dre_gerencial(competencia)
+        dados = obter_cache(cache, ("dre", competencia), lambda c=competencia: buscar_dados_dre_gerencial(c))
         total += float(dados.get(campo) or 0)
         tem_base = tem_base or any(
             float(dados.get(chave) or 0) != 0
@@ -204,24 +212,36 @@ def resolver_dre(definicao, data_inicio, data_fim):
     return indicador_resultado(definicao, data_inicio, data_fim, valor, limitacao="DRE consolidada por competencia mensal.")
 
 
-def resolver_fluxo(definicao, data_inicio, data_fim):
-    contexto = montar_contexto_fluxo_caixa(arg_periodo(data_inicio, data_fim))
+def resolver_fluxo(definicao, data_inicio, data_fim, cache=None):
+    contexto = obter_cache(
+        cache,
+        ("fluxo", data_inicio, data_fim),
+        lambda: montar_contexto_fluxo_caixa(arg_periodo(data_inicio, data_fim)),
+    )
     valor = valor_numero(contexto.get("resumo", {}).get(definicao["campo_origem"]))
     if valor == 0 and not contexto_tem_linhas(contexto):
         valor = None
     return indicador_resultado(definicao, data_inicio, data_fim, valor)
 
 
-def resolver_financeiro(definicao, data_inicio, data_fim):
-    contexto = montar_contexto_relatorio_financeiro(definicao["slug_origem"], arg_periodo(data_inicio, data_fim))
+def resolver_financeiro(definicao, data_inicio, data_fim, cache=None):
+    contexto = obter_cache(
+        cache,
+        ("financeiro", definicao["slug_origem"], data_inicio, data_fim),
+        lambda: montar_contexto_relatorio_financeiro(definicao["slug_origem"], arg_periodo(data_inicio, data_fim)),
+    )
     valor = valor_resumo(contexto, definicao["campo_origem"])
     if valor == 0 and not contexto_tem_linhas(contexto):
         valor = None
     return indicador_resultado(definicao, data_inicio, data_fim, valor)
 
 
-def resolver_producao(definicao, data_inicio, data_fim):
-    contexto = montar_contexto_relatorio_producao(definicao["slug_origem"], arg_periodo(data_inicio, data_fim))
+def resolver_producao(definicao, data_inicio, data_fim, cache=None):
+    contexto = obter_cache(
+        cache,
+        ("producao", definicao["slug_origem"], data_inicio, data_fim),
+        lambda: montar_contexto_relatorio_producao(definicao["slug_origem"], arg_periodo(data_inicio, data_fim)),
+    )
     valor = valor_numero(contexto.get("totais", {}).get(definicao["campo_origem"]))
     if valor == 0 and not contexto_tem_linhas(contexto):
         valor = None
@@ -229,24 +249,36 @@ def resolver_producao(definicao, data_inicio, data_fim):
     return indicador_resultado(definicao, data_inicio, data_fim, valor, status=status)
 
 
-def resolver_producao_resumo(definicao, data_inicio, data_fim):
-    contexto = montar_contexto_relatorio_producao(definicao["slug_origem"], arg_periodo(data_inicio, data_fim))
+def resolver_producao_resumo(definicao, data_inicio, data_fim, cache=None):
+    contexto = obter_cache(
+        cache,
+        ("producao", definicao["slug_origem"], data_inicio, data_fim),
+        lambda: montar_contexto_relatorio_producao(definicao["slug_origem"], arg_periodo(data_inicio, data_fim)),
+    )
     valor = valor_resumo(contexto, definicao["campo_origem"])
     if valor == 0 and not contexto_tem_linhas(contexto):
         valor = None
     return indicador_resultado(definicao, data_inicio, data_fim, valor, status=definicao.get("status"))
 
 
-def resolver_almoxarifado(definicao, data_inicio, data_fim):
-    contexto = montar_contexto_relatorio_almoxarifado(definicao["slug_origem"], arg_periodo(data_inicio, data_fim))
+def resolver_almoxarifado(definicao, data_inicio, data_fim, cache=None):
+    contexto = obter_cache(
+        cache,
+        ("almoxarifado", definicao["slug_origem"], data_inicio, data_fim),
+        lambda: montar_contexto_relatorio_almoxarifado(definicao["slug_origem"], arg_periodo(data_inicio, data_fim)),
+    )
     valor = valor_resumo(contexto, definicao["campo_origem"])
     if valor == 0 and not contexto_tem_linhas(contexto):
         valor = None
     return indicador_resultado(definicao, data_inicio, data_fim, valor)
 
 
-def resolver_expedicao(definicao, data_inicio, data_fim):
-    contexto = montar_contexto_relatorio_expedicao(definicao["slug_origem"], arg_periodo(data_inicio, data_fim))
+def resolver_expedicao(definicao, data_inicio, data_fim, cache=None):
+    contexto = obter_cache(
+        cache,
+        ("expedicao", definicao["slug_origem"], data_inicio, data_fim),
+        lambda: montar_contexto_relatorio_expedicao(definicao["slug_origem"], arg_periodo(data_inicio, data_fim)),
+    )
     valor = valor_resumo(contexto, definicao["campo_origem"])
     if valor == 0 and not contexto_tem_linhas(contexto):
         valor = None
@@ -326,27 +358,28 @@ def filtrar_registro(filtros):
     return indicadores
 
 
-def resolver_indicador(definicao, data_inicio, data_fim):
+def resolver_indicador(definicao, data_inicio, data_fim, cache=None):
     if definicao.get("tipo_origem") == "bloqueado":
         return indicador_resultado(definicao, data_inicio, data_fim, None, status=definicao["status"], limitacao=definicao["descricao"])
     resolver = RESOLVERS[definicao["tipo_origem"]]
     try:
-        return resolver(definicao, data_inicio, data_fim)
+        return resolver(definicao, data_inicio, data_fim, cache)
     except Exception as erro:
         return indicador_resultado(definicao, data_inicio, data_fim, None, status=STATUS_SEM_DADOS, limitacao=f"Fonte sem dados ou indisponivel para o periodo: {erro}")
 
 
 def montar_indicadores(filtros):
-    saida = [resolver_indicador(item, filtros["data_inicio"], filtros["data_fim"]) for item in filtrar_registro(filtros)]
+    cache = {}
+    saida = [resolver_indicador(item, filtros["data_inicio"], filtros["data_fim"], cache) for item in filtrar_registro(filtros)]
     if filtros["status"] != "Todos":
         saida = [item for item in saida if item["status_dados"] == filtros["status"] or item["status"] == filtros["status"]]
     return saida
 
 
-def comparar_indicador(indicador, data_inicio, data_fim):
+def comparar_indicador(indicador, data_inicio, data_fim, cache=None):
     anterior_inicio, anterior_fim = deslocar_periodo_anterior(data_inicio, data_fim)
-    atual = resolver_indicador(indicador, data_inicio, data_fim)
-    anterior = resolver_indicador(indicador, anterior_inicio, anterior_fim)
+    atual = resolver_indicador(indicador, data_inicio, data_fim, cache)
+    anterior = resolver_indicador(indicador, anterior_inicio, anterior_fim, cache)
     valor_atual = atual.get("valor")
     valor_anterior = anterior.get("valor")
     comparavel = valor_atual is not None and valor_anterior is not None and atual["unidade"] == anterior["unidade"]
@@ -372,10 +405,11 @@ def comparar_indicador(indicador, data_inicio, data_fim):
 
 
 def montar_comparativos(filtros):
-    return [comparar_indicador(item, filtros["data_inicio"], filtros["data_fim"]) for item in filtrar_registro(filtros) if item["status"] in [STATUS_DISPONIVEL, STATUS_EVOLUCAO]]
+    cache = {}
+    return [comparar_indicador(item, filtros["data_inicio"], filtros["data_fim"], cache) for item in filtrar_registro(filtros) if item["status"] in [STATUS_DISPONIVEL, STATUS_EVOLUCAO]]
 
 
-def tendencia_indicador(indicador, filtros):
+def tendencia_indicador(indicador, filtros, cache=None):
     series = []
     granularidade = filtros["granularidade"]
     if granularidade not in indicador.get("granularidades", []):
@@ -388,7 +422,7 @@ def tendencia_indicador(indicador, filtros):
             "limitacao_resultado": "Granularidade nao sustentada pela fonte.",
         }
     for periodo, inicio, fim in periodos_serie(filtros["data_inicio"], filtros["data_fim"], granularidade):
-        valor = resolver_indicador(indicador, inicio, fim)
+        valor = resolver_indicador(indicador, inicio, fim, cache)
         series.append({"periodo": periodo, "valor": valor.get("valor"), "status": valor.get("status_dados")})
     validos = [item["valor"] for item in series if item.get("valor") is not None]
     direcao = "Historico insuficiente"
@@ -423,7 +457,8 @@ def tendencia_indicador(indicador, filtros):
 
 
 def montar_tendencias(filtros):
-    return [tendencia_indicador(item, filtros) for item in filtrar_registro(filtros) if item["status"] in [STATUS_DISPONIVEL, STATUS_EVOLUCAO]]
+    cache = {}
+    return [tendencia_indicador(item, filtros, cache) for item in filtrar_registro(filtros) if item["status"] in [STATUS_DISPONIVEL, STATUS_EVOLUCAO]]
 
 
 def opcoes_filtro():
