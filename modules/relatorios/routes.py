@@ -22,6 +22,11 @@ from .almoxarifado import (
     gerar_excel_relatorio_almoxarifado,
     montar_contexto_relatorio_almoxarifado,
 )
+from .expedicao import (
+    RELATORIOS_EXPEDICAO,
+    gerar_excel_relatorio_expedicao,
+    montar_contexto_relatorio_expedicao,
+)
 
 
 def register_relatorios_routes(app):
@@ -104,6 +109,31 @@ def register_relatorios_routes(app):
             abort(404)
         contexto = montar_contexto_relatorio_almoxarifado(slug, request.args)
         arquivo = gerar_excel_relatorio_almoxarifado(contexto)
+        nome = f"{slug}_{contexto['filtros']['data_inicio']}_{contexto['filtros']['data_fim']}.xlsx"
+        return send_file(
+            arquivo,
+            as_attachment=True,
+            download_name=nome,
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
+    @app.route("/relatorios/expedicao/<slug>")
+    @perfil_permitido("pcp")
+    def relatorio_expedicao_oficial(slug):
+        if slug not in RELATORIOS_EXPEDICAO:
+            abort(404)
+        return render_template(
+            "relatorio_expedicao_oficial.html",
+            **montar_contexto_relatorio_expedicao(slug, request.args),
+        )
+
+    @app.route("/relatorios/expedicao/<slug>/exportar")
+    @perfil_permitido("pcp")
+    def relatorio_expedicao_oficial_exportar(slug):
+        if slug not in RELATORIOS_EXPEDICAO or not RELATORIOS_EXPEDICAO[slug].get("excel"):
+            abort(404)
+        contexto = montar_contexto_relatorio_expedicao(slug, request.args)
+        arquivo = gerar_excel_relatorio_expedicao(contexto)
         nome = f"{slug}_{contexto['filtros']['data_inicio']}_{contexto['filtros']['data_fim']}.xlsx"
         return send_file(
             arquivo,
