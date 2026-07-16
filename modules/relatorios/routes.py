@@ -2,14 +2,25 @@
 
 from datetime import datetime
 
-from flask import render_template, request
+from flask import render_template, request, url_for
 
 from modules.auth.decorators import perfil_permitido
 
-from .services import buscar_dados_relatorio_custos
+from .services import buscar_dados_relatorio_custos, filtrar_relatorios_oficiais
 
 
 def register_relatorios_routes(app):
+
+    @app.route("/relatorios")
+    @perfil_permitido("pcp")
+    def biblioteca_relatorios():
+        contexto = filtrar_relatorios_oficiais(request.args)
+
+        for relatorio in contexto["relatorios"]:
+            endpoint = relatorio.get("endpoint")
+            relatorio["url"] = url_for(endpoint) if endpoint else None
+
+        return render_template("biblioteca_relatorios.html", **contexto)
 
     @app.route("/relatorio-custos")
     @perfil_permitido("pcp")

@@ -11,7 +11,7 @@
 
     <link
         rel="stylesheet"
-        href="{{ url_for('static', filename='style.css', v='fluxo-cards-20260715') }}"
+        href="{{ url_for('static', filename='style.css', v='biblioteca-relatorios-20260716') }}"
     >
 </head>
 
@@ -62,11 +62,7 @@
             {% if perfil == "admin" or perfil == "pcp" %}
                 <a href="{{ url_for('custos') }}">Custos</a>
                 <a href="{{ url_for('vendas') }}">Vendas</a>
-                <a href="{{ url_for('relatorio_rendimento') }}">Rendimento</a>
-                <a href="{{ url_for('relatorio_viabilidade') }}">Viabilidade</a>
-                <a href="{{ url_for('relatorio_custos') }}">Evolução Custos</a>
-                <a href="{{ url_for('dre_gerencial') }}">DRE Gerencial</a>
-                <a href="{{ url_for('fluxo_caixa') }}">Fluxo de Caixa</a>
+                <a href="{{ url_for('biblioteca_relatorios') }}">Biblioteca de Relatórios</a>
                 <a href="{{ url_for('movimentacoes_entradas') }}">Movimenta&ccedil;&otilde;es</a>
                 <a href="{{ url_for('almoxarifado') }}">Almoxarifado</a>
                 <a href="{{ url_for('estoque_produtos') }}">Estoque PI/PA</a>

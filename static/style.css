@@ -7999,8 +7999,255 @@ small {
         min-height: 92px !important;
     }
 
-    .fluxo-caixa-kpi strong {
+.fluxo-caixa-kpi strong {
         font-size: 16px !important;
     }
 }
 
+/* Biblioteca Oficial de Relatorios */
+.biblioteca-relatorios-page {
+    display: grid;
+    gap: 14px;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+}
+
+.biblioteca-hero {
+    grid-template-columns: minmax(280px, 0.9fr) minmax(520px, 1.1fr);
+    align-items: end;
+}
+
+.biblioteca-filtros {
+    display: grid;
+    grid-template-columns: minmax(180px, 1.3fr) repeat(3, minmax(130px, 0.85fr)) minmax(92px, 0.5fr);
+    gap: 10px;
+    align-items: end;
+    min-width: 0;
+}
+
+.biblioteca-filtros label {
+    display: block;
+    margin-bottom: 5px;
+    color: #475569;
+    font-size: 10px;
+    font-weight: 900;
+    letter-spacing: 0.45px;
+    text-transform: uppercase;
+}
+
+.biblioteca-filtros input,
+.biblioteca-filtros select {
+    width: 100%;
+    min-width: 0;
+    height: 38px;
+    padding: 8px 10px;
+    border: 1px solid #cbd5e1;
+    border-radius: 9px;
+    background: #ffffff;
+    color: #1f2937;
+    font-size: 12px;
+}
+
+.biblioteca-filtros button {
+    height: 38px;
+    margin: 0;
+    border-radius: 9px;
+    font-size: 12px;
+}
+
+.biblioteca-grupo {
+    display: grid;
+    gap: 10px;
+    min-width: 0;
+}
+
+.biblioteca-grupo-titulo {
+    margin: 2px 0 0;
+}
+
+.biblioteca-grupo-titulo h2 {
+    margin-top: 3px;
+    font-size: 18px;
+}
+
+.biblioteca-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 10px;
+    min-width: 0;
+}
+
+.biblioteca-card {
+    display: grid;
+    grid-template-rows: auto auto auto 1fr auto;
+    gap: 9px;
+    min-width: 0;
+    min-height: 254px;
+    padding: 14px !important;
+    border-left: 4px solid #94a3b8;
+    border-radius: 8px !important;
+}
+
+.biblioteca-card.status-disponivel {
+    border-left-color: #16a34a;
+}
+
+.biblioteca-card.status-disponivel-requer-evolucao,
+.biblioteca-card.status-em-estruturacao {
+    border-left-color: #2563eb;
+}
+
+.biblioteca-card.status-dependencia-funcional {
+    border-left-color: #f97316;
+}
+
+.biblioteca-card.status-futuro,
+.biblioteca-card.status-congelado {
+    border-left-color: #64748b;
+}
+
+.biblioteca-card-topo {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    align-items: flex-start;
+}
+
+.biblioteca-id {
+    display: block;
+    color: #64748b;
+    font-size: 9px;
+    font-weight: 900;
+    letter-spacing: 0.45px;
+    line-height: 1.2;
+    text-transform: uppercase;
+}
+
+.biblioteca-card h3 {
+    margin: 3px 0 0;
+    color: #12384f;
+    font-size: 16px;
+    line-height: 1.15;
+}
+
+.biblioteca-card p {
+    margin: 0;
+    color: #475569;
+    font-size: 12px;
+    line-height: 1.35;
+}
+
+.biblioteca-prioridade {
+    flex: 0 0 auto;
+    padding: 5px 7px;
+    border-radius: 999px;
+    background: #e2e8f0;
+    color: #334155;
+    font-size: 10px;
+    font-weight: 900;
+    line-height: 1;
+}
+
+.biblioteca-prioridade.prioridade-alta {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.biblioteca-prioridade.prioridade-media {
+    background: #dbeafe;
+    color: #1d4ed8;
+}
+
+.biblioteca-prioridade.prioridade-baixa {
+    background: #f1f5f9;
+    color: #475569;
+}
+
+.biblioteca-meta {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 7px;
+}
+
+.biblioteca-meta span,
+.biblioteca-dependencias {
+    padding: 8px;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    background: #f8fafc;
+    color: #334155;
+    font-size: 11px;
+    line-height: 1.25;
+}
+
+.biblioteca-meta strong,
+.biblioteca-dependencias strong {
+    display: block;
+    margin-bottom: 3px;
+    color: #64748b;
+    font-size: 9px;
+    font-weight: 900;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+}
+
+.biblioteca-dependencias span {
+    display: block;
+}
+
+.biblioteca-card-acoes {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    min-height: 34px;
+}
+
+.biblioteca-card-acoes .botao-dre-exportar {
+    min-width: 78px;
+    height: 34px;
+    padding: 0 12px;
+}
+
+.biblioteca-sem-link {
+    display: inline-flex;
+    align-items: center;
+    min-height: 30px;
+    padding: 6px 9px;
+    border-radius: 999px;
+    background: #f1f5f9;
+    color: #64748b;
+    font-size: 11px;
+    font-weight: 900;
+}
+
+.biblioteca-vazio {
+    padding: 20px;
+}
+
+@media (max-width: 1360px) {
+    .biblioteca-hero {
+        grid-template-columns: minmax(0, 1fr) !important;
+    }
+
+    .biblioteca-filtros {
+        width: 100%;
+    }
+}
+
+@media (max-width: 1180px) {
+    .biblioteca-filtros {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 720px) {
+    .biblioteca-grid,
+    .biblioteca-meta {
+        grid-template-columns: 1fr;
+    }
+
+    .biblioteca-card {
+        min-height: 0;
+    }
+}
