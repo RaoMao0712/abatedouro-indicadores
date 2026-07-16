@@ -72,8 +72,13 @@ def register_relatorios_routes(app):
     def relatorio_producao_oficial(slug):
         if slug not in RELATORIOS_PRODUCAO:
             abort(404)
+        template = (
+            "relatorio_eficiencia_producao.html"
+            if RELATORIOS_PRODUCAO[slug].get("familia") == "eficiencia"
+            else "relatorio_producao_oficial.html"
+        )
         return render_template(
-            "relatorio_producao_oficial.html",
+            template,
             **montar_contexto_relatorio_producao(slug, request.args),
         )
 
