@@ -1,0 +1,242 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+
+<div class="relatorio-financeiro-page">
+    <section class="hero-dashboard relatorio-financeiro-hero">
+        <div>
+            <span class="eyebrow">Gerencial</span>
+            <h2>{{ titulo }}</h2>
+            <p>{{ objetivo }}</p>
+            <div class="financeiro-hero-resumo">
+                <span class="financeiro-pill-info"><strong>Periodo</strong> {{ filtros.data_inicio }} a {{ filtros.data_fim }}</span>
+                <span class="financeiro-pill-info"><strong>Fonte</strong> Relatorios oficiais</span>
+                <span class="financeiro-pill-info"><strong>Regra</strong> Sem nova fonte de verdade</span>
+            </div>
+        </div>
+
+        <form method="GET" action="{{ url_for('relatorio_gerencial_oficial', slug=slug) }}" class="relatorio-financeiro-filtros">
+            <div>
+                <label>Data inicial</label>
+                <input type="date" name="data_inicio" value="{{ filtros.data_inicio }}">
+            </div>
+            <div>
+                <label>Data final</label>
+                <input type="date" name="data_fim" value="{{ filtros.data_fim }}">
+            </div>
+            <div>
+                <label>Dominio</label>
+                <select name="dominio">
+                    <option value="Todos">Todos</option>
+                    {% for dominio in opcoes.dominios %}
+                    <option value="{{ dominio }}" {% if filtros.dominio == dominio %}selected{% endif %}>{{ dominio }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label>Indicador</label>
+                <select name="indicador">
+                    <option value="Todos">Todos</option>
+                    {% for id, nome, dominio in opcoes.indicadores %}
+                    <option value="{{ id }}" {% if filtros.indicador == id %}selected{% endif %}>{{ dominio }} - {{ nome }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label>Status</label>
+                <select name="status">
+                    <option value="Todos">Todos</option>
+                    {% for status in opcoes.status %}
+                    <option value="{{ status }}" {% if filtros.status == status %}selected{% endif %}>{{ status }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label>Unidade</label>
+                <select name="unidade">
+                    <option value="Todas">Todas</option>
+                    {% for unidade in opcoes.unidades %}
+                    <option value="{{ unidade }}" {% if filtros.unidade == unidade %}selected{% endif %}>{{ unidade }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            {% if slug == "tendencias" %}
+            <div>
+                <label>Granularidade</label>
+                <select name="granularidade">
+                    {% for valor, rotulo in opcoes.granularidades %}
+                    <option value="{{ valor }}" {% if filtros.granularidade == valor %}selected{% endif %}>{{ rotulo }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            {% endif %}
+            <button type="submit">Filtrar</button>
+        </form>
+    </section>
+
+    <div class="relatorio-financeiro-acoes">
+        <a href="{{ url_for('biblioteca_relatorios', dominio='Gerencial') }}" class="botao-dre-imprimir">Biblioteca</a>
+        <a href="{{ url_for('relatorio_gerencial_oficial_exportar', slug=slug) }}{% if query_string %}?{{ query_string }}{% endif %}" class="botao-dre-exportar">Exportar Excel</a>
+    </div>
+
+    <section class="relatorio-financeiro-kpis">
+        <div class="card relatorio-financeiro-kpi">
+            <span>Total</span>
+            <strong>{{ resumo.total }}</strong>
+        </div>
+        <div class="card relatorio-financeiro-kpi">
+            <span>Disponiveis</span>
+            <strong>{{ resumo.disponiveis }}</strong>
+        </div>
+        <div class="card relatorio-financeiro-kpi">
+            <span>Requer evolucao</span>
+            <strong>{{ resumo.evolucao }}</strong>
+        </div>
+        <div class="card relatorio-financeiro-kpi">
+            <span>Sem dados</span>
+            <strong>{{ resumo.sem_dados }}</strong>
+        </div>
+        <div class="card relatorio-financeiro-kpi">
+            <span>Bloqueados</span>
+            <strong>{{ resumo.bloqueados }}</strong>
+        </div>
+    </section>
+
+    <section class="card relatorio-financeiro-card">
+        <div class="section-title-row">
+            <div>
+                <span class="eyebrow">Regras oficiais</span>
+                <h2>Limites de leitura</h2>
+            </div>
+        </div>
+        <div class="relatorio-financeiro-vazio">
+            {% for item in limitacoes %}
+            <div>{{ item }}</div>
+            {% endfor %}
+        </div>
+    </section>
+
+    <section class="card relatorio-financeiro-card">
+        <div class="section-title-row">
+            <div>
+                <span class="eyebrow">Resultado</span>
+                <h2>{{ titulo }}</h2>
+            </div>
+        </div>
+
+        {% if linhas %}
+        <div class="tabela-responsiva tabela-executiva relatorio-financeiro-tabela">
+            {% if slug == "comparativos" %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>Indicador</th>
+                        <th>Dominio</th>
+                        <th>Unidade</th>
+                        <th>Periodo atual</th>
+                        <th>Valor atual</th>
+                        <th>Periodo anterior</th>
+                        <th>Valor anterior</th>
+                        <th>Variacao</th>
+                        <th>Variacao %</th>
+                        <th>Comparabilidade</th>
+                        <th>Leitura</th>
+                        <th>Origem</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in linhas %}
+                    <tr>
+                        <td>{{ item.nome }}</td>
+                        <td>{{ item.dominio }}</td>
+                        <td>{{ item.unidade }}</td>
+                        <td>{{ item.periodo_atual }}</td>
+                        <td>{% if item.valor_atual is not none %}{{ item.valor_atual }}{% else %}-{% endif %}</td>
+                        <td>{{ item.periodo_anterior }}</td>
+                        <td>{% if item.valor_anterior is not none %}{{ item.valor_anterior }}{% else %}-{% endif %}</td>
+                        <td>{% if item.variacao_abs is not none %}{{ item.variacao_abs }}{% else %}-{% endif %}</td>
+                        <td>{% if item.variacao_pct is not none %}{{ "%.2f"|format(item.variacao_pct) }}%{% else %}-{% endif %}</td>
+                        <td>{{ item.comparabilidade }}</td>
+                        <td>{{ item.leitura }}</td>
+                        <td>{{ item.origem }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% elif slug == "tendencias" %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>Indicador</th>
+                        <th>Dominio</th>
+                        <th>Unidade</th>
+                        <th>Referencia</th>
+                        <th>Direcao</th>
+                        <th>Cobertura</th>
+                        <th>Serie</th>
+                        <th>Status</th>
+                        <th>Origem</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in linhas %}
+                    <tr>
+                        <td>{{ item.nome }}</td>
+                        <td>{{ item.dominio }}</td>
+                        <td>{{ item.unidade }}</td>
+                        <td>{{ item.referencia_temporal }}</td>
+                        <td>{{ item.direcao_tendencia }}</td>
+                        <td>{{ item.cobertura }}</td>
+                        <td>
+                            {% for ponto in item.serie %}
+                            <span>{{ ponto.periodo }}: {% if ponto.valor is not none %}{{ ponto.valor }}{% else %}sem dados{% endif %}</span>{% if not loop.last %}<br>{% endif %}
+                            {% endfor %}
+                        </td>
+                        <td>{{ item.status_dados }}</td>
+                        <td>{{ item.origem }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>Indicador</th>
+                        <th>Dominio</th>
+                        <th>Valor</th>
+                        <th>Unidade</th>
+                        <th>Periodo</th>
+                        <th>Referencia</th>
+                        <th>Status</th>
+                        <th>Origem</th>
+                        <th>Limitacao</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in linhas %}
+                    <tr>
+                        <td>{{ item.nome }}</td>
+                        <td>{{ item.dominio }}</td>
+                        <td>{% if item.valor is not none %}{{ item.valor }}{% else %}-{% endif %}</td>
+                        <td>{{ item.unidade }}</td>
+                        <td>{{ item.periodo }}</td>
+                        <td>{{ item.referencia_temporal }}</td>
+                        <td>{{ item.status_dados }}</td>
+                        <td>{{ item.origem }}</td>
+                        <td>{{ item.limitacao_resultado or "-" }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% endif %}
+        </div>
+        {% else %}
+        <div class="relatorio-financeiro-vazio">
+            Nenhum indicador encontrado para os filtros atuais.
+        </div>
+        {% endif %}
+    </section>
+</div>
+
+{% endblock %}

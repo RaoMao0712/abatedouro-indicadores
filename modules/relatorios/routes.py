@@ -27,6 +27,11 @@ from .expedicao import (
     gerar_excel_relatorio_expedicao,
     montar_contexto_relatorio_expedicao,
 )
+from .gerencial import (
+    RELATORIOS_GERENCIAIS,
+    gerar_excel_relatorio_gerencial,
+    montar_contexto_relatorio_gerencial,
+)
 
 
 def register_relatorios_routes(app):
@@ -140,6 +145,31 @@ def register_relatorios_routes(app):
         contexto = montar_contexto_relatorio_expedicao(slug, request.args)
         arquivo = gerar_excel_relatorio_expedicao(contexto)
         nome = f"{slug}_{contexto['filtros']['data_inicio']}_{contexto['filtros']['data_fim']}.xlsx"
+        return send_file(
+            arquivo,
+            as_attachment=True,
+            download_name=nome,
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
+    @app.route("/relatorios/gerencial/<slug>")
+    @perfil_permitido("pcp")
+    def relatorio_gerencial_oficial(slug):
+        if slug not in RELATORIOS_GERENCIAIS:
+            abort(404)
+        return render_template(
+            "relatorio_gerencial_oficial.html",
+            **montar_contexto_relatorio_gerencial(slug, request.args),
+        )
+
+    @app.route("/relatorios/gerencial/<slug>/exportar")
+    @perfil_permitido("pcp")
+    def relatorio_gerencial_oficial_exportar(slug):
+        if slug not in RELATORIOS_GERENCIAIS:
+            abort(404)
+        contexto = montar_contexto_relatorio_gerencial(slug, request.args)
+        arquivo = gerar_excel_relatorio_gerencial(contexto)
+        nome = f"gerencial_{slug}_{contexto['filtros']['data_inicio']}_{contexto['filtros']['data_fim']}.xlsx"
         return send_file(
             arquivo,
             as_attachment=True,
