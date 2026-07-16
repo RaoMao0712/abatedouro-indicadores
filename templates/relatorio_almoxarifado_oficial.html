@@ -10,7 +10,7 @@
             <p>{{ config.objetivo }}</p>
             <div class="financeiro-hero-resumo">
                 <span class="financeiro-pill-info"><strong>Base</strong> Eventos oficiais do Almoxarifado</span>
-                {% if config.familia == "movimentacoes" %}
+                {% if config.familia in ["movimentacoes", "giro", "fifo"] %}
                 <span class="financeiro-pill-info"><strong>Periodo</strong> {{ filtros.data_inicio }} a {{ filtros.data_fim }}</span>
                 {% else %}
                 <span class="financeiro-pill-info"><strong>Saldo</strong> Lotes atuais</span>
@@ -19,7 +19,7 @@
         </div>
 
         <form method="GET" action="{{ url_for('relatorio_almoxarifado_oficial', slug=slug) }}" class="relatorio-almoxarifado-filtros">
-            {% if config.familia == "movimentacoes" %}
+            {% if config.familia in ["movimentacoes", "giro", "fifo"] %}
             <div>
                 <label>Data inicial</label>
                 <input type="date" name="data_inicio" value="{{ filtros.data_inicio }}">
@@ -28,6 +28,8 @@
                 <label>Data final</label>
                 <input type="date" name="data_fim" value="{{ filtros.data_fim }}">
             </div>
+            {% endif %}
+            {% if config.familia == "movimentacoes" %}
             <div>
                 <label>Tipo</label>
                 <select name="tipo">
@@ -63,12 +65,40 @@
                 <label>Lote</label>
                 <input type="search" name="lote" value="{{ filtros.lote }}" placeholder="Lote">
             </div>
-            {% if config.familia == "movimentacoes" %}
+            {% if config.familia in ["movimentacoes", "fifo"] %}
             <div>
                 <label>OP</label>
                 <input type="search" name="op_id" value="{{ filtros.op_id }}" placeholder="Numero">
             </div>
-            {% else %}
+            {% endif %}
+            {% if config.familia == "giro" %}
+            <div>
+                <label>Situacao</label>
+                <select name="situacao">
+                    <option value="Todas">Todas</option>
+                    {% for situacao in opcoes.situacoes_giro %}
+                    <option value="{{ situacao }}" {% if filtros.situacao == situacao %}selected{% endif %}>{{ situacao }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label>Com saldo</label>
+                <select name="somente_com_saldo">
+                    <option value="Nao" {% if filtros.somente_com_saldo == "Nao" %}selected{% endif %}>Nao</option>
+                    <option value="Sim" {% if filtros.somente_com_saldo == "Sim" %}selected{% endif %}>Sim</option>
+                </select>
+            </div>
+            {% elif config.familia == "fifo" %}
+            <div>
+                <label>Status FIFO</label>
+                <select name="status_fifo">
+                    <option value="Todos">Todos</option>
+                    {% for status in opcoes.status_fifo %}
+                    <option value="{{ status }}" {% if filtros.status_fifo == status %}selected{% endif %}>{{ status }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            {% elif config.familia not in ["movimentacoes"] %}
             <div>
                 <label>Status lote</label>
                 <select name="status_lote">
@@ -129,6 +159,45 @@
         </div>
         <div class="tabela-responsiva tabela-executiva relatorio-almoxarifado-tabela">
             <table>
+                {% if config.familia == "giro" %}
+                <thead>
+                    <tr>
+                        <th>Situacao</th>
+                        <th>Itens</th>
+                        <th>Consumo</th>
+                        <th>Saldo final</th>
+                        <th>Estoque medio</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in agrupamentos %}
+                    <tr>
+                        <td><strong>{{ item.grupo }}</strong></td>
+                        <td>{{ item.itens|br_numero(0) }}</td>
+                        <td>{{ item.consumo|br_numero(4) }}</td>
+                        <td>{{ item.saldo_final|br_numero(4) }}</td>
+                        <td>{{ item.estoque_medio|br_numero(4) }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+                {% elif config.familia == "fifo" %}
+                <thead>
+                    <tr>
+                        <th>Status</th>
+                        <th>Eventos</th>
+                        <th>Quantidade</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in agrupamentos %}
+                    <tr>
+                        <td><strong>{{ item.grupo }}</strong></td>
+                        <td>{{ item.eventos|br_numero(0) }}</td>
+                        <td>{{ item.quantidade|br_numero(4) }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+                {% else %}
                 <thead>
                     <tr>
                         <th>Grupo</th>
@@ -149,6 +218,7 @@
                     </tr>
                     {% endfor %}
                 </tbody>
+                {% endif %}
             </table>
         </div>
     </section>
@@ -158,7 +228,12 @@
         <div class="section-title-row">
             <div>
                 <span class="eyebrow">Detalhamento</span>
-                <h2>{% if config.familia == "movimentacoes" %}Eventos rastreaveis{% else %}Saldos por insumo{% endif %}</h2>
+                <h2>
+                    {% if config.familia == "movimentacoes" %}Eventos rastreaveis
+                    {% elif config.familia == "giro" %}Giro por produto e unidade
+                    {% elif config.familia == "fifo" %}Analise dos consumos
+                    {% else %}Saldos por insumo{% endif %}
+                </h2>
             </div>
         </div>
 
@@ -199,6 +274,80 @@
                         <td>{{ item.lote or "-" }}</td>
                         <td>{{ item.origem or "-" }}</td>
                         <td>{% if item.op_id %}OP {{ item.op_id }}{% else %}-{% endif %}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+                {% elif config.familia == "giro" %}
+                <thead>
+                    <tr>
+                        <th>Insumo</th>
+                        <th>Categoria</th>
+                        <th>Unidade</th>
+                        <th>Saldo inicial</th>
+                        <th>Entradas</th>
+                        <th>Consumo</th>
+                        <th>Estornos</th>
+                        <th>Ajustes</th>
+                        <th>Saldo final</th>
+                        <th>Estoque medio</th>
+                        <th>Giro</th>
+                        <th>Cobertura</th>
+                        <th>Ultimo consumo</th>
+                        <th>Situacao</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in detalhes %}
+                    <tr>
+                        <td><strong>{{ item.insumo }}</strong></td>
+                        <td>{{ item.categoria }}</td>
+                        <td>{{ item.unidade }}</td>
+                        <td>{{ item.saldo_inicial|br_numero(4) }}</td>
+                        <td>{{ item.entradas|br_numero(4) }}</td>
+                        <td>{{ item.consumo|br_numero(4) }}</td>
+                        <td>{{ item.estornos|br_numero(4) }}</td>
+                        <td>{{ item.ajustes|br_numero(4) }}</td>
+                        <td>{{ item.saldo_final|br_numero(4) }}</td>
+                        <td>{{ item.estoque_medio|br_numero(4) }}</td>
+                        <td>{{ item.giro|br_numero(4) }}</td>
+                        <td>{% if item.cobertura_dias is not none %}{{ item.cobertura_dias|br_numero(2) }} dias{% else %}-{% endif %}</td>
+                        <td>{{ item.ultimo_consumo or "-" }}</td>
+                        <td><strong>{{ item.situacao }}</strong></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+                {% elif config.familia == "fifo" %}
+                <thead>
+                    <tr>
+                        <th>Evento</th>
+                        <th>Data</th>
+                        <th>Insumo</th>
+                        <th>Qtd.</th>
+                        <th>OP</th>
+                        <th>Lote consumido</th>
+                        <th>Entrada consumido</th>
+                        <th>Lote elegivel</th>
+                        <th>Entrada elegivel</th>
+                        <th>Saldo elegivel antes</th>
+                        <th>Situacao</th>
+                        <th>Justificativa</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in detalhes %}
+                    <tr>
+                        <td>{{ item.id }}</td>
+                        <td>{{ item.data_movimentacao }}</td>
+                        <td><strong>{{ item.insumo }}</strong></td>
+                        <td>{{ item.quantidade|br_numero(4) }} {{ item.unidade }}</td>
+                        <td>{% if item.op_id %}OP {{ item.op_id }}{% else %}-{% endif %}</td>
+                        <td>{{ item.lote_consumido or "-" }}</td>
+                        <td>{{ item.entrada_lote_consumido or "-" }}</td>
+                        <td>{{ item.lote_elegivel or "-" }}</td>
+                        <td>{{ item.entrada_lote_elegivel or "-" }}</td>
+                        <td>{{ item.saldo_lote_elegivel_antes|br_numero(4) }}</td>
+                        <td><strong>{{ item.situacao }}</strong></td>
+                        <td>{{ item.justificativa }}</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -278,6 +427,51 @@
                         <td>{{ item.quantidade_atual|br_numero(4) }} {{ item.unidade }}</td>
                         <td>{{ item.valor_unitario|br_moeda }}</td>
                         <td>{{ item.status }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+    {% endif %}
+
+    {% if config.familia == "fifo" and lotes_antigos %}
+    <section class="card relatorio-almoxarifado-card">
+        <div class="section-title-row">
+            <div>
+                <span class="eyebrow">Lotes</span>
+                <h2>Lotes antigos em estoque</h2>
+            </div>
+        </div>
+        <div class="tabela-responsiva tabela-executiva relatorio-almoxarifado-tabela">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Insumo</th>
+                        <th>Categoria</th>
+                        <th>Unidade</th>
+                        <th>Lote</th>
+                        <th>Entrada</th>
+                        <th>Idade</th>
+                        <th>Saldo</th>
+                        <th>Status</th>
+                        <th>Fornecedor</th>
+                        <th>NF</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in lotes_antigos %}
+                    <tr>
+                        <td><strong>{{ item.insumo }}</strong></td>
+                        <td>{{ item.categoria }}</td>
+                        <td>{{ item.unidade }}</td>
+                        <td>{{ item.lote or "-" }}</td>
+                        <td>{{ item.data_entrada or "-" }}</td>
+                        <td>{% if item.idade_dias is not none %}{{ item.idade_dias|br_numero(0) }} dias{% else %}-{% endif %}</td>
+                        <td>{{ item.saldo|br_numero(4) }}</td>
+                        <td>{{ item.status }}</td>
+                        <td>{{ item.fornecedor or "-" }}</td>
+                        <td>{{ item.numero_nf or "-" }}</td>
                     </tr>
                     {% endfor %}
                 </tbody>
