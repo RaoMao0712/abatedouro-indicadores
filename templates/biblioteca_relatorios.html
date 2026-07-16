@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+
+<div class="biblioteca-relatorios-page">
+    <section class="hero-dashboard biblioteca-hero">
+        <div>
+            <span class="eyebrow">PRUMO</span>
+            <h2>Biblioteca de Relatorios</h2>
+            <p>Catalogo oficial, backlog e ponto unico de acesso aos relatorios gerenciais homologados.</p>
+            <div class="financeiro-hero-resumo">
+                <span class="financeiro-pill-info"><strong>Total</strong> {{ total_catalogo }} relatorios oficiais</span>
+                <span class="financeiro-pill-info"><strong>Exibidos</strong> {{ total_filtrado }}</span>
+                <span class="financeiro-pill-info"><strong>Fonte</strong> Catalogo oficial em codigo</span>
+            </div>
+        </div>
+
+        <form method="GET" action="{{ url_for('biblioteca_relatorios') }}" class="biblioteca-filtros">
+            <div>
+                <label>Pesquisar</label>
+                <input type="search" name="q" value="{{ filtros.q }}" placeholder="Nome, objetivo ou dependencia">
+            </div>
+
+            <div>
+                <label>Dominio</label>
+                <select name="dominio">
+                    <option value="Todos">Todos</option>
+                    {% for dominio in dominios %}
+                        <option value="{{ dominio }}" {% if filtros.dominio == dominio %}selected{% endif %}>{{ dominio }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div>
+                <label>Prioridade</label>
+                <select name="prioridade">
+                    <option value="Todas">Todas</option>
+                    {% for prioridade in prioridades %}
+                        <option value="{{ prioridade }}" {% if filtros.prioridade == prioridade %}selected{% endif %}>{{ prioridade }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div>
+                <label>Status</label>
+                <select name="status">
+                    <option value="Todos">Todos</option>
+                    {% for status in status_opcoes %}
+                        <option value="{{ status }}" {% if filtros.status == status %}selected{% endif %}>{{ status }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <button type="submit">Filtrar</button>
+        </form>
+    </section>
+
+    {% if grupos %}
+        {% for grupo in grupos %}
+        <section class="biblioteca-grupo">
+            <div class="section-title-row biblioteca-grupo-titulo">
+                <div>
+                    <span class="eyebrow">{{ grupo.relatorios|length }} itens</span>
+                    <h2>{{ grupo.dominio }}</h2>
+                </div>
+            </div>
+
+            <div class="biblioteca-grid">
+                {% for relatorio in grupo.relatorios %}
+                <article class="card biblioteca-card status-{{ relatorio.status|lower|replace(' ', '-')|replace('---', '-') }}">
+                    <div class="biblioteca-card-topo">
+                        <div>
+                            <span class="biblioteca-id">{{ relatorio.id }}</span>
+                            <h3>{{ relatorio.nome }}</h3>
+                        </div>
+                        <span class="biblioteca-prioridade prioridade-{{ relatorio.prioridade|lower }}">{{ relatorio.prioridade }}</span>
+                    </div>
+
+                    <p>{{ relatorio.objetivo }}</p>
+
+                    <div class="biblioteca-meta">
+                        <span><strong>Onda</strong>{{ relatorio.onda }}</span>
+                        <span><strong>Status</strong>{{ relatorio.status }}</span>
+                        <span><strong>Formatos</strong>{{ relatorio.formatos|join(", ") }}</span>
+                        <span><strong>Permissao</strong>{{ relatorio.permissao }}</span>
+                    </div>
+
+                    <div class="biblioteca-dependencias">
+                        <strong>Dependencias</strong>
+                        <span>{{ relatorio.dependencias|join(", ") }}</span>
+                    </div>
+
+                    <div class="biblioteca-card-acoes">
+                        {% if relatorio.url %}
+                            <a href="{{ relatorio.url }}" class="botao-dre-exportar">Acessar</a>
+                        {% else %}
+                            <span class="biblioteca-sem-link">{{ relatorio.status }}</span>
+                        {% endif %}
+                    </div>
+                </article>
+                {% endfor %}
+            </div>
+        </section>
+        {% endfor %}
+    {% else %}
+        <section class="card biblioteca-vazio">
+            <h2>Nenhum relatorio encontrado</h2>
+            <p>Ajuste os filtros para voltar ao catalogo oficial completo.</p>
+        </section>
+    {% endif %}
+</div>
+
+{% endblock %}

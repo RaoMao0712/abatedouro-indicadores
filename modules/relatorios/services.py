@@ -1,9 +1,94 @@
 """Servicos de relatorios gerenciais."""
 
 from datetime import datetime
+from copy import deepcopy
 
 from . import repositories as repository
+from .catalogo import RELATORIOS_OFICIAIS
 from modules.custos.services import CATEGORIAS_CUSTOS, criar_tabelas_custos
+
+
+ORDEM_DOMINIOS_RELATORIOS = [
+    "Financeiro",
+    "Producao",
+    "Almoxarifado",
+    "Expedicao",
+    "Gerencial",
+]
+
+
+def listar_relatorios_oficiais():
+    return deepcopy(RELATORIOS_OFICIAIS)
+
+
+def _normalizar_busca(valor):
+    return (valor or "").strip().lower()
+
+
+def _opcoes_unicas(relatorios, campo):
+    valores = []
+
+    for relatorio in relatorios:
+        valor = relatorio.get(campo) or ""
+        if valor and valor not in valores:
+            valores.append(valor)
+
+    return valores
+
+
+def filtrar_relatorios_oficiais(args):
+    relatorios = listar_relatorios_oficiais()
+    termo = _normalizar_busca(args.get("q"))
+    dominio = args.get("dominio") or "Todos"
+    prioridade = args.get("prioridade") or "Todas"
+    status = args.get("status") or "Todos"
+
+    filtrados = []
+
+    for relatorio in relatorios:
+        texto_busca = " ".join([
+            relatorio.get("nome", ""),
+            relatorio.get("dominio", ""),
+            relatorio.get("objetivo", ""),
+            " ".join(relatorio.get("dependencias", [])),
+        ]).lower()
+
+        if termo and termo not in texto_busca:
+            continue
+        if dominio != "Todos" and relatorio.get("dominio") != dominio:
+            continue
+        if prioridade != "Todas" and relatorio.get("prioridade") != prioridade:
+            continue
+        if status != "Todos" and relatorio.get("status") != status:
+            continue
+
+        filtrados.append(relatorio)
+
+    grupos = []
+
+    for dominio_nome in ORDEM_DOMINIOS_RELATORIOS:
+        itens = [item for item in filtrados if item.get("dominio") == dominio_nome]
+        if itens:
+            grupos.append({
+                "dominio": dominio_nome,
+                "relatorios": itens,
+            })
+
+    return {
+        "relatorios": filtrados,
+        "grupos": grupos,
+        "total_catalogo": len(relatorios),
+        "total_filtrado": len(filtrados),
+        "dominios": ORDEM_DOMINIOS_RELATORIOS,
+        "prioridades": _opcoes_unicas(relatorios, "prioridade"),
+        "status_opcoes": _opcoes_unicas(relatorios, "status"),
+        "filtros": {
+            "q": args.get("q") or "",
+            "dominio": dominio,
+            "prioridade": prioridade,
+            "status": status,
+        },
+    }
 
 
 def normalizar_competencia(competencia):
