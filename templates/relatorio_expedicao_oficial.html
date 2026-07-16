@@ -1,0 +1,347 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+
+<div class="relatorio-expedicao-page">
+    <section class="hero-dashboard relatorio-expedicao-hero">
+        <div>
+            <span class="eyebrow">Expedicao</span>
+            <h2>{{ config.titulo }}</h2>
+            <p>{{ config.objetivo }}</p>
+            <div class="financeiro-hero-resumo">
+                {% if config.familia == "estoque" %}
+                <span class="financeiro-pill-info"><strong>Posicao</strong> Local atual oficial</span>
+                {% elif config.familia == "historico" %}
+                <span class="financeiro-pill-info"><strong>Consulta</strong> Caixa individual</span>
+                {% else %}
+                <span class="financeiro-pill-info"><strong>Periodo</strong> {{ filtros.data_inicio }} a {{ filtros.data_fim }}</span>
+                {% endif %}
+                <span class="financeiro-pill-info"><strong>Base</strong> PA, romaneios e eventos fisicos</span>
+            </div>
+        </div>
+
+        <form method="GET" action="{{ url_for('relatorio_expedicao_oficial', slug=slug) }}" class="relatorio-expedicao-filtros">
+            {% if config.familia == "transferencias" %}
+            <div>
+                <label>Data inicial</label>
+                <input type="date" name="data_inicio" value="{{ filtros.data_inicio }}">
+            </div>
+            <div>
+                <label>Data final</label>
+                <input type="date" name="data_fim" value="{{ filtros.data_fim }}">
+            </div>
+            {% endif %}
+            <div>
+                <label>Caixa</label>
+                <input type="search" name="caixa" value="{{ filtros.caixa }}" placeholder="Codigo">
+            </div>
+            <div>
+                <label>OP</label>
+                <input type="search" name="op_id" value="{{ filtros.op_id }}" placeholder="Numero">
+            </div>
+            <div>
+                <label>SKU</label>
+                <select name="sku">
+                    <option value="Todos">Todos</option>
+                    {% for sku_item in opcoes.skus %}
+                    <option value="{{ sku_item }}" {% if filtros.sku == sku_item %}selected{% endif %}>{{ sku_item }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label>Lote</label>
+                <input type="search" name="lote" value="{{ filtros.lote }}" placeholder="OP/lote">
+            </div>
+            {% if config.familia == "transferencias" %}
+            <div>
+                <label>Origem</label>
+                <select name="origem">
+                    <option value="Todos">Todas</option>
+                    {% for local in opcoes.locais %}
+                    <option value="{{ local }}" {% if filtros.origem == local %}selected{% endif %}>{{ local }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label>Destino</label>
+                <select name="destino">
+                    <option value="Todos">Todos</option>
+                    {% for local in opcoes.locais %}
+                    <option value="{{ local }}" {% if filtros.destino == local %}selected{% endif %}>{{ local }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label>Usuario</label>
+                <input type="search" name="usuario" value="{{ filtros.usuario }}" placeholder="Responsavel">
+            </div>
+            <div>
+                <label>Romaneio</label>
+                <input type="search" name="romaneio" value="{{ filtros.romaneio }}" placeholder="Numero">
+            </div>
+            {% else %}
+            <div>
+                <label>Validade inicial</label>
+                <input type="date" name="validade_inicio" value="{{ filtros.validade_inicio }}">
+            </div>
+            <div>
+                <label>Validade final</label>
+                <input type="date" name="validade_fim" value="{{ filtros.validade_fim }}">
+            </div>
+            <div>
+                <label>Status</label>
+                <select name="status">
+                    <option value="Todos">Todos</option>
+                    {% for status_item in opcoes.status %}
+                    <option value="{{ status_item }}" {% if filtros.status == status_item %}selected{% endif %}>{{ status_item }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            {% endif %}
+            <button type="submit">Filtrar</button>
+        </form>
+    </section>
+
+    <div class="relatorio-expedicao-acoes">
+        <a href="{{ url_for('biblioteca_relatorios', dominio='Expedicao') }}" class="botao-dre-imprimir">Biblioteca</a>
+        {% if config.excel %}
+        <a href="{{ url_for('relatorio_expedicao_oficial_exportar', slug=slug) }}{% if query_string %}?{{ query_string }}{% endif %}" class="botao-dre-exportar">Exportar Excel</a>
+        {% endif %}
+        {% if config.familia == "historico" and caixa %}
+        <button type="button" class="botao-dre-exportar" onclick="window.print()">Imprimir</button>
+        {% endif %}
+    </div>
+
+    <section class="relatorio-expedicao-kpis">
+        {% for item in resumo %}
+        <div class="card relatorio-expedicao-kpi">
+            <span>{{ item.rotulo }}</span>
+            {% if item.tipo == "decimal" %}
+                <strong>{{ item.valor|br_numero(3) }}</strong>
+            {% else %}
+                <strong>{{ item.valor|br_numero(0) }}</strong>
+            {% endif %}
+            <small>{{ item.unidade }}</small>
+        </div>
+        {% endfor %}
+    </section>
+
+    {% if limitacoes %}
+    <section class="card relatorio-expedicao-card relatorio-expedicao-notas">
+        {% for item in limitacoes %}
+        <span>{{ item }}</span>
+        {% endfor %}
+    </section>
+    {% endif %}
+
+    {% if config.familia == "historico" %}
+        {% if caixa %}
+        <section class="card relatorio-expedicao-card relatorio-expedicao-caixa">
+            <div>
+                <span class="eyebrow">Caixa</span>
+                <h2>{{ caixa.codigo_caixa }}</h2>
+            </div>
+            <div class="relatorio-expedicao-caixa-grid">
+                <span><strong>OP</strong> {% if caixa.op_id %}#{{ caixa.op_id }}{% else %}-{% endif %}</span>
+                <span><strong>SKU</strong> {{ caixa.sku }}</span>
+                <span><strong>Lote</strong> {{ caixa.lote or "-" }}</span>
+                <span><strong>Fabricacao</strong> {{ caixa.data_fabricacao or "-" }}</span>
+                <span><strong>Validade</strong> {{ caixa.data_validade or "Sem validade informada" }}</span>
+                <span><strong>Peso liquido</strong> {{ caixa.peso_liquido|br_numero(3) }} kg</span>
+                <span><strong>Status</strong> {{ caixa.status_caixa }}</span>
+                <span><strong>Local atual</strong> {{ caixa.local_atual }}</span>
+            </div>
+        </section>
+
+        <section class="card relatorio-expedicao-card">
+            <div class="section-title-row">
+                <div>
+                    <span class="eyebrow">Linha do tempo</span>
+                    <h2>Eventos fisicos</h2>
+                </div>
+            </div>
+            <div class="relatorio-expedicao-timeline">
+                <div class="relatorio-expedicao-evento">
+                    <strong>Criacao / entrada PA</strong>
+                    <span>{{ caixa.criado_em or caixa.data_fabricacao or "-" }}</span>
+                    <p>Caixa criada no estoque de Produto Acabado. Local inicial: {{ caixa.local_atual }} quando nao houver transferencia registrada.</p>
+                </div>
+                {% for evento in historico %}
+                <div class="relatorio-expedicao-evento">
+                    <strong>{{ evento.tipo }}</strong>
+                    <span>{{ evento.data_evento }}</span>
+                    <p>
+                        {{ evento.origem_nome or "-" }} -> {{ evento.destino_nome or "-" }}
+                        {% if evento.numero_romaneio %} | Romaneio {{ evento.numero_romaneio }}{% endif %}
+                        {% if evento.usuario %} | Usuario {{ evento.usuario }}{% endif %}
+                        {% if evento.status_romaneio %} | Status {{ evento.status_romaneio }}{% endif %}
+                    </p>
+                </div>
+                {% endfor %}
+            </div>
+        </section>
+        {% elif detalhes %}
+        <section class="card relatorio-expedicao-card">
+            <div class="section-title-row">
+                <div>
+                    <span class="eyebrow">Selecao</span>
+                    <h2>Caixas encontradas</h2>
+                </div>
+            </div>
+            <div class="tabela-responsiva tabela-executiva relatorio-expedicao-tabela">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Caixa</th>
+                            <th>OP</th>
+                            <th>SKU</th>
+                            <th>Validade</th>
+                            <th>Peso liquido</th>
+                            <th>Local atual</th>
+                            <th>Abrir</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in detalhes %}
+                        <tr>
+                            <td><strong>{{ item.codigo_caixa }}</strong></td>
+                            <td>{% if item.op_id %}#{{ item.op_id }}{% else %}-{% endif %}</td>
+                            <td>{{ item.sku }}</td>
+                            <td>{{ item.data_validade or "-" }}</td>
+                            <td>{{ item.peso_liquido|br_numero(3) }} kg</td>
+                            <td>{{ item.local_atual }}</td>
+                            <td><a href="{{ url_for('relatorio_expedicao_oficial', slug=slug, caixa_id=item.caixa_id) }}">Ver historico</a></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+        {% else %}
+        <section class="card relatorio-expedicao-card">
+            <div class="relatorio-expedicao-vazio">Informe uma caixa, OP ou lote para consultar o historico.</div>
+        </section>
+        {% endif %}
+    {% else %}
+        {% if agrupamentos %}
+        <section class="card relatorio-expedicao-card">
+            <div class="section-title-row">
+                <div>
+                    <span class="eyebrow">Consolidado</span>
+                    <h2>Agrupamento por SKU</h2>
+                </div>
+            </div>
+            <div class="tabela-responsiva tabela-executiva relatorio-expedicao-tabela">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>SKU</th>
+                            <th>Caixas</th>
+                            <th>Eventos</th>
+                            <th>Peso liquido</th>
+                            <th>Peso bruto</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in agrupamentos %}
+                        <tr>
+                            <td><strong>{{ item.grupo }}</strong></td>
+                            <td>{{ item.caixas|br_numero(0) }}</td>
+                            <td>{{ item.eventos|br_numero(0) }}</td>
+                            <td>{{ item.peso_liquido|br_numero(3) }} kg</td>
+                            <td>{{ item.peso_bruto|br_numero(3) }} kg</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+        {% endif %}
+
+        <section class="card relatorio-expedicao-card">
+            <div class="section-title-row">
+                <div>
+                    <span class="eyebrow">Detalhamento</span>
+                    <h2>{% if config.familia == "estoque" %}Caixas na Camara Fria{% else %}Eventos de transferencia{% endif %}</h2>
+                </div>
+            </div>
+            {% if detalhes %}
+            <div class="tabela-responsiva tabela-executiva relatorio-expedicao-tabela">
+                <table>
+                    {% if config.familia == "transferencias" %}
+                    <thead>
+                        <tr>
+                            <th>Data/hora</th>
+                            <th>Romaneio</th>
+                            <th>Status</th>
+                            <th>Origem</th>
+                            <th>Destino</th>
+                            <th>Caixa</th>
+                            <th>OP</th>
+                            <th>SKU</th>
+                            <th>Lote</th>
+                            <th>Peso liquido</th>
+                            <th>Usuario</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in detalhes %}
+                        <tr>
+                            <td>{{ item.data_evento }}</td>
+                            <td>{{ item.numero_romaneio or "-" }}</td>
+                            <td>{{ item.status_romaneio or "-" }}</td>
+                            <td>{{ item.origem_nome or "-" }}</td>
+                            <td>{{ item.destino_nome or "-" }}</td>
+                            <td><strong>{{ item.codigo_caixa }}</strong></td>
+                            <td>{% if item.op_id %}#{{ item.op_id }}{% else %}-{% endif %}</td>
+                            <td>{{ item.sku }}</td>
+                            <td>{{ item.lote or "-" }}</td>
+                            <td>{{ item.peso_liquido|br_numero(3) }} kg</td>
+                            <td>{{ item.usuario or "-" }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                    {% else %}
+                    <thead>
+                        <tr>
+                            <th>Caixa</th>
+                            <th>OP</th>
+                            <th>SKU</th>
+                            <th>Lote</th>
+                            <th>Fabricacao</th>
+                            <th>Validade</th>
+                            <th>Idade</th>
+                            <th>Peso liquido</th>
+                            <th>Peso bruto</th>
+                            <th>Local atual</th>
+                            <th>Ult. romaneio</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in detalhes %}
+                        <tr>
+                            <td><strong>{{ item.codigo_caixa }}</strong></td>
+                            <td>{% if item.op_id %}#{{ item.op_id }}{% else %}-{% endif %}</td>
+                            <td>{{ item.sku }}</td>
+                            <td>{{ item.lote or "-" }}</td>
+                            <td>{{ item.data_fabricacao or "-" }}</td>
+                            <td>{{ item.data_validade or "Sem validade informada" }}</td>
+                            <td>{% if item.idade_dias is not none %}{{ item.idade_dias }} dias{% else %}-{% endif %}</td>
+                            <td>{{ item.peso_liquido|br_numero(3) }} kg</td>
+                            <td>{{ item.peso_bruto|br_numero(3) }} kg</td>
+                            <td>{{ item.local_atual }}</td>
+                            <td>{{ item.numero_romaneio or "-" }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                    {% endif %}
+                </table>
+            </div>
+            {% else %}
+            <div class="relatorio-expedicao-vazio">Nenhum registro encontrado para os filtros selecionados.</div>
+            {% endif %}
+        </section>
+    {% endif %}
+</div>
+
+{% endblock %}
