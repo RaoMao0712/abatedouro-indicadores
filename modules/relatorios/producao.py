@@ -1,7 +1,7 @@
 """Servicos compartilhados para relatorios oficiais de producao."""
 
 from collections import defaultdict
-from datetime import date
+from datetime import date, datetime
 from io import BytesIO
 from urllib.parse import urlencode
 
@@ -68,6 +68,13 @@ RELATORIOS_PRODUCAO = {
         "agrupamento": "tipo",
         "tipo_perda": "todas",
     },
+    "eficiencia": {
+        "catalogo_id": "producao-eficiencia",
+        "titulo": "Eficiencia da Producao",
+        "objetivo": "Acompanhar produtividade horaria oficial a partir de producao, tempos e paradas registrados.",
+        "familia": "eficiencia",
+        "agrupamento": "periodo",
+    },
 }
 
 
@@ -99,6 +106,26 @@ def percentual(numerador, denominador):
     if denominador <= 0:
         return 0.0
     return round(float(numerador or 0) / denominador * 100, 2)
+
+
+def dividir(numerador, denominador):
+    denominador = float(denominador or 0)
+    if denominador <= 0:
+        return 0.0
+    return round(float(numerador or 0) / denominador, 4)
+
+
+def horas_entre(hora_inicio, hora_fim):
+    try:
+        inicio = datetime.strptime(str(hora_inicio or ""), "%H:%M")
+        fim = datetime.strptime(str(hora_fim or ""), "%H:%M")
+    except ValueError:
+        return 0.0
+
+    diferenca = (fim - inicio).total_seconds() / 3600
+    if diferenca < 0:
+        diferenca += 24
+    return round(diferenca, 4)
 
 
 def normalizar_filtros(args):
@@ -560,9 +587,232 @@ def buscar_opcoes_filtro():
     }
 
 
+def buscar_eficiencia_dados(filtros):
+    condicoes, parametros = montar_condicoes_ops(filtros, "o")
+    where_ops = " AND ".join(condicoes)
+
+    linhas = executar_lista(f"""
+    WITH op_base AS (
+        SELECT
+            o.id AS op_id,
+            o.data AS data_op,
+            o.fornecedor,
+            COALESCE(o.sku, 'Galinha Cortada') AS sku,
+            COALESCE(o.status, 'Aberta') AS status,
+            COALESCE(o.quantidade_aves, 0) AS aves_recebidas,
+            COALESCE(o.peso_vivo, 0) AS peso_vivo
+        FROM ordens_producao o
+        WHERE {where_ops}
+    ),
+    prod AS (
+        SELECT
+            op_id,
+            COALESCE(SUM(CASE WHEN LOWER(COALESCE(unidade, '')) = 'kg' THEN quantidade ELSE 0 END), 0) AS kg_produzidos,
+            COALESCE(SUM(CASE
+                WHEN LOWER(COALESCE(unidade, '')) IN ('unidades', 'unidade', 'aves', 'ave', 'bandejas')
+                THEN quantidade ELSE 0 END), 0) AS unidades_produzidas
+        FROM apontamentos_producao
+        GROUP BY op_id
+    ),
+    pa AS (
+        SELECT
+            comp.op_id,
+            COUNT(DISTINCT cx.id) AS caixas,
+            COALESCE(SUM(cx.peso_liquido), 0) AS peso_liquido_pa
+        FROM pa_caixa_composicao comp
+        INNER JOIN pa_caixas cx ON cx.id = comp.caixa_id
+        WHERE COALESCE(cx.status, '') <> 'Cancelada'
+        GROUP BY comp.op_id
+    ),
+    tempos AS (
+        SELECT
+            op_id,
+            data,
+            setor,
+            hora_inicio,
+            hora_fim
+        FROM apontamentos_tempos_setor
+    ),
+    paradas AS (
+        SELECT
+            op_id,
+            data,
+            setor,
+            COALESCE(SUM(horas_paradas), 0) AS horas_paradas
+        FROM apontamentos_paradas
+        GROUP BY op_id, data, setor
+    )
+    SELECT
+        op.op_id,
+        op.data_op,
+        op.fornecedor,
+        op.sku,
+        op.status,
+        op.aves_recebidas,
+        op.peso_vivo,
+        COALESCE(prod.kg_produzidos, 0) AS kg_produzidos,
+        COALESCE(prod.unidades_produzidas, 0) AS unidades_produzidas,
+        COALESCE(pa.caixas, 0) AS caixas,
+        COALESCE(pa.peso_liquido_pa, 0) AS peso_liquido_pa,
+        tempos.data AS data_tempo,
+        tempos.setor,
+        tempos.hora_inicio,
+        tempos.hora_fim,
+        COALESCE(paradas.horas_paradas, 0) AS horas_paradas
+    FROM op_base op
+    LEFT JOIN prod ON prod.op_id = op.op_id
+    LEFT JOIN pa ON pa.op_id = op.op_id
+    LEFT JOIN tempos ON tempos.op_id = op.op_id
+    LEFT JOIN paradas
+      ON paradas.op_id = tempos.op_id
+     AND paradas.data = tempos.data
+     AND paradas.setor = tempos.setor
+    ORDER BY op.data_op DESC, op.op_id DESC, tempos.setor ASC
+    """, parametros)
+
+    ops = {}
+    for linha in linhas:
+        op_id = linha.get("op_id")
+        op = ops.setdefault(op_id, {
+            "op_id": op_id,
+            "lote": f"OP-{valor_int(op_id):05d}",
+            "data_op": linha.get("data_op"),
+            "fornecedor": linha.get("fornecedor"),
+            "sku": linha.get("sku"),
+            "status": linha.get("status"),
+            "aves_recebidas": valor_float(linha.get("aves_recebidas")),
+            "peso_vivo": valor_float(linha.get("peso_vivo")),
+            "kg_produzidos": valor_float(linha.get("kg_produzidos")),
+            "unidades_produzidas": valor_float(linha.get("unidades_produzidas")),
+            "caixas": valor_float(linha.get("caixas")),
+            "peso_liquido_pa": valor_float(linha.get("peso_liquido_pa")),
+            "horas_programadas": 0.0,
+            "horas_paradas": 0.0,
+            "horas_produtivas": 0.0,
+            "setores_registrados": set(),
+        })
+
+        setor = linha.get("setor")
+        if setor:
+            horas_programadas = horas_entre(linha.get("hora_inicio"), linha.get("hora_fim"))
+            horas_paradas = min(valor_float(linha.get("horas_paradas")), horas_programadas)
+            op["horas_programadas"] += horas_programadas
+            op["horas_paradas"] += horas_paradas
+            op["setores_registrados"].add(setor)
+
+    detalhes = []
+    for op in ops.values():
+        op["horas_programadas"] = round(op["horas_programadas"], 4)
+        op["horas_paradas"] = round(op["horas_paradas"], 4)
+        op["horas_produtivas"] = round(max(op["horas_programadas"] - op["horas_paradas"], 0), 4)
+        op["setores"] = ", ".join(sorted(op["setores_registrados"]))
+        op["qtd_setores"] = len(op["setores_registrados"])
+        op["peso_produzido"] = op["kg_produzidos"] or op["peso_liquido_pa"]
+        op["kg_por_hora_setor"] = dividir(op["peso_produzido"], op["horas_produtivas"])
+        op["caixas_por_hora_setor"] = dividir(op["caixas"], op["horas_produtivas"])
+        op["aves_por_hora_setor"] = dividir(op["aves_recebidas"], op["horas_produtivas"])
+        op["situacao_eficiencia"] = "Com tempo oficial" if op["horas_produtivas"] > 0 else "Sem tempo oficial"
+        op.pop("setores_registrados", None)
+        detalhes.append(op)
+
+    return detalhes
+
+
+def somar_eficiencia(linhas):
+    totais = defaultdict(float)
+    for linha in linhas:
+        for chave in [
+            "aves_recebidas", "peso_vivo", "peso_produzido", "kg_produzidos",
+            "unidades_produzidas", "caixas", "horas_programadas",
+            "horas_paradas", "horas_produtivas",
+        ]:
+            totais[chave] += valor_float(linha.get(chave))
+        if linha.get("horas_produtivas", 0) > 0:
+            totais["ops_com_tempo"] += 1
+
+    totais["ops"] = len(linhas)
+    totais["kg_por_hora_setor"] = dividir(totais["peso_produzido"], totais["horas_produtivas"])
+    totais["caixas_por_hora_setor"] = dividir(totais["caixas"], totais["horas_produtivas"])
+    totais["aves_por_hora_setor"] = dividir(totais["aves_recebidas"], totais["horas_produtivas"])
+    return dict(totais)
+
+
+def resumo_kpis_eficiencia(totais):
+    return [
+        {"rotulo": "OPs", "valor": valor_int(totais.get("ops")), "tipo": "numero", "unidade": "OPs"},
+        {"rotulo": "OPs com tempo", "valor": valor_int(totais.get("ops_com_tempo")), "tipo": "numero", "unidade": "OPs"},
+        {"rotulo": "Peso produzido", "valor": round(totais.get("peso_produzido", 0), 2), "tipo": "decimal", "unidade": "kg"},
+        {"rotulo": "Caixas PA", "valor": round(totais.get("caixas", 0), 2), "tipo": "numero", "unidade": "caixas"},
+        {"rotulo": "Horas registradas", "valor": round(totais.get("horas_programadas", 0), 2), "tipo": "decimal", "unidade": "hora-setor"},
+        {"rotulo": "Horas paradas", "valor": round(totais.get("horas_paradas", 0), 2), "tipo": "decimal", "unidade": "hora-setor"},
+        {"rotulo": "Horas produtivas", "valor": round(totais.get("horas_produtivas", 0), 2), "tipo": "decimal", "unidade": "hora-setor"},
+        {"rotulo": "Kg por hora", "valor": round(totais.get("kg_por_hora_setor", 0), 2), "tipo": "decimal", "unidade": "kg/hora-setor"},
+    ]
+
+
+def agrupar_eficiencia_periodo(linhas, granularidade):
+    grupos = defaultdict(list)
+    for linha in linhas:
+        data_op = linha.get("data_op") or ""
+        if granularidade == "dia":
+            periodo = data_op
+        elif granularidade == "semana":
+            periodo = periodo_semana_python(data_op)
+        else:
+            periodo = data_op[:7]
+        grupos[periodo or "Sem data"].append(linha)
+
+    saida = []
+    for periodo in sorted(grupos.keys()):
+        totais = somar_eficiencia(grupos[periodo])
+        saida.append({
+            "grupo": periodo,
+            "ops": valor_int(totais.get("ops")),
+            "ops_com_tempo": valor_int(totais.get("ops_com_tempo")),
+            "peso_produzido": round(totais.get("peso_produzido", 0), 2),
+            "caixas": round(totais.get("caixas", 0), 2),
+            "horas_programadas": round(totais.get("horas_programadas", 0), 2),
+            "horas_paradas": round(totais.get("horas_paradas", 0), 2),
+            "horas_produtivas": round(totais.get("horas_produtivas", 0), 2),
+            "kg_por_hora_setor": round(totais.get("kg_por_hora_setor", 0), 2),
+            "caixas_por_hora_setor": round(totais.get("caixas_por_hora_setor", 0), 2),
+        })
+    return saida
+
+
+def montar_contexto_eficiencia(config, filtros):
+    detalhes = buscar_eficiencia_dados(filtros)
+    totais = somar_eficiencia(detalhes)
+    limitacoes = [
+        "Base parcial: o PRUMO possui producao, tempos e paradas oficiais, mas nao possui meta/capacidade oficial por OP.",
+        "Este relatorio mede produtividade horaria por hora-setor registrada; nao calcula percentual de eficiencia, aderencia a meta ou OEE.",
+        "Rendimento industrial permanece no relatorio Rendimento e nao foi reutilizado como eficiencia.",
+    ]
+
+    if not detalhes:
+        limitacoes.append("Nenhuma OP encontrada para os filtros selecionados.")
+
+    return {
+        "slug": "eficiencia",
+        "config": config,
+        "filtros": filtros,
+        "opcoes": buscar_opcoes_filtro(),
+        "resumo": resumo_kpis_eficiencia(totais),
+        "totais": totais,
+        "agrupamentos": agrupar_eficiencia_periodo(detalhes, filtros["granularidade"]),
+        "detalhes": detalhes,
+        "limitacoes": limitacoes,
+        "query_string": urlencode({k: v for k, v in filtros.items() if v not in ["", "Todos", "Todas"]}),
+        "granularidades": [("dia", "Dia"), ("semana", "Semana"), ("mes", "Mes")],
+    }
+
+
 def montar_contexto_relatorio_producao(slug, args):
     config = RELATORIOS_PRODUCAO[slug]
     filtros = normalizar_filtros(args)
+    if config["familia"] == "eficiencia":
+        return montar_contexto_eficiencia(config, filtros)
+
     somente_encerradas = bool(config.get("somente_encerradas"))
 
     detalhes = buscar_ops_agregadas(filtros, somente_encerradas=somente_encerradas)
@@ -648,14 +898,24 @@ def gerar_excel_relatorio_producao(contexto):
             ws.append(linha)
         ws.append([])
     ws.append(["Detalhes"])
-    colunas = [
-        "op_id", "lote", "data_op", "fornecedor", "sku", "status",
-        "aves_recebidas", "peso_vivo", "producao_primaria", "producao_secundaria",
-        "caixas", "peso_produzido", "descartes_aves", "condenacoes_aves",
-        "mortes_total", "perdas_aves", "perdas_kg", "rendimento",
-        "taxa_condenacao", "taxa_perda", "tipo_perda", "motivo", "setor",
-        "quantidade", "unidade",
-    ]
+    if contexto["config"].get("familia") == "eficiencia":
+        colunas = [
+            "op_id", "lote", "data_op", "fornecedor", "sku", "status",
+            "aves_recebidas", "peso_vivo", "peso_produzido", "kg_produzidos",
+            "unidades_produzidas", "caixas", "setores", "qtd_setores",
+            "horas_programadas", "horas_paradas", "horas_produtivas",
+            "kg_por_hora_setor", "caixas_por_hora_setor",
+            "aves_por_hora_setor", "situacao_eficiencia",
+        ]
+    else:
+        colunas = [
+            "op_id", "lote", "data_op", "fornecedor", "sku", "status",
+            "aves_recebidas", "peso_vivo", "producao_primaria", "producao_secundaria",
+            "caixas", "peso_produzido", "descartes_aves", "condenacoes_aves",
+            "mortes_total", "perdas_aves", "perdas_kg", "rendimento",
+            "taxa_condenacao", "taxa_perda", "tipo_perda", "motivo", "setor",
+            "quantidade", "unidade",
+        ]
     ws.append(colunas)
     for item in contexto["detalhes"]:
         ws.append([item.get(coluna, "") for coluna in colunas])
