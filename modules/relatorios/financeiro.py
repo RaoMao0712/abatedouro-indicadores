@@ -441,11 +441,11 @@ def montar_agrupamento(config, filtros):
     if config["familia"] == "dre_agrupado" and config.get("agrupamento") == "subcategoria":
         chave = "COALESCE(NULLIF(categoria_plano, ''), categoria, '')"
         chave2 = "COALESCE(NULLIF(subcategoria, ''), 'Sem subcategoria')"
-        group = "categoria, subcategoria"
+        group = f"{chave}, {chave2}"
         select = f"{chave} as categoria, {chave2} as subcategoria"
     else:
         chave = "COALESCE(NULLIF(categoria_plano, ''), categoria, '')"
-        group = "categoria"
+        group = chave
         select = f"{chave} as categoria, '' as subcategoria"
     linhas = executar_lista(f"""
         SELECT {select}, COUNT(*) as quantidade, COALESCE(SUM(valor), 0) as total
