@@ -17,6 +17,11 @@ from .producao import (
     gerar_excel_relatorio_producao,
     montar_contexto_relatorio_producao,
 )
+from .almoxarifado import (
+    RELATORIOS_ALMOXARIFADO,
+    gerar_excel_relatorio_almoxarifado,
+    montar_contexto_relatorio_almoxarifado,
+)
 
 
 def register_relatorios_routes(app):
@@ -74,6 +79,31 @@ def register_relatorios_routes(app):
             abort(404)
         contexto = montar_contexto_relatorio_producao(slug, request.args)
         arquivo = gerar_excel_relatorio_producao(contexto)
+        nome = f"{slug}_{contexto['filtros']['data_inicio']}_{contexto['filtros']['data_fim']}.xlsx"
+        return send_file(
+            arquivo,
+            as_attachment=True,
+            download_name=nome,
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
+    @app.route("/relatorios/almoxarifado/<slug>")
+    @perfil_permitido("pcp")
+    def relatorio_almoxarifado_oficial(slug):
+        if slug not in RELATORIOS_ALMOXARIFADO:
+            abort(404)
+        return render_template(
+            "relatorio_almoxarifado_oficial.html",
+            **montar_contexto_relatorio_almoxarifado(slug, request.args),
+        )
+
+    @app.route("/relatorios/almoxarifado/<slug>/exportar")
+    @perfil_permitido("pcp")
+    def relatorio_almoxarifado_oficial_exportar(slug):
+        if slug not in RELATORIOS_ALMOXARIFADO:
+            abort(404)
+        contexto = montar_contexto_relatorio_almoxarifado(slug, request.args)
+        arquivo = gerar_excel_relatorio_almoxarifado(contexto)
         nome = f"{slug}_{contexto['filtros']['data_inicio']}_{contexto['filtros']['data_fim']}.xlsx"
         return send_file(
             arquivo,
