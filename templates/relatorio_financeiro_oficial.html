@@ -1,0 +1,217 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+
+<div class="relatorio-financeiro-page">
+    <section class="hero-dashboard relatorio-financeiro-hero">
+        <div>
+            <span class="eyebrow">Financeiro</span>
+            <h2>{{ config.titulo }}</h2>
+            <p>{{ config.objetivo }}</p>
+            <div class="financeiro-hero-resumo">
+                <span class="financeiro-pill-info"><strong>Periodo</strong> {{ filtros.data_inicio }} a {{ filtros.data_fim }}</span>
+                <span class="financeiro-pill-info"><strong>Base</strong> Central de Movimentacoes</span>
+                <span class="financeiro-pill-info"><strong>Data</strong> {{ filtros.referencia_data }}</span>
+            </div>
+        </div>
+
+        <form method="GET" action="{{ url_for('relatorio_financeiro_oficial', slug=slug) }}" class="relatorio-financeiro-filtros">
+            <div>
+                <label>Data inicial</label>
+                <input type="date" name="data_inicio" value="{{ filtros.data_inicio }}">
+            </div>
+            <div>
+                <label>Data final</label>
+                <input type="date" name="data_fim" value="{{ filtros.data_fim }}">
+            </div>
+            <div>
+                <label>Referencia</label>
+                <select name="referencia_data">
+                    {% for valor, rotulo in referencias_data %}
+                    <option value="{{ valor }}" {% if filtros.referencia_data == valor %}selected{% endif %}>{{ rotulo }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label>Categoria</label>
+                <select name="categoria">
+                    <option value="Todas">Todas</option>
+                    {% for categoria in opcoes.categorias %}
+                    <option value="{{ categoria }}" {% if filtros.categoria == categoria %}selected{% endif %}>{{ categoria }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label>Subcategoria</label>
+                <select name="subcategoria">
+                    <option value="Todas">Todas</option>
+                    {% for subcategoria in opcoes.subcategorias %}
+                    <option value="{{ subcategoria }}" {% if filtros.subcategoria == subcategoria %}selected{% endif %}>{{ subcategoria }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label>Favorecido/cliente</label>
+                <input type="search" name="favorecido" value="{{ filtros.favorecido }}" placeholder="Nome">
+            </div>
+            <div>
+                <label>Situação</label>
+                <select name="situacao">
+                    {% for situacao in situacoes %}
+                    <option value="{{ situacao }}" {% if filtros.situacao == situacao %}selected{% endif %}>{{ situacao }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label>Origem</label>
+                <select name="origem">
+                    <option value="Todas">Todas</option>
+                    {% for origem in opcoes.origens %}
+                    <option value="{{ origem }}" {% if filtros.origem == origem %}selected{% endif %}>{{ origem }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label>Termo</label>
+                <input type="search" name="termo" value="{{ filtros.termo }}" placeholder="Documento ou historico">
+            </div>
+            <button type="submit">Filtrar</button>
+        </form>
+    </section>
+
+    <div class="relatorio-financeiro-acoes">
+        <a href="{{ url_for('biblioteca_relatorios', dominio='Financeiro') }}" class="botao-dre-imprimir">Biblioteca</a>
+        <a href="{{ url_for('relatorio_financeiro_oficial_exportar', slug=slug) }}{% if query_string %}?{{ query_string }}{% endif %}" class="botao-dre-exportar">Exportar Excel</a>
+    </div>
+
+    <section class="relatorio-financeiro-kpis">
+        {% for item in resumo %}
+        <div class="card relatorio-financeiro-kpi">
+            <span>{{ item.rotulo }}</span>
+            {% if item.tipo == "moeda" %}
+                <strong>{{ item.valor|br_moeda }}</strong>
+            {% else %}
+                <strong>{{ item.valor }}</strong>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </section>
+
+    {% if agrupamentos %}
+    <section class="card relatorio-financeiro-card">
+        <div class="section-title-row">
+            <div>
+                <span class="eyebrow">Consolidado</span>
+                <h2>Agrupamento principal</h2>
+            </div>
+        </div>
+        <div class="tabela-responsiva tabela-executiva relatorio-financeiro-tabela">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Categoria</th>
+                        <th>Subcategoria</th>
+                        <th>Quantidade</th>
+                        <th>Total</th>
+                        <th>%</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in agrupamentos %}
+                    <tr>
+                        <td>{{ item.categoria }}</td>
+                        <td>{{ item.subcategoria or "-" }}</td>
+                        <td>{{ item.quantidade }}</td>
+                        <td>{{ item.total|br_moeda }}</td>
+                        <td>{{ "%.2f"|format(item.percentual or 0) }}%</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+    {% endif %}
+
+    {% if evolucao %}
+    <section class="card relatorio-financeiro-card">
+        <div class="section-title-row">
+            <div>
+                <span class="eyebrow">Serie</span>
+                <h2>Evolucao por periodo</h2>
+            </div>
+        </div>
+        <div class="tabela-responsiva tabela-executiva relatorio-financeiro-tabela">
+            <table>
+                <thead>
+                    <tr>
+                        {% for chave in evolucao[0].keys() %}
+                        <th>{{ chave|replace("_", " ") }}</th>
+                        {% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in evolucao %}
+                    <tr>
+                        {% for valor in item.values() %}
+                        <td>{{ valor }}</td>
+                        {% endfor %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+    {% endif %}
+
+    <section class="card relatorio-financeiro-card">
+        <div class="section-title-row">
+            <div>
+                <span class="eyebrow">Eventos oficiais</span>
+                <h2>Detalhamento</h2>
+            </div>
+        </div>
+
+        {% if detalhes %}
+        <div class="tabela-responsiva tabela-executiva relatorio-financeiro-tabela">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Documento</th>
+                        <th>Vencimento</th>
+                        <th>Realizacao</th>
+                        <th>Tipo</th>
+                        <th>Categoria</th>
+                        <th>Subcategoria</th>
+                        <th>Favorecido</th>
+                        <th>Valor</th>
+                        <th>Status</th>
+                        <th>Situação</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in detalhes %}
+                    <tr>
+                        <td>{{ item.data_documento or "-" }}</td>
+                        <td>{{ item.data_vencimento or "-" }}</td>
+                        <td>{{ item.data_realizacao or "-" }}</td>
+                        <td>{{ item.tipo or "-" }}</td>
+                        <td>{{ item.categoria or "-" }}</td>
+                        <td>{{ item.subcategoria or "-" }}</td>
+                        <td>{{ item.favorecido or "-" }}</td>
+                        <td>{{ item.valor|br_moeda }}</td>
+                        <td>{{ item.status or "-" }}</td>
+                        <td>{{ item.situacao or item.aging or "-" }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="relatorio-financeiro-vazio">
+            Nenhum evento encontrado para os filtros atuais.
+        </div>
+        {% endif %}
+    </section>
+</div>
+
+{% endblock %}

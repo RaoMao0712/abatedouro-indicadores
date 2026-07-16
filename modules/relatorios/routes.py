@@ -2,11 +2,16 @@
 
 from datetime import datetime
 
-from flask import render_template, request, url_for
+from flask import abort, render_template, request, send_file, url_for
 
 from modules.auth.decorators import perfil_permitido
 
 from .services import buscar_dados_relatorio_custos, filtrar_relatorios_oficiais
+from .financeiro import (
+    RELATORIOS_FINANCEIROS,
+    gerar_excel_relatorio_financeiro,
+    montar_contexto_relatorio_financeiro,
+)
 
 
 def register_relatorios_routes(app):
@@ -18,9 +23,34 @@ def register_relatorios_routes(app):
 
         for relatorio in contexto["relatorios"]:
             endpoint = relatorio.get("endpoint")
-            relatorio["url"] = url_for(endpoint) if endpoint else None
+            relatorio["url"] = url_for(endpoint, **relatorio.get("route_args", {})) if endpoint else None
 
         return render_template("biblioteca_relatorios.html", **contexto)
+
+    @app.route("/relatorios/financeiro/<slug>")
+    @perfil_permitido("pcp")
+    def relatorio_financeiro_oficial(slug):
+        if slug not in RELATORIOS_FINANCEIROS:
+            abort(404)
+        return render_template(
+            "relatorio_financeiro_oficial.html",
+            **montar_contexto_relatorio_financeiro(slug, request.args),
+        )
+
+    @app.route("/relatorios/financeiro/<slug>/exportar")
+    @perfil_permitido("pcp")
+    def relatorio_financeiro_oficial_exportar(slug):
+        if slug not in RELATORIOS_FINANCEIROS:
+            abort(404)
+        contexto = montar_contexto_relatorio_financeiro(slug, request.args)
+        arquivo = gerar_excel_relatorio_financeiro(contexto)
+        nome = f"{slug}_{contexto['filtros']['data_inicio']}_{contexto['filtros']['data_fim']}.xlsx"
+        return send_file(
+            arquivo,
+            as_attachment=True,
+            download_name=nome,
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
 
     @app.route("/relatorio-custos")
     @perfil_permitido("pcp")
