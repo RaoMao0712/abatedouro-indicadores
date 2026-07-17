@@ -11,10 +11,10 @@ from openpyxl.utils import get_column_letter
 
 from modules.dre.services import buscar_dados_dre_gerencial
 from modules.fluxo_caixa.services import montar_contexto_fluxo_caixa
-from modules.relatorios.almoxarifado import montar_contexto_relatorio_almoxarifado
-from modules.relatorios.expedicao import montar_contexto_relatorio_expedicao
-from modules.relatorios.financeiro import montar_contexto_relatorio_financeiro
-from modules.relatorios.producao import montar_contexto_relatorio_producao
+from modules.relatorios.almoxarifado import montar_resumo_gerencial_almoxarifado
+from modules.relatorios.expedicao import montar_resumo_gerencial_expedicao
+from modules.relatorios.financeiro import montar_resumo_gerencial_financeiro
+from modules.relatorios.producao import montar_resumo_gerencial_producao
 
 
 STATUS_DISPONIVEL = "Disponivel"
@@ -156,6 +156,8 @@ def valor_resumo(contexto, rotulo):
 
 
 def contexto_tem_linhas(contexto):
+    if contexto.get("tem_dados"):
+        return True
     for chave in ["detalhes", "agrupamentos", "evolucao", "linha_tempo", "movimentacoes"]:
         if contexto.get(chave):
             return True
@@ -228,7 +230,7 @@ def resolver_financeiro(definicao, data_inicio, data_fim, cache=None):
     contexto = obter_cache(
         cache,
         ("financeiro", definicao["slug_origem"], data_inicio, data_fim),
-        lambda: montar_contexto_relatorio_financeiro(definicao["slug_origem"], arg_periodo(data_inicio, data_fim)),
+        lambda: montar_resumo_gerencial_financeiro(definicao["slug_origem"], arg_periodo(data_inicio, data_fim)),
     )
     valor = valor_resumo(contexto, definicao["campo_origem"])
     if valor == 0 and not contexto_tem_linhas(contexto):
@@ -240,7 +242,7 @@ def resolver_producao(definicao, data_inicio, data_fim, cache=None):
     contexto = obter_cache(
         cache,
         ("producao", definicao["slug_origem"], data_inicio, data_fim),
-        lambda: montar_contexto_relatorio_producao(definicao["slug_origem"], arg_periodo(data_inicio, data_fim)),
+        lambda: montar_resumo_gerencial_producao(definicao["slug_origem"], arg_periodo(data_inicio, data_fim)),
     )
     valor = valor_numero(contexto.get("totais", {}).get(definicao["campo_origem"]))
     if valor == 0 and not contexto_tem_linhas(contexto):
@@ -253,7 +255,7 @@ def resolver_producao_resumo(definicao, data_inicio, data_fim, cache=None):
     contexto = obter_cache(
         cache,
         ("producao", definicao["slug_origem"], data_inicio, data_fim),
-        lambda: montar_contexto_relatorio_producao(definicao["slug_origem"], arg_periodo(data_inicio, data_fim)),
+        lambda: montar_resumo_gerencial_producao(definicao["slug_origem"], arg_periodo(data_inicio, data_fim)),
     )
     valor = valor_resumo(contexto, definicao["campo_origem"])
     if valor == 0 and not contexto_tem_linhas(contexto):
@@ -265,7 +267,7 @@ def resolver_almoxarifado(definicao, data_inicio, data_fim, cache=None):
     contexto = obter_cache(
         cache,
         ("almoxarifado", definicao["slug_origem"], data_inicio, data_fim),
-        lambda: montar_contexto_relatorio_almoxarifado(definicao["slug_origem"], arg_periodo(data_inicio, data_fim)),
+        lambda: montar_resumo_gerencial_almoxarifado(definicao["slug_origem"], arg_periodo(data_inicio, data_fim)),
     )
     valor = valor_resumo(contexto, definicao["campo_origem"])
     if valor == 0 and not contexto_tem_linhas(contexto):
@@ -277,7 +279,7 @@ def resolver_expedicao(definicao, data_inicio, data_fim, cache=None):
     contexto = obter_cache(
         cache,
         ("expedicao", definicao["slug_origem"], data_inicio, data_fim),
-        lambda: montar_contexto_relatorio_expedicao(definicao["slug_origem"], arg_periodo(data_inicio, data_fim)),
+        lambda: montar_resumo_gerencial_expedicao(definicao["slug_origem"], arg_periodo(data_inicio, data_fim)),
     )
     valor = valor_resumo(contexto, definicao["campo_origem"])
     if valor == 0 and not contexto_tem_linhas(contexto):

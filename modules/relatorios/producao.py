@@ -335,6 +335,117 @@ def buscar_ops_agregadas(filtros, somente_encerradas=False, limite=500):
     return linhas
 
 
+def buscar_totais_ops_gerencial(filtros, somente_encerradas=False):
+    cte, parametros = cte_ops_agregadas(filtros, somente_encerradas)
+    linhas = executar_lista(cte + """
+    SELECT
+        COUNT(*) AS ops,
+        COALESCE(SUM(op.aves_recebidas), 0) AS aves_recebidas,
+        COALESCE(SUM(op.peso_vivo), 0) AS peso_vivo,
+        COALESCE(SUM(primaria.producao_primaria), 0) AS producao_primaria,
+        COALESCE(SUM(pa.producao_secundaria), 0) AS producao_secundaria,
+        COALESCE(SUM(pa.caixas), 0) AS caixas,
+        COALESCE(SUM(pa.peso_liquido_pa), 0) AS peso_liquido_pa,
+        COALESCE(SUM(pa.peso_bruto_pa), 0) AS peso_bruto_pa,
+        COALESCE(SUM(prod.kg_produzidos), 0) AS kg_produzidos,
+        COALESCE(SUM(prod.unidades_finais), 0) AS unidades_finais,
+        COALESCE(SUM(perdas.condenacoes_aves), 0) AS condenacoes_aves_base,
+        COALESCE(SUM(perdas.perdas_kg), 0) AS perdas_kg_base,
+        COALESCE(SUM(
+            COALESCE(op.mortes_antes_pendura, 0)
+            + COALESCE(perdas.mortes_na_gaiola, 0)
+            + COALESCE(perdas.descartes_aves, 0)
+            + COALESCE(perdas.condenacoes_aves, 0)
+        ), 0) AS perdas_aves_base,
+        COALESCE(SUM(
+            CASE
+                WHEN COALESCE(prod.kg_produzidos, 0) > 0 THEN COALESCE(prod.kg_produzidos, 0)
+                ELSE COALESCE(pa.peso_liquido_pa, 0)
+            END
+        ), 0) AS peso_produzido
+    FROM op_base op
+    LEFT JOIN prod ON prod.op_id = op.op_id
+    LEFT JOIN primaria ON primaria.op_id = op.op_id
+    LEFT JOIN pa ON pa.op_id = op.op_id
+    LEFT JOIN perdas ON perdas.op_id = op.op_id
+    """, parametros)
+    totais = dict(linhas[0]) if linhas else {}
+    totais["rendimento"] = percentual(totais.get("peso_produzido"), totais.get("peso_vivo"))
+    totais["taxa_condenacao"] = percentual(totais.get("condenacoes_aves_base"), totais.get("aves_recebidas"))
+    totais["taxa_perda"] = percentual(totais.get("perdas_aves_base"), totais.get("aves_recebidas"))
+    return totais
+
+
+def buscar_totais_perdas_gerencial(filtros, tipo="todas"):
+    condicoes, parametros = montar_condicoes_ops(filtros, "o")
+    condicoes.append("LOWER(COALESCE(d.unidade, '')) IN ('aves', 'ave', 'unidade', 'unidades', 'kg')")
+    if tipo == "condenacao":
+        condicoes.append("(LOWER(COALESCE(d.categoria, '')) LIKE ? OR LOWER(COALESCE(d.motivo, '')) LIKE ?)")
+        parametros.extend(["%conden%", "%conden%"])
+    where_sql = " AND ".join(condicoes)
+    detalhes_sql = f"""
+        SELECT
+            d.id,
+            d.op_id,
+            d.data,
+            COALESCE(d.quantidade, 0) AS quantidade,
+            COALESCE(d.unidade, '') AS unidade
+        FROM apontamentos_descartes d
+        INNER JOIN ordens_producao o ON o.id = d.op_id
+        WHERE {where_sql}
+        ORDER BY d.data DESC, d.id DESC
+        LIMIT 500
+    """
+    linhas = executar_lista(f"""
+    SELECT
+        COALESCE(SUM(CASE WHEN LOWER(COALESCE(unidade, '')) = 'kg' THEN quantidade ELSE 0 END), 0) AS perdas_kg,
+        COALESCE(SUM(CASE WHEN LOWER(COALESCE(unidade, '')) <> 'kg' THEN quantidade ELSE 0 END), 0) AS perdas_aves,
+        COUNT(*) AS eventos
+    FROM ({detalhes_sql}) dados
+    """, parametros)
+    totais = dict(linhas[0]) if linhas else {"perdas_kg": 0, "perdas_aves": 0, "eventos": 0}
+
+    if tipo == "todas" and filtros["setor"] == "Todos" and filtros["causa"] in ["Todos", "Mortes antes da pendura"]:
+        condicoes_op, parametros_op = montar_condicoes_ops(filtros, "o")
+        condicoes_op.append("COALESCE(o.mortes_antes_pendura, 0) > 0")
+        legado = executar_lista(f"""
+        SELECT COALESCE(SUM(o.mortes_antes_pendura), 0) AS mortes_antes_pendura
+        FROM ordens_producao o
+        WHERE {" AND ".join(condicoes_op)}
+        """, parametros_op)
+        totais["perdas_aves"] = valor_float(totais.get("perdas_aves")) + valor_float((legado[0] if legado else {}).get("mortes_antes_pendura"))
+
+    return totais
+
+
+def buscar_totais_eficiencia_gerencial(filtros):
+    detalhes = buscar_eficiencia_dados(filtros)
+    return somar_eficiencia(detalhes)
+
+
+def montar_resumo_gerencial_producao(slug, args):
+    config = RELATORIOS_PRODUCAO[slug]
+    filtros = normalizar_filtros(args)
+    if config["familia"] == "eficiencia":
+        totais = buscar_totais_eficiencia_gerencial(filtros)
+        return {"totais": totais, "tem_dados": bool(totais.get("ops"))}
+
+    somente_encerradas = bool(config.get("somente_encerradas"))
+    totais = buscar_totais_ops_gerencial(filtros, somente_encerradas=somente_encerradas)
+    if config["familia"] == "perdas":
+        perdas = buscar_totais_perdas_gerencial(filtros, config.get("tipo_perda", "todas"))
+        totais["perdas_aves"] = valor_float(perdas.get("perdas_aves"))
+        totais["perdas_kg"] = valor_float(perdas.get("perdas_kg"))
+        if config.get("tipo_perda") == "condenacao":
+            totais["condenacoes_aves"] = totais["perdas_aves"]
+        else:
+            totais["condenacoes_aves"] = valor_float(totais.get("condenacoes_aves_base"))
+    else:
+        totais["perdas_aves"] = valor_float(totais.get("perdas_aves_base"))
+        totais["condenacoes_aves"] = valor_float(totais.get("condenacoes_aves_base"))
+    return {"totais": totais, "tem_dados": bool(totais.get("ops"))}
+
+
 def enriquecer_linha_op(linha):
     mortes_total = valor_float(linha.get("mortes_antes_pendura")) + valor_float(linha.get("mortes_na_gaiola"))
     perdas_aves = mortes_total + valor_float(linha.get("descartes_aves")) + valor_float(linha.get("condenacoes_aves"))

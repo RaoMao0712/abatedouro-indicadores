@@ -418,6 +418,27 @@ def montar_resumo_caixa(config, filtros):
     ]
 
 
+def montar_resumo_gerencial_financeiro(slug, args):
+    config = RELATORIOS_FINANCEIROS[slug]
+    filtros = normalizar_filtros(args, config)
+    if config["familia"] != "caixa":
+        return montar_contexto_relatorio_financeiro(slug, args)
+
+    condicoes, parametros, _ = montar_condicoes_base(config, filtros, aplicar_periodo=False)
+    condicoes.append("data_vencimento BETWEEN ? AND ?")
+    parametros.extend([filtros["data_inicio"], filtros["data_fim"]])
+    linha = executar_um(f"""
+        SELECT COUNT(*) AS quantidade, COALESCE(SUM(valor), 0) AS total
+        FROM movimentacoes_financeiras
+        WHERE {" AND ".join(condicoes)}
+    """, parametros)
+    resumo = [
+        {"rotulo": "Total previsto", "valor": valor_float(linha.get("total")), "tipo": "moeda"},
+        {"rotulo": "Eventos", "valor": int(linha.get("quantidade") or 0), "tipo": "numero"},
+    ]
+    return {"resumo": resumo, "tem_dados": bool(linha.get("quantidade"))}
+
+
 def montar_resumo_contas(config, filtros):
     itens = aplicar_situacao_contas(buscar_detalhes(config, filtros, limite=5000), filtros)
     totais = defaultdict(float)

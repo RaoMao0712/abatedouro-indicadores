@@ -725,6 +725,57 @@ def resumo_saldos(saldos):
     ]
 
 
+def montar_resumo_gerencial_almoxarifado(slug, args):
+    config = RELATORIOS_ALMOXARIFADO[slug]
+    filtros = normalizar_filtros(args, config)
+    if config["familia"] == "movimentacoes":
+        where_sql, parametros = montar_condicoes_movimentacoes(config, filtros)
+        linha = executar_lista(f"""
+            SELECT
+                COUNT(*) AS eventos,
+                COALESCE(SUM(quantidade), 0) AS quantidade,
+                COALESCE(SUM(valor_total), 0) AS valor_total,
+                COALESCE(SUM(CASE WHEN op_id IS NOT NULL THEN 1 ELSE 0 END), 0) AS com_op
+            FROM almoxarifado_movimentacoes m
+            JOIN almoxarifado_insumos i ON i.id = m.insumo_id
+            WHERE {where_sql}
+        """, parametros)[0]
+        resumo = [
+            {"rotulo": "Eventos", "valor": int(linha.get("eventos") or 0), "tipo": "inteiro", "unidade": "movimentacoes"},
+            {"rotulo": "Quantidade", "valor": valor_float(linha.get("quantidade")), "tipo": "decimal", "unidade": "unidades conforme cadastro"},
+            {"rotulo": "Valor total", "valor": valor_float(linha.get("valor_total"), 2), "tipo": "moeda", "unidade": "R$"},
+            {"rotulo": "Com OP", "valor": int(linha.get("com_op") or 0), "tipo": "inteiro", "unidade": "eventos"},
+        ]
+        return {"resumo": resumo, "tem_dados": bool(linha.get("eventos"))}
+
+    where_sql, parametros = montar_condicoes_saldo(filtros)
+    linha = executar_lista(f"""
+        SELECT
+            COALESCE(SUM(CASE WHEN saldo_atual > 0 THEN 1 ELSE 0 END), 0) AS itens_com_saldo,
+            COALESCE(SUM(lotes), 0) AS lotes,
+            COALESCE(SUM(saldo_atual), 0) AS saldo_total,
+            COALESCE(SUM(valor_estoque), 0) AS valor_estoque
+        FROM (
+            SELECT
+                i.id AS insumo_id,
+                COUNT(l.id) AS lotes,
+                COALESCE(SUM(l.quantidade_atual), 0) AS saldo_atual,
+                COALESCE(SUM(l.quantidade_atual * l.valor_unitario), 0) AS valor_estoque
+            FROM almoxarifado_insumos i
+            LEFT JOIN almoxarifado_lotes l ON l.insumo_id = i.id
+            WHERE {where_sql}
+            GROUP BY i.id, i.descricao, i.categoria, i.unidade, i.ativo
+        ) saldos
+    """, parametros)[0]
+    resumo = [
+        {"rotulo": "Itens com saldo", "valor": int(linha.get("itens_com_saldo") or 0), "tipo": "inteiro", "unidade": "insumos"},
+        {"rotulo": "Lotes", "valor": int(linha.get("lotes") or 0), "tipo": "inteiro", "unidade": "lotes"},
+        {"rotulo": "Saldo total", "valor": valor_float(linha.get("saldo_total")), "tipo": "decimal", "unidade": "unidades conforme cadastro"},
+        {"rotulo": "Valor em estoque", "valor": valor_float(linha.get("valor_estoque"), 2), "tipo": "moeda", "unidade": "R$"},
+    ]
+    return {"resumo": resumo, "tem_dados": bool(linha.get("lotes") or linha.get("itens_com_saldo"))}
+
+
 def resumo_giro(detalhes):
     return [
         {"rotulo": "Produtos analisados", "valor": len(detalhes), "tipo": "inteiro", "unidade": "produto/unidade"},
