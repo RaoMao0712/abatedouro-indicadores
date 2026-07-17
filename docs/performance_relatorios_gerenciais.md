@@ -252,3 +252,42 @@ Banco local SQLite:
 - A otimizacao da Rodada 2 foi restrita a Producao, que era o gargalo conceitual remanescente em Comparativos e Tendencias amplas.
 - Financeiro, Almoxarifado e Expedicao continuam usando os resumos gerenciais da Rodada 1.
 - A validacao final de meta continua dependente do Render/PostgreSQL, porque o SQLite local nao representa o volume real.
+
+### Render apos Rodada 2
+
+Commit de merge publicado: `3527c43`.
+
+Validacao autenticada no Render, executada uma rota por vez:
+
+| Rota | Dominio | Periodo | Cold start | Mediana quente | Pior tempo | Registros | Resultado |
+|---|---|---|---:|---:|---:|---:|---|
+| comparativos | Todos | 2026-07 | 14,068s | 13,916s | 14,336s | 27 | melhorou, mas meta de 10s nao atingida |
+| comparativos | Producao | 2026-07 | 5,107s | 5,075s | 5,157s | 9 | melhora material do dominio-alvo |
+| comparativos/exportar | Todos | 2026-07 | 13,310s | 13,205s | 13,310s | XLSX | melhorou, mas meta de 12s nao atingida |
+| tendencias | Producao semana ampla | 2026-01 a 2026-07 | 5,636s | 4,613s | 5,636s | 9 | meta atingida para tendencia ampla de Producao |
+| indicadores | Todos | 2026-07 | 9,296s | 9,032s | 9,296s | 29 | sem regressao sobre 9-10s publicados |
+| tendencias | Todos | 2026-07 | 11,140s | 9,140s | 11,140s | 27 | mediana sem regressao relevante |
+
+Rotas de regressao publicadas:
+
+| Rota | Status | Tempo | Resultado |
+|---|---:|---:|---|
+| `/relatorios` | 200 | 1,799s | OK |
+| `/dashboard` | 200 | 2,598s | OK |
+| `/dre-gerencial?competencia=2026-07` | 200 | 3,653s | OK |
+| `/fluxo-caixa` | 200 | 4,433s | OK |
+| `/relatorios/financeiro/entradas-caixa` | 200 | 5,181s | OK |
+| `/relatorios/producao/eficiencia` | 200 | 3,626s | OK |
+| `/relatorios/almoxarifado/giro` | 404 | 2,146s | bloqueio preservado |
+| `/relatorios/almoxarifado/fifo` | 404 | 1,399s | bloqueio preservado |
+| `/relatorios/expedicao/transferencias` | 200 | 9,251s | OK |
+| `/movimentacoes/importar` | 200 | 0,691s | OK |
+
+Conclusao da Rodada 2:
+
+- O gargalo especifico de Producao foi reduzido de forma comprovada.
+- Tendencia ampla de Producao deixou de executar o processamento completo periodo a periodo e passou a usar resumo multiperiodo.
+- Comparativos Todos melhorou, mas ainda ficou acima da meta de aceite de 10s por conter custo acumulado dos demais dominios.
+- Exportacao de Comparativos Todos melhorou, mas ainda ficou acima da meta de 12s.
+- Nao houve regressao relevante em Indicadores Todos nem em Tendencias Todos.
+- Para atingir menos de 10s em Comparativos Todos, o proximo gargalo deve ser investigado por dominio restante, sem iniciar Dashboard Executivo.
