@@ -122,4 +122,40 @@ Banco temporario vazio:
 - Tendencias ainda montam a serie por periodos, mas cada ponto passou a usar agregados oficiais em vez de relatorios analiticos completos para Producao, Almoxarifado, Expedicao e Aportes.
 - Fluxo de Caixa gerencial passou a usar agregacao direta oficial para entradas, saidas e saldo realizado, sem carregar a linha do tempo completa.
 - DRE gerencial passou a expor um resumo oficial para os campos consumidos pelos indicadores, preservando o CMV interno usado no Resultado Operacional sem montar graficos e listas da tela da DRE.
+
+## Render apos correcao
+
+Commit final validado: `f89c2726afa62e82eaceaf830449115c7f29aa4d`.
+
+| Rota | Dominio | Periodo | Cold start | Mediana quente | Pior tempo | Registros | Observacao |
+|---|---|---|---:|---:|---:|---:|---|
+| indicadores | Todos | padrao | 10,62s | 10,44s | 11,06s | 28 | melhora material; ainda acima da meta de 5s/10s |
+| comparativos | Todos | padrao | 17,63s | 18,39s | 18,98s | 26 | melhora material; meta nao atingida |
+| tendencias | Todos | padrao | 9,38s | 9,32s | 10,33s | 26 | dentro/limite da meta operacional de 10s, com pior ligeiramente acima |
+| indicadores | Financeiro | padrao | 3,31s | 3,52s | 3,65s | 11 | perto da meta por dominio |
+| comparativos | Financeiro | padrao | 4,94s | 5,05s | 5,74s | 11 | ligeiramente acima da meta por dominio |
+| indicadores/exportar | Todos | padrao | 9,22s | 9,22s | 9,22s | 28 | meta de exportacao Todos atingida |
+| comparativos/exportar | Todos | padrao | 18,33s | 18,33s | 18,33s | 26 | melhora material; meta de 15s nao atingida |
+| tendencias/exportar | Todos | padrao | 9,22s | 9,22s | 9,22s | 26 | meta de exportacao Todos atingida |
+
+Regressoes validadas no Render:
+
+- `/dashboard`: 200.
+- `/dre-gerencial?competencia=2026-07`: 200.
+- `/fluxo-caixa`: 200.
+- `/relatorios/financeiro/entradas-caixa`: 200.
+- `/relatorios/producao/producao-por-op`: 200.
+- `/relatorios/producao/eficiencia`: 200.
+- `/relatorios/almoxarifado/estoque-atual`: 200.
+- `/relatorios/expedicao/transferencias`: 200.
+- `/movimentacoes/importar`: 200.
+- `/relatorios/almoxarifado/giro`: 404, preservado como bloqueado.
+- `/relatorios/almoxarifado/fifo`: 404, preservado como bloqueado.
+
+Metas nao atingidas:
+
+- Visao `Todos` de Indicadores ficou em 10,44s de mediana quente, acima da meta preferencial de 5s e pouco acima do limite comum de 10s.
+- Visao `Todos` de Comparativos ficou em 18,39s de mediana quente.
+- Exportacao `Todos` de Comparativos ficou em 18,33s.
+- Tendencia ampla de Producao, de janeiro a julho de 2026, permaneceu pesada porque ainda executa serie periodo a periodo para preservar equivalencia com os services oficiais.
 - A validacao final de metas deve ser feita no Render apos deploy, pois SQLite local vazio nao representa o volume de producao.
