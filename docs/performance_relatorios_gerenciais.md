@@ -159,3 +159,96 @@ Metas nao atingidas:
 - Exportacao `Todos` de Comparativos ficou em 18,33s.
 - Tendencia ampla de Producao, de janeiro a julho de 2026, permaneceu pesada porque ainda executa serie periodo a periodo para preservar equivalencia com os services oficiais.
 - A validacao final de metas deve ser feita no Render apos deploy, pois SQLite local vazio nao representa o volume de producao.
+
+## Rodada 2 - Comparativos e Tendencias de Producao
+
+Commit inicial da Rodada 2: `8d043366eebb2f08b900037ee0f314e55ec977ab`.
+
+Pre-requisitos conferidos:
+
+- Branch `main` sincronizada com `origin/main`.
+- HEAD inicial igual ao commit publicado `8d043366eebb2f08b900037ee0f314e55ec977ab`.
+- Arquivos locais nao rastreados preservados fora do commit: `entregas/`, `tools/` e `reset_financeiro_producao_20260709_133850.zip`.
+- Sem cache persistente, DDL, backfill ou alteracao de regras de negocio.
+
+### Baseline especifico da Rodada 2
+
+A medicao sequencial completa no Render foi iniciada contra o commit `8d043366`, com login autenticado e uma rota por vez. A bateria excedeu 30 minutos de execucao local antes de devolver saida ao terminal, reforcando que o conjunto completo de Comparativos por dominio, exportacoes e Tendencias amplas de Producao ainda era pesado demais para validacao operacional longa.
+
+Como referencia publicada da sprint anterior, os tempos finais do Render antes da Rodada 2 eram:
+
+| Rota | Dominio | Periodo | Mediana quente | Pior tempo | Observacao |
+|---|---|---|---:|---:|---|
+| comparativos | Todos | padrao | 18,39s | 18,98s | meta nao atingida |
+| comparativos/exportar | Todos | padrao | 18,33s | 18,33s | meta nao atingida |
+| tendencias | Todos | padrao | 9,32s | 10,33s | no limite operacional |
+| indicadores | Todos | padrao | 10,44s | 11,06s | nao deveria regredir |
+
+### Mapa de chamadas ajustado
+
+Antes da Rodada 2, Comparativos chamava `resolver_indicador` para o periodo atual e novamente para o periodo anterior. A cache por request evitava duplicidade entre indicadores do mesmo slug/periodo, mas Producao ainda reconstruia os resumos por slug em chamadas separadas.
+
+Tendencias de Producao chamava o service completo de cada indicador para cada ponto da serie. Em periodos amplos, isso multiplicava OPs, perdas, rendimento e eficiencia pelo numero de dias, semanas ou meses.
+
+### Correcao aplicada na Rodada 2
+
+Foi criada uma API gerencial multiperiodo em Producao:
+
+- `montar_resumos_gerenciais_producao_periodos`
+- `montar_resumos_ops_gerenciais_periodos`
+- `montar_resumos_perdas_gerenciais_periodos`
+- `montar_resumos_eficiencia_gerenciais_periodos`
+
+A camada gerencial passou a:
+
+- carregar os periodos `atual` e `anterior` de Producao uma unica vez por slug em Comparativos;
+- carregar a serie completa de Producao uma unica vez por slug em Tendencias;
+- manter o caminho antigo como fallback para dominios nao alterados e casos nao suportados;
+- preservar a mesma montagem de variacao, comparabilidade, direcao de tendencia, status sem dados e exportacao XLSX.
+
+### Matriz de equivalencia local da Rodada 2
+
+Validacao local comparou o caminho antigo periodo a periodo contra o caminho novo em lote:
+
+| Escopo | Indicadores | Periodos | Resultado |
+|---|---:|---:|---|
+| Tendencia Producao mensal 2026-01 a 2026-07 | 8 | 7 | 0 diferencas |
+| Comparativos Producao 2026-07 x 2026-06 | 8 | 2 | 0 diferencas |
+
+Campos comparados:
+
+- serie;
+- direcao de tendencia;
+- cobertura;
+- valor atual;
+- valor anterior;
+- variacao absoluta;
+- variacao percentual;
+- comparabilidade;
+- leitura;
+- status dos dados.
+
+### Local apos Rodada 2
+
+Banco local SQLite:
+
+| Rota | Dominio | Periodo | Cold start | Mediana quente | Pior tempo | Registros |
+|---|---|---|---:|---:|---:|---:|
+| comparativos | Todos | 2026-07 | 0,0492s | 0,0317s | 0,0492s | 27 |
+| comparativos | Financeiro | 2026-07 | 0,0097s | 0,0096s | 0,0097s | 12 |
+| comparativos | Producao | 2026-07 | 0,0126s | 0,0137s | 0,0155s | 9 |
+| comparativos | Almoxarifado | 2026-07 | 0,0090s | 0,0081s | 0,0090s | 4 |
+| comparativos | Expedicao | 2026-07 | 0,0088s | 0,0058s | 0,0088s | 5 |
+| comparativos/exportar | Todos | 2026-07 | 0,0815s | 0,0521s | 0,0815s | XLSX |
+| tendencias | Producao dia amplo | 2026-07 | 0,0163s | 0,0153s | 0,0163s | 9 |
+| tendencias | Producao semana amplo | 2026-01 a 2026-07 | 0,0156s | 0,0172s | 0,0184s | 9 |
+| tendencias | Producao mes amplo | 2026-01 a 2026-07 | 0,0128s | 0,0168s | 0,0169s | 9 |
+| tendencias | Producao dia curto | 2026-07-01 a 2026-07-07 | 0,0142s | 0,0123s | 0,0142s | 9 |
+| indicadores | Todos | 2026-07 | 0,0220s | 0,0206s | 0,0220s | 29 |
+| tendencias | Todos | 2026-07 | 0,0208s | 0,0205s | 0,0208s | 27 |
+
+### Limites restantes
+
+- A otimizacao da Rodada 2 foi restrita a Producao, que era o gargalo conceitual remanescente em Comparativos e Tendencias amplas.
+- Financeiro, Almoxarifado e Expedicao continuam usando os resumos gerenciais da Rodada 1.
+- A validacao final de meta continua dependente do Render/PostgreSQL, porque o SQLite local nao representa o volume real.
