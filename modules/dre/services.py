@@ -7,9 +7,16 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
+from database import conectar, q
 from . import repositories as repository
 from modules.custos.services import CATEGORIAS_CUSTOS
-from modules.financeiro.services import categoria_impacta_resultado_operacional
+from modules.financeiro.services import (
+    LINHA_DEDUCOES_RECEITA,
+    LINHA_DESPESAS_OPERACIONAIS,
+    LINHA_RECEITA_BRUTA,
+    LINHA_RESULTADO_NAO_OPERACIONAL,
+    categoria_impacta_resultado_operacional,
+)
 
 
 def formatar_numero_br(valor, casas=2):
@@ -377,10 +384,16 @@ def buscar_resumo_dre_gerencial(competencia):
     data_inicio = f"{competencia}-01"
     data_fim = f"{competencia}-{ultimo_dia:02d}"
 
-    vendas_linhas = [
-        normalizar_venda_para_dre(item)
-        for item in repository.buscar_vendas_periodo(data_inicio, data_fim)
-    ]
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(q("""
+    SELECT *
+    FROM vendas_diarias
+    WHERE data BETWEEN ? AND ?
+    ORDER BY sku ASC, data ASC, id ASC
+    """), (data_inicio, data_fim))
+    vendas_linhas = [normalizar_venda_para_dre(item) for item in cursor.fetchall()]
     vendas_por_sku_dict = {}
     for item in vendas_linhas:
         sku = item["sku"]
@@ -388,11 +401,37 @@ def buscar_resumo_dre_gerencial(competencia):
         venda["quantidade_unidades"] += item["quantidade_unidades"]
         venda["quantidade_kg"] += item["quantidade_kg"]
 
-    receita_bruta = repository.buscar_receita_bruta_movimentacoes(data_inicio, data_fim)
-    deducoes_receita = repository.buscar_deducoes_receita_movimentacoes(data_inicio, data_fim)
+    cursor.execute(q("""
+    SELECT COALESCE(SUM(valor), 0) as total
+    FROM movimentacoes_financeiras
+    WHERE tipo = ?
+      AND COALESCE(status, 'Pendente') <> ?
+      AND data_documento BETWEEN ? AND ?
+      AND (
+        linha_dre = ?
+        OR categoria IN (?, ?, ?)
+      )
+    """), (
+        "Entrada", "Cancelado", data_inicio, data_fim,
+        LINHA_RECEITA_BRUTA,
+        "Receita Bruta", "Venda de Producao Propria", "Venda de Mercadorias",
+    ))
+    receita_bruta = float(cursor.fetchone()["total"] or 0)
+
+    cursor.execute(q("""
+    SELECT COALESCE(SUM(valor), 0) as total
+    FROM movimentacoes_financeiras
+    WHERE COALESCE(status, 'Pendente') <> ?
+      AND data_documento BETWEEN ? AND ?
+      AND linha_dre = ?
+      AND tipo IN (?, ?, ?, ?)
+      AND COALESCE(tipo_conta, 'Saida') <> ?
+    """), ("Cancelado", data_inicio, data_fim, LINHA_DEDUCOES_RECEITA, *repository.TIPOS_SAIDA, "Neutro"))
+    deducoes_receita = float(cursor.fetchone()["total"] or 0)
     receita_operacional_liquida = receita_bruta - deducoes_receita
 
-    parametros = repository.buscar_parametros_custos_por_sku()
+    cursor.execute("SELECT * FROM parametros_custos")
+    parametros = {item["sku"]: item for item in cursor.fetchall()}
     cmv_total = 0
     for sku, venda in vendas_por_sku_dict.items():
         parametros_sku = parametros.get(sku)
@@ -401,7 +440,23 @@ def buscar_resumo_dre_gerencial(competencia):
         quantidade_cmv = float(venda["quantidade_unidades"] or 0)
         cmv_total += quantidade_cmv * custo_ave + quantidade_cmv * custo_embalagem
 
-    custos_raw = repository.buscar_custos_operacionais_movimentacoes_por_categoria(competencia)
+    cursor.execute(q("""
+    SELECT
+        COALESCE(NULLIF(categoria_plano, ''), categoria) as categoria,
+        COALESCE(SUM(valor), 0) as total
+    FROM movimentacoes_financeiras
+    WHERE tipo IN (?, ?, ?, ?)
+      AND COALESCE(status, 'Pendente') <> ?
+      AND data_documento BETWEEN ? AND ?
+      AND (
+        linha_dre = ?
+        OR linha_dre IS NULL
+        OR TRIM(linha_dre) = ''
+      )
+    GROUP BY COALESCE(NULLIF(categoria_plano, ''), categoria)
+    ORDER BY categoria
+    """), (*repository.TIPOS_SAIDA, "Cancelado", data_inicio, data_fim, LINHA_DESPESAS_OPERACIONAIS))
+    custos_raw = cursor.fetchall()
     custos_operacionais_total = 0
     linhas_custos = []
     for item in custos_raw:
@@ -414,7 +469,23 @@ def buscar_resumo_dre_gerencial(competencia):
 
     margem_bruta = receita_operacional_liquida - cmv_total
     resultado_operacional = margem_bruta - custos_operacionais_total
-    resultado_nao_operacional = repository.buscar_resultado_nao_operacional_movimentacoes(data_inicio, data_fim)
+    cursor.execute(q("""
+    SELECT
+        COALESCE(SUM(
+            CASE
+                WHEN tipo = ? THEN valor
+                WHEN tipo IN (?, ?, ?, ?) THEN -valor
+                ELSE 0
+            END
+        ), 0) as total
+    FROM movimentacoes_financeiras
+    WHERE COALESCE(status, 'Pendente') <> ?
+      AND data_documento BETWEEN ? AND ?
+      AND linha_dre = ?
+      AND COALESCE(tipo_conta, '') <> ?
+    """), ("Entrada", *repository.TIPOS_SAIDA, "Cancelado", data_inicio, data_fim, LINHA_RESULTADO_NAO_OPERACIONAL, "Neutro"))
+    resultado_nao_operacional = float(cursor.fetchone()["total"] or 0)
+    conn.close()
     resultado_gerencial_periodo = resultado_operacional + resultado_nao_operacional
 
     return {
