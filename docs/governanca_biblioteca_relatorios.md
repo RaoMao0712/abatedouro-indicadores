@@ -66,8 +66,8 @@ Uma rota legada pode ser descontinuada apenas quando existir substituto 1:1 vali
 ## Compatibilidade temporaria
 
 Rotas preservadas temporariamente por ausencia de substituto 1:1:
-- `/relatorio-custos`
-- `/relatorio-viabilidade`
+- `/relatorio-custos`: requisito gerencial legado baseado em custos mensais cadastrados, fora dos 38 ate decisao humana.
+- `/relatorio-viabilidade`: ferramenta operacional da Qualidade, fora dos 38 ate decisao humana.
 
 Rota redirecionada por equivalencia validada:
 - `/relatorio-rendimento` -> `/relatorios/producao/rendimento`
