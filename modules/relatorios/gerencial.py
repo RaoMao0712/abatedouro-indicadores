@@ -9,7 +9,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
 
-from modules.dre.services import buscar_dados_dre_gerencial
+from modules.dre.services import buscar_resumo_dre_gerencial
 from modules.fluxo_caixa.services import montar_resumo_gerencial_fluxo_caixa
 from modules.relatorios.almoxarifado import montar_resumo_gerencial_almoxarifado
 from modules.relatorios.expedicao import montar_resumo_gerencial_expedicao
@@ -198,7 +198,7 @@ def resolver_dre(definicao, data_inicio, data_fim, cache=None):
     if not meses:
         return indicador_resultado(definicao, data_inicio, data_fim, None)
     for competencia in meses:
-        dados = obter_cache(cache, ("dre", competencia), lambda c=competencia: buscar_dados_dre_gerencial(c))
+        dados = obter_cache(cache, ("dre", competencia), lambda c=competencia: buscar_resumo_dre_gerencial(c))
         total += float(dados.get(campo) or 0)
         tem_base = tem_base or any(
             float(dados.get(chave) or 0) != 0

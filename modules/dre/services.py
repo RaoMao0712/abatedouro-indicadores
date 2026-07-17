@@ -370,6 +370,65 @@ def buscar_dados_dre_gerencial(competencia):
         "margem_operacional_percentual": round(perc(resultado_operacional), 2)
     }
 
+
+def buscar_resumo_dre_gerencial(competencia):
+    ano, mes = competencia.split("-")
+    ultimo_dia = calendar.monthrange(int(ano), int(mes))[1]
+    data_inicio = f"{competencia}-01"
+    data_fim = f"{competencia}-{ultimo_dia:02d}"
+
+    vendas_linhas = [
+        normalizar_venda_para_dre(item)
+        for item in repository.buscar_vendas_periodo(data_inicio, data_fim)
+    ]
+    vendas_por_sku_dict = {}
+    for item in vendas_linhas:
+        sku = item["sku"]
+        venda = vendas_por_sku_dict.setdefault(sku, {"quantidade_unidades": 0, "quantidade_kg": 0})
+        venda["quantidade_unidades"] += item["quantidade_unidades"]
+        venda["quantidade_kg"] += item["quantidade_kg"]
+
+    receita_bruta = repository.buscar_receita_bruta_movimentacoes(data_inicio, data_fim)
+    deducoes_receita = repository.buscar_deducoes_receita_movimentacoes(data_inicio, data_fim)
+    receita_operacional_liquida = receita_bruta - deducoes_receita
+
+    parametros = repository.buscar_parametros_custos_por_sku()
+    cmv_total = 0
+    for sku, venda in vendas_por_sku_dict.items():
+        parametros_sku = parametros.get(sku)
+        custo_ave = float(parametros_sku["custo_ave"] or 0) if parametros_sku else 0
+        custo_embalagem = float(parametros_sku["custo_embalagem"] or 0) if parametros_sku else 0
+        quantidade_cmv = float(venda["quantidade_unidades"] or 0)
+        cmv_total += quantidade_cmv * custo_ave + quantidade_cmv * custo_embalagem
+
+    custos_raw = repository.buscar_custos_operacionais_movimentacoes_por_categoria(competencia)
+    custos_operacionais_total = 0
+    linhas_custos = []
+    for item in custos_raw:
+        categoria = item["categoria"]
+        valor = float(item["total"] or 0)
+        if not categoria_impacta_resultado_operacional(categoria):
+            continue
+        custos_operacionais_total += valor
+        linhas_custos.append({"categoria": categoria, "valor": round(valor, 2)})
+
+    margem_bruta = receita_operacional_liquida - cmv_total
+    resultado_operacional = margem_bruta - custos_operacionais_total
+    resultado_nao_operacional = repository.buscar_resultado_nao_operacional_movimentacoes(data_inicio, data_fim)
+    resultado_gerencial_periodo = resultado_operacional + resultado_nao_operacional
+
+    return {
+        "receita_bruta": round(receita_bruta, 2),
+        "deducoes_receita": round(deducoes_receita, 2),
+        "receita_operacional_liquida": round(receita_operacional_liquida, 2),
+        "custos_operacionais_total": round(custos_operacionais_total, 2),
+        "resultado_operacional": round(resultado_operacional, 2),
+        "resultado_nao_operacional": round(resultado_nao_operacional, 2),
+        "resultado_gerencial_periodo": round(resultado_gerencial_periodo, 2),
+        "linhas_custos": linhas_custos,
+    }
+
+
 def gerar_excel_dre_gerencial(competencia, dados):
     wb = Workbook()
     ws = wb.active
