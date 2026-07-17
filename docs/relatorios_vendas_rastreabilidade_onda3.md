@@ -216,18 +216,43 @@ Essa medicao local nao foi usada para concluir cobertura de producao.
 
 Validacao de producao deve permanecer somente leitura e sem expor dados comerciais sensiveis.
 
-Rotas esperadas:
+Validacao autenticada realizada em `https://abatedouro-indicadores.onrender.com`.
 
-- `/relatorios/expedicao/vendas`: 404;
-- `/relatorios/expedicao/vendas/exportar`: 404;
-- `/relatorios/expedicao/rastreabilidade`: 404;
-- `/relatorios/expedicao/rastreabilidade/exportar`: 404.
+Commit de merge publicado: `4bc1ee51062b8b8e36a0d5da0fbd047348fb1456`.
+
+Rotas bloqueadas confirmadas:
+
+| Rota | Status | Tempo |
+|---|---:|---:|
+| `/relatorios/expedicao/vendas` | 404 | 0,279s |
+| `/relatorios/expedicao/vendas/exportar` | 404 | 0,250s |
+| `/relatorios/expedicao/rastreabilidade` | 404 | 0,250s |
+| `/relatorios/expedicao/rastreabilidade/exportar` | 404 | 0,378s |
 
 Rotas oficiais existentes de Expedicao a preservar:
 
-- `/relatorios/expedicao/transferencias`;
-- `/relatorios/expedicao/estoque-camara-fria`;
-- `/relatorios/expedicao/historico-por-caixa`.
+| Rota | Status | Tempo |
+|---|---:|---:|
+| `/relatorios` | 200 | 0,446s |
+| `/relatorios?dominio=Expedicao` | 200 | 0,289s |
+| `/dashboard` | 200 | 1,805s |
+| `/relatorios/gerencial/dashboard-executivo` | 200 | 5,851s |
+| `/relatorios/gerencial/indicadores` | 200 | 8,998s |
+| `/relatorios/gerencial/comparativos` | 200 | 0,307s |
+| `/relatorios/gerencial/tendencias` | 200 | 9,218s |
+| `/dre-gerencial?competencia=2026-07` | 200 | 3,432s |
+| `/fluxo-caixa` | 200 | 5,128s |
+| `/movimentacoes/importar` | 200 | 0,270s |
+| `/estoque-produtos` | 200 | 1,418s |
+| `/expedicao` | 200 | 0,792s |
+| `/relatorios/expedicao/transferencias` | 200 | 2,396s |
+| `/relatorios/expedicao/estoque-camara-fria` | 200 | 2,271s |
+| `/relatorios/expedicao/historico-por-caixa` | 200 | 1,675s |
+| `/relatorios/producao/producao-por-op` | 200 | 3,747s |
+| `/relatorios/almoxarifado/estoque-atual` | 200 | 2,512s |
+| `/relatorios/financeiro/receitas` | 200 | 3,584s |
+
+Catalogo de Expedicao confirmado com `Vendas`, `Rastreabilidade` e status `Em estruturacao`.
 
 ## Regras de Data
 
