@@ -377,3 +377,47 @@ Validacoes locais:
 - dominio Financeiro renderiza tabela de dominio;
 - exportacao `Todos` gera XLSX completo;
 - Indicadores e Tendencias permanecem em seus caminhos anteriores.
+
+### Render apos Rodada Final
+
+Commit de merge publicado: `90708cf0343e8ad9dd45939493cc92dd35270c7c`.
+
+Validacao autenticada no Render:
+
+| Rota | Modo | Cold | Mediana quente | Pior tempo | Tamanho | Resultado |
+|---|---|---:|---:|---:|---:|---|
+| comparativos Todos | inicial leve | 0,449s | 0,416s | 0,449s | 14.315 bytes | meta de resposta inicial atingida |
+| comparativos Todos | carregar_todos=1 | 13,577s | 13,643s | 14,110s | 28.938 bytes | completo preservado, acima de 10s |
+| comparativos Financeiro | dominio isolado | 4,611s | 4,450s | 4,611s | 19.736 bytes | OK |
+| comparativos Producao | dominio isolado | 4,311s | 4,681s | 4,681s | 17.771 bytes | sem regressao |
+| comparativos/exportar Todos | completo | 12,893s | 12,973s | 12,973s | 7.769 bytes | melhorou, mas ficou acima da meta de 12s |
+| indicadores Todos | completo | 8,325s | 8,238s | 8,325s | 26.402 bytes | sem regressao |
+| tendencias Todos | completo | 8,767s | 8,286s | 8,767s | 28.992 bytes | sem regressao |
+
+Validacao funcional publicada:
+
+- `Comparativos Todos` inicial exibe `Carregar todos os comparativos`, `Carregar dominio`, `Financeiro`, `Producao`, `Almoxarifado` e `Expedicao`.
+- `Comparativos Todos carregar_todos=1` exibe tabela completa com 27 linhas HTML.
+- Exportacao `Todos` gera XLSX completo sem depender dos dominios abertos na tela.
+
+Rotas de regressao:
+
+| Rota | Status | Tempo | Resultado |
+|---|---:|---:|---|
+| `/relatorios` | 200 | 0,454s | OK |
+| `/dashboard` | 200 | 2,001s | OK |
+| `/dre-gerencial?competencia=2026-07` | 200 | 3,481s | OK |
+| `/fluxo-caixa` | 200 | 3,765s | OK |
+| `/relatorios/producao/eficiencia` | 200 | 3,381s | OK |
+| `/relatorios/almoxarifado/giro` | 404 | 0,395s | bloqueio preservado |
+| `/relatorios/almoxarifado/fifo` | 404 | 0,391s | bloqueio preservado |
+| `/relatorios/expedicao/transferencias` | 200 | 2,412s | OK |
+| `/movimentacoes/importar` | 200 | 0,430s | OK |
+
+Conclusao da Rodada Final:
+
+- O gargalo foi classificado como Cenario B.
+- A resposta inicial de `Comparativos Todos` ficou abaixo de 5s, atingindo a meta.
+- O carregamento completo continua disponivel e preservado, mas permanece acima de 10s por somar dominios independentes.
+- A exportacao completa melhorou em relacao ao baseline de 14,950s, mas ficou em 12,973s e nao atingiu plenamente a meta de 12s.
+- Nao houve regressao em Producao, Indicadores ou Tendencias.
