@@ -30,6 +30,7 @@ from .expedicao import (
 from .gerencial import (
     RELATORIOS_GERENCIAIS,
     gerar_excel_relatorio_gerencial,
+    montar_contexto_dashboard_executivo,
     montar_contexto_relatorio_gerencial,
 )
 
@@ -157,6 +158,11 @@ def register_relatorios_routes(app):
     def relatorio_gerencial_oficial(slug):
         if slug not in RELATORIOS_GERENCIAIS:
             abort(404)
+        if slug == "dashboard-executivo":
+            return render_template(
+                "dashboard_executivo.html",
+                **montar_contexto_dashboard_executivo(request.args),
+            )
         return render_template(
             "relatorio_gerencial_oficial.html",
             **montar_contexto_relatorio_gerencial(slug, request.args),
@@ -166,6 +172,8 @@ def register_relatorios_routes(app):
     @perfil_permitido("pcp")
     def relatorio_gerencial_oficial_exportar(slug):
         if slug not in RELATORIOS_GERENCIAIS:
+            abort(404)
+        if slug == "dashboard-executivo":
             abort(404)
         args = request.args.copy()
         if slug == "comparativos" and (args.get("dominio") or "Todos") == "Todos":

@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+
+<div class="dashboard-executivo-page">
+    <section class="hero-dashboard dashboard-executivo-hero">
+        <div>
+            <span class="eyebrow">Biblioteca de Relatorios</span>
+            <h2>Dashboard Executivo</h2>
+            <p>Leitura executiva dos indicadores oficiais, sem criar nova fonte de dados.</p>
+            <div class="financeiro-hero-resumo">
+                <span class="financeiro-pill-info"><strong>Atual</strong> {{ periodo_atual }}</span>
+                <span class="financeiro-pill-info"><strong>Comparado</strong> {{ periodo_anterior }}</span>
+                <span class="financeiro-pill-info"><strong>Consulta</strong> {{ consultado_em }}</span>
+            </div>
+        </div>
+
+        <form method="GET" action="{{ url_for('relatorio_gerencial_oficial', slug='dashboard-executivo') }}" class="dashboard-executivo-filtros">
+            <div>
+                <label>Data inicial</label>
+                <input type="date" name="data_inicio" value="{{ filtros.data_inicio }}">
+            </div>
+            <div>
+                <label>Data final</label>
+                <input type="date" name="data_fim" value="{{ filtros.data_fim }}">
+            </div>
+            <div>
+                <label>Bloco</label>
+                <select name="bloco">
+                    {% for bloco in opcoes.blocos %}
+                    <option value="{{ bloco }}" {% if filtros.bloco == bloco %}selected{% endif %}>{{ bloco }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label>Tendencia</label>
+                <select name="granularidade">
+                    {% for valor, rotulo in opcoes.granularidades %}
+                    <option value="{{ valor }}" {% if filtros.granularidade == valor %}selected{% endif %}>{{ rotulo }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <button type="submit">Aplicar</button>
+        </form>
+    </section>
+
+    <div class="dashboard-executivo-acoes">
+        <a href="{{ url_for('biblioteca_relatorios', dominio='Gerencial') }}" class="botao-dre-imprimir">Biblioteca</a>
+        <a href="{{ url_for('relatorio_gerencial_oficial', slug='dashboard-executivo') }}?{{ query_resumo }}" class="botao-dre-imprimir">Resumo</a>
+        <a href="{{ url_for('relatorio_gerencial_oficial', slug='dashboard-executivo') }}?{{ query_todos }}" class="botao-dre-imprimir">Carregar todos</a>
+        <button type="button" class="botao-dre-exportar" onclick="window.print()">Imprimir / Salvar em PDF</button>
+    </div>
+
+    <section class="dashboard-executivo-grid">
+        <div class="dashboard-executivo-main">
+            <section class="dashboard-executivo-kpis">
+                {% for item in itens %}
+                <article class="card dashboard-executivo-kpi dominio-{{ item.dominio|lower }}">
+                    <div class="dashboard-executivo-kpi-topo">
+                        <span>{{ item.dominio }}</span>
+                        <em>{{ item.referencia_temporal }}</em>
+                    </div>
+                    <h3>{{ item.nome }}</h3>
+                    <strong>
+                        {% if item.valor_atual is none %}
+                        -
+                        {% elif item.unidade == "R$" %}
+                        {{ item.valor_atual|br_moeda }}
+                        {% elif item.unidade == "%" %}
+                        {{ item.valor_atual|br_percentual }}
+                        {% else %}
+                        {{ item.valor_atual|br_numero }}
+                        {% endif %}
+                    </strong>
+                    <small>
+                        {{ item.unidade }} | anterior:
+                        {% if item.valor_anterior is none %}
+                        -
+                        {% elif item.unidade == "R$" %}
+                        {{ item.valor_anterior|br_moeda }}
+                        {% elif item.unidade == "%" %}
+                        {{ item.valor_anterior|br_percentual }}
+                        {% else %}
+                        {{ item.valor_anterior|br_numero }}
+                        {% endif %}
+                    </small>
+                    <div class="dashboard-executivo-var">
+                        <span>{{ item.leitura }}</span>
+                        <b>{% if item.variacao_pct is not none %}{{ item.variacao_pct|br_percentual }}{% else %}Nao comparavel{% endif %}</b>
+                    </div>
+                    <p>{{ item.pergunta }}</p>
+                    <div class="dashboard-executivo-kpi-links">
+                        <span>{{ item.tendencia_resumo }}</span>
+                        {% if item.link_endpoint %}
+                        <a href="{{ url_for(item.link_endpoint, **item.link_args) }}">Aprofundar</a>
+                        {% endif %}
+                    </div>
+                </article>
+                {% endfor %}
+            </section>
+
+            <section class="card dashboard-executivo-card">
+                <div class="section-title-row">
+                    <div>
+                        <span class="eyebrow">Pontos de atencao</span>
+                        <h2>Alertas objetivos</h2>
+                    </div>
+                </div>
+                {% if alertas %}
+                <div class="dashboard-executivo-alertas">
+                    {% for alerta in alertas %}
+                    <div class="dashboard-executivo-alerta">
+                        <strong>{{ alerta.titulo }}</strong>
+                        <span>{{ alerta.motivo }}</span>
+                        <small>{{ alerta.dominio }} | {{ alerta.periodo }}</small>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="relatorio-financeiro-vazio">Nenhum alerta objetivo no bloco carregado.</div>
+                {% endif %}
+            </section>
+        </div>
+
+        <aside class="dashboard-executivo-side">
+            <section class="card dashboard-executivo-card">
+                <div class="section-title-row">
+                    <div>
+                        <span class="eyebrow">Sob demanda</span>
+                        <h2>Blocos por dominio</h2>
+                    </div>
+                </div>
+                <div class="dashboard-executivo-blocos">
+                    {% for bloco in blocos %}
+                    <a href="{{ url_for('relatorio_gerencial_oficial', slug='dashboard-executivo') }}?{{ bloco.query }}">
+                        <strong>{{ bloco.dominio }}</strong>
+                        <span>{{ bloco.indicadores }} indicadores executivos</span>
+                    </a>
+                    {% endfor %}
+                </div>
+            </section>
+
+            <section class="card dashboard-executivo-card">
+                <div class="section-title-row">
+                    <div>
+                        <span class="eyebrow">Evolucao</span>
+                        <h2>Dependencias abertas</h2>
+                    </div>
+                </div>
+                <div class="dashboard-executivo-dependencias">
+                    {% for item in dependencias %}
+                    <div>
+                        <strong>{{ item.nome }}</strong>
+                        <span>{{ item.status }}</span>
+                        <small>{{ item.motivo }}</small>
+                    </div>
+                    {% endfor %}
+                </div>
+            </section>
+        </aside>
+    </section>
+
+    <section class="card dashboard-executivo-card">
+        <div class="section-title-row">
+            <div>
+                <span class="eyebrow">Limites</span>
+                <h2>Regras da leitura executiva</h2>
+            </div>
+        </div>
+        <div class="relatorio-financeiro-vazio">
+            {% for item in limitacoes %}
+            <div>{{ item }}</div>
+            {% endfor %}
+        </div>
+    </section>
+</div>
+
+{% endblock %}

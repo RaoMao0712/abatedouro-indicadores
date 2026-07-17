@@ -1,7 +1,7 @@
 """Camada gerencial oficial: indicadores, comparativos e tendencias."""
 
 from calendar import monthrange
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from io import BytesIO
 from urllib.parse import urlencode
 
@@ -30,6 +30,7 @@ RELATORIOS_GERENCIAIS = {
     "indicadores": {"titulo": "Indicadores"},
     "comparativos": {"titulo": "Comparativos"},
     "tendencias": {"titulo": "Tendencias"},
+    "dashboard-executivo": {"titulo": "Dashboard Executivo"},
 }
 
 
@@ -503,6 +504,29 @@ def montar_comparativos(filtros):
     ]
 
 
+def montar_comparativos_indicadores(indicadores, filtros):
+    cache = {}
+    indicadores = [item for item in indicadores if item["status"] in [STATUS_DISPONIVEL, STATUS_EVOLUCAO]]
+    anterior_inicio, anterior_fim = deslocar_periodo_anterior(filtros["data_inicio"], filtros["data_fim"])
+    periodos = [
+        ("atual", filtros["data_inicio"], filtros["data_fim"]),
+        ("anterior", anterior_inicio, anterior_fim),
+    ]
+    producao_periodos = montar_cache_producao_periodos(indicadores, periodos)
+    return [
+        comparar_indicador_com_periodos(
+            item,
+            filtros["data_inicio"],
+            filtros["data_fim"],
+            anterior_inicio,
+            anterior_fim,
+            cache,
+            producao_periodos,
+        )
+        for item in indicadores
+    ]
+
+
 def tendencia_sem_granularidade(indicador):
     return {
         **indicador,
@@ -584,6 +608,223 @@ def montar_tendencias(filtros):
         else:
             saida.append(tendencia_indicador(item, filtros, cache))
     return saida
+
+
+def montar_tendencias_indicadores(indicadores, filtros):
+    cache = {}
+    indicadores = [item for item in indicadores if item["status"] in [STATUS_DISPONIVEL, STATUS_EVOLUCAO]]
+    periodos = periodos_serie(filtros["data_inicio"], filtros["data_fim"], filtros["granularidade"])
+    producao_periodos = montar_cache_producao_periodos(
+        [item for item in indicadores if filtros["granularidade"] in item.get("granularidades", [])],
+        periodos,
+    )
+    saida = []
+    for item in indicadores:
+        if item.get("tipo_origem") == "producao" and producao_periodos.get(item.get("slug_origem")):
+            saida.append(tendencia_indicador_producao_lote(item, filtros, periodos, producao_periodos))
+        else:
+            saida.append(tendencia_indicador(item, filtros, cache))
+    return saida
+
+
+DASHBOARD_EXECUTIVO_IDS = [
+    "fin_receita_liquida",
+    "fin_resultado_operacional",
+    "fin_saldo_caixa",
+    "fin_aportes",
+    "prod_peso",
+    "prod_rendimento",
+    "prod_perdas",
+    "prod_produtividade_hora_setor",
+    "alm_itens_saldo",
+    "exp_caixas_transferidas",
+    "exp_peso_transferido",
+    "exp_caixas_camara",
+]
+
+
+DASHBOARD_INICIAL_IDS = [
+    "fin_receita_liquida",
+    "fin_resultado_operacional",
+    "fin_saldo_caixa",
+    "fin_aportes",
+]
+
+
+DASHBOARD_PERGUNTAS = {
+    "fin_receita_liquida": "O resultado economico do periodo tem base de receita liquida?",
+    "fin_resultado_operacional": "A operacao industrial gerou resultado operacional?",
+    "fin_saldo_caixa": "A disponibilidade financeira realizada esta positiva?",
+    "fin_aportes": "Houve reforco financeiro fora da DRE?",
+    "prod_peso": "Quanto foi produzido em peso oficial?",
+    "prod_rendimento": "A conversao produtiva esta sustentada?",
+    "prod_perdas": "As perdas fisicas exigem atencao?",
+    "prod_produtividade_hora_setor": "A produtividade por hora-setor tem base oficial?",
+    "alm_itens_saldo": "Existe leitura de saldo de insumos?",
+    "exp_caixas_transferidas": "Houve transferencia fisica no periodo?",
+    "exp_peso_transferido": "Qual peso saiu em transferencia fisica?",
+    "exp_caixas_camara": "Qual a posicao atual da Camara Fria?",
+}
+
+
+DASHBOARD_LINKS = {
+    "fin_receita_liquida": ("dre_gerencial", {}),
+    "fin_resultado_operacional": ("dre_gerencial", {}),
+    "fin_saldo_caixa": ("fluxo_caixa", {}),
+    "fin_aportes": ("relatorio_financeiro_oficial", {"slug": "aportes"}),
+    "prod_peso": ("relatorio_producao_oficial", {"slug": "producao-por-op"}),
+    "prod_rendimento": ("relatorio_producao_oficial", {"slug": "rendimento"}),
+    "prod_perdas": ("relatorio_producao_oficial", {"slug": "perdas"}),
+    "prod_produtividade_hora_setor": ("relatorio_producao_oficial", {"slug": "eficiencia"}),
+    "alm_itens_saldo": ("relatorio_almoxarifado_oficial", {"slug": "estoque-atual"}),
+    "exp_caixas_transferidas": ("relatorio_expedicao_oficial", {"slug": "transferencias"}),
+    "exp_peso_transferido": ("relatorio_expedicao_oficial", {"slug": "transferencias"}),
+    "exp_caixas_camara": ("relatorio_expedicao_oficial", {"slug": "estoque-camara-fria"}),
+}
+
+
+DEPENDENCIAS_DASHBOARD_EXECUTIVO = [
+    {"nome": "CMV", "status": STATUS_CONGELADO, "motivo": "Congelado ate existir criterio oficial definitivo de custo."},
+    {"nome": "OEE", "status": STATUS_FUTURO, "motivo": "Depende de motor oficial de disponibilidade, performance, qualidade e capacidade."},
+    {"nome": "Vendas", "status": STATUS_ESTRUTURACAO, "motivo": "Depende de NF e Romaneio de Venda."},
+    {"nome": "Rastreabilidade completa", "status": STATUS_ESTRUTURACAO, "motivo": "Depende do destino final e venda."},
+    {"nome": "Giro", "status": STATUS_ESTRUTURACAO, "motivo": "Depende de historico consistente de consumo e saldo."},
+    {"nome": "FIFO Analitico", "status": STATUS_ESTRUTURACAO, "motivo": "Depende de rastreabilidade oficial de lotes e saidas."},
+    {"nome": "Estoque por Local", "status": STATUS_ESTRUTURACAO, "motivo": "Almoxarifado ainda nao possui local oficial equivalente ao PA."},
+    {"nome": "Eficiencia percentual", "status": STATUS_FUTURO, "motivo": "Depende de meta/capacidade oficial; produtividade hora-setor ja existe."},
+]
+
+
+def indicador_por_id(indicador_id):
+    for item in REGISTRO_INDICADORES:
+        if item["id"] == indicador_id:
+            return item
+    return None
+
+
+def indicadores_dashboard(ids):
+    return [indicador_por_id(indicador_id) for indicador_id in ids if indicador_por_id(indicador_id)]
+
+
+def normalizar_filtros_dashboard_executivo(args):
+    filtros = normalizar_filtros(args)
+    filtros["bloco"] = args.get("bloco") or "Resumo"
+    filtros["granularidade"] = args.get("granularidade") or "mes"
+    if filtros["granularidade"] not in ["dia", "semana", "mes"]:
+        filtros["granularidade"] = "mes"
+    return filtros
+
+
+def query_dashboard(filtros, extras=None):
+    dados = {
+        "data_inicio": filtros["data_inicio"],
+        "data_fim": filtros["data_fim"],
+        "granularidade": filtros.get("granularidade") or "mes",
+    }
+    if extras:
+        dados.update(extras)
+    return urlencode({k: v for k, v in dados.items() if v not in ["", None]})
+
+
+def enriquecer_item_dashboard(comparativo, tendencia=None):
+    endpoint, args = DASHBOARD_LINKS.get(comparativo["id"], (None, {}))
+    return {
+        **comparativo,
+        "pergunta": DASHBOARD_PERGUNTAS.get(comparativo["id"], comparativo.get("descricao", "")),
+        "tendencia_resumo": (tendencia or {}).get("direcao_tendencia", "Nao carregada"),
+        "cobertura_tendencia": (tendencia or {}).get("cobertura", 0),
+        "link_endpoint": endpoint,
+        "link_args": args,
+    }
+
+
+def montar_alertas_dashboard(itens):
+    alertas = []
+    for item in itens:
+        valor = item.get("valor_atual")
+        if item["id"] == "fin_saldo_caixa" and valor is not None and valor < 0:
+            alertas.append({
+                "titulo": "Saldo de caixa negativo",
+                "motivo": "Saldo realizado oficial abaixo de zero.",
+                "valor": valor,
+                "periodo": item.get("periodo_atual"),
+                "dominio": item.get("dominio"),
+                "item": item,
+            })
+        if item["id"] in ["prod_perdas", "prod_produtividade_hora_setor"] and item.get("leitura") == "Aumentou":
+            alertas.append({
+                "titulo": f"{item['nome']} em elevacao",
+                "motivo": "Comparativo oficial indicou aumento frente ao periodo anterior.",
+                "valor": valor,
+                "periodo": item.get("periodo_atual"),
+                "dominio": item.get("dominio"),
+                "item": item,
+            })
+        if item.get("status_dados") == STATUS_SEM_DADOS:
+            alertas.append({
+                "titulo": f"{item['nome']} sem dados",
+                "motivo": "Indicador necessario para a leitura executiva ainda nao possui base no periodo.",
+                "valor": None,
+                "periodo": item.get("periodo_atual"),
+                "dominio": item.get("dominio"),
+                "item": item,
+            })
+    return alertas[:5]
+
+
+def montar_blocos_dashboard(filtros):
+    blocos = []
+    for dominio in ["Financeiro", "Producao", "Almoxarifado", "Expedicao"]:
+        ids = [indicador_id for indicador_id in DASHBOARD_EXECUTIVO_IDS if (indicador_por_id(indicador_id) or {}).get("dominio") == dominio]
+        blocos.append({
+            "dominio": dominio,
+            "indicadores": len(ids),
+            "query": query_dashboard(filtros, {"bloco": dominio}),
+        })
+    return blocos
+
+
+def montar_contexto_dashboard_executivo(args):
+    filtros = normalizar_filtros_dashboard_executivo(args)
+    bloco = filtros["bloco"]
+    if bloco in ["Financeiro", "Producao", "Almoxarifado", "Expedicao"]:
+        ids = [indicador_id for indicador_id in DASHBOARD_EXECUTIVO_IDS if (indicador_por_id(indicador_id) or {}).get("dominio") == bloco]
+    elif bloco == "Todos":
+        ids = DASHBOARD_EXECUTIVO_IDS
+    else:
+        ids = DASHBOARD_INICIAL_IDS
+
+    indicadores = indicadores_dashboard(ids)
+    comparativos = montar_comparativos_indicadores(indicadores, filtros)
+    tendencias = montar_tendencias_indicadores(indicadores, filtros)
+    tendencias_por_id = {item["id"]: item for item in tendencias}
+    itens = [enriquecer_item_dashboard(item, tendencias_por_id.get(item["id"])) for item in comparativos]
+    anterior_inicio, anterior_fim = deslocar_periodo_anterior(filtros["data_inicio"], filtros["data_fim"])
+
+    return {
+        "titulo": "Dashboard Executivo",
+        "objetivo": "Leitura executiva dos indicadores oficiais da Biblioteca de Relatorios.",
+        "filtros": filtros,
+        "periodo_atual": f"{filtros['data_inicio']} a {filtros['data_fim']}",
+        "periodo_anterior": f"{anterior_inicio} a {anterior_fim}",
+        "consultado_em": datetime.now().strftime("%d/%m/%Y %H:%M"),
+        "itens": itens,
+        "alertas": montar_alertas_dashboard(itens),
+        "blocos": montar_blocos_dashboard(filtros),
+        "dependencias": DEPENDENCIAS_DASHBOARD_EXECUTIVO,
+        "query_todos": query_dashboard(filtros, {"bloco": "Todos"}),
+        "query_resumo": query_dashboard(filtros, {"bloco": "Resumo"}),
+        "opcoes": {
+            "blocos": ["Resumo", "Financeiro", "Producao", "Almoxarifado", "Expedicao", "Todos"],
+            "granularidades": [("dia", "Dia"), ("semana", "Semana"), ("mes", "Mes")],
+        },
+        "limitacoes": [
+            "O Dashboard Executivo nao grava dados e nao substitui relatorios oficiais.",
+            "Comparativos e tendencias sao consumidos da camada gerencial homologada.",
+            "A abertura inicial carrega somente o nucleo executivo; dominios completos sao carregados sob demanda.",
+            "CMV, OEE, Vendas, Giro, FIFO e Rastreabilidade completa permanecem em evolucao.",
+        ],
+    }
 
 
 def comparativos_todos_sob_demanda(filtros):
