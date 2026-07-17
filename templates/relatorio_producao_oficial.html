@@ -87,9 +87,6 @@
 
     <div class="relatorio-producao-acoes">
         <a href="{{ url_for('biblioteca_relatorios', dominio='Producao') }}" class="botao-dre-imprimir">Biblioteca</a>
-        {% if slug == "rendimento" %}
-        <a href="{{ url_for('relatorio_rendimento') }}" class="botao-dre-imprimir">Rendimento legado</a>
-        {% endif %}
         <a href="{{ url_for('relatorio_producao_oficial_exportar', slug=slug) }}{% if query_string %}?{{ query_string }}{% endif %}" class="botao-dre-exportar">Exportar Excel</a>
     </div>
 
