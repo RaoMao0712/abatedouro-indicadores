@@ -388,8 +388,8 @@ Validacoes locais e Render devem confirmar que as rotas existentes continuam res
 | `git diff --check` | OK |
 | Smoke local autenticado das rotas publicadas | OK |
 | Confirmacao local de 404 para rotas futuras | OK |
-| Smoke Render autenticado das rotas publicadas | Pendente de execucao |
-| Confirmacao Render de 404 para rotas futuras | Pendente de execucao |
+| Smoke Render autenticado das rotas publicadas | OK |
+| Confirmacao Render de 404 para rotas futuras | OK |
 
 Detalhes do smoke local:
 
@@ -401,32 +401,50 @@ Detalhes do smoke local:
 
 ## Validacao no Render
 
-Pendente nesta revisao documental. Apos o merge e push para `origin/main`, validar:
+Validacao executada em `https://abatedouro-indicadores.onrender.com` apos push do merge `f331ae85191a551a4c256573023d5938be9571dc`.
 
-- `/relatorios`;
-- `/relatorios?dominio=Expedicao`;
-- `/dashboard`;
-- `/relatorios/gerencial/dashboard-executivo`;
-- `/relatorios/gerencial/indicadores`;
-- `/relatorios/gerencial/comparativos`;
-- `/relatorios/gerencial/tendencias`;
-- `/dre-gerencial`;
-- `/fluxo-caixa`;
-- `/movimentacoes`;
-- `/movimentacoes/importar`;
-- `/estoque-produtos`;
-- `/expedicao`;
-- relatorios existentes de Expedicao, Producao, Almoxarifado e Financeiro.
+Autenticacao:
 
-Confirmar 404 para:
+- `GET /`: `200` em `1,042s`;
+- `POST /`: `200` em `2,680s`, destino final `/dashboard`.
 
-- `/integracoes/sankhya/vendas/importar`;
-- `/relatorios/expedicao/vendas`;
-- `/relatorios/expedicao/vendas/exportar`;
-- `/relatorios/expedicao/rastreabilidade`;
-- `/relatorios/expedicao/rastreabilidade/exportar`;
-- `/relatorios/almoxarifado/giro`;
-- `/relatorios/almoxarifado/fifo`.
+Rotas publicadas:
+
+| Rota | Status | Tempo | Observacao |
+| --- | --- | --- | --- |
+| `/relatorios` | 200 | 0,453s | OK |
+| `/relatorios?dominio=Expedicao` | 200 | 0,317s | OK |
+| `/dashboard` | 200 | 1,724s | OK |
+| `/relatorios/gerencial/dashboard-executivo` | 200 | 6,523s | OK |
+| `/relatorios/gerencial/indicadores` | 200 | 8,364s | OK |
+| `/relatorios/gerencial/comparativos` | 200 | 0,320s | OK |
+| `/relatorios/gerencial/tendencias` | 200 | 9,177s | OK |
+| `/dre-gerencial?competencia=2026-07` | 200 | 3,888s | OK |
+| `/fluxo-caixa` | 200 | 3,678s | OK |
+| `/movimentacoes` | 200 | 1,499s | Redirecionou para `/movimentacoes/entradas` |
+| `/movimentacoes/importar` | 200 | 0,280s | OK |
+| `/estoque-produtos` | 200 | 1,123s | OK |
+| `/expedicao` | 200 | 0,753s | OK |
+| `/relatorios/expedicao/transferencias` | 200 | 2,301s | OK |
+| `/relatorios/expedicao/estoque-camara-fria` | 200 | 2,177s | OK |
+| `/relatorios/expedicao/historico-por-caixa` | 200 | 1,695s | OK |
+| `/relatorios/producao/producao-por-op` | 200 | 2,964s | OK |
+| `/relatorios/almoxarifado/estoque-atual` | 200 | 2,104s | OK |
+| `/relatorios/financeiro/receitas` | 200 | 3,345s | OK |
+
+Rotas futuras/comerciais bloqueadas:
+
+| Rota | Status | Tempo |
+| --- | --- | --- |
+| `/integracoes/sankhya/vendas/importar` | 404 | 0,312s |
+| `/integracoes/sankhya/vendas/importar/preview` | 404 | 0,251s |
+| `/integracoes/sankhya/vendas/importar/confirmar` | 404 | 0,267s |
+| `/relatorios/expedicao/vendas` | 404 | 0,279s |
+| `/relatorios/expedicao/vendas/exportar` | 404 | 0,262s |
+| `/relatorios/expedicao/rastreabilidade` | 404 | 0,279s |
+| `/relatorios/expedicao/rastreabilidade/exportar` | 404 | 0,269s |
+| `/relatorios/almoxarifado/giro` | 404 | 0,276s |
+| `/relatorios/almoxarifado/fifo` | 404 | 0,284s |
 
 ## Pendencias exatas para a Fase 2
 
