@@ -19,7 +19,8 @@
 | Exportacao oficial | Mantida quando anunciada | Excel financeiro, producao, almoxarifado, expedicao, gerencial e DRE |
 | Tela operacional | Preservada fora da Biblioteca | dashboard, movimentacoes, importadores, almoxarifado, producao, expedicao, cadastros |
 | Legado com substituto 1:1 | Redirecionado | `/relatorio-rendimento` |
-| Legado sem substituto 1:1 | Preservado temporariamente | `/relatorio-custos`, `/relatorio-viabilidade` |
+| Legado sem substituto 1:1 | Preservado temporariamente | `/relatorio-custos` |
+| Ferramenta operacional fora da Biblioteca | Preservada fora dos 38 | `/relatorio-viabilidade` |
 | Futuro/bloqueado | Sem rota publica | Sankhya/NF, vendas, rastreabilidade comercial, giro, FIFO, CMV, OEE |
 | Artefato orfao | Preservar ate revisao | templates de romaneio/historico e detalhe antigo de custo |
 
@@ -47,8 +48,8 @@
 | Rota | Situacao | Decisao |
 | --- | --- | --- |
 | `/relatorio-rendimento` | Equivalente ao relatorio oficial de rendimento | Redirecionar para `/relatorios/producao/rendimento` |
-| `/relatorio-custos` | Usa base legada de custos mensais | Preservar ate migracao validada |
-| `/relatorio-viabilidade` | Relatorio executivo especifico de viabilidade/condenacoes | Preservar ate decisao funcional |
+| `/relatorio-custos` | Usa base legada de custos mensais cadastrados | Preservar como requisito gerencial legado fora dos 38 ate decisao humana |
+| `/relatorio-viabilidade` | Ferramenta operacional da Qualidade para viabilidade, perdas e fornecedores | Preservar fora da Biblioteca; nao possui equivalente 1:1 |
 
 Nenhuma rota recebeu 410 nesta sprint, porque as remocoes definitivas dependem de decisao funcional ou substituto 1:1 comprovado.
 
@@ -86,7 +87,7 @@ Esses arquivos nao foram excluidos porque podem representar fluxo operacional an
 
 ## Pendencias funcionais
 
-- Decidir destino definitivo de `/relatorio-custos`.
-- Decidir se `/relatorio-viabilidade` entra na Biblioteca ou permanece como tela tecnica.
+- Decidir destino definitivo de `/relatorio-custos` apos avaliar migracao dos custos mensais cadastrados.
+- Decidir se `/relatorio-viabilidade` deve virar item oficial futuro ou permanecer como ferramenta operacional da Qualidade.
 - Implementar somente em sprint propria os relatorios congelados/futuros de vendas, rastreabilidade comercial, giro, FIFO, CMV, Sankhya/NF e OEE.
 - Avaliar os templates orfaos antes de qualquer remocao fisica.

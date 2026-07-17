@@ -30,12 +30,12 @@
 
 <section class="hero-dashboard relatorio-custos-hero-compacto">
     <div class="relatorio-custos-hero-titulo">
-        <span class="eyebrow">Relatório Gerencial</span>
+        <span class="eyebrow">Compatibilidade gerencial</span>
         <h2>Evolução dos Custos</h2>
 
         <div class="hero-resumo-inline relatorio-custos-hero-resumo">
             <span><strong>Período:</strong> {{ competencia_inicio }} a {{ competencia_fim }}</span>
-            <span><strong>Visão:</strong> mensal por categoria</span>
+            <span><strong>Visão:</strong> custos mensais cadastrados</span>
             <span><strong>Categoria:</strong> {{ categoria_filtro }}</span>
         </div>
     </div>
@@ -207,7 +207,7 @@
         </div>
 
         <p class="obs relatorio-custos-obs-executiva">
-            A análise considera apenas custos mensais lançados por competência. {% if categoria_filtro != "Todas" %}A visualização está filtrada pela categoria selecionada.{% else %}Categorias sem movimentação no período não são exibidas na tabela executiva.{% endif %}
+            A análise considera apenas custos mensais lançados por competência. Não substitui DRE, Fluxo de Caixa, CMV ou relatórios oficiais da Biblioteca. {% if categoria_filtro != "Todas" %}A visualização está filtrada pela categoria selecionada.{% else %}Categorias sem movimentação no período não são exibidas na tabela executiva.{% endif %}
         </p>
     </div>
 
