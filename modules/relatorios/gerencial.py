@@ -349,6 +349,7 @@ def normalizar_filtros(args):
         "status": args.get("status") or "Todos",
         "unidade": args.get("unidade") or "Todas",
         "granularidade": granularidade,
+        "carregar_todos": str(args.get("carregar_todos") or "") == "1",
     }
 
 
@@ -585,6 +586,39 @@ def montar_tendencias(filtros):
     return saida
 
 
+def comparativos_todos_sob_demanda(filtros):
+    return (
+        filtros["dominio"] == "Todos"
+        and filtros["indicador"] == "Todos"
+        and not filtros.get("carregar_todos")
+    )
+
+
+def montar_resumo_dominios_comparativos(filtros):
+    anterior_inicio, anterior_fim = deslocar_periodo_anterior(filtros["data_inicio"], filtros["data_fim"])
+    saida = []
+    for dominio in sorted({item["dominio"] for item in REGISTRO_INDICADORES}):
+        filtros_dominio = dict(filtros)
+        filtros_dominio["dominio"] = dominio
+        indicadores = [
+            item for item in filtrar_registro(filtros_dominio)
+            if item["status"] in [STATUS_DISPONIVEL, STATUS_EVOLUCAO]
+        ]
+        saida.append({
+            "dominio": dominio,
+            "indicadores": len(indicadores),
+            "disponiveis": sum(1 for item in indicadores if item["status"] == STATUS_DISPONIVEL),
+            "evolucao": sum(1 for item in indicadores if item["status"] == STATUS_EVOLUCAO),
+            "periodo_atual": f"{filtros['data_inicio']} a {filtros['data_fim']}",
+            "periodo_anterior": f"{anterior_inicio} a {anterior_fim}",
+            "query": urlencode({
+                **{k: v for k, v in filtros.items() if k != "carregar_todos" and v not in ["", "Todos", "Todas", False]},
+                "dominio": dominio,
+            }),
+        })
+    return saida
+
+
 def opcoes_filtro():
     return {
         "dominios": sorted({item["dominio"] for item in REGISTRO_INDICADORES}),
@@ -597,12 +631,19 @@ def opcoes_filtro():
 
 def montar_contexto_relatorio_gerencial(slug, args):
     filtros = normalizar_filtros(args)
+    resumo_dominios = []
+    sob_demanda = False
     if slug == "indicadores":
         linhas = montar_indicadores(filtros)
         titulo = "Indicadores"
         objetivo = "Consultar indicadores oficiais sem criar nova fonte de verdade."
     elif slug == "comparativos":
-        linhas = montar_comparativos(filtros)
+        sob_demanda = comparativos_todos_sob_demanda(filtros)
+        if sob_demanda:
+            linhas = []
+            resumo_dominios = montar_resumo_dominios_comparativos(filtros)
+        else:
+            linhas = montar_comparativos(filtros)
         titulo = "Comparativos"
         objetivo = "Comparar periodo atual com periodo anterior equivalente."
     elif slug == "tendencias":
@@ -612,13 +653,22 @@ def montar_contexto_relatorio_gerencial(slug, args):
     else:
         raise KeyError(slug)
 
-    resumo = {
-        "total": len(linhas),
-        "disponiveis": sum(1 for i in linhas if i.get("status_dados") == STATUS_DISPONIVEL),
-        "evolucao": sum(1 for i in linhas if i.get("status_dados") == STATUS_EVOLUCAO or i.get("status") == STATUS_EVOLUCAO),
-        "sem_dados": sum(1 for i in linhas if i.get("status_dados") == STATUS_SEM_DADOS),
-        "bloqueados": sum(1 for i in linhas if i.get("status") in [STATUS_ESTRUTURACAO, STATUS_CONGELADO, STATUS_FUTURO]),
-    }
+    if sob_demanda:
+        resumo = {
+            "total": sum(item["indicadores"] for item in resumo_dominios),
+            "disponiveis": sum(item["disponiveis"] for item in resumo_dominios),
+            "evolucao": sum(item["evolucao"] for item in resumo_dominios),
+            "sem_dados": 0,
+            "bloqueados": 0,
+        }
+    else:
+        resumo = {
+            "total": len(linhas),
+            "disponiveis": sum(1 for i in linhas if i.get("status_dados") == STATUS_DISPONIVEL),
+            "evolucao": sum(1 for i in linhas if i.get("status_dados") == STATUS_EVOLUCAO or i.get("status") == STATUS_EVOLUCAO),
+            "sem_dados": sum(1 for i in linhas if i.get("status_dados") == STATUS_SEM_DADOS),
+            "bloqueados": sum(1 for i in linhas if i.get("status") in [STATUS_ESTRUTURACAO, STATUS_CONGELADO, STATUS_FUTURO]),
+        }
     return {
         "slug": slug,
         "titulo": titulo,
@@ -627,7 +677,13 @@ def montar_contexto_relatorio_gerencial(slug, args):
         "opcoes": opcoes_filtro(),
         "linhas": linhas,
         "resumo": resumo,
-        "query_string": urlencode({k: v for k, v in filtros.items() if v not in ["", "Todos", "Todas"]}),
+        "query_string": urlencode({k: v for k, v in filtros.items() if v not in ["", "Todos", "Todas", False]}),
+        "comparativos_sob_demanda": sob_demanda,
+        "resumo_dominios": resumo_dominios,
+        "query_carregar_todos": urlencode({
+            **{k: v for k, v in filtros.items() if k != "carregar_todos" and v not in ["", "Todos", "Todas", False]},
+            "carregar_todos": 1,
+        }),
         "limitacoes": [
             "A camada gerencial consome services oficiais e nao grava resultados.",
             "Ausencia de dados, metricas congeladas e metricas futuras nao sao convertidas em zero.",

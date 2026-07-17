@@ -76,6 +76,9 @@
 
     <div class="relatorio-financeiro-acoes">
         <a href="{{ url_for('biblioteca_relatorios', dominio='Gerencial') }}" class="botao-dre-imprimir">Biblioteca</a>
+        {% if comparativos_sob_demanda %}
+        <a href="{{ url_for('relatorio_gerencial_oficial', slug=slug) }}?{{ query_carregar_todos }}" class="botao-dre-imprimir">Carregar todos os comparativos</a>
+        {% endif %}
         <a href="{{ url_for('relatorio_gerencial_oficial_exportar', slug=slug) }}{% if query_string %}?{{ query_string }}{% endif %}" class="botao-dre-exportar">Exportar Excel</a>
     </div>
 
@@ -124,7 +127,21 @@
             </div>
         </div>
 
-        {% if linhas %}
+        {% if comparativos_sob_demanda %}
+        <div class="relatorio-financeiro-vazio">
+            <div>Visao inicial leve: escolha um dominio para carregar os comparativos detalhados, ou use a opcao Carregar todos os comparativos.</div>
+        </div>
+        <div class="relatorio-financeiro-kpis">
+            {% for dominio in resumo_dominios %}
+            <div class="card relatorio-financeiro-kpi">
+                <span>{{ dominio.dominio }}</span>
+                <strong>{{ dominio.indicadores }}</strong>
+                <small>{{ dominio.periodo_atual }} vs {{ dominio.periodo_anterior }}</small>
+                <a href="{{ url_for('relatorio_gerencial_oficial', slug=slug) }}?{{ dominio.query }}" class="botao-dre-imprimir">Carregar dominio</a>
+            </div>
+            {% endfor %}
+        </div>
+        {% elif linhas %}
         <div class="tabela-responsiva tabela-executiva relatorio-financeiro-tabela">
             {% if slug == "comparativos" %}
             <table>
