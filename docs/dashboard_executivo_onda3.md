@@ -129,3 +129,37 @@ O layout de impressao oculta navegacao e filtros, preservando titulo, periodo, i
 - A visao economica permanece incompleta enquanto CMV estiver congelado.
 - OEE, Vendas, Rastreabilidade completa, Giro e FIFO seguem em evolucao.
 - Permissoes parciais por dominio ainda dependem do modelo atual de perfis; nesta sprint a protecao segue `pcp/admin`.
+
+## Validacao Render
+
+URL validada: `https://abatedouro-indicadores.onrender.com`.
+
+Commit de merge publicado: `77fc02e` (`Merge dashboard executivo onda 3 bloco 1`).
+
+| Rota | Status | Tempo |
+|---|---:|---:|
+| `/relatorios/gerencial/dashboard-executivo` | 200 | 5,489s |
+| `/relatorios/gerencial/dashboard-executivo?bloco=Financeiro` | 200 | 6,013s |
+| `/relatorios/gerencial/dashboard-executivo?bloco=Producao` | 200 | 6,443s |
+| `/relatorios/gerencial/dashboard-executivo?bloco=Almoxarifado` | 200 | 1,612s |
+| `/relatorios/gerencial/dashboard-executivo?bloco=Expedicao` | 200 | 3,385s |
+| `/relatorios/gerencial/dashboard-executivo?bloco=Todos` | 200 | 16,711s |
+| `/relatorios?dominio=Gerencial` | 200 | 0,302s |
+| `/dashboard` | 200 | 1,508s |
+| `/relatorios/gerencial/comparativos` | 200 | 0,323s |
+| `/relatorios/gerencial/indicadores` | 200 | 7,808s |
+| `/relatorios/gerencial/tendencias` | 200 | 8,911s |
+| `/dre-gerencial?competencia=2026-07` | 200 | 3,279s |
+| `/fluxo-caixa` | 200 | 3,819s |
+| `/relatorios/producao/eficiencia` | 200 | 3,277s |
+| `/relatorios/expedicao/transferencias` | 200 | 2,261s |
+| `/movimentacoes/importar` | 200 | 0,295s |
+| `/relatorios/gerencial/dashboard-executivo/exportar` | 404 | esperado |
+
+Confirmacoes:
+
+- O Dashboard Executivo apareceu na Biblioteca de Relatorios.
+- O `/dashboard` operacional permaneceu intacto e exibiu `Centro de Controle Industrial`.
+- A acao publicada para PDF e `Imprimir / Salvar em PDF`, usando impressao do navegador.
+- Nao foi criado endpoint falso de PDF.
+- O carregamento `Todos` permanece sob acao explicita e manteve comportamento semelhante aos relatorios completos oficiais.
