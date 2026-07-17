@@ -242,7 +242,7 @@ RELATORIOS_OFICIAIS = [
         "onda": "Onda 1",
         "status": STATUS_DISPONIVEL,
         "dependencias": ["Pesagem", "OPs encerradas"],
-        "formatos": ["Tela", "Excel", "PDF"],
+        "formatos": ["Tela", "Excel", "Impressao"],
         "permissao": "pcp",
     },
     {

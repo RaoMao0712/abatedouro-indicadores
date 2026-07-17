@@ -102,6 +102,10 @@ def register_qualidade_routes(app, integracoes=None):
     @app.route("/relatorio-rendimento")
     @perfil_permitido("pcp")
     def relatorio_rendimento():
+        return redirect(url_for("relatorio_producao_oficial", slug="rendimento", **request.args))
+
+
+    def relatorio_rendimento_legado_descontinuado():
         agora = datetime.now()
         hoje = agora.strftime("%Y-%m-%d")
         primeiro_dia_mes = agora.replace(day=1).strftime("%Y-%m-%d")
