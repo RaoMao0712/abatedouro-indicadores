@@ -167,7 +167,11 @@ def register_relatorios_routes(app):
     def relatorio_gerencial_oficial_exportar(slug):
         if slug not in RELATORIOS_GERENCIAIS:
             abort(404)
-        contexto = montar_contexto_relatorio_gerencial(slug, request.args)
+        args = request.args.copy()
+        if slug == "comparativos" and (args.get("dominio") or "Todos") == "Todos":
+            args = args.copy()
+            args["carregar_todos"] = "1"
+        contexto = montar_contexto_relatorio_gerencial(slug, args)
         arquivo = gerar_excel_relatorio_gerencial(contexto)
         nome = f"gerencial_{slug}_{contexto['filtros']['data_inicio']}_{contexto['filtros']['data_fim']}.xlsx"
         return send_file(

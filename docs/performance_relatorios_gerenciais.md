@@ -291,3 +291,89 @@ Conclusao da Rodada 2:
 - Exportacao de Comparativos Todos melhorou, mas ainda ficou acima da meta de 12s.
 - Nao houve regressao relevante em Indicadores Todos nem em Tendencias Todos.
 - Para atingir menos de 10s em Comparativos Todos, o proximo gargalo deve ser investigado por dominio restante, sem iniciar Dashboard Executivo.
+
+## Rodada Final - Decomposicao por Dominio
+
+Commit inicial da Rodada Final: `7eaad9a51a7ee916588de63b9c103a5146d67c86`.
+
+Pre-requisitos conferidos:
+
+- Worktree correto: `C:\Users\g227716298.GRUPOSP-AD\.codex\worktrees\4ca3\abatedouro indicadores`.
+- Branch `main` sincronizada com `origin/main`.
+- HEAD inicial igual a `origin/main` no commit publicado `7eaad9a51a7ee916588de63b9c103a5146d67c86`.
+- Arquivos locais nao rastreados preservados fora do commit: `entregas/`, `tools/` e `reset_financeiro_producao_20260709_133850.zip`.
+
+### Baseline Render por dominio
+
+Validacao autenticada, uma requisicao pesada por vez:
+
+| Rota | Dominio | Cold | Mediana quente | Consultas | Indicadores | Montagem | Total | Tamanho |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| comparativos | Financeiro | 5,534s | 5,017s | nao instrumentado no Render | 11 | embutida | 5,017s | 19.727 bytes |
+| comparativos | Producao | 4,572s | 5,860s | nao instrumentado no Render | 8 | embutida | 5,860s | 17.762 bytes |
+| comparativos | Almoxarifado | 4,403s | 3,839s | nao instrumentado no Render | 3 | embutida | 3,839s | 14.809 bytes |
+| comparativos | Expedicao | 3,387s | 3,070s | nao instrumentado no Render | 4 | embutida | 3,070s | 15.382 bytes |
+| comparativos | Todos | 14,232s | 15,170s | nao instrumentado no Render | 26 | embutida | 15,170s | 28.905 bytes |
+| comparativos/exportar | Financeiro | 4,445s | 4,505s | nao instrumentado no Render | 11 | embutida | 4,505s | 6.523 bytes |
+| comparativos/exportar | Producao | 5,377s | 6,518s | nao instrumentado no Render | 8 | embutida | 6,518s | 6.172 bytes |
+| comparativos/exportar | Almoxarifado | 3,911s | 3,849s | nao instrumentado no Render | 3 | embutida | 3,849s | 5.615 bytes |
+| comparativos/exportar | Expedicao | 2,860s | 2,657s | nao instrumentado no Render | 4 | embutida | 2,657s | 5.712 bytes |
+| comparativos/exportar | Todos | 13,410s | 14,950s | nao instrumentado no Render | 26 | embutida | 14,950s | 7.741 bytes |
+
+### Porta de decisao
+
+Cenario classificado: **B - todos os dominios isolados estao aceitaveis, mas a soma sequencial ultrapassa a meta**.
+
+Evidencia:
+
+- Nenhum dominio isolado domina sozinho o tempo total.
+- Financeiro e Producao ficam proximos de 5s.
+- Almoxarifado e Expedicao ficam abaixo de 4s.
+- A visao `Todos` combina os custos de dominios independentes e permanece acima de 10s.
+- A criacao do Excel nao domina isoladamente; os tempos de exportacao por dominio acompanham o custo de montagem do contexto.
+
+### Correcao aplicada na Rodada Final
+
+A visao inicial de `/relatorios/gerencial/comparativos?dominio=Todos` passou a ser leve e sob demanda:
+
+- apresenta dominios autorizados;
+- mostra quantidade de indicadores por dominio;
+- mostra periodo atual e periodo anterior;
+- oferece link para carregar cada dominio;
+- oferece acao explicita `Carregar todos os comparativos`;
+- mantem exportacao `Todos` completa no servidor.
+
+Nao houve:
+
+- cache persistente;
+- DDL;
+- backfill;
+- calculo financeiro em JavaScript;
+- endpoint publico novo;
+- alteracao de Producao;
+- alteracao de Indicadores ou Tendencias.
+
+### Local apos Rodada Final
+
+Banco local SQLite:
+
+| Rota | Dominio | Modo | Cold | Mediana quente | Pior tempo | Tamanho |
+|---|---|---|---:|---:|---:|---:|
+| comparativos | Todos | inicial leve | 0,0234s | 0,0014s | 0,0234s | 14.315 bytes |
+| comparativos | Todos | carregar_todos=1 | 0,0353s | 0,0303s | 0,0353s | 28.847 bytes |
+| comparativos | Financeiro | dominio isolado | 0,0101s | 0,0145s | 0,0168s | 19.641 bytes |
+
+### Matriz de equivalencia
+
+A rodada final nao alterou formulas nem services dos indicadores. A equivalencia exigida passa por duas garantias:
+
+- `carregar_todos=1` usa a mesma funcao `montar_comparativos` ja publicada.
+- Exportacao de `Todos` injeta `carregar_todos=1` no servidor antes de montar o contexto, mantendo o Excel completo.
+
+Validacoes locais:
+
+- pagina inicial leve renderizada;
+- `Carregar todos` renderiza tabela completa;
+- dominio Financeiro renderiza tabela de dominio;
+- exportacao `Todos` gera XLSX completo;
+- Indicadores e Tendencias permanecem em seus caminhos anteriores.
