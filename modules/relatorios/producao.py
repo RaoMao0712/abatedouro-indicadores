@@ -423,6 +423,111 @@ def buscar_totais_eficiencia_gerencial(filtros):
     return somar_eficiencia(detalhes)
 
 
+def localizar_periodo_data(data_texto, periodos):
+    data_base = str(data_texto or "")[:10]
+    if not data_base:
+        return None
+    for chave, inicio, fim in periodos:
+        if inicio <= data_base <= fim:
+            return chave
+    return None
+
+
+def filtros_intervalo_total(filtros, periodos):
+    saida = dict(filtros)
+    saida["data_inicio"] = min(inicio for _, inicio, _ in periodos)
+    saida["data_fim"] = max(fim for _, _, fim in periodos)
+    return saida
+
+
+def montar_resumos_ops_gerenciais_periodos(filtros, periodos, somente_encerradas=False):
+    filtros_base = filtros_intervalo_total(filtros, periodos)
+    linhas = buscar_ops_agregadas(filtros_base, somente_encerradas=somente_encerradas, limite=1000000)
+    grupos = {chave: [] for chave, _, _ in periodos}
+    for linha in linhas:
+        chave = localizar_periodo_data(linha.get("data_op"), periodos)
+        if chave:
+            grupos[chave].append(linha)
+
+    return {
+        chave: somar_ops(grupos[chave])
+        for chave, _, _ in periodos
+    }
+
+
+def montar_resumos_perdas_gerenciais_periodos(filtros, periodos, tipo="todas"):
+    filtros_base = filtros_intervalo_total(filtros, periodos)
+    detalhes = buscar_perdas_detalhadas(filtros_base, tipo, limite=1000000)
+    grupos = {chave: [] for chave, _, _ in periodos}
+    for linha in detalhes:
+        chave = localizar_periodo_data(linha.get("data") or linha.get("data_op"), periodos)
+        if chave:
+            grupos[chave].append(linha)
+
+    saida = {}
+    for chave, _, _ in periodos:
+        linhas = grupos[chave]
+        saida[chave] = {
+            "perdas_kg": sum(valor_float(i.get("quantidade")) for i in linhas if str(i.get("unidade", "")).lower() == "kg"),
+            "perdas_aves": sum(valor_float(i.get("quantidade")) for i in linhas if str(i.get("unidade", "")).lower() != "kg"),
+            "eventos": len(linhas),
+        }
+    return saida
+
+
+def montar_resumos_eficiencia_gerenciais_periodos(filtros, periodos):
+    filtros_base = filtros_intervalo_total(filtros, periodos)
+    detalhes = buscar_eficiencia_dados(filtros_base)
+    grupos = {chave: [] for chave, _, _ in periodos}
+    for linha in detalhes:
+        chave = localizar_periodo_data(linha.get("data_op"), periodos)
+        if chave:
+            grupos[chave].append(linha)
+
+    return {
+        chave: somar_eficiencia(grupos[chave])
+        for chave, _, _ in periodos
+    }
+
+
+def montar_resumos_gerenciais_producao_periodos(slug, args, periodos):
+    config = RELATORIOS_PRODUCAO[slug]
+    filtros = normalizar_filtros(args)
+    periodos = [(str(chave), str(inicio), str(fim)) for chave, inicio, fim in periodos]
+    if not periodos:
+        return {}
+
+    if config["familia"] == "eficiencia":
+        totais_periodo = montar_resumos_eficiencia_gerenciais_periodos(filtros, periodos)
+        return {
+            chave: {"totais": totais_periodo.get(chave, {}), "tem_dados": bool(totais_periodo.get(chave, {}).get("ops"))}
+            for chave, _, _ in periodos
+        }
+
+    somente_encerradas = bool(config.get("somente_encerradas"))
+    totais_periodo = montar_resumos_ops_gerenciais_periodos(filtros, periodos, somente_encerradas=somente_encerradas)
+    if config["familia"] == "perdas":
+        perdas_periodo = montar_resumos_perdas_gerenciais_periodos(filtros, periodos, config.get("tipo_perda", "todas"))
+        for chave, _, _ in periodos:
+            totais = totais_periodo.get(chave, {})
+            perdas = perdas_periodo.get(chave, {})
+            totais["perdas_aves"] = valor_float(perdas.get("perdas_aves"))
+            totais["perdas_kg"] = valor_float(perdas.get("perdas_kg"))
+            if config.get("tipo_perda") == "condenacao":
+                totais["condenacoes_aves"] = totais["perdas_aves"]
+            else:
+                totais["condenacoes_aves"] = valor_float(totais.get("condenacoes_aves"))
+    else:
+        for totais in totais_periodo.values():
+            totais["perdas_aves"] = valor_float(totais.get("perdas_aves"))
+            totais["condenacoes_aves"] = valor_float(totais.get("condenacoes_aves"))
+
+    return {
+        chave: {"totais": totais_periodo.get(chave, {}), "tem_dados": bool(totais_periodo.get(chave, {}).get("ops"))}
+        for chave, _, _ in periodos
+    }
+
+
 def montar_resumo_gerencial_producao(slug, args):
     config = RELATORIOS_PRODUCAO[slug]
     filtros = normalizar_filtros(args)

@@ -14,7 +14,7 @@ from modules.fluxo_caixa.services import montar_resumo_gerencial_fluxo_caixa
 from modules.relatorios.almoxarifado import montar_resumo_gerencial_almoxarifado
 from modules.relatorios.expedicao import montar_resumo_gerencial_expedicao
 from modules.relatorios.financeiro import montar_resumo_gerencial_financeiro
-from modules.relatorios.producao import montar_resumo_gerencial_producao
+from modules.relatorios.producao import montar_resumo_gerencial_producao, montar_resumos_gerenciais_producao_periodos
 
 
 STATUS_DISPONIVEL = "Disponivel"
@@ -251,6 +251,13 @@ def resolver_producao(definicao, data_inicio, data_fim, cache=None):
     return indicador_resultado(definicao, data_inicio, data_fim, valor, status=status)
 
 
+def resolver_producao_contexto(definicao, data_inicio, data_fim, contexto):
+    valor = valor_numero((contexto or {}).get("totais", {}).get(definicao["campo_origem"]))
+    if valor == 0 and not contexto_tem_linhas(contexto or {}):
+        valor = None
+    return indicador_resultado(definicao, data_inicio, data_fim, valor, status=definicao.get("status", STATUS_DISPONIVEL))
+
+
 def resolver_producao_resumo(definicao, data_inicio, data_fim, cache=None):
     contexto = obter_cache(
         cache,
@@ -406,26 +413,107 @@ def comparar_indicador(indicador, data_inicio, data_fim, cache=None):
     }
 
 
+def montar_cache_producao_periodos(indicadores, periodos):
+    cache = {}
+    slugs = sorted({
+        item.get("slug_origem")
+        for item in indicadores
+        if item.get("tipo_origem") == "producao" and item.get("slug_origem")
+    })
+    if not slugs or not periodos:
+        return cache
+
+    data_inicio = min(inicio for _, inicio, _ in periodos)
+    data_fim = max(fim for _, _, fim in periodos)
+    for slug in slugs:
+        try:
+            cache[slug] = montar_resumos_gerenciais_producao_periodos(
+                slug,
+                arg_periodo(data_inicio, data_fim),
+                periodos,
+            )
+        except Exception:
+            cache[slug] = None
+    return cache
+
+
+def comparar_indicador_com_periodos(indicador, data_inicio, data_fim, anterior_inicio, anterior_fim, cache=None, producao_periodos=None):
+    if indicador.get("tipo_origem") == "producao" and producao_periodos and producao_periodos.get(indicador.get("slug_origem")):
+        atual = resolver_producao_contexto(
+            indicador,
+            data_inicio,
+            data_fim,
+            producao_periodos[indicador["slug_origem"]].get("atual"),
+        )
+        anterior = resolver_producao_contexto(
+            indicador,
+            anterior_inicio,
+            anterior_fim,
+            producao_periodos[indicador["slug_origem"]].get("anterior"),
+        )
+    else:
+        atual = resolver_indicador(indicador, data_inicio, data_fim, cache)
+        anterior = resolver_indicador(indicador, anterior_inicio, anterior_fim, cache)
+
+    valor_atual = atual.get("valor")
+    valor_anterior = anterior.get("valor")
+    comparavel = valor_atual is not None and valor_anterior is not None and atual["unidade"] == anterior["unidade"]
+    variacao_abs = None
+    variacao_pct = None
+    leitura = "Sem base comparavel"
+    if comparavel:
+        variacao_abs = round(valor_atual - valor_anterior, 4)
+        if valor_anterior:
+            variacao_pct = round((variacao_abs / valor_anterior) * 100, 2)
+        leitura = "Permaneceu estavel" if abs(variacao_abs) <= abs(valor_anterior or 1) * TOLERANCIA_ESTAVEL else ("Aumentou" if variacao_abs > 0 else "Reduziu")
+    return {
+        **atual,
+        "valor_atual": valor_atual,
+        "valor_anterior": valor_anterior,
+        "periodo_atual": atual["periodo"],
+        "periodo_anterior": anterior["periodo"],
+        "variacao_abs": variacao_abs,
+        "variacao_pct": variacao_pct,
+        "comparabilidade": "Comparavel" if comparavel else "Sem base comparavel",
+        "leitura": leitura,
+    }
+
+
 def montar_comparativos(filtros):
     cache = {}
-    return [comparar_indicador(item, filtros["data_inicio"], filtros["data_fim"], cache) for item in filtrar_registro(filtros) if item["status"] in [STATUS_DISPONIVEL, STATUS_EVOLUCAO]]
+    indicadores = [item for item in filtrar_registro(filtros) if item["status"] in [STATUS_DISPONIVEL, STATUS_EVOLUCAO]]
+    anterior_inicio, anterior_fim = deslocar_periodo_anterior(filtros["data_inicio"], filtros["data_fim"])
+    periodos = [
+        ("atual", filtros["data_inicio"], filtros["data_fim"]),
+        ("anterior", anterior_inicio, anterior_fim),
+    ]
+    producao_periodos = montar_cache_producao_periodos(indicadores, periodos)
+    return [
+        comparar_indicador_com_periodos(
+            item,
+            filtros["data_inicio"],
+            filtros["data_fim"],
+            anterior_inicio,
+            anterior_fim,
+            cache,
+            producao_periodos,
+        )
+        for item in indicadores
+    ]
 
 
-def tendencia_indicador(indicador, filtros, cache=None):
-    series = []
-    granularidade = filtros["granularidade"]
-    if granularidade not in indicador.get("granularidades", []):
-        return {
-            **indicador,
-            "serie": [],
-            "direcao_tendencia": "Historico insuficiente",
-            "cobertura": 0,
-            "status_dados": STATUS_SEM_DADOS,
-            "limitacao_resultado": "Granularidade nao sustentada pela fonte.",
-        }
-    for periodo, inicio, fim in periodos_serie(filtros["data_inicio"], filtros["data_fim"], granularidade):
-        valor = resolver_indicador(indicador, inicio, fim, cache)
-        series.append({"periodo": periodo, "valor": valor.get("valor"), "status": valor.get("status_dados")})
+def tendencia_sem_granularidade(indicador):
+    return {
+        **indicador,
+        "serie": [],
+        "direcao_tendencia": "Historico insuficiente",
+        "cobertura": 0,
+        "status_dados": STATUS_SEM_DADOS,
+        "limitacao_resultado": "Granularidade nao sustentada pela fonte.",
+    }
+
+
+def montar_tendencia_saida(indicador, series):
     validos = [item["valor"] for item in series if item.get("valor") is not None]
     direcao = "Historico insuficiente"
     if len(validos) >= 3:
@@ -458,9 +546,43 @@ def tendencia_indicador(indicador, filtros, cache=None):
     }
 
 
+def tendencia_indicador(indicador, filtros, cache=None):
+    series = []
+    granularidade = filtros["granularidade"]
+    if granularidade not in indicador.get("granularidades", []):
+        return tendencia_sem_granularidade(indicador)
+    for periodo, inicio, fim in periodos_serie(filtros["data_inicio"], filtros["data_fim"], granularidade):
+        valor = resolver_indicador(indicador, inicio, fim, cache)
+        series.append({"periodo": periodo, "valor": valor.get("valor"), "status": valor.get("status_dados")})
+    return montar_tendencia_saida(indicador, series)
+
+
+def tendencia_indicador_producao_lote(indicador, filtros, periodos, producao_periodos):
+    if filtros["granularidade"] not in indicador.get("granularidades", []):
+        return tendencia_sem_granularidade(indicador)
+    dados_slug = producao_periodos.get(indicador.get("slug_origem")) or {}
+    series = []
+    for periodo, inicio, fim in periodos:
+        valor = resolver_producao_contexto(indicador, inicio, fim, dados_slug.get(periodo))
+        series.append({"periodo": periodo, "valor": valor.get("valor"), "status": valor.get("status_dados")})
+    return montar_tendencia_saida(indicador, series)
+
+
 def montar_tendencias(filtros):
     cache = {}
-    return [tendencia_indicador(item, filtros, cache) for item in filtrar_registro(filtros) if item["status"] in [STATUS_DISPONIVEL, STATUS_EVOLUCAO]]
+    indicadores = [item for item in filtrar_registro(filtros) if item["status"] in [STATUS_DISPONIVEL, STATUS_EVOLUCAO]]
+    periodos = periodos_serie(filtros["data_inicio"], filtros["data_fim"], filtros["granularidade"])
+    producao_periodos = montar_cache_producao_periodos(
+        [item for item in indicadores if filtros["granularidade"] in item.get("granularidades", [])],
+        periodos,
+    )
+    saida = []
+    for item in indicadores:
+        if item.get("tipo_origem") == "producao" and producao_periodos.get(item.get("slug_origem")):
+            saida.append(tendencia_indicador_producao_lote(item, filtros, periodos, producao_periodos))
+        else:
+            saida.append(tendencia_indicador(item, filtros, cache))
+    return saida
 
 
 def opcoes_filtro():
