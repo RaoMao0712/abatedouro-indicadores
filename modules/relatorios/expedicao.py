@@ -371,6 +371,83 @@ def resumo_estoque(linhas):
     ]
 
 
+def montar_resumo_gerencial_expedicao(slug, args):
+    config = RELATORIOS_EXPEDICAO[slug]
+    filtros = normalizar_filtros(args, config)
+    if slug == "transferencias":
+        condicoes = ["mov.tipo = ?", "substr(CAST(mov.criado_em AS TEXT), 1, 10) BETWEEN ? AND ?"]
+        parametros = ["TRANSFERENCIA", filtros["data_inicio"], filtros["data_fim"]]
+        caixa_cond, caixa_params = aplicar_filtros_caixa(filtros)
+        condicoes.extend(caixa_cond)
+        parametros.extend(caixa_params)
+        if filtros["origem"] != "Todos":
+            condicoes.append("COALESCE(origem.nome, '') = ?")
+            parametros.append(filtros["origem"])
+        if filtros["destino"] != "Todos":
+            condicoes.append("COALESCE(destino.nome, '') = ?")
+            parametros.append(filtros["destino"])
+        if filtros["usuario"]:
+            condicoes.append("LOWER(COALESCE(mov.usuario, '')) LIKE ?")
+            parametros.append(f"%{filtros['usuario'].lower()}%")
+        if filtros["romaneio"]:
+            condicoes.append("LOWER(COALESCE(e.numero_romaneio, '')) LIKE ?")
+            parametros.append(f"%{filtros['romaneio'].lower()}%")
+        linha = executar_lista(montar_cte_caixas() + f"""
+            SELECT
+                COUNT(*) AS transferencias,
+                COUNT(DISTINCT cx.id) AS caixas,
+                COALESCE(SUM(cx.peso_liquido), 0) AS peso_liquido,
+                COALESCE(SUM(cx.peso_bruto), 0) AS peso_bruto
+            FROM pa_movimentacoes mov
+            INNER JOIN pa_caixas cx ON cx.id = mov.caixa_id
+            LEFT JOIN comp ON comp.caixa_id = cx.id
+            LEFT JOIN locais_estoque origem ON origem.id = mov.local_origem_id
+            LEFT JOIN locais_estoque destino ON destino.id = mov.local_destino_id
+            LEFT JOIN locais_estoque local_atual ON local_atual.id = cx.local_estoque_id
+            LEFT JOIN expedicoes e ON e.id = mov.expedicao_id
+            WHERE {" AND ".join(condicoes)}
+        """, parametros)[0]
+        resumo = [
+            {"rotulo": "Transferencias", "valor": int(linha.get("transferencias") or 0), "tipo": "inteiro", "unidade": "eventos"},
+            {"rotulo": "Caixas", "valor": int(linha.get("caixas") or 0), "tipo": "inteiro", "unidade": "caixas unicas"},
+            {"rotulo": "Peso liquido", "valor": valor_float(linha.get("peso_liquido")), "tipo": "decimal", "unidade": "kg"},
+            {"rotulo": "Peso bruto", "valor": valor_float(linha.get("peso_bruto")), "tipo": "decimal", "unidade": "kg"},
+        ]
+        return {"resumo": resumo, "tem_dados": bool(linha.get("transferencias"))}
+
+    condicoes = [
+        "LOWER(COALESCE(local_atual.nome, '')) LIKE ?",
+        "LOWER(COALESCE(local_atual.nome, '')) LIKE ?",
+        "COALESCE(cx.status, '') = ?",
+    ]
+    parametros = ["%fria%", "%lsm%", "Em estoque"]
+    caixa_cond, caixa_params = aplicar_filtros_caixa(filtros)
+    condicoes.extend(caixa_cond)
+    parametros.extend(caixa_params)
+    linha = executar_lista(montar_cte_caixas() + f"""
+        SELECT
+            COUNT(*) AS caixas,
+            COALESCE(SUM(cx.peso_liquido), 0) AS peso_liquido,
+            COUNT(DISTINCT cx.sku) AS skus,
+            COUNT(DISTINCT comp.op_id) AS lotes,
+            COALESCE(SUM(CASE WHEN cx.data_validade IS NOT NULL AND substr(cx.data_validade, 1, 10) < ? THEN 1 ELSE 0 END), 0) AS vencidas,
+            COALESCE(SUM(CASE WHEN cx.data_validade IS NULL OR cx.data_validade = '' THEN 1 ELSE 0 END), 0) AS sem_validade
+        FROM pa_caixas cx
+        LEFT JOIN comp ON comp.caixa_id = cx.id
+        LEFT JOIN locais_estoque local_atual ON local_atual.id = cx.local_estoque_id
+        WHERE {" AND ".join(condicoes)}
+    """, [hoje_iso()] + parametros)[0]
+    resumo = [
+        {"rotulo": "Caixas", "valor": int(linha.get("caixas") or 0), "tipo": "inteiro", "unidade": "caixas"},
+        {"rotulo": "Peso liquido", "valor": valor_float(linha.get("peso_liquido")), "tipo": "decimal", "unidade": "kg"},
+        {"rotulo": "SKUs", "valor": int(linha.get("skus") or 0), "tipo": "inteiro", "unidade": "produtos"},
+        {"rotulo": "Lotes", "valor": int(linha.get("lotes") or 0), "tipo": "inteiro", "unidade": "lotes"},
+        {"rotulo": "Vencidas", "valor": int(linha.get("vencidas") or 0), "tipo": "inteiro", "unidade": "caixas"},
+        {"rotulo": "Sem validade", "valor": int(linha.get("sem_validade") or 0), "tipo": "inteiro", "unidade": "caixas"},
+    ]
+    return {"resumo": resumo, "tem_dados": bool(linha.get("caixas"))}
+
+
 def agrupar(linhas, chave, campo_valor="peso_liquido"):
     grupos = defaultdict(lambda: {"grupo": "", "caixas": set(), "eventos": 0, "peso_liquido": 0.0, "peso_bruto": 0.0})
     for item in linhas:
