@@ -68,6 +68,7 @@ Foram criados resumos gerenciais oficiais nos dominios de origem:
 - `modules/relatorios/producao.py`: `montar_resumo_gerencial_producao`
 - `modules/relatorios/almoxarifado.py`: `montar_resumo_gerencial_almoxarifado`
 - `modules/relatorios/expedicao.py`: `montar_resumo_gerencial_expedicao`
+- `modules/fluxo_caixa/services.py`: `montar_resumo_gerencial_fluxo_caixa`
 
 A camada gerencial passou a consumir esses resumos para os KPIs, preservando:
 
@@ -118,4 +119,5 @@ Banco temporario vazio:
 
 - DRE e Fluxo de Caixa continuam usando seus services oficiais existentes.
 - Tendencias ainda montam a serie por periodos, mas cada ponto passou a usar agregados oficiais em vez de relatorios analiticos completos para Producao, Almoxarifado, Expedicao e Aportes.
+- Fluxo de Caixa gerencial passou a usar agregacao direta oficial para entradas, saidas e saldo realizado, sem carregar a linha do tempo completa.
 - A validacao final de metas deve ser feita no Render apos deploy, pois SQLite local vazio nao representa o volume de producao.

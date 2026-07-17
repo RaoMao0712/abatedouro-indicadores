@@ -10,7 +10,7 @@ from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 from modules.dre.services import buscar_dados_dre_gerencial
-from modules.fluxo_caixa.services import montar_contexto_fluxo_caixa
+from modules.fluxo_caixa.services import montar_resumo_gerencial_fluxo_caixa
 from modules.relatorios.almoxarifado import montar_resumo_gerencial_almoxarifado
 from modules.relatorios.expedicao import montar_resumo_gerencial_expedicao
 from modules.relatorios.financeiro import montar_resumo_gerencial_financeiro
@@ -218,7 +218,7 @@ def resolver_fluxo(definicao, data_inicio, data_fim, cache=None):
     contexto = obter_cache(
         cache,
         ("fluxo", data_inicio, data_fim),
-        lambda: montar_contexto_fluxo_caixa(arg_periodo(data_inicio, data_fim)),
+        lambda: montar_resumo_gerencial_fluxo_caixa(arg_periodo(data_inicio, data_fim)),
     )
     valor = valor_numero(contexto.get("resumo", {}).get(definicao["campo_origem"]))
     if valor == 0 and not contexto_tem_linhas(contexto):

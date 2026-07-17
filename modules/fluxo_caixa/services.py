@@ -416,6 +416,58 @@ def calcular_resumo_fluxo_caixa(movimentacoes_previstas, movimentacoes_realizada
     }
 
 
+def montar_resumo_gerencial_fluxo_caixa(args):
+    filtros = normalizar_filtros(args)
+    filtros_sql, parametros_filtros = _montar_filtros_movimentacoes(
+        filtros["tipo_filtro"],
+        filtros["categoria_filtro"],
+        filtros["subcategoria_filtro"],
+    )
+    condicoes_base = [
+        "COALESCE(data_realizacao, '') <> ?",
+        "COALESCE(status, 'Pendente') IN (?, ?, ?)",
+        "COALESCE(impacta_fluxo_caixa, 1) = 1",
+    ]
+    parametros_base = ["", *STATUS_REALIZADOS_SQL]
+    condicoes_base.extend(filtros_sql)
+    parametros_base.extend(parametros_filtros)
+
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute(q(f"""
+    SELECT
+        COALESCE(SUM(CASE WHEN tipo = 'Entrada' THEN valor ELSE 0 END), 0) AS entradas_realizadas,
+        COALESCE(SUM(CASE WHEN tipo <> 'Entrada' THEN valor ELSE 0 END), 0) AS saidas_realizadas,
+        COUNT(*) AS quantidade
+    FROM movimentacoes_financeiras
+    WHERE {" AND ".join(condicoes_base)}
+      AND data_realizacao BETWEEN ? AND ?
+    """), tuple(parametros_base + [filtros["data_inicio"], filtros["data_fim"]]))
+    periodo = cursor.fetchone()
+
+    cursor.execute(q(f"""
+    SELECT
+        COALESCE(SUM(CASE WHEN tipo = 'Entrada' THEN valor ELSE -valor END), 0) AS saldo_inicial_realizado
+    FROM movimentacoes_financeiras
+    WHERE {" AND ".join(condicoes_base)}
+      AND data_realizacao < ?
+    """), tuple(parametros_base + [filtros["data_inicio"]]))
+    inicial = cursor.fetchone()
+    conn.close()
+
+    entradas = float(periodo["entradas_realizadas"] or 0)
+    saidas = float(periodo["saidas_realizadas"] or 0)
+    saldo_inicial = float(inicial["saldo_inicial_realizado"] or 0)
+    return {
+        "resumo": {
+            "entradas_realizadas": round(entradas, 2),
+            "saidas_realizadas": round(saidas, 2),
+            "saldo_realizado": round(saldo_inicial + entradas - saidas, 2),
+        },
+        "tem_dados": bool(periodo["quantidade"] or saldo_inicial),
+    }
+
+
 def montar_linha_tempo(movimentacoes_previstas, movimentacoes_realizadas, saldos_iniciais):
     por_data = {}
     saldo_previsto = saldos_iniciais["saldo_inicial_previsto"]
