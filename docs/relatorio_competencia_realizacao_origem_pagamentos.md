@@ -117,23 +117,73 @@ A implementacao usa uma base filtrada unica da Central de Movimentacoes e agrega
 
 ## Validacao Render
 
-Pendente ate merge, push e deploy automatico.
+Deploy validado em producao em 2026-07-19.
 
-Parametros obrigatorios para apuracao real:
+Parametros usados na apuracao real:
 
 - Data Inicial: `2026-03-01`;
 - Data Final: `2026-03-31`;
 - Referencia: `realizacao`;
 - Natureza: `Saida`.
 
-Registrar apos deploy:
+Resultado publicado:
 
-- total pago em marco de 2026;
-- quantidade de pagamentos;
-- Top 5;
-- valor e percentual do Top 5;
-- distribuicao por competencia de origem;
-- principal competencia;
-- eventos sem Data do Documento;
-- tempo de tela;
-- tempo de exportacao.
+- total pago em marco de 2026: `R$ 408.319,70`;
+- quantidade de pagamentos: `288`;
+- ticket medio: `R$ 1.417,78`;
+- maior pagamento: `R$ 31.500,00`;
+- valor acumulado do Top 5: `R$ 79.947,47`;
+- participacao do Top 5: `19,58%`;
+- principal competencia de origem: `2026-02`;
+- participacao da principal competencia: `41,99%`;
+- eventos sem Data do Documento: `0`;
+- reconciliacao: `OK`.
+
+Distribuicao por competencia de origem:
+
+| Competencia | Pagamentos | Valor | Participacao |
+| --- | ---: | ---: | ---: |
+| 2026-01 | 13 | R$ 67.099,13 | 16,43% |
+| 2026-02 | 60 | R$ 171.433,83 | 41,99% |
+| 2026-03 | 215 | R$ 169.786,74 | 41,58% |
+
+Top 5 por valor realizado, sem favorecidos no documento para evitar exposicao desnecessaria:
+
+| Posicao | Baixa | Competencia | Categoria | Valor |
+| ---: | --- | --- | --- | ---: |
+| 1 | 2026-03-09 | 2026-01 | Materia Prima | R$ 31.500,00 |
+| 2 | 2026-03-25 | 2026-03 | Impostos | R$ 12.608,78 |
+| 3 | 2026-03-02 | 2026-02 | Embalagens | R$ 12.000,00 |
+| 4 | 2026-03-16 | 2026-02 | Embalagens | R$ 12.000,00 |
+| 5 | 2026-03-25 | 2026-03 | Impostos | R$ 11.838,69 |
+
+Tempos observados no Render:
+
+- tela filtrada: `3,12s`;
+- exportacao Excel: `3,72s`.
+
+Rotas de regressao autenticadas responderam `200`:
+
+- `/relatorios`;
+- `/relatorios?dominio=Financeiro`;
+- `/dashboard`;
+- `/relatorios/gerencial/dashboard-executivo`;
+- `/dre-gerencial`;
+- `/fluxo-caixa`;
+- `/movimentacoes`;
+- `/movimentacoes/auditoria`;
+- `/movimentacoes/importar`;
+- `/estoque-produtos`;
+- `/consultar-op`;
+- `/almoxarifado`;
+- `/expedicao`.
+
+Rotas futuras/bloqueadas permaneceram em `404`:
+
+- Sankhya/NF;
+- Vendas;
+- Rastreabilidade comercial;
+- Giro;
+- FIFO;
+- CMV;
+- OEE.
