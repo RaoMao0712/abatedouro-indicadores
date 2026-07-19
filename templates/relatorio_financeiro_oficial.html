@@ -12,6 +12,9 @@
                 <span class="financeiro-pill-info"><strong>Periodo</strong> {{ filtros.data_inicio }} a {{ filtros.data_fim }}</span>
                 <span class="financeiro-pill-info"><strong>Base</strong> Central de Movimentacoes</span>
                 <span class="financeiro-pill-info"><strong>Data</strong> {{ filtros.referencia_data }}</span>
+                {% if slug == "competencia-realizacao" %}
+                <span class="financeiro-pill-info"><strong>Natureza</strong> {{ filtros.natureza }}</span>
+                {% endif %}
             </div>
         </div>
 
@@ -32,6 +35,16 @@
                     {% endfor %}
                 </select>
             </div>
+            {% if slug == "competencia-realizacao" %}
+            <div>
+                <label>Natureza</label>
+                <select name="natureza">
+                    {% for valor, rotulo in naturezas %}
+                    <option value="{{ valor }}" {% if filtros.natureza == valor %}selected{% endif %}>{{ rotulo }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            {% endif %}
             <div>
                 <label>Categoria</label>
                 <select name="categoria">
@@ -96,6 +109,157 @@
         </div>
         {% endfor %}
     </section>
+
+    {% if slug == "competencia-realizacao" and analise_pagamentos.ativa %}
+    <section class="relatorio-financeiro-kpis">
+        <div class="card relatorio-financeiro-kpi">
+            <span>Total pago no periodo</span>
+            <strong>{{ analise_pagamentos.resumo.total_pago|br_moeda }}</strong>
+        </div>
+        <div class="card relatorio-financeiro-kpi">
+            <span>Pagamentos</span>
+            <strong>{{ analise_pagamentos.resumo.quantidade_pagamentos }}</strong>
+        </div>
+        <div class="card relatorio-financeiro-kpi">
+            <span>Ticket medio</span>
+            <strong>{{ analise_pagamentos.resumo.ticket_medio|br_moeda }}</strong>
+        </div>
+        <div class="card relatorio-financeiro-kpi">
+            <span>Maior pagamento</span>
+            <strong>{{ analise_pagamentos.resumo.maior_pagamento|br_moeda }}</strong>
+        </div>
+        <div class="card relatorio-financeiro-kpi">
+            <span>Principal competencia</span>
+            <strong>{{ analise_pagamentos.resumo.principal_competencia or "Nao informado" }}</strong>
+        </div>
+        <div class="card relatorio-financeiro-kpi">
+            <span>Participacao principal</span>
+            <strong>{{ "%.2f"|format(analise_pagamentos.resumo.principal_percentual or 0) }}%</strong>
+        </div>
+        <div class="card relatorio-financeiro-kpi">
+            <span>Sem Data do Documento</span>
+            <strong>{{ analise_pagamentos.resumo.eventos_sem_data_documento }}</strong>
+        </div>
+    </section>
+
+    <section class="card relatorio-financeiro-card">
+        <div class="section-title-row">
+            <div>
+                <span class="eyebrow">Pagamentos realizados</span>
+                <h2>Cinco maiores pagamentos</h2>
+            </div>
+        </div>
+        {% if analise_pagamentos.top5 %}
+        <div class="tabela-responsiva tabela-executiva relatorio-financeiro-tabela">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Posicao</th>
+                        <th>Realizacao</th>
+                        <th>Documento</th>
+                        <th>Competencia</th>
+                        <th>Favorecido</th>
+                        <th>Categoria</th>
+                        <th>Subcategoria</th>
+                        <th>Documento ou historico</th>
+                        <th>Origem</th>
+                        <th>Valor realizado</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in analise_pagamentos.top5 %}
+                    <tr>
+                        <td>{{ loop.index }}</td>
+                        <td>{{ item.data_realizacao or "Nao informado" }}</td>
+                        <td>{{ item.data_documento or "Nao informado" }}</td>
+                        <td>{{ item.competencia_origem or "Nao informado" }}</td>
+                        <td>{{ item.favorecido or "Nao informado" }}</td>
+                        <td>{{ item.categoria or "Nao informado" }}</td>
+                        <td>{{ item.subcategoria or "Nao informado" }}</td>
+                        <td>{{ item.documento_ou_historico or "Nao informado" }}</td>
+                        <td>{{ item.origem_importacao or "Nao informado" }}</td>
+                        <td>{{ item.valor_realizado|br_moeda }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="relatorio-financeiro-vazio">Nenhum pagamento realizado encontrado para os filtros atuais.</div>
+        {% endif %}
+    </section>
+
+    <section class="card relatorio-financeiro-card">
+        <div class="section-title-row">
+            <div>
+                <span class="eyebrow">Origem dos pagamentos</span>
+                <h2>Pagamentos por competencia de origem</h2>
+            </div>
+        </div>
+        {% if analise_pagamentos.origem_competencia %}
+        <div class="tabela-responsiva tabela-executiva relatorio-financeiro-tabela">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Competencia de origem</th>
+                        <th>Pagamentos</th>
+                        <th>Valor pago</th>
+                        <th>Participacao</th>
+                        <th>Valor medio</th>
+                        <th>Maior pagamento</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in analise_pagamentos.origem_competencia %}
+                    <tr>
+                        <td>
+                            {{ item.competencia }}
+                            {% if item.principal %}<strong> Principal</strong>{% endif %}
+                        </td>
+                        <td>{{ item.quantidade }}</td>
+                        <td>{{ item.valor|br_moeda }}</td>
+                        <td>{{ "%.2f"|format(item.percentual or 0) }}%</td>
+                        <td>{{ item.valor_medio|br_moeda }}</td>
+                        <td>{{ item.maior_pagamento|br_moeda }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="relatorio-financeiro-vazio">Nao ha competencias de origem para os filtros atuais.</div>
+        {% endif %}
+    </section>
+
+    <section class="card relatorio-financeiro-card">
+        <div class="section-title-row">
+            <div>
+                <span class="eyebrow">Reconciliacao</span>
+                <h2>Total pago e origem</h2>
+            </div>
+        </div>
+        <p>
+            Total pago no periodo {{ analise_pagamentos.resumo.total_pago|br_moeda }}
+            = soma por competencia de origem
+            = soma da base detalhada filtrada.
+            O Top 5 acumula {{ analise_pagamentos.resumo.valor_top5|br_moeda }}
+            ({{ "%.2f"|format(analise_pagamentos.resumo.percentual_top5 or 0) }}% do total).
+        </p>
+        {% if not analise_pagamentos.resumo.reconciliacao_ok %}
+        <div class="relatorio-financeiro-vazio">Atencao: a reconciliacao apresentou divergencia de arredondamento.</div>
+        {% endif %}
+    </section>
+    {% elif slug == "competencia-realizacao" %}
+    <section class="card relatorio-financeiro-card">
+        <div class="section-title-row">
+            <div>
+                <span class="eyebrow">Origem dos pagamentos</span>
+                <h2>Analise especifica</h2>
+            </div>
+        </div>
+        <div class="relatorio-financeiro-vazio">{{ analise_pagamentos.orientacao }}</div>
+    </section>
+    {% endif %}
 
     {% if agrupamentos %}
     <section class="card relatorio-financeiro-card">

@@ -17,6 +17,9 @@ LINHA_DEDUCOES_RECEITA = "Deducoes da Receita"
 LINHA_DESPESAS_OPERACIONAIS = "Despesas Operacionais"
 LINHA_RESULTADO_NAO_OPERACIONAL = "Resultado Nao Operacional"
 LINHA_NEUTRA = "Neutro"
+NATUREZAS_FILTRO = ["Todas", "Entrada", "Saida"]
+STATUS_REALIZADOS = ["Pago", "Recebido", "Realizado"]
+COMPETENCIA_SEM_DATA_DOCUMENTO = "Sem data do documento"
 
 
 RELATORIOS_FINANCEIROS = {
@@ -156,11 +159,15 @@ def normalizar_filtros(args, config):
     referencia_data = args.get("referencia_data") or config.get("data_padrao", "documento")
     if referencia_data not in REFERENCIAS_DATA:
         referencia_data = config.get("data_padrao", "documento")
+    natureza = args.get("natureza") or "Todas"
+    if natureza not in NATUREZAS_FILTRO:
+        natureza = "Todas"
 
     return {
         "data_inicio": data_inicio,
         "data_fim": data_fim,
         "referencia_data": referencia_data,
+        "natureza": natureza,
         "categoria": args.get("categoria") or "Todas",
         "subcategoria": args.get("subcategoria") or "Todas",
         "favorecido": args.get("favorecido") or "",
@@ -185,6 +192,9 @@ def montar_condicoes_base(config, filtros, aplicar_periodo=True):
     cond_tipo = normalizar_tipo_sql(tipo)
     if cond_tipo:
         condicoes.append(cond_tipo)
+        parametros.append("Entrada")
+    elif filtros.get("natureza") and filtros["natureza"] != "Todas":
+        condicoes.append(normalizar_tipo_sql(filtros["natureza"]))
         parametros.append("Entrada")
 
     if familia in ["caixa", "contas"]:
@@ -268,7 +278,32 @@ def valor_baixado(item):
 
 
 def status_realizado(item):
-    return bool(item.get("data_realizacao")) and item.get("status") in ["Pago", "Recebido", "Realizado"]
+    return bool(item.get("data_realizacao")) and item.get("status") in STATUS_REALIZADOS
+
+
+def competencia_origem(data_documento):
+    data = (data_documento or "")[:10]
+    if len(data) >= 7:
+        return data[:7]
+    return COMPETENCIA_SEM_DATA_DOCUMENTO
+
+
+def documento_ou_historico(item):
+    return (
+        item.get("numero_documento")
+        or item.get("documento_id")
+        or item.get("historico")
+        or item.get("descricao")
+        or "Nao informado"
+    )
+
+
+def analise_pagamentos_ativa(filtros):
+    return filtros.get("referencia_data") == "realizacao" and filtros.get("natureza") == "Saida"
+
+
+def percentual(valor, total):
+    return round((float(valor or 0) / total * 100) if total else 0, 2)
 
 
 def dias_entre(data_a, data_b):
@@ -528,20 +563,119 @@ def montar_evolucao(config, filtros):
     return linhas, resumo
 
 
+def montar_analise_pagamentos_origem(itens, filtros):
+    ativo = analise_pagamentos_ativa(filtros)
+    analise = {
+        "ativa": ativo,
+        "orientacao": (
+            "A analise de origem dos pagamentos exige Referencia = Realizacao / baixa "
+            "e Natureza = Saida."
+        ),
+        "resumo": {
+            "total_pago": 0,
+            "quantidade_pagamentos": 0,
+            "ticket_medio": 0,
+            "maior_pagamento": 0,
+            "principal_competencia": "",
+            "principal_percentual": 0,
+            "eventos_sem_data_documento": 0,
+            "valor_top5": 0,
+            "percentual_top5": 0,
+            "reconciliacao_ok": True,
+        },
+        "top5": [],
+        "origem_competencia": [],
+        "dados_detalhados": [],
+    }
+    if not ativo:
+        return analise
+
+    pagamentos = []
+    for item in itens:
+        if not status_realizado(item):
+            continue
+        if item.get("tipo") == "Entrada":
+            continue
+        if int(item.get("impacta_fluxo_caixa") or 0) != 1:
+            continue
+        if (item.get("categoria") or "") == "Aportes":
+            continue
+        valor_realizado = valor_baixado(item)
+        if valor_realizado <= 0:
+            continue
+        item["valor_realizado"] = valor_realizado
+        item["competencia_origem"] = competencia_origem(item.get("data_documento"))
+        item["documento_ou_historico"] = documento_ou_historico(item)
+        pagamentos.append(item)
+
+    pagamentos.sort(key=lambda item: (-valor_float(item.get("valor_realizado")), item.get("data_realizacao") or "", item.get("id") or 0))
+    total_pago = round(sum(valor_float(item.get("valor_realizado")) for item in pagamentos), 2)
+    quantidade = len(pagamentos)
+    top5 = pagamentos[:5]
+    valor_top5 = round(sum(valor_float(item.get("valor_realizado")) for item in top5), 2)
+
+    por_competencia = defaultdict(lambda: {
+        "competencia": "",
+        "quantidade": 0,
+        "valor": 0,
+        "percentual": 0,
+        "valor_medio": 0,
+        "maior_pagamento": 0,
+        "principal": False,
+    })
+    for item in pagamentos:
+        chave = item["competencia_origem"]
+        linha = por_competencia[chave]
+        linha["competencia"] = chave
+        linha["quantidade"] += 1
+        linha["valor"] = round(linha["valor"] + valor_float(item.get("valor_realizado")), 2)
+        linha["maior_pagamento"] = max(linha["maior_pagamento"], valor_float(item.get("valor_realizado")))
+
+    origem_competencia = list(por_competencia.values())
+    origem_competencia.sort(key=lambda item: (item["competencia"] == COMPETENCIA_SEM_DATA_DOCUMENTO, item["competencia"]))
+    principal = None
+    for linha in origem_competencia:
+        linha["percentual"] = percentual(linha["valor"], total_pago)
+        linha["valor_medio"] = round((linha["valor"] / linha["quantidade"]) if linha["quantidade"] else 0, 2)
+        if principal is None or linha["valor"] > principal["valor"]:
+            principal = linha
+    if principal:
+        principal["principal"] = True
+
+    soma_competencias = round(sum(linha["valor"] for linha in origem_competencia), 2)
+    analise["resumo"] = {
+        "total_pago": total_pago,
+        "quantidade_pagamentos": quantidade,
+        "ticket_medio": round((total_pago / quantidade) if quantidade else 0, 2),
+        "maior_pagamento": valor_float(top5[0].get("valor_realizado")) if top5 else 0,
+        "principal_competencia": principal["competencia"] if principal else "",
+        "principal_percentual": principal["percentual"] if principal else 0,
+        "eventos_sem_data_documento": sum(1 for item in pagamentos if item["competencia_origem"] == COMPETENCIA_SEM_DATA_DOCUMENTO),
+        "valor_top5": valor_top5,
+        "percentual_top5": percentual(valor_top5, total_pago),
+        "reconciliacao_ok": abs(total_pago - soma_competencias) < 0.01,
+    }
+    analise["top5"] = top5
+    analise["origem_competencia"] = origem_competencia
+    analise["dados_detalhados"] = pagamentos
+    return analise
+
+
 def montar_competencia_realizacao(config, filtros):
-    condicoes, parametros, _ = montar_condicoes_base({"familia": "caixa", "tipo": "Todos"}, filtros, aplicar_periodo=False)
-    condicoes.append("COALESCE(NULLIF(data_documento, ''), data_vencimento) BETWEEN ? AND ?")
-    parametros.extend([filtros["data_inicio"], filtros["data_fim"]])
+    condicoes, parametros, campo_data = montar_condicoes_base({"familia": "caixa", "tipo": "Todos"}, filtros)
     itens = executar_lista(f"""
-        SELECT id, data_documento, data_vencimento, data_realizacao, tipo,
+        SELECT id, documento_id, data_documento, data_vencimento, data_realizacao, tipo,
                COALESCE(NULLIF(categoria_plano, ''), categoria, '') as categoria,
                COALESCE(subcategoria, '') as subcategoria,
                COALESCE(favorecido, parceiro, '') as favorecido,
-               valor, status, linha_dre, impacta_fluxo_caixa, descricao, historico
+               COALESCE(origem_importacao, '') as origem_importacao,
+               valor, valor_documento, valor_pago, valor_liquido,
+               status, linha_dre, tipo_conta, COALESCE(impacta_fluxo_caixa, 1) as impacta_fluxo_caixa,
+               descricao, historico, numero_documento,
+               {campo_data} as data_referencia
         FROM movimentacoes_financeiras
         WHERE {" AND ".join(condicoes)}
-        ORDER BY COALESCE(NULLIF(data_documento, ''), data_vencimento), id
-        LIMIT 500
+        ORDER BY data_referencia ASC, id ASC
     """, parametros)
     total_competencia = 0
     total_realizado = 0
@@ -550,9 +684,10 @@ def montar_competencia_realizacao(config, filtros):
     sem_baixa = 0
     for item in itens:
         valor = valor_evento(item) * sinal_item(item)
+        realizado = valor_baixado(item)
         total_competencia += valor
         if status_realizado(item):
-            total_realizado += valor
+            total_realizado += realizado * sinal_item(item)
             prazo = dias_entre(item.get("data_documento") or item.get("data_vencimento"), item.get("data_realizacao"))
             prazo_venc = dias_entre(item.get("data_vencimento"), item.get("data_realizacao"))
             if prazo is not None:
@@ -562,6 +697,10 @@ def montar_competencia_realizacao(config, filtros):
         else:
             sem_baixa += 1
         item["valor_assinado"] = round(valor, 2)
+        item["valor_realizado"] = realizado
+        item["valor_realizado_assinado"] = round(realizado * sinal_item(item), 2)
+        item["competencia_origem"] = competencia_origem(item.get("data_documento"))
+        item["documento_ou_historico"] = documento_ou_historico(item)
         item["prazo_documento_baixa"] = dias_entre(item.get("data_documento") or item.get("data_vencimento"), item.get("data_realizacao"))
         item["prazo_vencimento_baixa"] = dias_entre(item.get("data_vencimento"), item.get("data_realizacao"))
     media_doc = sum(prazos_doc_baixa) / len(prazos_doc_baixa) if prazos_doc_baixa else 0
@@ -574,7 +713,7 @@ def montar_competencia_realizacao(config, filtros):
         {"rotulo": "Prazo medio doc. baixa", "valor": round(media_doc, 1), "tipo": "numero"},
         {"rotulo": "Prazo medio venc. baixa", "valor": round(media_venc, 1), "tipo": "numero"},
     ]
-    return itens, resumo
+    return itens, resumo, montar_analise_pagamentos_origem(itens, filtros)
 
 
 def montar_contexto_relatorio_financeiro(slug, args):
@@ -584,6 +723,14 @@ def montar_contexto_relatorio_financeiro(slug, args):
     agrupamentos = []
     evolucao = []
     resumo = []
+    analise_pagamentos = {
+        "ativa": False,
+        "orientacao": "",
+        "resumo": {},
+        "top5": [],
+        "origem_competencia": [],
+        "dados_detalhados": [],
+    }
 
     if config["familia"] == "caixa":
         resumo = montar_resumo_caixa(config, filtros)
@@ -618,7 +765,7 @@ def montar_contexto_relatorio_financeiro(slug, args):
         evolucao, resumo = montar_evolucao(config, filtros)
         detalhes = []
     elif config["familia"] == "competencia_realizacao":
-        detalhes, resumo = montar_competencia_realizacao(config, filtros)
+        detalhes, resumo, analise_pagamentos = montar_competencia_realizacao(config, filtros)
 
     return {
         "slug": slug,
@@ -629,17 +776,163 @@ def montar_contexto_relatorio_financeiro(slug, args):
         "agrupamentos": agrupamentos,
         "evolucao": evolucao,
         "detalhes": detalhes,
+        "analise_pagamentos": analise_pagamentos,
         "query_string": urlencode({k: v for k, v in filtros.items() if v not in ["", "Todas"]}),
         "referencias_data": [
             ("documento", "Documento / competencia"),
             ("vencimento", "Vencimento"),
             ("realizacao", "Realizacao / baixa"),
         ],
+        "naturezas": [
+            ("Todas", "Todas"),
+            ("Entrada", "Entrada"),
+            ("Saida", "Saida"),
+        ],
         "situacoes": ["Todas", "A vencer", "Vencido", "Realizado", "Sem vencimento"],
     }
 
 
+def ajustar_planilha(ws):
+    ws.freeze_panes = "A2"
+    if ws.max_row >= 1 and ws.max_column >= 1:
+        ws.auto_filter.ref = ws.dimensions
+    for coluna in range(1, ws.max_column + 1):
+        largura = 14
+        for linha in range(1, min(ws.max_row, 60) + 1):
+            valor = ws.cell(linha, coluna).value
+            if valor is not None:
+                largura = max(largura, min(len(str(valor)) + 2, 42))
+        ws.column_dimensions[get_column_letter(coluna)].width = largura
+    for cell in ws[1]:
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="1F3B4D")
+
+
+def formatar_abas_analise_pagamentos(wb):
+    for ws in wb.worksheets:
+        ajustar_planilha(ws)
+        for row in ws.iter_rows():
+            for cell in row:
+                cabecalho = str(ws.cell(1, cell.column).value or "").lower()
+                if "valor" in cabecalho or "ticket" in cabecalho or "pagamento" in cabecalho or "total" in cabecalho:
+                    if isinstance(cell.value, (int, float)):
+                        cell.number_format = '#,##0.00'
+                if "percentual" in cabecalho or "participacao" in cabecalho:
+                    if isinstance(cell.value, (int, float)):
+                        cell.number_format = '0.00%'
+
+
+def gerar_excel_competencia_pagamentos(contexto):
+    wb = Workbook()
+    analise = contexto["analise_pagamentos"]
+    resumo = analise["resumo"]
+
+    ws = wb.active
+    ws.title = "Resumo"
+    ws.append(["Indicador", "Valor"])
+    linhas_resumo = [
+        ("Periodo", f"{contexto['filtros']['data_inicio']} a {contexto['filtros']['data_fim']}"),
+        ("Referencia", contexto["filtros"]["referencia_data"]),
+        ("Natureza", contexto["filtros"]["natureza"]),
+        ("Total pago", resumo.get("total_pago", 0)),
+        ("Quantidade", resumo.get("quantidade_pagamentos", 0)),
+        ("Ticket medio", resumo.get("ticket_medio", 0)),
+        ("Maior pagamento", resumo.get("maior_pagamento", 0)),
+        ("Principal competencia", resumo.get("principal_competencia") or "Nao informado"),
+        ("Participacao principal competencia", (resumo.get("principal_percentual", 0) or 0) / 100),
+        ("Valor Top 5", resumo.get("valor_top5", 0)),
+        ("Participacao Top 5", (resumo.get("percentual_top5", 0) or 0) / 100),
+        ("Eventos sem Data do Documento", resumo.get("eventos_sem_data_documento", 0)),
+        ("Gerado em", datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+        ("Base oficial", "Central de Movimentacoes"),
+        ("Reconciliacao", "OK" if resumo.get("reconciliacao_ok") else "Divergente"),
+    ]
+    for linha in linhas_resumo:
+        ws.append(list(linha))
+    for row in range(2, ws.max_row + 1):
+        indicador = str(ws.cell(row, 1).value or "").lower()
+        if "participacao" in indicador:
+            ws.cell(row, 2).number_format = "0.00%"
+
+    ws = wb.create_sheet("Top 5 Pagamentos")
+    ws.append([
+        "Posicao", "Data Realizacao", "Data Documento", "Competencia Origem",
+        "Favorecido", "Categoria", "Subcategoria", "Documento ou Historico",
+        "Origem", "Valor Realizado",
+    ])
+    for posicao, item in enumerate(analise["top5"], start=1):
+        ws.append([
+            posicao,
+            item.get("data_realizacao") or "Nao informado",
+            item.get("data_documento") or "Nao informado",
+            item.get("competencia_origem") or "Nao informado",
+            item.get("favorecido") or "Nao informado",
+            item.get("categoria") or "Nao informado",
+            item.get("subcategoria") or "Nao informado",
+            item.get("documento_ou_historico") or "Nao informado",
+            item.get("origem_importacao") or "Nao informado",
+            valor_float(item.get("valor_realizado")),
+        ])
+
+    ws = wb.create_sheet("Origem por Competencia")
+    ws.append(["Competencia", "Quantidade", "Valor", "Percentual", "Valor medio", "Maior pagamento"])
+    for item in analise["origem_competencia"]:
+        ws.append([
+            item.get("competencia") or "Nao informado",
+            item.get("quantidade", 0),
+            item.get("valor", 0),
+            (item.get("percentual", 0) or 0) / 100,
+            item.get("valor_medio", 0),
+            item.get("maior_pagamento", 0),
+        ])
+
+    ws = wb.create_sheet("Dados Detalhados")
+    ws.append([
+        "Data Realizacao", "Data Documento", "Data Vencimento", "Competencia Origem",
+        "Favorecido", "Categoria", "Subcategoria", "Documento ou Historico",
+        "Origem", "Status", "Valor Documento", "Valor Realizado",
+        "Impacta Fluxo Caixa", "Linha DRE",
+    ])
+    for item in analise["dados_detalhados"]:
+        ws.append([
+            item.get("data_realizacao") or "Nao informado",
+            item.get("data_documento") or "Nao informado",
+            item.get("data_vencimento") or "Nao informado",
+            item.get("competencia_origem") or "Nao informado",
+            item.get("favorecido") or "Nao informado",
+            item.get("categoria") or "Nao informado",
+            item.get("subcategoria") or "Nao informado",
+            item.get("documento_ou_historico") or "Nao informado",
+            item.get("origem_importacao") or "Nao informado",
+            item.get("status") or "Nao informado",
+            valor_evento(item),
+            valor_float(item.get("valor_realizado")),
+            item.get("impacta_fluxo_caixa"),
+            item.get("linha_dre") or "",
+        ])
+
+    ws = wb.create_sheet("Parametros")
+    ws.append(["Campo", "Valor"])
+    for chave, valor in contexto["filtros"].items():
+        ws.append([chave, valor])
+    ws.append(["Definicao", "Pagamento realizado = Saida com data_realizacao no periodo, status realizado e impacta_fluxo_caixa = 1."])
+    ws.append(["Valor", "Usa valor_pago quando preenchido; senao usa valor do evento somente para registros realizados."])
+    ws.append(["Competencia de origem", "Mes da data_documento; ausente permanece como Sem data do documento."])
+    ws.append(["Transferencias", "Eventos neutros do fluxo ficam fora por impacta_fluxo_caixa = 0."])
+    ws.append(["Top 5", "Cinco eventos individuais por maior valor realizado, sem agrupamento."])
+    ws.append(["Reconciliacao", "Total pago = soma por competencia = soma dos dados detalhados."])
+
+    formatar_abas_analise_pagamentos(wb)
+    arquivo = BytesIO()
+    wb.save(arquivo)
+    arquivo.seek(0)
+    return arquivo
+
+
 def gerar_excel_relatorio_financeiro(contexto):
+    if contexto.get("slug") == "competencia-realizacao" and contexto.get("analise_pagamentos", {}).get("ativa"):
+        return gerar_excel_competencia_pagamentos(contexto)
+
     wb = Workbook()
     ws = wb.active
     ws.title = "Relatorio"
