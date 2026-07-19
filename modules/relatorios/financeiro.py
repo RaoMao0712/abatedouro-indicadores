@@ -6,6 +6,7 @@ from io import BytesIO
 from urllib.parse import urlencode
 
 from openpyxl import Workbook
+from openpyxl.styles import Alignment
 from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
 
@@ -20,6 +21,20 @@ LINHA_NEUTRA = "Neutro"
 NATUREZAS_FILTRO = ["Todas", "Entrada", "Saida"]
 STATUS_REALIZADOS = ["Pago", "Recebido", "Realizado"]
 COMPETENCIA_SEM_DATA_DOCUMENTO = "Sem data do documento"
+MESES_PT = {
+    "01": "janeiro",
+    "02": "fevereiro",
+    "03": "marco",
+    "04": "abril",
+    "05": "maio",
+    "06": "junho",
+    "07": "julho",
+    "08": "agosto",
+    "09": "setembro",
+    "10": "outubro",
+    "11": "novembro",
+    "12": "dezembro",
+}
 
 
 RELATORIOS_FINANCEIROS = {
@@ -306,6 +321,159 @@ def percentual(valor, total):
     return round((float(valor or 0) / total * 100) if total else 0, 2)
 
 
+def moeda_texto(valor):
+    texto = f"{valor_float(valor):,.2f}"
+    return "R$ " + texto.replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def percentual_texto(valor):
+    return f"{float(valor or 0):.2f}".replace(".", ",") + "%"
+
+
+def rotulo_periodo(filtros):
+    inicio = filtros.get("data_inicio") or ""
+    fim = filtros.get("data_fim") or ""
+    if inicio[:7] == fim[:7] and len(inicio) >= 7:
+        mes = MESES_PT.get(inicio[5:7], inicio[5:7])
+        return f"{mes} de {inicio[:4]}"
+    return f"{inicio} a {fim}"
+
+
+def classe_temporal_competencia(competencia, filtros):
+    if competencia == COMPETENCIA_SEM_DATA_DOCUMENTO:
+        return "sem_data"
+    inicio_mes = (filtros.get("data_inicio") or "")[:7]
+    fim_mes = (filtros.get("data_fim") or "")[:7]
+    if not inicio_mes or not fim_mes:
+        return "dentro"
+    if competencia < inicio_mes:
+        return "anterior"
+    if competencia > fim_mes:
+        return "posterior"
+    return "dentro"
+
+
+def montar_leitura_gerencial_pagamentos(analise, filtros):
+    resumo = analise["resumo"]
+    total = valor_float(resumo.get("total_pago"))
+    leitura = {
+        "titulo": "Leitura gerencial",
+        "ativa": analise.get("ativa", False),
+        "paragrafos": [],
+        "destaques": [],
+        "texto_exportacao": "",
+        "periodo": rotulo_periodo(filtros),
+        "sem_dados": False,
+    }
+    if not leitura["ativa"]:
+        leitura["paragrafos"] = [analise.get("orientacao", "")]
+        leitura["texto_exportacao"] = "\n".join(leitura["paragrafos"])
+        return leitura
+
+    if not resumo.get("quantidade_pagamentos"):
+        leitura["sem_dados"] = True
+        leitura["paragrafos"] = [
+            f"No periodo {leitura['periodo']}, nao foram encontrados pagamentos realizados para os filtros aplicados.",
+        ]
+        leitura["texto_exportacao"] = "\n".join(leitura["paragrafos"])
+        return leitura
+
+    grupos = {
+        "anterior": {"valor": 0, "quantidade": 0},
+        "dentro": {"valor": 0, "quantidade": 0},
+        "posterior": {"valor": 0, "quantidade": 0},
+        "sem_data": {"valor": 0, "quantidade": 0},
+    }
+    for linha in analise["origem_competencia"]:
+        classe = classe_temporal_competencia(linha.get("competencia"), filtros)
+        grupos[classe]["valor"] = round(grupos[classe]["valor"] + valor_float(linha.get("valor")), 2)
+        grupos[classe]["quantidade"] += int(linha.get("quantidade") or 0)
+    for grupo in grupos.values():
+        grupo["percentual"] = percentual(grupo["valor"], total)
+
+    principal = None
+    ordenadas = sorted(analise["origem_competencia"], key=lambda item: valor_float(item.get("valor")), reverse=True)
+    if ordenadas:
+        principal = ordenadas[0]
+    empate_principais = False
+    if len(ordenadas) >= 2:
+        empate_principais = abs(float(ordenadas[0].get("percentual") or 0) - float(ordenadas[1].get("percentual") or 0)) <= 1
+
+    maior_pagamento = analise["top5"][0] if analise.get("top5") else {}
+    maior_texto = ""
+    if maior_pagamento:
+        maior_texto = (
+            f"O maior pagamento foi para {maior_pagamento.get('favorecido') or 'Nao informado'}, "
+            f"no valor de {moeda_texto(maior_pagamento.get('valor_realizado'))}, "
+            f"categoria {maior_pagamento.get('categoria') or 'Nao informado'}, "
+            f"com origem em {maior_pagamento.get('competencia_origem') or 'Nao informado'}."
+        )
+
+    dominante = max(["anterior", "dentro", "posterior"], key=lambda chave: grupos[chave]["percentual"])
+    frase_dominante = ""
+    if grupos[dominante]["percentual"] > 50:
+        if dominante == "anterior":
+            frase_dominante = "A maior parte dos pagamentos corresponde a documentos originados antes do periodo analisado."
+        elif dominante == "dentro":
+            frase_dominante = "A maior parte dos pagamentos corresponde a documentos originados no proprio periodo."
+        else:
+            frase_dominante = "A maior parte dos pagamentos corresponde a documentos originados depois do periodo analisado, situacao que merece conferencia cadastral."
+
+    paragrafos = [
+        (
+            f"Em {leitura['periodo']}, foram realizados {resumo['quantidade_pagamentos']} pagamentos, "
+            f"totalizando {moeda_texto(total)}."
+        ),
+        (
+            f"Desse valor, {moeda_texto(grupos['anterior']['valor'])}, equivalentes a "
+            f"{percentual_texto(grupos['anterior']['percentual'])}, correspondem a documentos originados antes do periodo. "
+            f"Os documentos do proprio periodo representaram {moeda_texto(grupos['dentro']['valor'])}, "
+            f"ou {percentual_texto(grupos['dentro']['percentual'])}."
+        ),
+    ]
+    if grupos["posterior"]["valor"] > 0:
+        paragrafos.append(
+            f"Documentos com competencia posterior ao periodo somaram {moeda_texto(grupos['posterior']['valor'])}, "
+            f"ou {percentual_texto(grupos['posterior']['percentual'])}, e merecem conferencia cadastral."
+        )
+    if principal:
+        paragrafos.append(
+            f"{principal['competencia']} foi a principal competencia de origem, com {moeda_texto(principal['valor'])}, "
+            f"representando {percentual_texto(principal['percentual'])} do total."
+        )
+    if empate_principais:
+        paragrafos.append("As duas principais competencias apresentam concentracao semelhante.")
+    if frase_dominante:
+        paragrafos.append(frase_dominante)
+    paragrafos.append(
+        f"Os cinco maiores pagamentos somaram {moeda_texto(resumo['valor_top5'])} e concentraram "
+        f"{percentual_texto(resumo['percentual_top5'])} do desembolso."
+    )
+    if maior_texto:
+        paragrafos.append(maior_texto)
+    if grupos["sem_data"]["quantidade"]:
+        paragrafos.append(
+            f"Foram encontrados {grupos['sem_data']['quantidade']} eventos sem Data do Documento, "
+            f"somando {moeda_texto(grupos['sem_data']['valor'])}, ou {percentual_texto(grupos['sem_data']['percentual'])} do total."
+        )
+    else:
+        paragrafos.append("Nao foram encontrados eventos sem Data do Documento.")
+    if resumo.get("reconciliacao_ok"):
+        paragrafos.append("A analise esta reconciliada com a base detalhada.")
+    else:
+        paragrafos.append("Alerta tecnico: a reconciliacao entre total pago, competencias e base detalhada apresentou divergencia.")
+
+    leitura["paragrafos"] = paragrafos
+    leitura["destaques"] = [
+        {"rotulo": "Anteriores", "valor": grupos["anterior"]["valor"], "percentual": grupos["anterior"]["percentual"]},
+        {"rotulo": "Proprio periodo", "valor": grupos["dentro"]["valor"], "percentual": grupos["dentro"]["percentual"]},
+        {"rotulo": "Posteriores", "valor": grupos["posterior"]["valor"], "percentual": grupos["posterior"]["percentual"]},
+        {"rotulo": "Sem data", "valor": grupos["sem_data"]["valor"], "percentual": grupos["sem_data"]["percentual"]},
+    ]
+    leitura["texto_exportacao"] = "\n".join(paragrafos)
+    return leitura
+
+
 def dias_entre(data_a, data_b):
     try:
         a = datetime.strptime((data_a or "")[:10], "%Y-%m-%d").date()
@@ -568,7 +736,7 @@ def montar_analise_pagamentos_origem(itens, filtros):
     analise = {
         "ativa": ativo,
         "orientacao": (
-            "A analise de origem dos pagamentos exige Referencia = Realizacao / baixa "
+            "Para visualizar a leitura dos pagamentos, selecione Referencia = Realizacao / baixa "
             "e Natureza = Saida."
         ),
         "resumo": {
@@ -586,8 +754,10 @@ def montar_analise_pagamentos_origem(itens, filtros):
         "top5": [],
         "origem_competencia": [],
         "dados_detalhados": [],
+        "leitura_gerencial": {},
     }
     if not ativo:
+        analise["leitura_gerencial"] = montar_leitura_gerencial_pagamentos(analise, filtros)
         return analise
 
     pagamentos = []
@@ -658,6 +828,7 @@ def montar_analise_pagamentos_origem(itens, filtros):
     analise["top5"] = top5
     analise["origem_competencia"] = origem_competencia
     analise["dados_detalhados"] = pagamentos
+    analise["leitura_gerencial"] = montar_leitura_gerencial_pagamentos(analise, filtros)
     return analise
 
 
@@ -730,6 +901,7 @@ def montar_contexto_relatorio_financeiro(slug, args):
         "top5": [],
         "origem_competencia": [],
         "dados_detalhados": [],
+        "leitura_gerencial": {},
     }
 
     if config["familia"] == "caixa":
@@ -853,6 +1025,11 @@ def gerar_excel_competencia_pagamentos(contexto):
         indicador = str(ws.cell(row, 1).value or "").lower()
         if "participacao" in indicador:
             ws.cell(row, 2).number_format = "0.00%"
+    ws.append([])
+    ws.append(["LEITURA GERENCIAL"])
+    ws.append([analise.get("leitura_gerencial", {}).get("texto_exportacao", "")])
+    ws.cell(ws.max_row, 1).alignment = Alignment(wrap_text=True, vertical="top")
+    ws.row_dimensions[ws.max_row].height = 120
 
     ws = wb.create_sheet("Top 5 Pagamentos")
     ws.append([

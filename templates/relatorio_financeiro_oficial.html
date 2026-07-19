@@ -145,6 +145,31 @@
     <section class="card relatorio-financeiro-card">
         <div class="section-title-row">
             <div>
+                <span class="eyebrow">Interpretacao automatica</span>
+                <h2>LEITURA GERENCIAL</h2>
+            </div>
+        </div>
+        <div class="relatorio-financeiro-leitura">
+            {% for paragrafo in analise_pagamentos.leitura_gerencial.paragrafos %}
+            <p>{{ paragrafo }}</p>
+            {% endfor %}
+            {% if analise_pagamentos.leitura_gerencial.destaques %}
+            <div class="relatorio-financeiro-kpis">
+                {% for item in analise_pagamentos.leitura_gerencial.destaques %}
+                <div class="relatorio-financeiro-kpi">
+                    <span>{{ item.rotulo }}</span>
+                    <strong>{{ item.valor|br_moeda }}</strong>
+                    <span>{{ "%.2f"|format(item.percentual or 0) }}%</span>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+    </section>
+
+    <section class="card relatorio-financeiro-card">
+        <div class="section-title-row">
+            <div>
                 <span class="eyebrow">Pagamentos realizados</span>
                 <h2>Cinco maiores pagamentos</h2>
             </div>
