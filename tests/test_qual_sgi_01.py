@@ -124,6 +124,10 @@ def test_na_ventilacao_e_acao_imediata_plm02():
         data={"resultado": "C", "nc_id": ncs[0]["id"], "verificacao_id": vid})
     assert bloqueado.status_code == 302
     assert repo.buscar_verificacao(vid)[3][0]["status"] == "Aguardando reposicao"
+    sessao(client, "admin")
+    client.post(f"/sgi/qualidade/reposicoes/{acoes[0]['id']}/confirmar",
+        data={"resultado": "C", "nc_id": ncs[0]["id"], "verificacao_id": vid})
+    assert repo.buscar_verificacao(vid)[3][0]["status"] == "Aguardando reposicao"
     sessao(client, "qualidade")
     ok = client.post(f"/sgi/qualidade/reposicoes/{acoes[0]['id']}/confirmar",
         data={"resultado": "C", "observacao": "Reposto", "nc_id": ncs[0]["id"], "verificacao_id": vid})

@@ -870,6 +870,9 @@ def register_qualidade_routes(app, integracoes=None):
     @app.route("/sgi/qualidade/reposicoes/<int:acao_id>/confirmar", methods=["POST"])
     @perfil_permitido("qualidade")
     def sgi_confirmar_reposicao(acao_id):
+        if session.get("perfil") != "qualidade":
+            flash("Operacao exclusiva do perfil Qualidade.")
+            return redirect(url_for("sgi_verificacao_detalhe", verificacao_id=int(request.form["verificacao_id"])))
         qualidade_service.confirmar_reposicao_sgi(
             acao_id, request.form, session["usuario_id"], session.get("nome", "Usuario"))
         flash("Segunda verificacao registrada.")
@@ -886,6 +889,9 @@ def register_qualidade_routes(app, integracoes=None):
     @app.route("/sgi/qualidade/ncs/<int:nc_id>/eficacia", methods=["POST"])
     @perfil_permitido("qualidade")
     def sgi_validar_eficacia(nc_id):
+        if session.get("perfil") != "qualidade":
+            flash("Operacao exclusiva do perfil Qualidade.")
+            return redirect(url_for("sgi_verificacao_detalhe", verificacao_id=int(request.form["verificacao_id"])))
         qualidade_service.validar_eficacia_sgi(
             nc_id, request.form, session["usuario_id"], session.get("nome", "Usuario"))
         flash("Eficacia registrada. Confira o resultado antes do encerramento.")
@@ -894,6 +900,9 @@ def register_qualidade_routes(app, integracoes=None):
     @app.route("/sgi/qualidade/ncs/<int:nc_id>/encerrar", methods=["POST"])
     @perfil_permitido("qualidade")
     def sgi_encerrar_nc(nc_id):
+        if session.get("perfil") != "qualidade":
+            flash("Operacao exclusiva do perfil Qualidade.")
+            return redirect(url_for("sgi_verificacao_detalhe", verificacao_id=int(request.form["verificacao_id"])))
         qualidade_service.encerrar_nc_sgi(
             nc_id, session["usuario_id"], session.get("nome", "Usuario"))
         flash("Nao conformidade encerrada definitivamente.")
