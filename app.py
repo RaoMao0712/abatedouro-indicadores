@@ -22,6 +22,7 @@ from modules.expedicao.routes import register_expedicao_routes
 from modules.movimentacoes.routes import register_movimentacoes_routes
 from modules.producao.routes import register_producao_routes
 from modules.qualidade.routes import register_qualidade_routes
+from modules.qualidade.services import criar_tabelas_sgi
 from modules.almoxarifado.routes import register_almoxarifado_routes
 from modules.expedicao.services import (
     criar_tabelas_expedicao,
@@ -561,6 +562,7 @@ def inicializar_schema_aplicacao():
         criar_tabela_movimentacoes_financeiras,
         criar_tabela_fornecedores,
         manutencao_service.criar_tabelas_manutencao,
+        criar_tabelas_sgi,
     ])
 
 

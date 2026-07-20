@@ -191,6 +191,9 @@
                             {% if ordem.op_id %}
                                 <br><small>OP {{ ordem.op_id }}{% if ordem.motivo_parada %} | {{ ordem.motivo_parada }}{% endif %}</small>
                             {% endif %}
+                            {% if ordem.sgi_nc_id %}
+                                <br><a href="{{ url_for('visualizar_ordem_manutencao', ordem_id=ordem.id) }}">NC SGI #{{ ordem.sgi_nc_id }}</a>
+                            {% endif %}
                         </td>
                         <td>
                             <strong>{{ ordem.equipamento_codigo }}</strong><br>

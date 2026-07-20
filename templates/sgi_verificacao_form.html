@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block conteudo %}
+<div class="sgi-page">
+  <section class="sgi-header"><div><span class="eyebrow">{{ formulario.codigo }}</span><h2>{{ formulario.nome }}</h2><p>Preencha a ficha e conclua a verificação.</p></div><a href="{{ url_for('sgi_qualidade') }}">Voltar à Central</a></section>
+  <form method="post" class="card sgi-form" id="sgi-form">
+    <div class="sgi-grid-form">
+      <label>Data<input type="date" name="data" required></label>
+      <label>Setor<input name="setor" required></label>
+      <label>Responsável / monitor<input name="responsavel" value="{{ session.get('nome','') }}" required></label>
+      <label>Tipo de vínculo<select name="vinculo_tipo" id="vinculo_tipo" required><option value="">Selecione</option>{% for vinculo in formulario.vinculos %}<option>{{ vinculo }}</option>{% endfor %}</select></label>
+      <label id="campo-local">Ambiente / estrutura<select name="local_id"><option value="">Selecione</option>{% for local in locais %}<option value="{{ local.id }}" data-tipo="{{ local.tipo }}" data-limite="{{ limites_lux.get(local.classificacao_iluminacao, '') }}">{{ local.tipo }} · {{ local.setor }} · {{ local.nome }}{% if local.classificacao_iluminacao %} · {{ local.classificacao_iluminacao }}{% endif %}</option>{% endfor %}</select></label>
+      <label id="campo-equipamento">Equipamento<select name="equipamento_id"><option value="">Selecione</option>{% for e in equipamentos %}<option value="{{ e.id }}">{{ e.codigo }} · {{ e.setor }} · {{ e.nome }}</option>{% endfor %}</select></label>
+    </div>
+
+    <div class="sgi-itens">
+      {% for codigo, descricao, tipo_campo in formulario.itens %}
+      <fieldset class="sgi-item" data-item>
+        <legend>{{ loop.index }}. {{ descricao }}</legend>
+        {% if tipo_campo == 'texto' %}
+          <textarea name="valor_{{ codigo }}" rows="2" placeholder="Descrição"></textarea>
+        {% elif tipo_campo == 'lux' %}
+          <label>Valor medido (lux)<input type="number" min="0" step="0.01" name="valor_{{ codigo }}" required></label>
+          <p class="obs">Resultado automático conforme a classificação cadastrada: 110, 220 ou 540 lux. Medição a 0,75 m do chão. <strong data-lux-resultado></strong></p>
+        {% else %}
+          <label>Resultado<select name="resultado_{{ codigo }}" data-resultado required><option value="">Selecione</option><option value="C">C · Conforme</option><option value="NC">NC · Não conforme</option>{% if 'na' in tipo_campo %}<option value="NA">Não se aplica</option>{% endif %}</select></label>
+        {% endif %}
+        {% if tipo_campo != 'texto' %}
+        <div class="sgi-nc-campos">
+          <label>Criticidade<select name="criticidade_{{ codigo }}"><option>NORMAL</option><option>ALTA</option><option>CRITICA</option></select></label>
+          <label>Observação / descrição da NC<textarea name="observacao_{{ codigo }}" rows="2"></textarea></label>
+          <label>Ação adotada<textarea name="acao_{{ codigo }}" rows="2"></textarea></label>
+          {% if tipo == 'plm02_sanitarios' and 'reposicao' in tipo_campo %}
+          <label class="sgi-check"><input type="checkbox" name="reposicao_{{ codigo }}" value="Sim" data-reposicao> Falta de item de reposição simples</label>
+          <label>Pessoa acionada<input name="pessoa_acionada_{{ codigo }}"></label>
+          {% endif %}
+        </div>
+        {% endif %}
+      </fieldset>
+      {% endfor %}
+    </div>
+    <label>Observações gerais<textarea name="observacoes" rows="3"></textarea></label>
+    <div class="sgi-form-actions"><a href="{{ url_for('sgi_qualidade') }}">Cancelar</a><button class="sgi-btn" type="submit">Concluir verificação</button></div>
+  </form>
+</div>
+<script>
+const tipo=document.querySelector('#vinculo_tipo'), local=document.querySelector('[name=local_id]'), campoLocal=document.querySelector('#campo-local'), campoEq=document.querySelector('#campo-equipamento');
+const dataFicha=document.querySelector('[name=data]');if(!dataFicha.value)dataFicha.value=new Date().toISOString().slice(0,10);
+function vinculo(){const v=tipo.value;campoLocal.hidden=v==='Equipamento'||!v;campoEq.hidden=v!=='Equipamento';[...local.options].forEach(o=>{if(o.value)o.hidden=o.dataset.tipo!==v});}
+tipo.addEventListener('change',vinculo);vinculo();
+document.querySelectorAll('[data-resultado]').forEach(s=>{const f=s.closest('[data-item]');const atualiza=()=>f.classList.toggle('tem-nc',s.value==='NC');s.addEventListener('change',atualiza);atualiza();});
+const lux=document.querySelector('[name=valor_iluminancia]');if(lux){const ficha=lux.closest('[data-item]'),saida=ficha.querySelector('[data-lux-resultado]');const calc=()=>{const limite=Number(local.selectedOptions[0]?.dataset.limite||0),valor=Number(lux.value||0),nc=limite&&lux.value&&valor<limite;ficha.classList.toggle('tem-nc',!!nc);saida.textContent=limite&&lux.value?`Resultado: ${nc?'NC':'C'} (mínimo ${limite} lux)`:''};lux.addEventListener('input',calc);local.addEventListener('change',calc);}
+</script>
+{% endblock %}

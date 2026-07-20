@@ -45,6 +45,7 @@ STATUS_MANUTENCAO = [
     "Aberta",
     "Em andamento",
     "Aguardando peca",
+    "Aguardando material",
     "Concluida",
     "Cancelada",
 ]
@@ -182,6 +183,7 @@ def criar_tabelas_manutencao():
         "ALTER TABLE manutencao_ordens ADD COLUMN hora_conclusao TEXT",
         "ALTER TABLE manutencao_ordens ADD COLUMN pecas_utilizadas TEXT",
         "ALTER TABLE manutencao_ordens ADD COLUMN observacoes_finais TEXT",
+        "ALTER TABLE manutencao_ordens ADD COLUMN sgi_nc_id INTEGER",
     ]
 
     for comando in alteracoes:
@@ -496,7 +498,8 @@ def listar_ordens(status_filtro="Todos", equipamento_id=""):
         o.hora_abertura,
         o.hora_conclusao,
         o.pecas_utilizadas,
-        o.observacoes_finais
+        o.observacoes_finais,
+        o.sgi_nc_id
     FROM manutencao_ordens o
     JOIN manutencao_equipamentos e ON e.id = o.equipamento_id
     {where}

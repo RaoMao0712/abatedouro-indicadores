@@ -96,7 +96,7 @@ def salvar_ordem_manutencao(form):
     ))
 
 
-def atualizar_ordem_manutencao(ordem_id, form):
+def atualizar_ordem_manutencao(ordem_id, form, usuario_id=0, usuario_nome="Sistema"):
     ordem_atual = repo.buscar_ordem_por_id(ordem_id)
     status = form.get("status") or "Aberta"
     if status not in STATUS_MANUTENCAO:
@@ -133,6 +133,13 @@ def atualizar_ordem_manutencao(ordem_id, form):
         repo.atualizar_status_equipamento(ordem_atual["equipamento_id"], "Operacional")
         if ordem_atual["parada_id"]:
             repo.encerrar_parada_por_ordem(ordem_atual["parada_id"], data_conclusao, hora_conclusao, horas_paradas)
+        if ordem_atual["sgi_nc_id"]:
+            from modules.qualidade import repositories as qualidade_repo
+            qualidade_repo.marcar_nc_aguardando_validacao(ordem_atual["sgi_nc_id"])
+            qualidade_repo.registrar_evento(
+                "NC", ordem_atual["sgi_nc_id"], "OS concluida",
+                f"OS #{ordem_id} concluida; aguardando validacao da Qualidade.",
+                usuario_id, usuario_nome)
 
 
 def buscar_equipamentos_manutencao(busca=""):
@@ -306,4 +313,29 @@ def criar_ordem_por_parada(parada_id, op_id, equipamento_id, setor, motivo, data
     }
     ordem_id = salvar_ordem_manutencao(form)
     repo.vincular_ordem_a_parada(parada_id, ordem_id)
+    return ordem_id
+
+
+def criar_ordem_por_nc(nc, form, usuario):
+    equipamento_id = int(form.get("equipamento_id") or nc["equipamento_id"] or 0)
+    if not equipamento_id:
+        raise ValueError("Selecione o equipamento aplicavel antes de abrir a OS.")
+    dados = dict(form)
+    dados.update({
+        "equipamento_id": str(equipamento_id),
+        "tipo": form.get("tipo") or "Corretiva",
+        "prioridade": {"NORMAL": "Media", "ALTA": "Alta", "CRITICA": "Critica"}.get(nc["criticidade"], "Media"),
+        "solicitante": usuario,
+        "descricao": form.get("descricao") or (
+            f"Origem SGI - {nc['formulario_codigo']} {nc['formulario_nome']}. "
+            f"Item: {nc['item_descricao']}. Setor: {nc['setor']}. "
+            f"Ativo/local: {nc['ativo_nome']}. NC: {nc['descricao']}"
+        ),
+    })
+    ordem_id = salvar_ordem_manutencao(dados)
+    from modules.qualidade import repositories as qualidade_repo
+    qualidade_repo.vincular_ordem(nc["id"], ordem_id)
+    qualidade_repo.registrar_evento(
+        "NC", nc["id"], "OS vinculada", f"Ordem de manutencao #{ordem_id} aberta.",
+        int(form.get("usuario_id") or 0), usuario)
     return ordem_id

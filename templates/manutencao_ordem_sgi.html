@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block conteudo %}
+<div class="sgi-page"><section class="sgi-header"><div><span class="eyebrow">Manutenção · origem SGI</span><h2>Abrir Ordem de Serviço</h2><p>Revise os dados transportados da NC #{{ nc.id }} antes da gravação.</p></div></section>
+<form method="post" class="card sgi-form"><input type="hidden" name="usuario_id" value="{{ session.get('usuario_id') }}">
+  <div class="sgi-grid-form"><label>Equipamento<select name="equipamento_id" required><option value="">Selecione</option>{% for e in equipamentos %}<option value="{{ e.id }}" {% if nc.equipamento_id==e.id %}selected{% endif %}>{{ e.codigo }} · {{ e.setor }} · {{ e.nome }}</option>{% endfor %}</select></label>
+  <label>Tipo<select name="tipo">{% for item in tipos %}<option>{{ item }}</option>{% endfor %}</select></label><label>Data de abertura<input type="date" name="data_abertura" value="{{ hoje }}"></label><label>Previsão<input type="date" name="data_prevista"></label><label>Responsável<input name="responsavel"></label></div>
+  <label>Origem / descrição<textarea name="descricao" rows="6" required>Origem SGI - {{ nc.formulario_codigo }} {{ nc.formulario_nome }}.
+Item: {{ nc.item_descricao }}.
+Setor: {{ nc.setor }}.
+Ativo/local: {{ nc.ativo_nome }}.
+Criticidade: {{ nc.criticidade }}.
+Não conformidade: {{ nc.descricao }}</textarea></label>
+  <div class="sgi-form-actions"><a href="{{ url_for('sgi_verificacao_detalhe',verificacao_id=nc.verificacao_id) }}">Cancelar</a><button class="sgi-btn">Abrir OS e vincular</button></div>
+</form></div>
+{% endblock %}

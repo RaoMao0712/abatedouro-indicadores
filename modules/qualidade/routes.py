@@ -2,13 +2,14 @@
 
 from datetime import datetime
 
-from flask import flash, redirect, render_template, request, url_for
+from flask import flash, redirect, render_template, request, session, url_for
 
 from database import conectar, q
 from modules.auth.decorators import perfil_permitido
 from modules.auth.services import usuario_eh_admin
 from modules.producao.services import buscar_fornecedores, contexto_apontamento
 from .services import salvar_apontamento_descarte, salvar_apontamentos_descartes_lote
+from . import services as qualidade_service
 
 _CRIAR_BANCO = None
 
@@ -825,3 +826,80 @@ def register_qualidade_routes(app, integracoes=None):
 
         flash("Descartes excluídos com sucesso.")
         return redirect(url_for("consultar_op", op_id=op_id))
+
+    @app.route("/sgi/qualidade")
+    @app.route("/sgi/qualidade/verificacoes")
+    @perfil_permitido("qualidade", "pcp", "gerencia")
+    def sgi_qualidade():
+        return render_template("sgi_qualidade.html", **qualidade_service.contexto_central_sgi(request.args))
+
+    @app.route("/sgi/qualidade/cadastros/locais", methods=["POST"])
+    @perfil_permitido("qualidade", "pcp", "gerencia")
+    def sgi_cadastrar_local():
+        try:
+            qualidade_service.cadastrar_local_sgi(request.form)
+            flash("Local incluido na Central de Configuracao.")
+        except Exception as erro:
+            flash(str(erro))
+        return redirect(url_for("sgi_qualidade"))
+
+    @app.route("/sgi/qualidade/verificacoes/nova/<tipo>", methods=["GET", "POST"])
+    @perfil_permitido("qualidade", "pcp", "gerencia")
+    def sgi_nova_verificacao(tipo):
+        try:
+            contexto = qualidade_service.contexto_nova_verificacao(tipo)
+            if request.method == "POST":
+                verificacao_id = qualidade_service.salvar_verificacao_sgi(
+                    tipo, request.form, session["usuario_id"], session.get("nome", "Usuario"))
+                flash("Verificacao concluida e registrada no historico.")
+                return redirect(url_for("sgi_verificacao_detalhe", verificacao_id=verificacao_id))
+            return render_template("sgi_verificacao_form.html", **contexto)
+        except Exception as erro:
+            flash(str(erro))
+            return redirect(url_for("sgi_qualidade"))
+
+    @app.route("/sgi/qualidade/verificacoes/<int:verificacao_id>")
+    @perfil_permitido("qualidade", "pcp", "gerencia")
+    def sgi_verificacao_detalhe(verificacao_id):
+        try:
+            return render_template("sgi_verificacao_detalhe.html", **qualidade_service.contexto_verificacao(verificacao_id))
+        except ValueError as erro:
+            flash(str(erro))
+            return redirect(url_for("sgi_qualidade"))
+
+    @app.route("/sgi/qualidade/reposicoes/<int:acao_id>/confirmar", methods=["POST"])
+    @perfil_permitido("qualidade")
+    def sgi_confirmar_reposicao(acao_id):
+        qualidade_service.confirmar_reposicao_sgi(
+            acao_id, request.form, session["usuario_id"], session.get("nome", "Usuario"))
+        flash("Segunda verificacao registrada.")
+        return redirect(url_for("sgi_verificacao_detalhe", verificacao_id=int(request.form["verificacao_id"])))
+
+    @app.route("/sgi/qualidade/ncs/<int:nc_id>/decisao-gerencia", methods=["POST"])
+    @perfil_permitido("gerencia")
+    def sgi_decisao_gerencia(nc_id):
+        qualidade_service.decidir_nc_critica(
+            nc_id, request.form, session["usuario_id"], session.get("nome", "Usuario"))
+        flash("Decisao da Gerencia registrada.")
+        return redirect(url_for("sgi_verificacao_detalhe", verificacao_id=int(request.form["verificacao_id"])))
+
+    @app.route("/sgi/qualidade/ncs/<int:nc_id>/eficacia", methods=["POST"])
+    @perfil_permitido("qualidade")
+    def sgi_validar_eficacia(nc_id):
+        qualidade_service.validar_eficacia_sgi(
+            nc_id, request.form, session["usuario_id"], session.get("nome", "Usuario"))
+        flash("Eficacia registrada. Confira o resultado antes do encerramento.")
+        return redirect(url_for("sgi_verificacao_detalhe", verificacao_id=int(request.form["verificacao_id"])))
+
+    @app.route("/sgi/qualidade/ncs/<int:nc_id>/encerrar", methods=["POST"])
+    @perfil_permitido("qualidade")
+    def sgi_encerrar_nc(nc_id):
+        qualidade_service.encerrar_nc_sgi(
+            nc_id, session["usuario_id"], session.get("nome", "Usuario"))
+        flash("Nao conformidade encerrada definitivamente.")
+        return redirect(url_for("sgi_verificacao_detalhe", verificacao_id=int(request.form["verificacao_id"])))
+
+    @app.route("/sgi/qualidade/consolidado")
+    @perfil_permitido("qualidade", "pcp", "gerencia")
+    def sgi_consolidado_mensal():
+        return render_template("sgi_consolidado.html", **qualidade_service.contexto_consolidado(request.args))

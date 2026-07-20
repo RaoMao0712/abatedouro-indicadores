@@ -11,7 +11,7 @@
 
     <link
         rel="stylesheet"
-        href="{{ url_for('static', filename='style.css', v='relatorios-expedicao-20260716') }}"
+        href="{{ url_for('static', filename='style.css', v='qual-sgi-01-20260720-7') }}"
     >
 </head>
 
@@ -71,6 +71,14 @@
                 <a href="{{ url_for('expedicao') }}">Expedição</a>
             {% endif %}
         </div>
+
+        {% if perfil == "admin" or perfil == "pcp" or perfil == "qualidade" or perfil == "gerencia" %}
+        <div class="sidebar-section">
+            <span class="sidebar-title">SGI</span>
+            <a href="{{ url_for('sgi_qualidade') }}">Central de Verificações</a>
+            <a href="{{ url_for('sgi_consolidado_mensal') }}">Consolidado mensal</a>
+        </div>
+        {% endif %}
 
         <div class="sidebar-section">
             <span class="sidebar-title">Produção</span>

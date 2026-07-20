@@ -1,0 +1,5 @@
+{% extends "base.html" %}
+{% block conteudo %}
+<div class="sgi-page"><section class="sgi-header"><div><span class="eyebrow">Manutenção</span><h2>Ordem de Serviço #{{ ordem.id }}</h2><p>{{ equipamento.codigo }} · {{ equipamento.nome }} · {{ equipamento.setor }}</p></div>{% if verificacao_id %}<a href="{{ url_for('sgi_verificacao_detalhe',verificacao_id=verificacao_id) }}">Voltar à verificação SGI</a>{% endif %}</section>
+<section class="card sgi-form"><div class="sgi-grid-form"><p><strong>Status</strong><br>{{ ordem.status }}</p><p><strong>Prioridade</strong><br>{{ ordem.prioridade }}</p><p><strong>Abertura</strong><br>{{ ordem.data_abertura }} {{ ordem.hora_abertura or '' }}</p><p><strong>Responsável</strong><br>{{ ordem.responsavel or '-' }}</p></div><h3>Descrição</h3><p>{{ ordem.descricao }}</p>{% if ordem.diagnostico %}<h3>Diagnóstico</h3><p>{{ ordem.diagnostico }}</p>{% endif %}{% if ordem.solucao %}<h3>Solução</h3><p>{{ ordem.solucao }}</p>{% endif %}{% if ordem.sgi_nc_id %}<p><span class="sgi-badge nc">Origem: NC SGI #{{ ordem.sgi_nc_id }}</span></p>{% endif %}</section></div>
+{% endblock %}

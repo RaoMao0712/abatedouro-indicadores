@@ -1,9 +1,10 @@
 """Rotas do modulo de Manutencao."""
 
-from flask import flash, redirect, render_template, request, url_for
+from flask import flash, redirect, render_template, request, session, url_for
 
 from modules.auth.decorators import perfil_permitido
 from . import services as manutencao_service
+from . import repositories as manutencao_repo
 
 
 def register_manutencao_routes(app):
@@ -68,7 +69,8 @@ def register_manutencao_routes(app):
     @perfil_permitido("pcp", "producao")
     def atualizar_ordem_manutencao_rota(ordem_id):
         try:
-            manutencao_service.atualizar_ordem_manutencao(ordem_id, request.form)
+            manutencao_service.atualizar_ordem_manutencao(
+                ordem_id, request.form, session.get("usuario_id", 0), session.get("nome", "Sistema"))
             flash("Ordem de manutencao atualizada com sucesso.")
         except Exception as erro:
             flash(str(erro))
@@ -89,3 +91,45 @@ def register_manutencao_routes(app):
             status=request.form.get("status_filtro", "Todos"),
             equipamento_id=request.form.get("equipamento_filtro", ""),
         ))
+
+    @app.route("/manutencao/ordem/sgi/<int:nc_id>", methods=["GET", "POST"])
+    @perfil_permitido("qualidade", "pcp", "gerencia")
+    def abrir_ordem_manutencao_sgi(nc_id):
+        from modules.qualidade import repositories as qualidade_repo
+        nc = qualidade_repo.buscar_nc(nc_id)
+        if not nc:
+            flash("Nao conformidade nao encontrada.")
+            return redirect(url_for("sgi_qualidade"))
+        if nc["ordem_id"]:
+            flash("Esta NC ja possui ordem de manutencao vinculada.")
+            return redirect(url_for("sgi_verificacao_detalhe", verificacao_id=nc["verificacao_id"]))
+        if request.method == "POST":
+            try:
+                ordem_id = manutencao_service.criar_ordem_por_nc(
+                    nc, request.form, session.get("nome", "Usuario"))
+                flash(f"Ordem de manutencao #{ordem_id} aberta e vinculada a NC.")
+                return redirect(url_for("sgi_verificacao_detalhe", verificacao_id=nc["verificacao_id"]))
+            except Exception as erro:
+                flash(str(erro))
+        return render_template(
+            "manutencao_ordem_sgi.html", nc=nc,
+            equipamentos=manutencao_service.buscar_equipamentos_manutencao(),
+            tipos=manutencao_service.TIPOS_MANUTENCAO,
+            hoje=__import__("datetime").datetime.now().strftime("%Y-%m-%d"),
+        )
+
+    @app.route("/manutencao/ordem/<int:ordem_id>")
+    @perfil_permitido("qualidade", "pcp", "producao", "gerencia")
+    def visualizar_ordem_manutencao(ordem_id):
+        ordem = manutencao_repo.buscar_ordem_por_id(ordem_id)
+        if not ordem:
+            flash("Ordem de manutencao nao encontrada.")
+            return redirect(url_for("sgi_qualidade"))
+        equipamento = manutencao_service.buscar_equipamento_manutencao_por_id(ordem["equipamento_id"])
+        verificacao_id = None
+        if ordem["sgi_nc_id"]:
+            from modules.qualidade import repositories as qualidade_repo
+            nc = qualidade_repo.buscar_nc(ordem["sgi_nc_id"])
+            verificacao_id = nc["verificacao_id"] if nc else None
+        return render_template("manutencao_ordem_detalhe.html", ordem=ordem,
+                               equipamento=equipamento, verificacao_id=verificacao_id)

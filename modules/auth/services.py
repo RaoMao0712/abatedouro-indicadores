@@ -10,6 +10,9 @@ def destino_por_perfil(perfil):
     if perfil == "admin" or perfil == "pcp":
         return "dashboard"
 
+    if perfil == "gerencia":
+        return "sgi_qualidade"
+
     if perfil == "qualidade":
         return "apontamento_descartes"
 
