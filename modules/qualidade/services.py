@@ -126,6 +126,7 @@ def contexto_nova_verificacao(tipo):
     return {
         "tipo": tipo,
         "formulario": formulario,
+        "formularios": FORMULARIOS_PLM,
         "locais": repo.listar_locais(),
         "equipamentos": repo.listar_equipamentos(),
         "limites_lux": LIMITES_LUX,

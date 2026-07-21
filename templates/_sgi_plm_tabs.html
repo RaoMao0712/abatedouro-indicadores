@@ -1,0 +1,10 @@
+{% set aba_ativa = aba_ativa|default('plm01_instalacoes') %}
+<nav class="movimentacoes-fichas sgi-plm-tabs" aria-label="Formulários de verificação PLM">
+  {% for tipo_nav, ficha_nav in formularios.items() %}
+  <a class="movimentacoes-ficha{% if aba_ativa == tipo_nav %} ativa{% endif %}"
+     href="{{ url_for('sgi_nova_verificacao', tipo=tipo_nav) }}"
+     {% if aba_ativa == tipo_nav %}aria-current="page"{% endif %}>
+    {{ ficha_nav.codigo }}{% if tipo_nav == 'plm01_instalacoes' %} · Instalações{% elif tipo_nav == 'plm01_balancas' %} · Balanças{% endif %}
+  </a>
+  {% endfor %}
+</nav>

@@ -1,9 +1,22 @@
 {% extends "base.html" %}
 {% block conteudo %}
-<div class="sgi-page">
-  <section class="sgi-header"><div><span class="eyebrow">{{ formulario.codigo }}</span><h2>{{ formulario.nome }}</h2><p>Preencha a ficha e conclua a verificação.</p></div><a href="{{ url_for('sgi_qualidade') }}">Voltar à Central</a></section>
-  <form method="post" class="card sgi-form" id="sgi-form">
-    <div class="sgi-grid-form">
+{% set frequencias = {'plm01_instalacoes':'Conforme rotina','plm01_balancas':'Conforme plano de calibração','plm02_sanitarios':'Diária','plm03_iluminacao':'Conforme monitoramento','plm04_ventilacao':'Diária','plm05_condensacao':'Diária'} %}
+{% set momentos = {'plm01_instalacoes':'Durante a inspeção','plm01_balancas':'Antes do uso','plm02_sanitarios':'Antes do início das atividades','plm03_iluminacao':'Durante a verificação','plm04_ventilacao':'Antes do abate','plm05_condensacao':'Antes do abate'} %}
+<div class="financeiro-page movimentacoes-page sgi-page">
+  <section class="hero-dashboard financeiro-hero-executivo movimentacoes-hero sgi-operational-header">
+    <div class="financeiro-hero-titulo">
+      <span class="eyebrow">SGI · QUALIDADE</span><h2>{{ formulario.codigo }} · {{ formulario.nome }}</h2>
+      <p>Preencha os resultados da ficha e conclua a verificação.</p>
+      <div class="financeiro-hero-resumo"><span><b>FREQUÊNCIA</b> {{ frequencias[tipo] }}</span><span><b>MOMENTO</b> {{ momentos[tipo] }}</span></div>
+    </div>
+    <div class="sgi-header-actions"><a class="sgi-action-secondary" href="{{ url_for('sgi_qualidade') }}">Voltar à Central</a><a class="sgi-action-secondary" href="{{ url_for('sgi_consolidado_mensal') }}">Consolidado mensal</a></div>
+  </section>
+
+  {% set aba_ativa = tipo %}{% include '_sgi_plm_tabs.html' %}
+
+  <form method="post" class="card financeiro-form-card movimentacoes-form-card sgi-form" id="sgi-form">
+    <div class="section-title-row"><div><span class="eyebrow">NOVA VERIFICAÇÃO</span><h2>{{ formulario.codigo }} · {{ formulario.nome }}</h2><p>{{ formulario.itens|length }} itens fixos · vínculo obrigatório</p></div></div>
+    <div class="sgi-grid-form sgi-main-fields">
       <label>Data<input type="date" name="data" required></label>
       <label>Setor<input name="setor" required></label>
       <label>Responsável / monitor<input name="responsavel" value="{{ session.get('nome','') }}" required></label>
@@ -14,32 +27,19 @@
 
     <div class="sgi-itens">
       {% for codigo, descricao, tipo_campo in formulario.itens %}
-      <fieldset class="sgi-item" data-item>
-        <legend>{{ loop.index }}. {{ descricao }}</legend>
-        {% if tipo_campo == 'texto' %}
-          <textarea name="valor_{{ codigo }}" rows="2" placeholder="Descrição"></textarea>
-        {% elif tipo_campo == 'lux' %}
-          <label>Valor medido (lux)<input type="number" min="0" step="0.01" name="valor_{{ codigo }}" required></label>
-          <p class="obs">Resultado automático conforme a classificação cadastrada: 110, 220 ou 540 lux. Medição a 0,75 m do chão. <strong data-lux-resultado></strong></p>
-        {% else %}
-          <label>Resultado<select name="resultado_{{ codigo }}" data-resultado required><option value="">Selecione</option><option value="C">C · Conforme</option><option value="NC">NC · Não conforme</option>{% if 'na' in tipo_campo %}<option value="NA">Não se aplica</option>{% endif %}</select></label>
-        {% endif %}
-        {% if tipo_campo != 'texto' %}
-        <div class="sgi-nc-campos">
-          <label>Criticidade<select name="criticidade_{{ codigo }}"><option>NORMAL</option><option>ALTA</option><option>CRITICA</option></select></label>
-          <label>Observação / descrição da NC<textarea name="observacao_{{ codigo }}" rows="2"></textarea></label>
-          <label>Ação adotada<textarea name="acao_{{ codigo }}" rows="2"></textarea></label>
-          {% if tipo == 'plm02_sanitarios' and 'reposicao' in tipo_campo %}
-          <label class="sgi-check"><input type="checkbox" name="reposicao_{{ codigo }}" value="Sim" data-reposicao> Falta de item de reposição simples</label>
-          <label>Pessoa acionada<input name="pessoa_acionada_{{ codigo }}"></label>
-          {% endif %}
-        </div>
-        {% endif %}
-      </fieldset>
-      {% endfor %}
+      <fieldset class="sgi-item" data-item><legend><span>{{ loop.index }}</span>{{ descricao }}</legend>
+        {% if tipo_campo == 'texto' %}<textarea name="valor_{{ codigo }}" rows="2" placeholder="Descrição"></textarea>
+        {% elif tipo_campo == 'lux' %}<label>Valor medido (lux)<input type="number" min="0" step="0.01" name="valor_{{ codigo }}" required></label><p class="obs">Resultado automático conforme a classificação cadastrada: 110, 220 ou 540 lux. Medição a 0,75 m do chão. <strong data-lux-resultado></strong></p>
+        {% else %}<label>Resultado<select name="resultado_{{ codigo }}" data-resultado required><option value="">Selecione</option><option value="C">C · Conforme</option><option value="NC">NC · Não conforme</option>{% if 'na' in tipo_campo %}<option value="NA">Não se aplica</option>{% endif %}</select></label>{% endif %}
+        {% if tipo_campo != 'texto' %}<div class="sgi-nc-campos">
+          <label>Criticidade<select name="criticidade_{{ codigo }}"><option>NORMAL</option><option>ALTA</option><option value="CRITICA">CRÍTICA</option></select></label>
+          <label>Observação / descrição da NC<textarea name="observacao_{{ codigo }}" rows="2"></textarea></label><label>Ação adotada<textarea name="acao_{{ codigo }}" rows="2"></textarea></label>
+          {% if tipo == 'plm02_sanitarios' and 'reposicao' in tipo_campo %}<label class="sgi-check"><input type="checkbox" name="reposicao_{{ codigo }}" value="Sim" data-reposicao> Falta de item de reposição simples</label><label>Pessoa acionada<input name="pessoa_acionada_{{ codigo }}"></label>{% endif %}
+        </div>{% endif %}
+      </fieldset>{% endfor %}
     </div>
     <label>Observações gerais<textarea name="observacoes" rows="3"></textarea></label>
-    <div class="sgi-form-actions"><a href="{{ url_for('sgi_qualidade') }}">Cancelar</a><button class="sgi-btn" type="submit">Concluir verificação</button></div>
+    <div class="sgi-form-actions"><a class="sgi-action-secondary" href="{{ url_for('sgi_qualidade') }}">Cancelar</a><button class="botao-hero-filtro" type="submit">Concluir verificação</button></div>
   </form>
 </div>
 <script>
