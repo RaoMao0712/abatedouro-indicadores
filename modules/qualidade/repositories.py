@@ -14,7 +14,7 @@ def criar_tabelas_sgi():
         f"""CREATE TABLE IF NOT EXISTS sgi_verificacoes (
             id {pk}, formulario_tipo TEXT NOT NULL, formulario_codigo TEXT NOT NULL,
             formulario_nome TEXT NOT NULL, data TEXT NOT NULL, setor TEXT NOT NULL,
-            vinculo_tipo TEXT NOT NULL, local_id INTEGER, equipamento_id INTEGER,
+            setor_id INTEGER, vinculo_tipo TEXT NOT NULL, local_id INTEGER, equipamento_id INTEGER,
             responsavel TEXT NOT NULL, status TEXT DEFAULT 'Pendente', observacoes TEXT,
             criado_por INTEGER NOT NULL, criado_por_nome TEXT NOT NULL,
             criado_em {timestamp} DEFAULT CURRENT_TIMESTAMP,
@@ -57,26 +57,59 @@ def criar_tabelas_sgi():
     ]
     for comando in tabelas:
         cursor.execute(q(comando))
+    if DATABASE_URL:
+        try:
+            cursor.execute(q("ALTER TABLE sgi_verificacoes ADD COLUMN IF NOT EXISTS setor_id INTEGER"))
+        except Exception:
+            pass
+    else:
+        try:
+            cursor.execute(q("ALTER TABLE sgi_verificacoes ADD COLUMN setor_id INTEGER"))
+        except Exception:
+            pass
     conn.commit()
     conn.close()
+
+
+def listar_setores():
+    return cadastros_repo.listar_setores()
+
+
+def buscar_setor(setor_id):
+    return cadastros_repo.buscar_setor(setor_id)
+
+
+def inserir_setor(nome):
+    return cadastros_repo.inserir_setor(nome)
 
 
 def listar_locais(tipo=None):
     return cadastros_repo.listar_locais(tipo)
 
 
-def inserir_local(tipo, nome, setor, classificacao):
-    return cadastros_repo.inserir_local(tipo, nome, setor, classificacao)
+def listar_locais_por_setor(tipo=None, setor_id=None):
+    return cadastros_repo.listar_locais(tipo=tipo, setor_id=setor_id)
+
+
+def inserir_local(tipo, nome, setor, classificacao, descricao="", setor_id=None, ambiente_id=None):
+    return cadastros_repo.inserir_local(tipo, nome, setor, classificacao, descricao, setor_id, ambiente_id)
 
 
 def buscar_local(local_id):
     return cadastros_repo.buscar_local(local_id)
 
 
-def listar_equipamentos():
+def listar_equipamentos(setor_id=None):
     conn = conectar(); cursor = conn.cursor()
-    cursor.execute(q("""SELECT * FROM manutencao_equipamentos
-        WHERE COALESCE(status, '') <> 'Inativo' ORDER BY setor, nome"""))
+    params = []
+    condicoes = ["COALESCE(status, '') <> 'Inativo'"]
+    if setor_id:
+        setor = buscar_setor(setor_id)
+        if setor:
+            condicoes.append("COALESCE(setor, '') = ?")
+            params.append(setor["nome"])
+    cursor.execute(q(f"""SELECT * FROM manutencao_equipamentos
+        WHERE {' AND '.join(condicoes)} ORDER BY setor, nome"""), tuple(params))
     rows = cursor.fetchall(); conn.close(); return rows
 
 
@@ -90,10 +123,10 @@ def inserir_verificacao(cabecalho, itens, ncs, acoes, evento):
     with transaction() as conn:
         cursor = conn.cursor()
         cursor.execute(q("""INSERT INTO sgi_verificacoes (
-            formulario_tipo, formulario_codigo, formulario_nome, data, setor,
+            formulario_tipo, formulario_codigo, formulario_nome, data, setor, setor_id,
             vinculo_tipo, local_id, equipamento_id, responsavel, status, observacoes,
             criado_por, criado_por_nome, concluido_por, concluido_por_nome, concluido_em
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)"""), cabecalho)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)"""), cabecalho)
         cursor.execute("SELECT LASTVAL() AS id" if DATABASE_URL else "SELECT last_insert_rowid() AS id")
         verificacao_id = cursor.fetchone()["id"]
         item_ids = {}
@@ -133,9 +166,15 @@ def inserir_verificacao(cabecalho, itens, ncs, acoes, evento):
 def listar_verificacoes(filtros=None):
     filtros = filtros or {}
     condicoes, params = ["1=1"], []
-    for campo in ("formulario_tipo", "setor", "status"):
+    for campo in ("formulario_tipo", "status"):
         if filtros.get(campo) and filtros[campo] != "Todos":
             condicoes.append(f"v.{campo} = ?"); params.append(filtros[campo])
+    if filtros.get("setor_id") and filtros["setor_id"] != "Todos":
+        setor = buscar_setor(filtros["setor_id"])
+        condicoes.append("(v.setor_id = ? OR (v.setor_id IS NULL AND v.setor = ?))")
+        params.extend([int(filtros["setor_id"]), setor["nome"] if setor else ""])
+    elif filtros.get("setor") and filtros["setor"] != "Todos":
+        condicoes.append("v.setor = ?"); params.append(filtros["setor"])
     if filtros.get("mes"):
         condicoes.append("SUBSTR(v.data, 1, 7) = ?"); params.append(filtros["mes"])
     if filtros.get("vinculo_tipo") and filtros["vinculo_tipo"] != "Todos":
@@ -150,11 +189,13 @@ def listar_verificacoes(filtros=None):
     conn = conectar(); cursor = conn.cursor()
     cursor.execute(q(f"""SELECT v.*,
         COALESCE(l.nome, e.nome) AS vinculo_nome,
+        COALESCE(s.nome, v.setor) AS setor_nome,
         (SELECT COUNT(*) FROM sgi_nao_conformidades nc WHERE nc.verificacao_id=v.id) AS total_ncs,
         (SELECT COUNT(*) FROM sgi_nao_conformidades nc WHERE nc.verificacao_id=v.id AND nc.situacao NOT IN ('Encerrada','NC corrigida imediatamente')) AS ncs_abertas,
         (SELECT COUNT(*) FROM sgi_nao_conformidades nc WHERE nc.verificacao_id=v.id AND nc.criticidade='CRITICA' AND nc.gerencia_decisao IS NULL) AS pendencias_gerencia
         FROM sgi_verificacoes v
         LEFT JOIN cadastros_locais l ON l.id=v.local_id
+        LEFT JOIN cadastros_setores s ON s.id=v.setor_id
         LEFT JOIN manutencao_equipamentos e ON e.id=v.equipamento_id
         WHERE {' AND '.join(condicoes)} ORDER BY v.data DESC, v.id DESC"""), tuple(params))
     rows = cursor.fetchall(); conn.close(); return rows
@@ -163,8 +204,10 @@ def listar_verificacoes(filtros=None):
 def buscar_verificacao(verificacao_id):
     conn = conectar(); cursor = conn.cursor()
     cursor.execute(q("""SELECT v.*, COALESCE(l.nome,e.nome) AS vinculo_nome,
+        COALESCE(s.nome, v.setor) AS setor_nome,
         COALESCE(l.classificacao_iluminacao,'') AS classificacao_iluminacao
         FROM sgi_verificacoes v LEFT JOIN cadastros_locais l ON l.id=v.local_id
+        LEFT JOIN cadastros_setores s ON s.id=v.setor_id
         LEFT JOIN manutencao_equipamentos e ON e.id=v.equipamento_id WHERE v.id=?"""), (verificacao_id,))
     v = cursor.fetchone()
     cursor.execute(q("SELECT * FROM sgi_verificacao_itens WHERE verificacao_id=? ORDER BY id"), (verificacao_id,)); itens=cursor.fetchall()

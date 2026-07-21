@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block conteudo %}
 <div class="sgi-page">
-  <section class="sgi-header"><div><span class="eyebrow">{{ verificacao.formulario_codigo }}</span><h2>{{ verificacao.formulario_nome }}</h2><p>{{ verificacao.data }} · {{ verificacao.setor }} · {{ verificacao.vinculo_tipo }}: {{ verificacao.vinculo_nome }}</p></div><a href="{{ url_for('sgi_qualidade') }}">Voltar à Central</a></section>
+  <section class="sgi-header"><div><span class="eyebrow">{{ verificacao.formulario_codigo }}</span><h2>{{ verificacao.formulario_nome }}</h2><p>{{ verificacao.data }} · {{ verificacao.setor_nome or verificacao.setor }} · {{ verificacao.vinculo_tipo }}: {{ verificacao.vinculo_nome }}</p></div><a href="{{ url_for('sgi_qualidade') }}">Voltar à Central</a></section>
   <section class="card sgi-meta"><strong>Responsável:</strong> {{ verificacao.responsavel }} · <strong>Verificador:</strong> {{ verificacao.concluido_por_nome }} · <strong>Status:</strong> {{ verificacao.status }}</section>
   <section class="card"><h3>Itens verificados</h3><div class="tabela-responsiva"><table><thead><tr><th>Item</th><th>Valor</th><th>Parâmetro</th><th>Resultado</th><th>Observação / ação</th></tr></thead><tbody>{% for i in itens %}<tr><td>{{ i.item_descricao }}</td><td>{{ i.valor_texto or i.valor_numerico or '-' }} {{ i.unidade or '' }}</td><td>{% if i.parametro_numerico %}mín. {{ i.parametro_numerico }} {{ i.unidade }}{% else %}-{% endif %}</td><td><span class="sgi-badge {% if i.resultado=='NC' %}nc{% elif i.resultado=='NA' %}na{% else %}ok{% endif %}">{{ i.resultado or '-' }}</span></td><td>{{ i.observacoes or '-' }}{% if i.acao_adotada %}<br><small>Ação: {{ i.acao_adotada }}</small>{% endif %}</td></tr>{% endfor %}</tbody></table></div></section>
 
