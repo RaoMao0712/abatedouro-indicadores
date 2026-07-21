@@ -1,53 +1,89 @@
 {% extends "base.html" %}
 {% block conteudo %}
-{% set frequencias = {'plm01_instalacoes':'Conforme rotina','plm01_balancas':'Conforme plano de calibração','plm02_sanitarios':'Diária','plm03_iluminacao':'Conforme monitoramento','plm04_ventilacao':'Diária','plm05_condensacao':'Diária'} %}
-{% set momentos = {'plm01_instalacoes':'Durante a inspeção','plm01_balancas':'Antes do uso','plm02_sanitarios':'Antes do início das atividades','plm03_iluminacao':'Durante a verificação','plm04_ventilacao':'Antes do abate','plm05_condensacao':'Antes do abate'} %}
+{% set frequencias = {'plm01_instalacoes':'Conforme rotina','plm01_balancas':'Conforme plano de calibracao','plm02_sanitarios':'Diaria','plm03_iluminacao':'Conforme monitoramento','plm04_ventilacao':'Diaria','plm05_condensacao':'Diaria'} %}
+{% set momentos = {'plm01_instalacoes':'Durante a inspecao','plm01_balancas':'Antes do uso','plm02_sanitarios':'Antes do inicio das atividades','plm03_iluminacao':'Durante a verificacao','plm04_ventilacao':'Antes do abate','plm05_condensacao':'Antes do abate'} %}
 <div class="financeiro-page movimentacoes-page sgi-page">
   <section class="hero-dashboard financeiro-hero-executivo movimentacoes-hero sgi-operational-header">
     <div class="financeiro-hero-titulo">
       <span class="eyebrow">SGI · QUALIDADE</span><h2>{{ formulario.codigo }} · {{ formulario.nome }}</h2>
-      <p>Preencha os resultados da ficha e conclua a verificação.</p>
-      <div class="financeiro-hero-resumo"><span><b>FREQUÊNCIA</b> {{ frequencias[tipo] }}</span><span><b>MOMENTO</b> {{ momentos[tipo] }}</span></div>
+      <p>Preencha os resultados da ficha e conclua a verificacao.</p>
+      <div class="financeiro-hero-resumo"><span><b>FREQUENCIA</b> {{ frequencias[tipo] }}</span><span><b>MOMENTO</b> {{ momentos[tipo] }}</span></div>
     </div>
-    <div class="sgi-header-actions"><a class="sgi-action-secondary" href="{{ url_for('sgi_qualidade') }}">Voltar à Central</a><a class="sgi-action-secondary" href="{{ url_for('sgi_consolidado_mensal') }}">Consolidado mensal</a></div>
+    <div class="sgi-header-actions"><a class="sgi-action-secondary" href="{{ url_for('sgi_qualidade') }}">Voltar a Central</a><a class="sgi-action-secondary" href="{{ url_for('sgi_consolidado_mensal') }}">Consolidado mensal</a></div>
   </section>
 
   {% set aba_ativa = tipo %}{% include '_sgi_plm_tabs.html' %}
 
+  <details class="sgi-config card" id="cadastros-sgi">
+    <summary>Central de Configuracao · cadastros para esta verificacao</summary>
+    <p class="obs">Cadastre setores, ambientes e estruturas ausentes e retorne para continuar a verificacao.</p>
+    <form method="post" action="{{ url_for('sgi_cadastrar_setor') }}" class="sgi-grid-form">
+      <input type="hidden" name="retorno_tipo" value="{{ tipo }}">
+      <label>Novo setor<input name="nome" required></label>
+      <button class="botao-hero-filtro" type="submit">Cadastrar setor</button>
+    </form>
+    <form method="post" action="{{ url_for('sgi_cadastrar_local') }}" class="sgi-grid-form">
+      <input type="hidden" name="retorno_tipo" value="{{ tipo }}">
+      <label>Tipo<select name="tipo" required><option>Ambiente</option><option>Estrutura</option></select></label>
+      <label>Nome<input name="nome" required></label>
+      <label>Setor<select name="setor_id" required><option value="">Selecione</option>{% for setor in setores %}<option value="{{ setor.id }}">{{ setor.nome }}</option>{% endfor %}</select></label>
+      <label>Ambiente relacionado<select name="ambiente_id"><option value="">Nao aplicavel</option>{% for ambiente in ambientes %}<option value="{{ ambiente.id }}">{{ ambiente.setor_nome or ambiente.setor }} · {{ ambiente.nome }}</option>{% endfor %}</select></label>
+      <label>Classificacao de iluminacao<select name="classificacao_iluminacao">
+        <option value="">Nao aplicavel a estrutura</option>
+        <option value="Camara fria e estocagem">Camara fria e estocagem</option>
+        <option value="Producao e recepcao">Producao e recepcao</option>
+        <option value="Inspecao oficial e seguranca critica">Inspecao oficial e seguranca critica</option>
+      </select></label>
+      <label>Descricao<textarea name="descricao" rows="2"></textarea></label>
+      <button class="botao-hero-filtro" type="submit">Cadastrar local</button>
+    </form>
+  </details>
+
   <form method="post" class="card financeiro-form-card movimentacoes-form-card sgi-form" id="sgi-form">
-    <div class="section-title-row"><div><span class="eyebrow">NOVA VERIFICAÇÃO</span><h2>{{ formulario.codigo }} · {{ formulario.nome }}</h2><p>{{ formulario.itens|length }} itens fixos · vínculo obrigatório</p></div></div>
+    <div class="section-title-row"><div><span class="eyebrow">NOVA VERIFICACAO</span><h2>{{ formulario.codigo }} · {{ formulario.nome }}</h2><p>{{ formulario.itens|length }} itens fixos · vinculo obrigatorio</p></div></div>
     <div class="sgi-grid-form sgi-main-fields">
       <label>Data<input type="date" name="data" required></label>
-      <label>Setor<input name="setor" required></label>
-      <label>Responsável / monitor<input name="responsavel" value="{{ session.get('nome','') }}" required></label>
-      <label>Tipo de vínculo<select name="vinculo_tipo" id="vinculo_tipo" required><option value="">Selecione</option>{% for vinculo in formulario.vinculos %}<option>{{ vinculo }}</option>{% endfor %}</select></label>
-      <label id="campo-local">Ambiente / estrutura<select name="local_id"><option value="">Selecione</option>{% for local in locais %}<option value="{{ local.id }}" data-tipo="{{ local.tipo }}" data-limite="{{ limites_lux.get(local.classificacao_iluminacao, '') }}">{{ local.tipo }} · {{ local.setor }} · {{ local.nome }}{% if local.classificacao_iluminacao %} · {{ local.classificacao_iluminacao }}{% endif %}</option>{% endfor %}</select></label>
-      <label id="campo-equipamento">Equipamento<select name="equipamento_id"><option value="">Selecione</option>{% for e in equipamentos %}<option value="{{ e.id }}">{{ e.codigo }} · {{ e.setor }} · {{ e.nome }}</option>{% endfor %}</select></label>
+      <label>Setor<select name="setor_id" id="setor_id" required><option value="">Selecione</option>{% for setor in setores %}<option value="{{ setor.id }}">{{ setor.nome }}</option>{% endfor %}</select></label>
+      <label>Responsavel / monitor<input name="responsavel" value="{{ session.get('nome','') }}" required></label>
+      <label>Tipo de vinculo<select name="vinculo_tipo" id="vinculo_tipo" required><option value="">Selecione</option>{% for vinculo in formulario.vinculos %}<option>{{ vinculo }}</option>{% endfor %}</select></label>
+      <label id="campo-local">Ambiente / estrutura<select name="local_id"><option value="">Selecione</option>{% for local in locais %}<option value="{{ local.id }}" data-tipo="{{ local.tipo }}" data-setor-id="{{ local.setor_id or '' }}" data-setor="{{ local.setor_nome or local.setor }}" data-limite="{{ limites_lux.get(local.classificacao_iluminacao, '') }}">{{ local.tipo }} · {{ local.setor_nome or local.setor }} · {{ local.nome }}{% if local.ambiente_nome %} · {{ local.ambiente_nome }}{% endif %}{% if local.classificacao_iluminacao %} · {{ local.classificacao_iluminacao }}{% endif %}</option>{% endfor %}</select><small data-vazio-local>Nenhum ambiente ativo cadastrado para este setor.</small><a class="sgi-action-secondary" href="#cadastros-sgi" data-cadastro-local>Cadastrar ambiente ou estrutura</a></label>
+      <label id="campo-equipamento">Equipamento<select name="equipamento_id"><option value="">Selecione</option>{% for e in equipamentos %}<option value="{{ e.id }}" data-setor="{{ e.setor }}">{{ e.codigo }} · {{ e.setor }} · {{ e.nome }}</option>{% endfor %}</select><small data-vazio-equipamento>Nenhum equipamento ativo cadastrado para este setor.</small></label>
     </div>
 
     <div class="sgi-itens">
       {% for codigo, descricao, tipo_campo in formulario.itens %}
       <fieldset class="sgi-item" data-item><legend><span>{{ loop.index }}</span>{{ descricao }}</legend>
-        {% if tipo_campo == 'texto' %}<textarea name="valor_{{ codigo }}" rows="2" placeholder="Descrição"></textarea>
-        {% elif tipo_campo == 'lux' %}<label>Valor medido (lux)<input type="number" min="0" step="0.01" name="valor_{{ codigo }}" required></label><p class="obs">Resultado automático conforme a classificação cadastrada: 110, 220 ou 540 lux. Medição a 0,75 m do chão. <strong data-lux-resultado></strong></p>
-        {% else %}<label>Resultado<select name="resultado_{{ codigo }}" data-resultado required><option value="">Selecione</option><option value="C">C · Conforme</option><option value="NC">NC · Não conforme</option>{% if 'na' in tipo_campo %}<option value="NA">Não se aplica</option>{% endif %}</select></label>{% endif %}
+        {% if tipo_campo == 'texto' %}<textarea name="valor_{{ codigo }}" rows="2" placeholder="Descricao"></textarea>
+        {% elif tipo_campo == 'lux' %}<label>Valor medido (lux)<input type="number" min="0" step="0.01" name="valor_{{ codigo }}" required></label><p class="obs">Resultado automatico conforme a classificacao cadastrada: 110, 220 ou 540 lux. Medicao a 0,75 m do chao. <strong data-lux-resultado></strong></p>
+        {% else %}<label>Resultado<select name="resultado_{{ codigo }}" data-resultado required><option value="">Selecione</option><option value="C">C · Conforme</option><option value="NC">NC · Nao conforme</option>{% if 'na' in tipo_campo %}<option value="NA">Nao se aplica</option>{% endif %}</select></label>{% endif %}
         {% if tipo_campo != 'texto' %}<div class="sgi-nc-campos">
-          <label>Criticidade<select name="criticidade_{{ codigo }}"><option>NORMAL</option><option>ALTA</option><option value="CRITICA">CRÍTICA</option></select></label>
-          <label>Observação / descrição da NC<textarea name="observacao_{{ codigo }}" rows="2"></textarea></label><label>Ação adotada<textarea name="acao_{{ codigo }}" rows="2"></textarea></label>
-          {% if tipo == 'plm02_sanitarios' and 'reposicao' in tipo_campo %}<label class="sgi-check"><input type="checkbox" name="reposicao_{{ codigo }}" value="Sim" data-reposicao> Falta de item de reposição simples</label><label>Pessoa acionada<input name="pessoa_acionada_{{ codigo }}"></label>{% endif %}
+          <label>Criticidade<select name="criticidade_{{ codigo }}"><option>NORMAL</option><option>ALTA</option><option value="CRITICA">CRITICA</option></select></label>
+          <label>Observacao / descricao da NC<textarea name="observacao_{{ codigo }}" rows="2"></textarea></label><label>Acao adotada<textarea name="acao_{{ codigo }}" rows="2"></textarea></label>
+          {% if tipo == 'plm02_sanitarios' and 'reposicao' in tipo_campo %}<label class="sgi-check"><input type="checkbox" name="reposicao_{{ codigo }}" value="Sim" data-reposicao> Falta de item de reposicao simples</label><label>Pessoa acionada<input name="pessoa_acionada_{{ codigo }}"></label>{% endif %}
         </div>{% endif %}
       </fieldset>{% endfor %}
     </div>
-    <label>Observações gerais<textarea name="observacoes" rows="3"></textarea></label>
-    <div class="sgi-form-actions"><a class="sgi-action-secondary" href="{{ url_for('sgi_qualidade') }}">Cancelar</a><button class="botao-hero-filtro" type="submit">Concluir verificação</button></div>
+    <label>Observacoes gerais<textarea name="observacoes" rows="3"></textarea></label>
+    <div class="sgi-form-actions"><a class="sgi-action-secondary" href="{{ url_for('sgi_qualidade') }}">Cancelar</a><button class="botao-hero-filtro" type="submit">Concluir verificacao</button></div>
   </form>
 </div>
 <script>
-const tipo=document.querySelector('#vinculo_tipo'), local=document.querySelector('[name=local_id]'), campoLocal=document.querySelector('#campo-local'), campoEq=document.querySelector('#campo-equipamento');
+const tipo=document.querySelector('#vinculo_tipo'), setor=document.querySelector('#setor_id'), local=document.querySelector('[name=local_id]'), equip=document.querySelector('[name=equipamento_id]'), campoLocal=document.querySelector('#campo-local'), campoEq=document.querySelector('#campo-equipamento');
+const vazioLocal=document.querySelector('[data-vazio-local]'), vazioEq=document.querySelector('[data-vazio-equipamento]'), cadastroLocal=document.querySelector('[data-cadastro-local]');
 const dataFicha=document.querySelector('[name=data]');if(!dataFicha.value)dataFicha.value=new Date().toISOString().slice(0,10);
-function vinculo(){const v=tipo.value;campoLocal.hidden=v==='Equipamento'||!v;campoEq.hidden=v!=='Equipamento';[...local.options].forEach(o=>{if(o.value)o.hidden=o.dataset.tipo!==v});}
-tipo.addEventListener('change',vinculo);vinculo();
+function vinculo(){
+  const v=tipo.value, setorOpt=setor.selectedOptions[0], setorId=setor.value, setorNome=setorOpt?setorOpt.textContent.trim():'';
+  campoLocal.hidden=v==='Equipamento'||!v;campoEq.hidden=v!=='Equipamento';
+  let locaisVisiveis=0,equipVisiveis=0;
+  [...local.options].forEach(o=>{if(!o.value)return;const mesmoTipo=o.dataset.tipo===v;const mesmoSetor=(!setorId)||(o.dataset.setorId===setorId)||(o.dataset.setor===setorNome);o.hidden=!(mesmoTipo&&mesmoSetor);if(!o.hidden)locaisVisiveis++;});
+  [...equip.options].forEach(o=>{if(!o.value)return;const mesmoSetor=(!setorNome)||(o.dataset.setor===setorNome);o.hidden=!mesmoSetor;if(!o.hidden)equipVisiveis++;});
+  if(local.selectedOptions[0]?.hidden)local.value=''; if(equip.selectedOptions[0]?.hidden)equip.value='';
+  vazioLocal.textContent=v==='Estrutura'?'Nenhuma estrutura ativa cadastrada para este setor.':'Nenhum ambiente ativo cadastrado para este setor.';
+  vazioLocal.hidden=campoLocal.hidden||locaisVisiveis>0||!setorId||!v; vazioEq.hidden=campoEq.hidden||equipVisiveis>0||!setorId;
+  if(cadastroLocal){cadastroLocal.textContent=v==='Estrutura'?'Cadastrar estrutura':'Cadastrar ambiente';}
+}
+tipo.addEventListener('change',vinculo);setor.addEventListener('change',vinculo);vinculo();
 document.querySelectorAll('[data-resultado]').forEach(s=>{const f=s.closest('[data-item]');const atualiza=()=>f.classList.toggle('tem-nc',s.value==='NC');s.addEventListener('change',atualiza);atualiza();});
-const lux=document.querySelector('[name=valor_iluminancia]');if(lux){const ficha=lux.closest('[data-item]'),saida=ficha.querySelector('[data-lux-resultado]');const calc=()=>{const limite=Number(local.selectedOptions[0]?.dataset.limite||0),valor=Number(lux.value||0),nc=limite&&lux.value&&valor<limite;ficha.classList.toggle('tem-nc',!!nc);saida.textContent=limite&&lux.value?`Resultado: ${nc?'NC':'C'} (mínimo ${limite} lux)`:''};lux.addEventListener('input',calc);local.addEventListener('change',calc);}
+const lux=document.querySelector('[name=valor_iluminancia]');if(lux){const ficha=lux.closest('[data-item]'),saida=ficha.querySelector('[data-lux-resultado]');const calc=()=>{const limite=Number(local.selectedOptions[0]?.dataset.limite||0),valor=Number(lux.value||0),nc=limite&&lux.value&&valor<limite;ficha.classList.toggle('tem-nc',!!nc);saida.textContent=limite&&lux.value?`Resultado: ${nc?'NC':'C'} (minimo ${limite} lux)`:''};lux.addEventListener('input',calc);local.addEventListener('change',calc);}
 </script>
 {% endblock %}

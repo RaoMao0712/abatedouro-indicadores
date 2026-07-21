@@ -1,10 +1,17 @@
 -- QUAL-SGI-01: migration aditiva PostgreSQL.
 -- A aplicacao executa os mesmos CREATE IF NOT EXISTS no startup.
+CREATE TABLE IF NOT EXISTS cadastros_setores (
+  id SERIAL PRIMARY KEY, nome TEXT NOT NULL UNIQUE, status TEXT DEFAULT 'Ativo',
+  criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 CREATE TABLE IF NOT EXISTS cadastros_locais (
   id SERIAL PRIMARY KEY, tipo TEXT NOT NULL, nome TEXT NOT NULL, setor TEXT NOT NULL,
   classificacao_iluminacao TEXT, status TEXT DEFAULT 'Ativo',
   criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP, UNIQUE(tipo, nome, setor)
 );
+ALTER TABLE cadastros_locais ADD COLUMN IF NOT EXISTS setor_id INTEGER;
+ALTER TABLE cadastros_locais ADD COLUMN IF NOT EXISTS descricao TEXT;
+ALTER TABLE cadastros_locais ADD COLUMN IF NOT EXISTS ambiente_id INTEGER;
 CREATE TABLE IF NOT EXISTS sgi_verificacoes (
   id SERIAL PRIMARY KEY, formulario_tipo TEXT NOT NULL, formulario_codigo TEXT NOT NULL,
   formulario_nome TEXT NOT NULL, data TEXT NOT NULL, setor TEXT NOT NULL,
@@ -15,6 +22,7 @@ CREATE TABLE IF NOT EXISTS sgi_verificacoes (
   concluido_por_nome TEXT, concluido_em TIMESTAMP,
   atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP, justificativa_alteracao TEXT
 );
+ALTER TABLE sgi_verificacoes ADD COLUMN IF NOT EXISTS setor_id INTEGER;
 CREATE TABLE IF NOT EXISTS sgi_verificacao_itens (
   id SERIAL PRIMARY KEY, verificacao_id INTEGER NOT NULL, item_codigo TEXT NOT NULL,
   item_descricao TEXT NOT NULL, valor_texto TEXT, valor_numerico REAL, unidade TEXT,

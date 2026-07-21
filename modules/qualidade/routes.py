@@ -841,6 +841,22 @@ def register_qualidade_routes(app, integracoes=None):
             flash("Local incluido na Central de Configuracao.")
         except Exception as erro:
             flash(str(erro))
+        retorno_tipo = request.form.get("retorno_tipo")
+        if retorno_tipo:
+            return redirect(url_for("sgi_nova_verificacao", tipo=retorno_tipo))
+        return redirect(url_for("sgi_qualidade"))
+
+    @app.route("/sgi/qualidade/cadastros/setores", methods=["POST"])
+    @perfil_permitido("qualidade", "pcp", "gerencia")
+    def sgi_cadastrar_setor():
+        try:
+            qualidade_service.cadastrar_setor_sgi(request.form)
+            flash("Setor incluido na Central de Configuracao.")
+        except Exception as erro:
+            flash(str(erro))
+        retorno_tipo = request.form.get("retorno_tipo")
+        if retorno_tipo:
+            return redirect(url_for("sgi_nova_verificacao", tipo=retorno_tipo))
         return redirect(url_for("sgi_qualidade"))
 
     @app.route("/sgi/qualidade/verificacoes/nova/<tipo>", methods=["GET", "POST"])
@@ -851,7 +867,7 @@ def register_qualidade_routes(app, integracoes=None):
             if request.method == "POST":
                 verificacao_id = qualidade_service.salvar_verificacao_sgi(
                     tipo, request.form, session["usuario_id"], session.get("nome", "Usuario"))
-                flash("Verificacao concluida e registrada no historico.")
+                flash(f"Verificacao #{verificacao_id} concluida e registrada no historico.")
                 return redirect(url_for("sgi_verificacao_detalhe", verificacao_id=verificacao_id))
             return render_template("sgi_verificacao_form.html", **contexto)
         except Exception as erro:

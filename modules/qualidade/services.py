@@ -1,5 +1,7 @@
 """Servicos do modulo de Qualidade."""
 
+from datetime import datetime
+
 from database import conectar, q
 from modules.producao.services import validar_op_aberta
 from . import repositories as repo
@@ -85,26 +87,41 @@ def criar_tabelas_sgi():
     repo.criar_tabelas_sgi()
 
 
+def cadastrar_setor_sgi(form):
+    nome = (form.get("nome") or "").strip()
+    repo.inserir_setor(nome)
+
+
 def cadastrar_local_sgi(form):
     tipo = (form.get("tipo") or "").strip()
     nome = (form.get("nome") or "").strip()
-    setor = (form.get("setor") or "").strip()
+    setor_id = int(form.get("setor_id") or 0) or None
+    setor = repo.buscar_setor(setor_id) if setor_id else None
     classificacao = (form.get("classificacao_iluminacao") or "").strip()
+    descricao = (form.get("descricao") or "").strip()
+    ambiente_id = int(form.get("ambiente_id") or 0) or None
     if tipo not in ("Ambiente", "Estrutura"):
         raise ValueError("Tipo de cadastro invalido.")
     if not nome or not setor:
         raise ValueError("Informe nome e setor do local.")
     if tipo == "Ambiente" and classificacao not in LIMITES_LUX:
         raise ValueError("Classifique a iluminacao do ambiente.")
-    repo.inserir_local(tipo, nome, setor, classificacao)
+    if tipo == "Estrutura" and ambiente_id:
+        ambiente = repo.buscar_local(ambiente_id)
+        if not ambiente or ambiente["tipo"] != "Ambiente":
+            raise ValueError("Ambiente relacionado invalido.")
+        if ambiente["setor_id"] and int(ambiente["setor_id"]) != int(setor_id):
+            raise ValueError("Ambiente relacionado pertence a outro setor.")
+    repo.inserir_local(tipo, nome, setor["nome"], classificacao, descricao, setor_id, ambiente_id)
 
 
 def contexto_central_sgi(args=None):
     args = args or {}
     filtros = {
-        "mes": args.get("mes") or "",
+        "mes": args.get("mes") or datetime.now().strftime("%Y-%m"),
         "formulario_tipo": args.get("formulario_tipo") or "Todos",
-        "setor": args.get("setor") or "Todos",
+        "setor_id": args.get("setor_id") or "Todos",
+        "setor": "Todos",
         "status": args.get("status") or "Todos",
     }
     verificacoes = repo.listar_verificacoes(filtros)
@@ -112,6 +129,9 @@ def contexto_central_sgi(args=None):
         "formularios": FORMULARIOS_PLM,
         "verificacoes": verificacoes,
         "filtros": filtros,
+        "setores": repo.listar_setores(),
+        "ambientes": repo.listar_locais("Ambiente"),
+        "estruturas": repo.listar_locais("Estrutura"),
         "total_concluidas": sum(1 for item in verificacoes if item["status"] == "Concluida"),
         "total_pendencias": sum(int(item["ncs_abertas"] or 0) for item in verificacoes),
         "total_ncs": sum(int(item["total_ncs"] or 0) for item in verificacoes),
@@ -127,7 +147,10 @@ def contexto_nova_verificacao(tipo):
         "tipo": tipo,
         "formulario": formulario,
         "formularios": FORMULARIOS_PLM,
+        "setores": repo.listar_setores(),
         "locais": repo.listar_locais(),
+        "ambientes": repo.listar_locais("Ambiente"),
+        "estruturas": repo.listar_locais("Estrutura"),
         "equipamentos": repo.listar_equipamentos(),
         "limites_lux": LIMITES_LUX,
     }
@@ -142,11 +165,15 @@ def salvar_verificacao_sgi(tipo, form, usuario_id, usuario_nome):
     if not formulario:
         raise ValueError("Formulario PLM invalido.")
     data = _valor(form, "data")
-    setor = _valor(form, "setor")
+    setor_id = int(form.get("setor_id") or 0) or None
+    setor_cadastro = repo.buscar_setor(setor_id) if setor_id else None
+    setor = setor_cadastro["nome"] if setor_cadastro else _valor(form, "setor")
     responsavel = _valor(form, "responsavel")
     vinculo_tipo = _valor(form, "vinculo_tipo")
-    if not data or not setor or not responsavel:
-        raise ValueError("Informe data, setor e responsavel/monitor.")
+    if not data or not responsavel:
+        raise ValueError("Informe data e responsavel/monitor.")
+    if not setor_cadastro:
+        raise ValueError("Selecione um setor cadastrado ativo.")
     if vinculo_tipo not in formulario["vinculos"]:
         raise ValueError("Vinculo incompativel com este formulario.")
 
@@ -156,10 +183,17 @@ def salvar_verificacao_sgi(tipo, form, usuario_id, usuario_nome):
     if vinculo_tipo == "Equipamento":
         if not equipamento_id or not repo.buscar_equipamento(equipamento_id):
             raise ValueError("Vincule um equipamento cadastrado para concluir.")
+        equipamento = repo.buscar_equipamento(equipamento_id)
+        if equipamento["setor"] and equipamento["setor"] != setor:
+            raise ValueError("Equipamento nao pertence ao setor selecionado.")
     else:
         local = repo.buscar_local(local_id) if local_id else None
         if not local or local["tipo"] != vinculo_tipo:
             raise ValueError("Vincule um ambiente ou estrutura cadastrado para concluir.")
+        if local["setor_id"] and int(local["setor_id"]) != int(setor_id):
+            raise ValueError("Item vinculado nao pertence ao setor selecionado.")
+        if not local["setor_id"] and local["setor"] != setor:
+            raise ValueError("Item vinculado nao pertence ao setor selecionado.")
 
     itens, ncs, acoes = [], [], {}
     for codigo, descricao, tipo_campo in formulario["itens"]:
@@ -213,7 +247,7 @@ def salvar_verificacao_sgi(tipo, form, usuario_id, usuario_nome):
                 acoes[codigo] = (descricao, pessoa)
 
     cabecalho = (
-        tipo, formulario["codigo"], formulario["nome"], data, setor, vinculo_tipo,
+        tipo, formulario["codigo"], formulario["nome"], data, setor, setor_id, vinculo_tipo,
         local_id, equipamento_id, responsavel, "Concluida", _valor(form, "observacoes"),
         usuario_id, usuario_nome, usuario_id, usuario_nome,
     )
@@ -273,9 +307,10 @@ def encerrar_nc_sgi(nc_id, usuario_id, usuario_nome):
 
 def contexto_consolidado(args):
     filtros = {
-        "mes": args.get("mes") or __import__("datetime").datetime.now().strftime("%Y-%m"),
+        "mes": args.get("mes") or datetime.now().strftime("%Y-%m"),
         "formulario_tipo": args.get("formulario_tipo") or "Todos",
-        "setor": args.get("setor") or "Todos",
+        "setor_id": args.get("setor_id") or "Todos",
+        "setor": "Todos",
         "status": "Todos",
         "vinculo_tipo": args.get("vinculo_tipo") or "Todos",
         "local_id": args.get("ambiente_id") or args.get("estrutura_id") or "",
@@ -289,5 +324,6 @@ def contexto_consolidado(args):
         verificacao, itens, ncs, _, _ = repo.buscar_verificacao(resumo["id"])
         verificacoes.append({"cabecalho": verificacao, "itens": itens, "ncs": ncs})
     return {"formularios": FORMULARIOS_PLM, "filtros": filtros, "verificacoes": verificacoes,
+            "setores": repo.listar_setores(),
             "ambientes": repo.listar_locais("Ambiente"), "estruturas": repo.listar_locais("Estrutura"),
             "equipamentos": repo.listar_equipamentos()}
