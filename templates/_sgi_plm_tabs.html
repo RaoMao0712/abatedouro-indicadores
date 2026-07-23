@@ -1,10 +1,17 @@
-{% set aba_ativa = aba_ativa|default('plm01_instalacoes') %}
-<nav class="movimentacoes-fichas sgi-plm-tabs" aria-label="Formulários de verificação PLM">
+{% set aba_ativa = aba_ativa|default('plm01') %}
+<nav class="movimentacoes-fichas sgi-plm-tabs" aria-label="Formularios de verificacao PLM">
+  <a class="movimentacoes-ficha{% if aba_ativa == 'plm01' %} ativa{% endif %}"
+     href="{{ url_for('sgi_plm01_mensal', competencia=filtros.mes if filtros is defined else competencia|default('')) }}"
+     {% if aba_ativa == 'plm01' %}aria-current="page"{% endif %}>
+    PLM 01
+  </a>
   {% for tipo_nav, ficha_nav in formularios.items() %}
+  {% if tipo_nav not in ['plm01_instalacoes', 'plm01_balancas'] %}
   <a class="movimentacoes-ficha{% if aba_ativa == tipo_nav %} ativa{% endif %}"
      href="{{ url_for('sgi_nova_verificacao', tipo=tipo_nav) }}"
      {% if aba_ativa == tipo_nav %}aria-current="page"{% endif %}>
-    {{ ficha_nav.codigo }}{% if tipo_nav == 'plm01_instalacoes' %} · Instalações{% elif tipo_nav == 'plm01_balancas' %} · Balanças{% endif %}
+    {{ ficha_nav.codigo }}
   </a>
+  {% endif %}
   {% endfor %}
 </nav>

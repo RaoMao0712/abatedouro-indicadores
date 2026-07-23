@@ -72,6 +72,32 @@ def form_conforme(tipo, cadastros, lux=600):
     return dados
 
 
+def form_plm01(competencia, linhas):
+    dados = {
+        "competencia": competencia,
+        "linha_id[]": [],
+        "ordem[]": [],
+        "data_linha[]": [],
+        "setor_id[]": [],
+        "tipo_item[]": [],
+        "descricao_atividade[]": [],
+        "higienizacao_apos_reparo[]": [],
+        "condicao_final[]": [],
+        "justificativa[]": [],
+    }
+    for indice, linha in enumerate(linhas, start=1):
+        dados["linha_id[]"].append(str(linha.get("id", "")))
+        dados["ordem[]"].append(str(linha.get("ordem", indice)))
+        dados["data_linha[]"].append(linha.get("data", ""))
+        dados["setor_id[]"].append(str(linha.get("setor_id", "")))
+        dados["tipo_item[]"].append(linha.get("tipo_item", ""))
+        dados["descricao_atividade[]"].append(linha.get("descricao_atividade", ""))
+        dados["higienizacao_apos_reparo[]"].append(linha.get("higienizacao_apos_reparo", ""))
+        dados["condicao_final[]"].append(linha.get("condicao_final", ""))
+        dados["justificativa[]"].append(linha.get("justificativa", ""))
+    return dados
+
+
 def test_permissoes_central():
     for perfil in ("qualidade", "pcp", "gerencia"):
         client = app.test_client(); sessao(client, perfil)
@@ -91,9 +117,10 @@ def test_vinculo_obrigatorio_e_seis_controles():
         assert False, "deveria bloquear verificacao sem vinculo"
     except ValueError as erro:
         assert "Vincule" in str(erro)
+    tipos_legados = [tipo for tipo in FORMULARIOS_PLM if not tipo.startswith("plm01")]
     ids = [sgi.salvar_verificacao_sgi(tipo, form_conforme(tipo, cadastros), 1, "Teste")
-           for tipo in FORMULARIOS_PLM]
-    assert len(ids) == 6 and len(set(ids)) == 6
+           for tipo in tipos_legados]
+    assert len(ids) == 4 and len(set(ids)) == 4
 
 
 def test_limites_lux_110_220_540():
@@ -143,10 +170,10 @@ def test_na_ventilacao_e_acao_imediata_plm02():
 
 def test_os_bidirecional_conclusao_eficacia_e_encerramento():
     cadastros = preparar_cadastros()
-    form = form_conforme("plm01_balancas", cadastros)
-    form.update({"resultado_calibracao": "NC", "criticidade_calibracao": "ALTA",
-                 "observacao_calibracao": "Calibracao vencida", "acao_calibracao": "Segregar"})
-    vid = sgi.salvar_verificacao_sgi("plm01_balancas", form, 2, "PCP")
+    form = form_conforme("plm05_condensacao", cadastros)
+    form.update({"resultado_manutencao": "NC", "criticidade_manutencao": "ALTA",
+                 "observacao_manutencao": "Manutencao pendente", "acao_manutencao": "Abrir OS"})
+    vid = sgi.salvar_verificacao_sgi("plm05_condensacao", form, 2, "PCP")
     nc = repo.buscar_verificacao(vid)[2][0]
     nc_detalhe = repo.buscar_nc(nc["id"])
     ordem_id = manutencao_service.criar_ordem_por_nc(nc_detalhe, {
@@ -201,68 +228,126 @@ def test_criticidade_gerencia_historico_e_consolidado():
     assert client.get("/sgi/qualidade/consolidado?mes=2026-07").status_code == 200
 
 
-def test_cadastros_setor_ambiente_estrutura_e_filtros_junho():
+def test_plm01_manual_competencia_linhas_pesquisa_e_impressao():
     try:
         repo.inserir_setor("Teste SGI")
     except Exception:
         pass
     setor = next(item for item in repo.listar_setores() if item["nome"] == "Teste SGI")
-    repo.inserir_local(
-        "Ambiente", "Ambiente Teste", setor["nome"],
-        "Producao e recepcao", "Ambiente de teste", setor["id"],
-    )
-    ambiente = next(item for item in repo.listar_locais("Ambiente") if item["nome"] == "Ambiente Teste")
-    repo.inserir_local(
-        "Estrutura", "Estrutura Teste", setor["nome"],
-        None, "Estrutura de teste", setor["id"], ambiente["id"],
-    )
-    estrutura = next(item for item in repo.listar_locais("Estrutura") if item["nome"] == "Estrutura Teste")
+    contexto_vazio = sgi.contexto_plm01_mensal({"competencia": "2026-06"})
+    assert len(contexto_vazio["linhas"]) == 18
+    assert not any(linha["id"] for linha in contexto_vazio["linhas"])
 
-    ambientes_setor = repo.listar_locais_por_setor("Ambiente", setor["id"])
-    estruturas_setor = repo.listar_locais_por_setor("Estrutura", setor["id"])
-    assert [item["nome"] for item in ambientes_setor] == ["Ambiente Teste"]
-    assert [item["nome"] for item in estruturas_setor] == ["Estrutura Teste"]
+    form = form_plm01("2026-06", [
+        {
+            "ordem": 1,
+            "data": "2026-06-02",
+            "setor_id": setor["id"],
+            "tipo_item": "Instalacoes",
+            "descricao_atividade": "Reparo em porta da camara",
+            "higienizacao_apos_reparo": "Sim",
+            "condicao_final": "C",
+        },
+        {
+            "ordem": 2,
+            "data": "2026-06-03",
+            "setor_id": setor["id"],
+            "tipo_item": "Equipamentos",
+            "descricao_atividade": "Afericao de termometro",
+            "higienizacao_apos_reparo": "Nao",
+            "condicao_final": "NC",
+        },
+        {"ordem": 3},
+    ])
+    ficha_id = sgi.salvar_plm01_mensal(form, 11, "Qualidade")
+    ficha = repo.buscar_plm01_ficha("2026-06")
+    assert ficha["id"] == ficha_id
+    linhas = repo.listar_plm01_linhas(ficha_id)
+    assert len(linhas) == 2
+    assert [linha["ordem"] for linha in linhas] == [1, 2]
 
-    form_ambiente = form_conforme("plm01_instalacoes", preparar_cadastros())
-    form_ambiente.update({
-        "data": "2026-06-02",
+    contexto_junho = sgi.contexto_plm01_mensal({"competencia": "2026-06"})
+    assert len([linha for linha in contexto_junho["linhas"] if linha["id"]]) == 2
+    contexto_julho = sgi.contexto_plm01_mensal({"competencia": "2026-07"})
+    assert len(contexto_julho["linhas"]) == 18
+    assert not any(linha["id"] for linha in contexto_julho["linhas"])
+    assert len([linha for linha in sgi.contexto_plm01_mensal({"competencia": "2026-06"})["linhas"] if linha["id"]]) == 2
+
+    terceira = {
+        "ordem": 19,
+        "data": "2026-06-19",
+        "setor_id": setor["id"],
+        "tipo_item": "Equipamentos",
+        "descricao_atividade": "Calibracao de balanca",
+        "higienizacao_apos_reparo": "Sim",
+        "condicao_final": "C",
+    }
+    linhas_form = [dict(row) for row in linhas] + [terceira]
+    form_19 = form_plm01("2026-06", linhas_form)
+    sgi.salvar_plm01_mensal(form_19, 11, "Qualidade")
+    assert len(repo.listar_plm01_linhas(ficha_id)) == 3
+
+    central = sgi.contexto_central_sgi({
+        "mes": "2026-06",
         "setor_id": str(setor["id"]),
-        "vinculo_tipo": "Ambiente",
-        "local_id": str(ambiente["id"]),
+        "tipo_item": "Equipamentos",
+        "condicao_final": "NC",
     })
-    vid_ambiente = sgi.salvar_verificacao_sgi("plm01_instalacoes", form_ambiente, 11, "Qualidade")
+    assert any(item["id"] == ficha_id for item in central["plm01_fichas"])
 
-    form_estrutura = dict(form_ambiente)
-    form_estrutura.update({
-        "data": "2026-06-03",
-        "vinculo_tipo": "Estrutura",
-        "local_id": str(estrutura["id"]),
-    })
-    vid_estrutura = sgi.salvar_verificacao_sgi("plm01_instalacoes", form_estrutura, 11, "Qualidade")
+    client = app.test_client(); sessao(client, "qualidade")
+    assert client.get("/sgi/qualidade/plm01/imprimir?competencia=2026-06").status_code == 200
 
-    central = sgi.contexto_central_sgi({"mes": "2026-06", "setor_id": str(setor["id"])})
-    ids = {item["id"] for item in central["verificacoes"]}
-    assert {vid_ambiente, vid_estrutura} <= ids
-    assert central["filtros"]["mes"] == "2026-06"
-    assert central["total_concluidas"] >= 2
 
-    consolidado = sgi.contexto_consolidado({"mes": "2026-06", "setor_id": str(setor["id"])})
-    ids_consolidado = {item["cabecalho"]["id"] for item in consolidado["verificacoes"]}
-    assert {vid_ambiente, vid_estrutura} <= ids_consolidado
-    detalhe_ambiente = repo.buscar_verificacao(vid_ambiente)[0]
-    detalhe_estrutura = repo.buscar_verificacao(vid_estrutura)[0]
-    assert detalhe_ambiente["vinculo_tipo"] == "Ambiente"
-    assert detalhe_ambiente["vinculo_nome"] == "Ambiente Teste"
-    assert detalhe_estrutura["vinculo_tipo"] == "Estrutura"
-    assert detalhe_estrutura["vinculo_nome"] == "Estrutura Teste"
+def test_plm01_rejeita_linha_parcial_data_fora_e_edicao_sem_justificativa():
+    cadastros = preparar_cadastros()
+    setor = cadastros["setor"]
+    parcial = form_plm01("2026-06", [{"ordem": 1, "data": "2026-06-02", "setor_id": setor["id"]}])
+    try:
+        sgi.salvar_plm01_mensal(parcial, 1, "Teste")
+        assert False, "deveria rejeitar linha parcial"
+    except ValueError as erro:
+        assert "Linha 1" in str(erro)
+
+    fora = form_plm01("2026-06", [{
+        "ordem": 1, "data": "2026-07-02", "setor_id": setor["id"],
+        "tipo_item": "Instalacoes", "descricao_atividade": "Reparo",
+        "higienizacao_apos_reparo": "Sim", "condicao_final": "C",
+    }])
+    try:
+        sgi.salvar_plm01_mensal(fora, 1, "Teste")
+        assert False, "deveria rejeitar data fora da competencia"
+    except ValueError as erro:
+        assert "competencia selecionada" in str(erro)
+
+    ok = form_plm01("2026-08", [{
+        "ordem": 1, "data": "2026-08-02", "setor_id": setor["id"],
+        "tipo_item": "Instalacoes", "descricao_atividade": "Reparo",
+        "higienizacao_apos_reparo": "Sim", "condicao_final": "C",
+    }])
+    ficha_id = sgi.salvar_plm01_mensal(ok, 1, "Teste")
+    linha = repo.listar_plm01_linhas(ficha_id)[0]
+    alterado = form_plm01("2026-08", [{
+        "id": linha["id"], "ordem": 1, "data": "2026-08-02", "setor_id": setor["id"],
+        "tipo_item": "Instalacoes", "descricao_atividade": "Reparo corrigido",
+        "higienizacao_apos_reparo": "Sim", "condicao_final": "C",
+    }])
+    try:
+        sgi.salvar_plm01_mensal(alterado, 1, "Teste")
+        assert False, "deveria exigir justificativa"
+    except ValueError as erro:
+        assert "justificativa" in str(erro)
+    alterado["justificativa[]"][0] = "Correcao da descricao"
+    sgi.salvar_plm01_mensal(alterado, 1, "Teste")
+    assert repo.listar_plm01_historico(ficha_id)
 
 
 def test_rejeita_setor_e_vinculo_manipulados():
     cadastros = preparar_cadastros()
-    form = form_conforme("plm01_instalacoes", cadastros)
+    form = form_conforme("plm03_iluminacao", cadastros)
     form["setor_id"] = "999999"
     try:
-        sgi.salvar_verificacao_sgi("plm01_instalacoes", form, 1, "Teste")
+        sgi.salvar_verificacao_sgi("plm03_iluminacao", form, 1, "Teste")
         assert False, "deveria rejeitar setor manipulado"
     except ValueError as erro:
         assert "setor cadastrado" in str(erro)
@@ -272,39 +357,23 @@ def test_rejeita_setor_e_vinculo_manipulados():
     except Exception:
         pass
     outro = next(item for item in repo.listar_setores() if item["nome"] == "Outro SGI")
-    form = form_conforme("plm01_instalacoes", cadastros)
+    form = form_conforme("plm03_iluminacao", cadastros)
     form["setor_id"] = str(outro["id"])
     try:
-        sgi.salvar_verificacao_sgi("plm01_instalacoes", form, 1, "Teste")
+        sgi.salvar_verificacao_sgi("plm03_iluminacao", form, 1, "Teste")
         assert False, "deveria rejeitar local de outro setor"
     except ValueError as erro:
         assert "nao pertence ao setor" in str(erro)
 
 
-def test_distincao_plm01_instalacoes_e_balancas_no_consolidado():
+def test_plm01_antigo_redireciona_para_ficha_manual_e_plm02_05_sem_regressao():
     cadastros = preparar_cadastros()
-    form_instalacoes = form_conforme("plm01_instalacoes", cadastros)
-    form_instalacoes["data"] = "2026-06-10"
-    form_balancas = form_conforme("plm01_balancas", cadastros)
-    form_balancas["data"] = "2026-06-11"
-    vid_instalacoes = sgi.salvar_verificacao_sgi("plm01_instalacoes", form_instalacoes, 1, "Teste")
-    vid_balancas = sgi.salvar_verificacao_sgi("plm01_balancas", form_balancas, 1, "Teste")
-
-    somente_instalacoes = sgi.contexto_consolidado({
-        "mes": "2026-06",
-        "formulario_tipo": "plm01_instalacoes",
-    })
-    ids_instalacoes = {item["cabecalho"]["id"] for item in somente_instalacoes["verificacoes"]}
-    assert vid_instalacoes in ids_instalacoes
-    assert vid_balancas not in ids_instalacoes
-
-    somente_balancas = sgi.contexto_consolidado({
-        "mes": "2026-06",
-        "formulario_tipo": "plm01_balancas",
-    })
-    ids_balancas = {item["cabecalho"]["id"] for item in somente_balancas["verificacoes"]}
-    assert vid_balancas in ids_balancas
-    assert vid_instalacoes not in ids_balancas
+    client = app.test_client(); sessao(client, "qualidade")
+    resposta = client.get("/sgi/qualidade/verificacoes/nova/plm01_instalacoes?competencia=2026-06")
+    assert resposta.status_code == 302 and "/sgi/qualidade/plm01" in resposta.location
+    for tipo in ("plm02_sanitarios", "plm03_iluminacao", "plm04_ventilacao", "plm05_condensacao"):
+        vid = sgi.salvar_verificacao_sgi(tipo, form_conforme(tipo, cadastros), 1, "Teste")
+        assert repo.buscar_verificacao(vid)[0]["formulario_tipo"] == tipo
 
 
 def test_rotas_renderizam_selects_oficiais_e_preservam_mes():
@@ -317,18 +386,21 @@ def test_rotas_renderizam_selects_oficiais_e_preservam_mes():
     assert 'name="setor_id"' in html
 
     form = client.get("/sgi/qualidade/verificacoes/nova/plm01_instalacoes")
+    assert form.status_code == 302
+    form = client.get("/sgi/qualidade/plm01?competencia=2026-06")
     html_form = form.get_data(as_text=True)
     assert form.status_code == 200
-    assert '<select name="setor_id"' in html_form
+    assert 'name="setor_id[]"' in html_form
     assert 'name="setor" required' not in html_form
-    assert 'Nenhum ambiente ativo cadastrado para este setor' in html_form
+    assert 'Adicionar linha' in html_form and 'Salvar PLM 01' in html_form
 
 
 def test_schema_estruturado_e_sem_hard_delete_sgi():
     conn = sqlite3.connect(DB_PATH)
     tabelas = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert {"sgi_verificacoes", "sgi_verificacao_itens", "sgi_nao_conformidades",
-            "sgi_acoes_imediatas", "sgi_eventos", "cadastros_locais"} <= tabelas
+            "sgi_acoes_imediatas", "sgi_eventos", "cadastros_locais",
+            "sgi_plm01_fichas", "sgi_plm01_linhas", "sgi_plm01_linha_historico"} <= tabelas
     colunas = {row[1] for row in conn.execute("PRAGMA table_info(sgi_verificacao_itens)")}
     assert {"valor_texto", "valor_numerico", "parametro_numerico", "resultado"} <= colunas
     conn.close()
@@ -338,6 +410,7 @@ def test_schema_estruturado_e_sem_hard_delete_sgi():
     migracao = (ROOT / "database" / "20260720_qual_sgi_01.sql").read_text(encoding="utf-8")
     assert "SERIAL PRIMARY KEY" in migracao and "ADD COLUMN IF NOT EXISTS" in migracao
     assert "cadastros_setores" in migracao and "setor_id" in migracao
+    assert "sgi_plm01_fichas" in migracao and "sgi_plm01_linhas" in migracao
 
 
 if __name__ == "__main__":

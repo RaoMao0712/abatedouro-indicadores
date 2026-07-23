@@ -862,6 +862,8 @@ def register_qualidade_routes(app, integracoes=None):
     @app.route("/sgi/qualidade/verificacoes/nova/<tipo>", methods=["GET", "POST"])
     @perfil_permitido("qualidade", "pcp", "gerencia")
     def sgi_nova_verificacao(tipo):
+        if tipo in ("plm01_instalacoes", "plm01_balancas", "plm01"):
+            return redirect(url_for("sgi_plm01_mensal", competencia=request.args.get("competencia") or request.args.get("mes") or ""))
         try:
             contexto = qualidade_service.contexto_nova_verificacao(tipo)
             if request.method == "POST":
@@ -873,6 +875,28 @@ def register_qualidade_routes(app, integracoes=None):
         except Exception as erro:
             flash(str(erro))
             return redirect(url_for("sgi_qualidade"))
+
+    @app.route("/sgi/qualidade/plm01", methods=["GET", "POST"])
+    @perfil_permitido("qualidade", "pcp", "gerencia")
+    def sgi_plm01_mensal():
+        competencia = request.values.get("competencia") or request.values.get("mes") or ""
+        if request.method == "POST":
+            try:
+                ficha_id = qualidade_service.salvar_plm01_mensal(
+                    request.form, session["usuario_id"], session.get("nome", "Usuario"))
+                competencia = request.form.get("competencia") or competencia
+                flash(f"PLM 01 mensal #{ficha_id} salva com sucesso.")
+                return redirect(url_for("sgi_plm01_mensal", competencia=competencia))
+            except Exception as erro:
+                flash(str(erro))
+                contexto = qualidade_service.contexto_plm01_mensal({"competencia": competencia})
+                return render_template("sgi_plm01_form.html", **contexto)
+        return render_template("sgi_plm01_form.html", **qualidade_service.contexto_plm01_mensal({"competencia": competencia}))
+
+    @app.route("/sgi/qualidade/plm01/imprimir")
+    @perfil_permitido("qualidade", "pcp", "gerencia")
+    def sgi_plm01_imprimir():
+        return render_template("sgi_plm01_print.html", **qualidade_service.contexto_plm01_mensal(request.args))
 
     @app.route("/sgi/qualidade/verificacoes/<int:verificacao_id>")
     @perfil_permitido("qualidade", "pcp", "gerencia")

@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block conteudo %}
+<div class="financeiro-page movimentacoes-page sgi-page sgi-plm01-page">
+  <section class="hero-dashboard financeiro-hero-executivo movimentacoes-hero sgi-operational-header">
+    <div class="financeiro-hero-titulo">
+      <span class="eyebrow">SGI · QUALIDADE</span>
+      <h2>PLM 01 · {{ titulo }}</h2>
+      <p>Ficha mensal simples conforme formulario operacional da Qualidade.</p>
+      <div class="financeiro-hero-resumo">
+        <span><b>FORMULARIO</b> PLM 01</span>
+        <span><b>COMPETENCIA</b> {{ competencia_formatada }}</span>
+      </div>
+    </div>
+    <div class="sgi-header-actions">
+      <a class="sgi-action-secondary" href="{{ url_for('sgi_qualidade', mes=competencia) }}">Voltar a Central</a>
+      <a class="sgi-action-secondary" href="{{ url_for('sgi_plm01_imprimir', competencia=competencia) }}">Imprimir</a>
+    </div>
+  </section>
+
+  {% set aba_ativa = 'plm01' %}{% include '_sgi_plm_tabs.html' %}
+
+  <div class="sgi-plm01-alcance">{{ alcance }}</div>
+
+  <form method="get" class="card sgi-plm01-competencia no-print">
+    <label>Competencia<input type="month" name="competencia" value="{{ competencia }}" required></label>
+    <button class="botao-hero-filtro" type="submit">Carregar</button>
+  </form>
+
+  <form method="post" class="card sgi-plm01-card" id="plm01-form">
+    <input type="hidden" name="competencia" value="{{ competencia }}">
+    <div class="sgi-plm01-meta">
+      <span><b>Formulario</b> PLM 01</span>
+      <span><b>Titulo</b> {{ titulo }}</span>
+      <span><b>Competencia</b> {{ competencia_formatada }}</span>
+      <span><b>Ultimo salvamento</b> {% if ficha %}{{ ficha.ultimo_salvamento_nome or '-' }} · {{ ficha.atualizado_em }}{% else %}Ficha sem registros salvos{% endif %}</span>
+    </div>
+
+    {% if not setores %}
+    <div class="sgi-plm01-empty">Nenhum setor ativo cadastrado. Cadastre o setor no modulo oficial de Cadastros antes de preencher a PLM 01.</div>
+    {% endif %}
+
+    <div class="sgi-plm01-table-wrap">
+      <table class="sgi-plm01-table">
+        <thead>
+          <tr>
+            <th>N.</th>
+            <th>Data</th>
+            <th>Setor</th>
+            <th>Instalacoes ou Equipamentos</th>
+            <th>Descricao das atividades</th>
+            <th>Higienizacao apos reparo</th>
+            <th>Condicao final</th>
+            <th>Justificativa de alteracao</th>
+          </tr>
+        </thead>
+        <tbody id="plm01-linhas">
+          {% for linha in linhas %}
+          <tr data-linha>
+            <td class="sgi-plm01-ordem"><span>{{ linha.ordem }}</span><input type="hidden" name="linha_id[]" value="{{ linha.id or '' }}"><input type="hidden" name="ordem[]" value="{{ linha.ordem }}"></td>
+            <td><input type="date" name="data_linha[]" value="{{ linha.data or '' }}"></td>
+            <td><select name="setor_id[]"><option value="">Selecione</option>{% for setor in setores %}<option value="{{ setor.id }}" {% if linha.setor_id|string == setor.id|string %}selected{% endif %}>{{ setor.nome }}</option>{% endfor %}</select></td>
+            <td><select name="tipo_item[]"><option value="">Selecione</option>{% for tipo in tipos %}<option value="{{ tipo }}" {% if linha.tipo_item == tipo %}selected{% endif %}>{{ tipo }}</option>{% endfor %}</select></td>
+            <td><textarea name="descricao_atividade[]" rows="1">{{ linha.descricao_atividade or '' }}</textarea></td>
+            <td><select name="higienizacao_apos_reparo[]"><option value="">Selecione</option>{% for opcao in higienizacoes %}<option value="{{ opcao }}" {% if linha.higienizacao_apos_reparo == opcao %}selected{% endif %}>{{ opcao }}</option>{% endfor %}</select></td>
+            <td><select name="condicao_final[]"><option value="">Selecione</option>{% for opcao in condicoes %}<option value="{{ opcao }}" {% if linha.condicao_final == opcao %}selected{% endif %}>{{ opcao }}</option>{% endfor %}</select><small>C - Conforme · NC - Nao Conforme</small></td>
+            <td><textarea name="justificativa[]" rows="1" placeholder="{% if linha.persistida %}Obrigatoria se alterar{% else %}Nova linha{% endif %}"></textarea></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="sgi-plm01-actions no-print">
+      <button type="button" class="sgi-action-secondary" id="adicionar-linha">Adicionar linha</button>
+      <button class="botao-hero-filtro" type="submit" {% if not setores %}disabled{% endif %}>Salvar PLM 01</button>
+    </div>
+  </form>
+
+  {% if historico %}
+  <section class="card sgi-plm01-historico">
+    <div class="section-title-row"><div><span class="eyebrow">HISTORICO</span><h2>Alteracoes registradas</h2></div></div>
+    <table><thead><tr><th>Linha</th><th>Campo</th><th>Anterior</th><th>Novo</th><th>Justificativa</th><th>Usuario</th><th>Data</th></tr></thead><tbody>
+      {% for h in historico %}<tr><td>{{ h.ordem }}</td><td>{{ h.campo }}</td><td>{{ h.valor_anterior }}</td><td>{{ h.valor_novo }}</td><td>{{ h.justificativa }}</td><td>{{ h.usuario_nome }}</td><td>{{ h.criado_em }}</td></tr>{% endfor %}
+    </tbody></table>
+  </section>
+  {% endif %}
+</div>
+<script>
+const corpo=document.querySelector('#plm01-linhas'), btn=document.querySelector('#adicionar-linha');
+function atualizarOrdens(){[...corpo.querySelectorAll('tr')].forEach((tr,i)=>{const n=i+1;tr.querySelector('.sgi-plm01-ordem span').textContent=n;tr.querySelector('[name="ordem[]"]').value=n;});}
+btn?.addEventListener('click',()=>{const base=corpo.querySelector('tr:last-child').cloneNode(true);base.querySelectorAll('input,select,textarea').forEach(el=>{if(el.name==='ordem[]')return;el.value='';});corpo.appendChild(base);atualizarOrdens();});
+document.querySelectorAll('[name="data_linha[]"]').forEach(input=>{input.min='{{ competencia }}-01';input.max='{{ competencia }}-31';});
+</script>
+{% endblock %}
