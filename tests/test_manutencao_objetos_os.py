@@ -2,6 +2,7 @@ from pathlib import Path
 import os
 import sys
 import tempfile
+from werkzeug.datastructures import MultiDict
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -56,6 +57,30 @@ def form_base():
         "prioridade": "Media",
         "data_abertura": "2026-07-23",
         "descricao": "Solicitacao de manutencao",
+    }
+
+
+def abrir_os(codigo="EQ-OS"):
+    equipamento = criar_equipamento(codigo)
+    dados = form_base()
+    dados.update({"tipo_objeto": "EQUIPAMENTO", "equipamento_id": str(equipamento["id"])})
+    return manutencao_service.salvar_ordem_manutencao(dados, 1, "Solicitante", "pcp"), equipamento
+
+
+def form_material(descricao="Rolamento", quantidade="2", status="Necessario"):
+    return {
+        "recurso_id[]": [""],
+        "remover[]": ["Nao"],
+        "recurso_tipo[]": ["Material"],
+        "recurso_descricao[]": [descricao],
+        "recurso_insumo_id[]": [""],
+        "recurso_descricao_complementar[]": ["Aplicacao na linha"],
+        "recurso_quantidade[]": [quantidade],
+        "recurso_unidade[]": ["Un"],
+        "recurso_fornecedor[]": [""],
+        "recurso_valor_estimado[]": ["0"],
+        "recurso_status[]": [status],
+        "recurso_observacoes[]": ["Necessidade preliminar"],
     }
 
 
@@ -201,6 +226,98 @@ def test_rotas_renderizam_campos_oficiais():
     assert "Cadastro de Veiculos" in html_veiculos
     assert 'name="codigo"' in html_veiculos
     assert 'name="identificacao"' in html_veiculos
+
+
+def test_lista_materiais_permissoes_auditoria_e_validacao():
+    ordem_id, _equipamento = abrir_os("EQ-MAT")
+
+    for indice, perfil in enumerate(("qualidade", "pcp", "manutencao", "gerencia", "admin"), start=30):
+        client = app.test_client()
+        sessao(client, perfil, indice)
+        resposta = client.post(f"/manutencao/ordem/{ordem_id}/recursos", data=form_material(f"Item {perfil}", "1"))
+        assert resposta.status_code == 302
+
+    recursos = manutencao_service.repo.listar_recursos_por_ordens([ordem_id])[str(ordem_id)]
+    assert len(recursos) == 5
+    assert {item["usuario_nome"] for item in recursos} >= {
+        "Usuario qualidade", "Usuario pcp", "Usuario manutencao", "Usuario gerencia", "Usuario admin"}
+
+    eventos = manutencao_service.repo.listar_eventos_ordem(ordem_id)
+    assert len([evento for evento in eventos if evento["evento"] == "Material incluido"]) == 5
+
+    client = app.test_client()
+    sessao(client, "producao", 50)
+    resposta = client.post(f"/manutencao/ordem/{ordem_id}/recursos", data=form_material("Nao permitido", "1"))
+    assert resposta.status_code == 302
+    assert len(manutencao_service.repo.listar_recursos_por_ordens([ordem_id])[str(ordem_id)]) == 5
+
+    try:
+        manutencao_service.salvar_recursos_ordem_manutencao(
+            ordem_id, MultiDict(form_material("Quantidade invalida", "-1")),
+            "pcp", 99, "Teste")
+        assert False, "quantidade negativa deveria falhar"
+    except ValueError as erro:
+        assert "Quantidade" in str(erro)
+
+
+def test_cancelamento_os_controlado_e_indicadores():
+    ordem_id, equipamento = abrir_os("EQ-CAN")
+
+    client = app.test_client()
+    sessao(client, "gerencia", 60)
+    resposta = client.post(f"/manutencao/ordem/{ordem_id}/cancelar", data={"motivo_cancelamento": "Aberta em duplicidade"})
+    assert resposta.status_code == 302
+    ordem = manutencao_service.repo.buscar_ordem_por_id(ordem_id)
+    assert ordem["status"] == "Cancelada"
+    assert ordem["cancelamento_motivo"] == "Aberta em duplicidade"
+    assert manutencao_service.repo.buscar_equipamento_por_id(equipamento["id"])["status"] == "Operacional"
+    assert manutencao_service.repo.listar_eventos_ordem(ordem_id)[-1]["evento"] == "OS cancelada"
+
+    resumo = manutencao_service.calcular_resumo_manutencao(
+        manutencao_service.buscar_equipamentos_ativos_manutencao(),
+        [ordem],
+        manutencao_service.buscar_veiculos_ativos_manutencao())
+    assert resumo["abertas"] == 0
+    assert resumo["horas_paradas"] == 0
+    assert resumo["custo_real"] == 0
+
+
+def test_cancelamento_bloqueios_por_perfil_status_motivo_e_execucao():
+    ordem_id, _equipamento = abrir_os("EQ-BLOQ")
+
+    for perfil in ("qualidade", "pcp", "producao"):
+        client = app.test_client()
+        sessao(client, perfil, 70)
+        resposta = client.post(f"/manutencao/ordem/{ordem_id}/cancelar", data={"motivo_cancelamento": "Teste"})
+        assert resposta.status_code == 302
+        assert manutencao_service.repo.buscar_ordem_por_id(ordem_id)["status"] == "Aberta"
+
+    try:
+        manutencao_service.cancelar_ordem_manutencao(ordem_id, "", 1, "Gerente", "gerencia")
+        assert False, "motivo obrigatorio deveria falhar"
+    except ValueError as erro:
+        assert "motivo" in str(erro)
+
+    manutencao_service.atualizar_ordem_manutencao(ordem_id, {
+        "status": "Em andamento",
+        "horas_paradas": "0",
+        "custo_real": "0",
+    }, 1, "Manutencao", "manutencao")
+    try:
+        manutencao_service.cancelar_ordem_manutencao(ordem_id, "Nao pode", 1, "Gerente", "gerencia")
+        assert False, "OS em andamento deveria bloquear cancelamento"
+    except ValueError as erro:
+        assert "preservacao" in str(erro)
+
+    ordem_custo_id, _ = abrir_os("EQ-CUSTO")
+    manutencao_service.repo.atualizar_ordem(ordem_custo_id, (
+        "Aberta", "", "", "", "", 0, 10, "", "", "",
+    ))
+    try:
+        manutencao_service.cancelar_ordem_manutencao(ordem_custo_id, "Nao pode", 1, "Gerente", "gerencia")
+        assert False, "OS com custo deveria bloquear cancelamento"
+    except ValueError:
+        pass
 
 
 if __name__ == "__main__":

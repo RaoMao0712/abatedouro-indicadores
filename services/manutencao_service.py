@@ -12,10 +12,12 @@ LOCAIS_PREDIAIS = repo.LOCAIS_PREDIAIS
 TIPOS_VEICULO = repo.TIPOS_VEICULO
 MOTIVOS_MANUTENCAO = ["Mecanica", "Eletrica", "Pneumatica", "Hidraulica", "Instrumentacao"]
 MOTIVOS_OPERACIONAIS = ["Falta de materia-prima", "Falta de embalagem", "Setup", "Limpeza", "Espera", "Outros"]
-TIPOS_RECURSO_ORDEM = ["Material", "Mao de obra externa"]
-STATUS_RECURSO_ORDEM = ["Pendente", "Solicitado", "Comprado/Contratado", "Recebido", "Cancelado"]
+TIPOS_RECURSO_ORDEM = ["Material", "Servico", "Mao de obra externa"]
+STATUS_RECURSO_ORDEM = repo.STATUS_RECURSO_ORDEM
 PERFIS_ABERTURA_OS = ("qualidade", "producao", "pcp", "manutencao", "gerencia")
 PERFIS_TECNICOS_OS = ("manutencao", "gerencia", "admin")
+PERFIS_MATERIAIS_OS = ("qualidade", "pcp", "manutencao", "gerencia", "admin")
+PERFIS_CANCELAMENTO_OS = ("manutencao", "gerencia", "admin")
 
 
 def criar_tabelas_manutencao():
@@ -219,6 +221,9 @@ def atualizar_ordem_manutencao(ordem_id, form, usuario_id=0, usuario_nome="Siste
         raise PermissionError("Perfil sem permissao para encerramento tecnico da OS.")
 
     ordem_atual = repo.buscar_ordem_por_id(ordem_id)
+    if ordem_atual and ordem_atual["status"] == "Cancelada":
+        raise ValueError("OS cancelada nao pode ser executada ou editada operacionalmente.")
+
     status = form.get("status") or "Aberta"
     if status not in STATUS_MANUTENCAO:
         raise ValueError("Status de manutencao invalido.")
@@ -264,6 +269,14 @@ def atualizar_ordem_manutencao(ordem_id, form, usuario_id=0, usuario_nome="Siste
                 usuario_id, usuario_nome)
 
 
+def usuario_pode_editar_materiais(perfil):
+    return perfil in PERFIS_MATERIAIS_OS
+
+
+def usuario_pode_cancelar_os(perfil):
+    return perfil in PERFIS_CANCELAMENTO_OS
+
+
 def buscar_equipamentos_manutencao(busca=""):
     if busca:
         return repo.listar_equipamentos_filtrados(busca)
@@ -290,17 +303,22 @@ def buscar_ordens_manutencao(status_filtro="Todos", equipamento_id="", tipo_obje
     return repo.listar_ordens(status_filtro, equipamento_id, tipo_objeto, veiculo_id)
 
 
-def salvar_recursos_ordem_manutencao(ordem_id, form, usuario_perfil=""):
-    if usuario_perfil and usuario_perfil not in PERFIS_TECNICOS_OS:
+def salvar_recursos_ordem_manutencao(ordem_id, form, usuario_perfil="", usuario_id=0, usuario_nome="Sistema"):
+    if usuario_perfil and usuario_perfil not in PERFIS_MATERIAIS_OS:
         raise PermissionError("Perfil sem permissao para lancar recursos da OS.")
     ordem_id = int(ordem_id or 0)
-    if not ordem_id or not repo.buscar_ordem_por_id(ordem_id):
+    ordem = repo.buscar_ordem_por_id(ordem_id)
+    if not ordem_id or not ordem:
         raise ValueError("Ordem de manutencao nao encontrada.")
+    if ordem["status"] == "Cancelada":
+        raise ValueError("OS cancelada nao pode receber alteracao de materiais.")
 
     recurso_ids = form.getlist("recurso_id[]")
     remover = form.getlist("remover[]")
     tipos = form.getlist("recurso_tipo[]")
     descricoes = form.getlist("recurso_descricao[]")
+    insumos = form.getlist("recurso_insumo_id[]")
+    complementos = form.getlist("recurso_descricao_complementar[]")
     quantidades = form.getlist("recurso_quantidade[]")
     unidades = form.getlist("recurso_unidade[]")
     fornecedores = form.getlist("recurso_fornecedor[]")
@@ -313,6 +331,8 @@ def salvar_recursos_ordem_manutencao(ordem_id, form, usuario_perfil=""):
         len(remover),
         len(tipos),
         len(descricoes),
+        len(insumos),
+        len(complementos),
         len(quantidades),
         len(unidades),
         len(fornecedores),
@@ -327,16 +347,26 @@ def salvar_recursos_ordem_manutencao(ordem_id, form, usuario_perfil=""):
         if tipo not in TIPOS_RECURSO_ORDEM:
             raise ValueError("Tipo de recurso invalido.")
 
-        status_linha = _item_lista(status, indice) or "Pendente"
+        status_linha = _item_lista(status, indice) or "Necessario"
         if status_linha not in STATUS_RECURSO_ORDEM:
             raise ValueError("Status de recurso invalido.")
+
+        quantidade = float(_item_lista(quantidades, indice) or 0)
+        if quantidade < 0:
+            raise ValueError("Quantidade do material nao pode ser negativa.")
+
+        descricao = _item_lista(descricoes, indice)
+        if descricao and quantidade == 0:
+            raise ValueError("Informe a quantidade do material ou servico.")
 
         linhas.append({
             "id": _item_lista(recurso_ids, indice),
             "remover": _item_lista(remover, indice) or "Nao",
             "tipo": tipo,
-            "descricao": _item_lista(descricoes, indice),
-            "quantidade": _item_lista(quantidades, indice),
+            "descricao": descricao,
+            "insumo_id": _item_lista(insumos, indice),
+            "descricao_complementar": _item_lista(complementos, indice),
+            "quantidade": quantidade,
             "unidade": _item_lista(unidades, indice),
             "fornecedor": _item_lista(fornecedores, indice),
             "valor_estimado": _item_lista(valores, indice),
@@ -344,7 +374,40 @@ def salvar_recursos_ordem_manutencao(ordem_id, form, usuario_perfil=""):
             "observacoes": _item_lista(observacoes, indice),
         })
 
-    repo.salvar_recursos_ordem(ordem_id, linhas)
+    repo.salvar_recursos_ordem(ordem_id, linhas, usuario_id, usuario_nome)
+
+
+def cancelar_ordem_manutencao(ordem_id, motivo, usuario_id=0, usuario_nome="Sistema", usuario_perfil=""):
+    if usuario_perfil and usuario_perfil not in PERFIS_CANCELAMENTO_OS:
+        raise PermissionError("Perfil sem permissao para cancelar OS.")
+
+    ordem_id = int(ordem_id or 0)
+    ordem = repo.buscar_ordem_por_id(ordem_id)
+    if not ordem:
+        raise ValueError("Ordem de manutencao nao encontrada.")
+
+    motivo = (motivo or "").strip()
+    if not motivo:
+        raise ValueError("Informe o motivo da exclusao/cancelamento.")
+
+    if not ordem_elegivel_cancelamento(ordem):
+        raise ValueError("Esta OS possui execucao, apontamento ou vinculo que exige preservacao operacional.")
+
+    repo.cancelar_ordem(ordem_id, motivo, int(usuario_id or 0), usuario_nome or "Sistema")
+    if ordem["tipo_objeto"] == "EQUIPAMENTO" and ordem["equipamento_id"]:
+        repo.atualizar_status_equipamento(ordem["equipamento_id"], "Operacional")
+
+
+def ordem_elegivel_cancelamento(ordem):
+    if ordem["status"] != "Aberta":
+        return False
+    if float(ordem["horas_paradas"] or 0) > 0 or float(ordem["custo_real"] or 0) > 0:
+        return False
+    campos_tecnicos = [
+        "diagnostico", "solucao", "hora_conclusao", "pecas_utilizadas",
+        "observacoes_finais", "data_conclusao", "parada_id", "sgi_nc_id",
+    ]
+    return not any(ordem[campo] for campo in campos_tecnicos if campo in ordem.keys())
 
 
 def _item_lista(lista, indice):
@@ -359,8 +422,9 @@ def calcular_resumo_manutencao(equipamentos, ordens, veiculos=None):
     aguardando = sum(1 for item in ordens if item["status"] == "Aguardando peca")
     concluidas = sum(1 for item in ordens if item["status"] == "Concluida")
     criticas = sum(1 for item in ordens if item["prioridade"] == "Critica" and item["status"] not in ["Concluida", "Cancelada"])
-    horas_paradas = sum(float(item["horas_paradas"] or 0) for item in ordens)
-    custo_real = sum(float(item["custo_real"] or 0) for item in ordens)
+    operacionais = [item for item in ordens if item["status"] != "Cancelada"]
+    horas_paradas = sum(float(item["horas_paradas"] or 0) for item in operacionais)
+    custo_real = sum(float(item["custo_real"] or 0) for item in operacionais)
 
     return {
         "equipamentos": len(equipamentos),
@@ -406,6 +470,11 @@ def preparar_contexto_manutencao(args):
     veiculos_ativos = buscar_veiculos_ativos_manutencao()
     ordens = buscar_ordens_manutencao(status_filtro, equipamento_filtro, tipo_objeto_filtro, veiculo_filtro)
     recursos_por_ordem = repo.listar_recursos_por_ordens([item["id"] for item in ordens])
+    try:
+        from modules.almoxarifado.services import buscar_insumos_almoxarifado
+        insumos_manutencao = buscar_insumos_almoxarifado("Todas", "Sim", "")
+    except Exception:
+        insumos_manutencao = []
     return {
         "equipamentos": equipamentos,
         "equipamentos_ativos": equipamentos_ativos,
@@ -422,6 +491,9 @@ def preparar_contexto_manutencao(args):
         "status_opcoes": STATUS_MANUTENCAO,
         "tipos_recurso": TIPOS_RECURSO_ORDEM,
         "status_recurso": STATUS_RECURSO_ORDEM,
+        "insumos_manutencao": insumos_manutencao,
+        "perfis_materiais": PERFIS_MATERIAIS_OS,
+        "perfis_cancelamento": PERFIS_CANCELAMENTO_OS,
         "status_filtro": status_filtro,
         "equipamento_filtro": equipamento_filtro,
         "tipo_objeto_filtro": tipo_objeto_filtro,

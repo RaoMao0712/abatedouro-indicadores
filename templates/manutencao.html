@@ -303,7 +303,10 @@
                         <td>{{ ordem.custo_real|br_moeda }}</td>
                         <td>
                             <div class="manutencao-ordem-acoes">
-                            {% if session.get("perfil") in ["admin", "manutencao", "gerencia"] %}
+                            {% set recursos_ordem = recursos_por_ordem.get(ordem.id|string, []) %}
+                            {% set pode_editar_materiais = session.get("perfil") in perfis_materiais and ordem.status != "Cancelada" %}
+                            {% set pode_cancelar = session.get("perfil") in perfis_cancelamento and ordem.status == "Aberta" and not ordem.parada_id and not ordem.sgi_nc_id and not ordem.diagnostico and not ordem.solucao and not ordem.data_conclusao and not ordem.hora_conclusao and not ordem.pecas_utilizadas and not ordem.observacoes_finais and (ordem.horas_paradas|float) == 0 and (ordem.custo_real|float) == 0 %}
+                            {% if session.get("perfil") in ["admin", "manutencao", "gerencia"] and ordem.status != "Cancelada" %}
                             <details>
                                 <summary class="botao-tabela-almoxarifado manutencao-btn-tabela">Atualizar</summary>
                                 <form method="POST" action="{{ url_for('atualizar_ordem_manutencao_rota', ordem_id=ordem.id) }}" class="form-grid manutencao-update-form">
@@ -356,8 +359,10 @@
                                     </div>
                                 </form>
                             </details>
+                            {% endif %}
                             <details>
-                                <summary class="botao-tabela-almoxarifado manutencao-btn-tabela manutencao-btn-recursos">Materiais / terceiros</summary>
+                                <summary class="botao-tabela-almoxarifado manutencao-btn-tabela manutencao-btn-recursos">Materiais necessarios</summary>
+                                {% if pode_editar_materiais %}
                                 <form method="POST" action="{{ url_for('salvar_recursos_ordem_manutencao_rota', ordem_id=ordem.id) }}" class="manutencao-recursos-form">
                                     <input type="hidden" name="status_filtro" value="{{ status_filtro }}">
                                     <input type="hidden" name="equipamento_filtro" value="{{ equipamento_filtro }}">
@@ -365,7 +370,6 @@
                                     <input type="hidden" name="veiculo_filtro" value="{{ veiculo_filtro }}">
 
                                     <div class="manutencao-recursos-lista" data-recursos-lista>
-                                        {% set recursos_ordem = recursos_por_ordem.get(ordem.id|string, []) %}
                                         {% for recurso in recursos_ordem %}
                                             <div class="manutencao-recurso-linha" data-recurso-linha>
                                                 <input type="hidden" name="recurso_id[]" value="{{ recurso.id }}">
@@ -380,9 +384,24 @@
                                                     </select>
                                                 </div>
 
+                                                <div>
+                                                    <label>Insumo cadastrado</label>
+                                                    <select name="recurso_insumo_id[]">
+                                                        <option value="">Texto livre</option>
+                                                        {% for insumo in insumos_manutencao %}
+                                                            <option value="{{ insumo.id }}" {% if recurso.insumo_id == insumo.id %}selected{% endif %}>{{ insumo.descricao }}</option>
+                                                        {% endfor %}
+                                                    </select>
+                                                </div>
+
                                                 <div class="manutencao-recurso-descricao">
-                                                    <label>Descricao</label>
+                                                    <label>Material ou servico</label>
                                                     <input type="text" name="recurso_descricao[]" value="{{ recurso.descricao }}" placeholder="Material ou servico necessario">
+                                                </div>
+
+                                                <div class="manutencao-recurso-descricao">
+                                                    <label>Descricao complementar</label>
+                                                    <input type="text" name="recurso_descricao_complementar[]" value="{{ recurso.descricao_complementar or '' }}">
                                                 </div>
 
                                                 <div>
@@ -393,6 +412,11 @@
                                                 <div>
                                                     <label>Un.</label>
                                                     <input type="text" name="recurso_unidade[]" value="{{ recurso.unidade or '' }}" placeholder="un, h, kg">
+                                                </div>
+
+                                                <div>
+                                                    <label>Usuario</label>
+                                                    <input type="text" value="{{ recurso.usuario_nome or '-' }}" readonly>
                                                 </div>
 
                                                 <div>
@@ -429,10 +453,45 @@
                                         <button type="submit" class="botao-principal manutencao-btn">Salvar lista</button>
                                     </div>
                                 </form>
+                                {% else %}
+                                    {% if recursos_ordem %}
+                                        <div class="tabela-responsiva tabela-executiva expedicao-tabela manutencao-tabela">
+                                            <table>
+                                                <thead><tr><th>Material ou servico</th><th>Qtd.</th><th>Un.</th><th>Situacao</th><th>Usuario</th><th>Obs.</th></tr></thead>
+                                                <tbody>
+                                                {% for recurso in recursos_ordem %}
+                                                    <tr>
+                                                        <td>{{ recurso.descricao }}{% if recurso.descricao_complementar %}<br><small>{{ recurso.descricao_complementar }}</small>{% endif %}</td>
+                                                        <td>{{ recurso.quantidade|br_numero }}</td>
+                                                        <td>{{ recurso.unidade or "-" }}</td>
+                                                        <td>{{ recurso.status or "-" }}</td>
+                                                        <td>{{ recurso.usuario_nome or "-" }}</td>
+                                                        <td>{{ recurso.observacoes or "-" }}</td>
+                                                    </tr>
+                                                {% endfor %}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    {% else %}
+                                        <p class="obs">Nenhum material necessario registrado para esta OS.</p>
+                                    {% endif %}
+                                {% endif %}
                             </details>
-                            {% else %}
-                                <a href="{{ url_for('visualizar_ordem_manutencao', ordem_id=ordem.id) }}" class="botao-tabela-almoxarifado manutencao-btn-tabela">Detalhe</a>
+                            {% if pode_cancelar %}
+                            <details>
+                                <summary class="botao-tabela-almoxarifado manutencao-btn-tabela manutencao-btn-remover">Excluir OS</summary>
+                                <form method="POST" action="{{ url_for('cancelar_ordem_manutencao_rota', ordem_id=ordem.id) }}" class="form-grid manutencao-update-form">
+                                    <div class="form-span-2">
+                                        <label>Motivo da exclusao/cancelamento</label>
+                                        <textarea name="motivo_cancelamento" rows="2" required></textarea>
+                                    </div>
+                                    <div class="form-span-2">
+                                        <button type="submit" class="botao-tabela-almoxarifado manutencao-btn-tabela manutencao-btn-remover" onclick="return confirm('Esta acao cancelara a Ordem de Servico e ela nao podera mais ser executada. Deseja continuar?');">Confirmar cancelamento</button>
+                                    </div>
+                                </form>
+                            </details>
                             {% endif %}
+                            <a href="{{ url_for('visualizar_ordem_manutencao', ordem_id=ordem.id) }}" class="botao-tabela-almoxarifado manutencao-btn-tabela">Detalhe</a>
                             </div>
                         </td>
                     </tr>
@@ -450,6 +509,8 @@
 <script>
 const tiposRecursoOrdem = {{ tipos_recurso|tojson }};
 const statusRecursoOrdem = {{ status_recurso|tojson }};
+const insumosManutencao = {{ insumos_manutencao|map(attribute='id')|list|tojson }};
+const nomesInsumosManutencao = {{ insumos_manutencao|map(attribute='descricao')|list|tojson }};
 
 function atualizarCamposObjetoOs() {
     const seletor = document.querySelector("[data-tipo-objeto-os]");
@@ -504,6 +565,10 @@ function criarOpcaoRecurso(valor) {
     return `<option value="${valor}">${valor}</option>`;
 }
 
+function criarOpcaoInsumo(indice) {
+    return `<option value="${insumosManutencao[indice]}">${nomesInsumosManutencao[indice]}</option>`;
+}
+
 function criarLinhaRecurso() {
     const linha = document.createElement("div");
     linha.className = "manutencao-recurso-linha";
@@ -515,13 +580,21 @@ function criarLinhaRecurso() {
             <label>Tipo</label>
             <select name="recurso_tipo[]">${tiposRecursoOrdem.map(criarOpcaoRecurso).join("")}</select>
         </div>
+        <div>
+            <label>Insumo cadastrado</label>
+            <select name="recurso_insumo_id[]"><option value="">Texto livre</option>${insumosManutencao.map((_valor, indice) => criarOpcaoInsumo(indice)).join("")}</select>
+        </div>
         <div class="manutencao-recurso-descricao">
-            <label>Descricao</label>
+            <label>Material ou servico</label>
             <input type="text" name="recurso_descricao[]" placeholder="Material ou servico necessario">
+        </div>
+        <div class="manutencao-recurso-descricao">
+            <label>Descricao complementar</label>
+            <input type="text" name="recurso_descricao_complementar[]">
         </div>
         <div>
             <label>Qtd.</label>
-            <input type="number" step="0.01" min="0" name="recurso_quantidade[]" value="0">
+            <input type="number" step="0.01" min="0" name="recurso_quantidade[]" value="1">
         </div>
         <div>
             <label>Un.</label>
@@ -538,6 +611,10 @@ function criarLinhaRecurso() {
         <div>
             <label>Status</label>
             <select name="recurso_status[]">${statusRecursoOrdem.map(criarOpcaoRecurso).join("")}</select>
+        </div>
+        <div>
+            <label>Usuario</label>
+            <input type="text" value="-" readonly>
         </div>
         <div>
             <label>Obs.</label>

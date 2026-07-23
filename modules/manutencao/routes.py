@@ -127,11 +127,16 @@ def register_manutencao_routes(app):
         return redirect(url_for("manutencao"))
 
     @app.route("/manutencao/ordem/<int:ordem_id>/recursos", methods=["POST"])
-    @perfil_permitido("manutencao", "gerencia")
+    @perfil_permitido("qualidade", "pcp", "manutencao", "gerencia")
     def salvar_recursos_ordem_manutencao_rota(ordem_id):
         try:
             manutencao_service.salvar_recursos_ordem_manutencao(
-                ordem_id, request.form, session.get("perfil", ""))
+                ordem_id,
+                request.form,
+                session.get("perfil", ""),
+                session.get("usuario_id", 0),
+                session.get("nome", "Sistema"),
+            )
             flash("Lista de materiais e terceiros atualizada com sucesso.")
         except Exception as erro:
             flash(str(erro))
@@ -143,6 +148,23 @@ def register_manutencao_routes(app):
             tipo_objeto=request.form.get("tipo_objeto_filtro", "Todos"),
             veiculo_id=request.form.get("veiculo_filtro", ""),
         ))
+
+    @app.route("/manutencao/ordem/<int:ordem_id>/cancelar", methods=["POST"])
+    @perfil_permitido("manutencao", "gerencia")
+    def cancelar_ordem_manutencao_rota(ordem_id):
+        try:
+            manutencao_service.cancelar_ordem_manutencao(
+                ordem_id,
+                request.form.get("motivo_cancelamento", ""),
+                session.get("usuario_id", 0),
+                session.get("nome", "Sistema"),
+                session.get("perfil", ""),
+            )
+            flash("Ordem de servico cancelada com sucesso.")
+        except Exception as erro:
+            flash(str(erro))
+
+        return redirect(url_for("manutencao"))
 
     @app.route("/manutencao/ordem/sgi/<int:nc_id>", methods=["GET", "POST"])
     @perfil_permitido("qualidade", "pcp", "gerencia")
@@ -183,4 +205,5 @@ def register_manutencao_routes(app):
             nc = qualidade_repo.buscar_nc(ordem["sgi_nc_id"])
             verificacao_id = nc["verificacao_id"] if nc else None
         return render_template("manutencao_ordem_detalhe.html", ordem=ordem,
+                               eventos=manutencao_repo.listar_eventos_ordem(ordem_id),
                                verificacao_id=verificacao_id)

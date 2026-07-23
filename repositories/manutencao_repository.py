@@ -89,6 +89,15 @@ TIPOS_VEICULO = [
     "Outro",
 ]
 
+STATUS_RECURSO_ORDEM = [
+    "Necessario",
+    "Disponivel",
+    "Indisponivel",
+    "Aguardando aquisicao",
+    "Atendido",
+    "Cancelado",
+]
+
 
 def _executar_alteracao(cursor, conn, comando):
     try:
@@ -176,6 +185,21 @@ def criar_tabelas_manutencao():
             criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         """)
+
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS manutencao_ordem_eventos (
+            id SERIAL PRIMARY KEY,
+            ordem_id INTEGER NOT NULL,
+            recurso_id INTEGER,
+            evento TEXT NOT NULL,
+            descricao TEXT,
+            valor_anterior TEXT,
+            valor_novo TEXT,
+            usuario_id INTEGER,
+            usuario_nome TEXT,
+            criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
     else:
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS manutencao_equipamentos (
@@ -250,6 +274,21 @@ def criar_tabelas_manutencao():
         )
         """)
 
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS manutencao_ordem_eventos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ordem_id INTEGER NOT NULL,
+            recurso_id INTEGER,
+            evento TEXT NOT NULL,
+            descricao TEXT,
+            valor_anterior TEXT,
+            valor_novo TEXT,
+            usuario_id INTEGER,
+            usuario_nome TEXT,
+            criado_em TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
+
     conn.commit()
 
     alteracoes = [
@@ -268,6 +307,15 @@ def criar_tabelas_manutencao():
         "ALTER TABLE manutencao_ordens ADD COLUMN local_predial_descricao TEXT",
         "ALTER TABLE manutencao_ordens ADD COLUMN solicitante_id INTEGER",
         "ALTER TABLE manutencao_ordens ADD COLUMN solicitante_perfil TEXT",
+        "ALTER TABLE manutencao_ordens ADD COLUMN cancelamento_motivo TEXT",
+        "ALTER TABLE manutencao_ordens ADD COLUMN cancelado_por_id INTEGER",
+        "ALTER TABLE manutencao_ordens ADD COLUMN cancelado_por_nome TEXT",
+        "ALTER TABLE manutencao_ordens ADD COLUMN cancelado_em TEXT",
+        "ALTER TABLE manutencao_ordem_recursos ADD COLUMN insumo_id INTEGER",
+        "ALTER TABLE manutencao_ordem_recursos ADD COLUMN descricao_complementar TEXT",
+        "ALTER TABLE manutencao_ordem_recursos ADD COLUMN usuario_id INTEGER",
+        "ALTER TABLE manutencao_ordem_recursos ADD COLUMN usuario_nome TEXT",
+        "ALTER TABLE manutencao_ordem_recursos ADD COLUMN atualizado_em TEXT",
     ]
 
     for comando in alteracoes:
@@ -561,6 +609,37 @@ def listar_equipamentos_ativos():
     return equipamentos
 
 
+def cancelar_ordem(ordem_id, motivo, usuario_id, usuario_nome):
+    criar_tabelas_manutencao()
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute(q("""
+    UPDATE manutencao_ordens
+    SET status = ?,
+        cancelamento_motivo = ?,
+        cancelado_por_id = ?,
+        cancelado_por_nome = ?,
+        cancelado_em = CURRENT_TIMESTAMP
+    WHERE id = ?
+    """), ("Cancelada", motivo, usuario_id, usuario_nome, ordem_id))
+    cursor.execute(q("""
+    UPDATE manutencao_ordem_recursos
+    SET status = ?,
+        atualizado_em = CURRENT_TIMESTAMP
+    WHERE ordem_id = ? AND COALESCE(status, '') <> ?
+    """), ("Cancelado", ordem_id, "Cancelado"))
+    cursor.execute(q("""
+    INSERT INTO manutencao_ordem_eventos (
+        ordem_id, evento, descricao, valor_anterior, valor_novo, usuario_id, usuario_nome
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    """), (
+        ordem_id, "OS cancelada", "Cancelamento logico da ordem de servico",
+        "Aberta", f"Cancelada: {motivo}", usuario_id, usuario_nome
+    ))
+    conn.commit()
+    conn.close()
+
+
 def listar_equipamentos_filtrados(busca=""):
     criar_tabelas_manutencao()
     termo = (busca or "").strip()
@@ -850,10 +929,14 @@ def listar_recursos_por_ordens(ordem_ids):
     conn = conectar()
     cursor = conn.cursor()
     cursor.execute(q(f"""
-    SELECT *
-    FROM manutencao_ordem_recursos
-    WHERE ordem_id IN ({placeholders})
-    ORDER BY id ASC
+    SELECT
+        r.*,
+        i.descricao AS insumo_nome,
+        i.unidade AS insumo_unidade
+    FROM manutencao_ordem_recursos r
+    LEFT JOIN almoxarifado_insumos i ON i.id = r.insumo_id
+    WHERE r.ordem_id IN ({placeholders})
+    ORDER BY r.id ASC
     """), tuple(ordem_ids))
     recursos = cursor.fetchall()
     conn.close()
@@ -865,7 +948,39 @@ def listar_recursos_por_ordens(ordem_ids):
     return recursos_por_ordem
 
 
-def salvar_recursos_ordem(ordem_id, linhas):
+def listar_eventos_ordem(ordem_id):
+    criar_tabelas_manutencao()
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute(q("""
+    SELECT *
+    FROM manutencao_ordem_eventos
+    WHERE ordem_id = ?
+    ORDER BY id ASC
+    """), (ordem_id,))
+    eventos = cursor.fetchall()
+    conn.close()
+    return eventos
+
+
+def _buscar_recurso_cursor(cursor, recurso_id, ordem_id):
+    cursor.execute(q("""
+    SELECT *
+    FROM manutencao_ordem_recursos
+    WHERE id = ? AND ordem_id = ?
+    """), (recurso_id, ordem_id))
+    return cursor.fetchone()
+
+
+def _registrar_evento_cursor(cursor, ordem_id, recurso_id, evento, descricao, anterior, novo, usuario_id, usuario_nome):
+    cursor.execute(q("""
+    INSERT INTO manutencao_ordem_eventos (
+        ordem_id, recurso_id, evento, descricao, valor_anterior, valor_novo, usuario_id, usuario_nome
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """), (ordem_id, recurso_id, evento, descricao, anterior, novo, usuario_id, usuario_nome))
+
+
+def salvar_recursos_ordem(ordem_id, linhas, usuario_id=0, usuario_nome="Sistema"):
     criar_tabelas_manutencao()
     conn = conectar()
     cursor = conn.cursor()
@@ -875,10 +990,18 @@ def salvar_recursos_ordem(ordem_id, linhas):
 
         if linha.get("remover") == "Sim":
             if recurso_id:
+                anterior = _buscar_recurso_cursor(cursor, recurso_id, ordem_id)
                 cursor.execute(q("""
-                DELETE FROM manutencao_ordem_recursos
+                UPDATE manutencao_ordem_recursos
+                SET status = ?,
+                    atualizado_em = CURRENT_TIMESTAMP
                 WHERE id = ? AND ordem_id = ?
-                """), (recurso_id, ordem_id))
+                """), ("Cancelado", recurso_id, ordem_id))
+                if anterior:
+                    _registrar_evento_cursor(
+                        cursor, ordem_id, recurso_id, "Material cancelado",
+                        "Item removido/cancelado da lista de materiais",
+                        str(dict(anterior)), "status=Cancelado", usuario_id, usuario_nome)
             continue
 
         descricao = (linha.get("descricao") or "").strip()
@@ -889,42 +1012,65 @@ def salvar_recursos_ordem(ordem_id, linhas):
             ordem_id,
             linha.get("tipo") or "Material",
             descricao,
+            int(linha.get("insumo_id") or 0) or None,
+            (linha.get("descricao_complementar") or "").strip(),
             float(linha.get("quantidade") or 0),
             (linha.get("unidade") or "").strip(),
             (linha.get("fornecedor") or "").strip(),
             float(linha.get("valor_estimado") or 0),
-            linha.get("status") or "Pendente",
+            linha.get("status") or "Necessario",
             (linha.get("observacoes") or "").strip(),
+            usuario_id,
+            usuario_nome,
         )
 
         if recurso_id:
+            anterior = _buscar_recurso_cursor(cursor, recurso_id, ordem_id)
             cursor.execute(q("""
             UPDATE manutencao_ordem_recursos
             SET
                 tipo = ?,
                 descricao = ?,
+                insumo_id = ?,
+                descricao_complementar = ?,
                 quantidade = ?,
                 unidade = ?,
                 fornecedor = ?,
                 valor_estimado = ?,
                 status = ?,
-                observacoes = ?
+                observacoes = ?,
+                atualizado_em = CURRENT_TIMESTAMP
             WHERE id = ? AND ordem_id = ?
-            """), (*dados[1:], recurso_id, ordem_id))
+            """), (*dados[1:10], recurso_id, ordem_id))
+            if anterior:
+                _registrar_evento_cursor(
+                    cursor, ordem_id, recurso_id, "Material alterado",
+                    "Item da lista de materiais atualizado",
+                    str(dict(anterior)), str(dados[1:10]), usuario_id, usuario_nome)
         else:
             cursor.execute(q("""
             INSERT INTO manutencao_ordem_recursos (
                 ordem_id,
                 tipo,
                 descricao,
+                insumo_id,
+                descricao_complementar,
                 quantidade,
                 unidade,
                 fornecedor,
                 valor_estimado,
                 status,
-                observacoes
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                observacoes,
+                usuario_id,
+                usuario_nome
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """), dados)
+            cursor.execute("SELECT LASTVAL() as id" if DATABASE_URL else "SELECT last_insert_rowid() as id")
+            novo = cursor.fetchone()
+            _registrar_evento_cursor(
+                cursor, ordem_id, novo["id"], "Material incluido",
+                "Item incluido na lista de materiais", "", str(dados[1:10]),
+                usuario_id, usuario_nome)
 
     conn.commit()
     conn.close()
