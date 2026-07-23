@@ -6,10 +6,16 @@ from repositories import manutencao_repository as repo
 TIPOS_MANUTENCAO = repo.TIPOS_MANUTENCAO
 PRIORIDADES_MANUTENCAO = repo.PRIORIDADES_MANUTENCAO
 STATUS_MANUTENCAO = repo.STATUS_MANUTENCAO
+TIPOS_OBJETO_MANUTENCAO = repo.TIPOS_OBJETO_MANUTENCAO
+CATEGORIAS_PREDIAIS = repo.CATEGORIAS_PREDIAIS
+LOCAIS_PREDIAIS = repo.LOCAIS_PREDIAIS
+TIPOS_VEICULO = repo.TIPOS_VEICULO
 MOTIVOS_MANUTENCAO = ["Mecanica", "Eletrica", "Pneumatica", "Hidraulica", "Instrumentacao"]
 MOTIVOS_OPERACIONAIS = ["Falta de materia-prima", "Falta de embalagem", "Setup", "Limpeza", "Espera", "Outros"]
 TIPOS_RECURSO_ORDEM = ["Material", "Mao de obra externa"]
 STATUS_RECURSO_ORDEM = ["Pendente", "Solicitado", "Comprado/Contratado", "Recebido", "Cancelado"]
+PERFIS_ABERTURA_OS = ("qualidade", "producao", "pcp", "manutencao", "gerencia")
+PERFIS_TECNICOS_OS = ("manutencao", "gerencia", "admin")
 
 
 def criar_tabelas_manutencao():
@@ -44,6 +50,77 @@ def excluir_equipamento_manutencao(equipamento_id):
     repo.excluir_equipamento(equipamento_id)
 
 
+def salvar_veiculo_manutencao(form):
+    dados = _dados_veiculo(form)
+    _validar_codigo_placa_veiculo(dados[0], dados[2])
+    repo.inserir_veiculo(dados)
+
+
+def atualizar_veiculo_manutencao(veiculo_id, form):
+    veiculo_id = int(veiculo_id or 0)
+    if not veiculo_id or not repo.buscar_veiculo_por_id(veiculo_id):
+        raise ValueError("Veiculo nao encontrado.")
+
+    dados = _dados_veiculo(form)
+    _validar_codigo_placa_veiculo(dados[0], dados[2], veiculo_id)
+    repo.atualizar_veiculo(veiculo_id, dados)
+
+
+def inativar_veiculo_manutencao(veiculo_id):
+    veiculo_id = int(veiculo_id or 0)
+    if not veiculo_id or not repo.buscar_veiculo_por_id(veiculo_id):
+        raise ValueError("Veiculo nao encontrado.")
+    repo.inativar_veiculo(veiculo_id)
+
+
+def _validar_codigo_placa_veiculo(codigo, placa, veiculo_id=None):
+    veiculo_codigo = repo.buscar_veiculo_por_codigo(codigo)
+    if veiculo_codigo and int(veiculo_codigo["id"]) != int(veiculo_id or 0):
+        raise ValueError("Ja existe outro veiculo com este codigo interno.")
+
+    if placa:
+        veiculo_placa = repo.buscar_veiculo_por_placa(placa)
+        if veiculo_placa and int(veiculo_placa["id"]) != int(veiculo_id or 0):
+            raise ValueError("Ja existe outro veiculo com esta placa.")
+
+
+def _dados_veiculo(form):
+    codigo = (form.get("codigo") or "").strip()
+    identificacao = (form.get("identificacao") or "").strip()
+    placa = (form.get("placa") or "").strip().upper()
+    tipo = form.get("tipo") or ""
+    tipo_outro = (form.get("tipo_outro") or "").strip()
+
+    if not codigo or not identificacao:
+        raise ValueError("Informe codigo interno e identificacao do veiculo.")
+
+    if tipo and tipo not in TIPOS_VEICULO:
+        raise ValueError("Tipo de veiculo invalido.")
+
+    if tipo == "Outro" and not tipo_outro:
+        raise ValueError("Informe a descricao complementar quando o tipo for Outro.")
+
+    ano = int(form.get("ano") or 0) or None
+    status = form.get("status") or "Ativo"
+    if status not in ("Ativo", "Inativo"):
+        raise ValueError("Status de veiculo invalido.")
+
+    return (
+        codigo,
+        identificacao,
+        placa or None,
+        tipo,
+        tipo_outro,
+        (form.get("marca") or "").strip(),
+        (form.get("modelo") or "").strip(),
+        ano,
+        (form.get("finalidade") or "").strip(),
+        (form.get("setor_responsavel") or "").strip(),
+        status,
+        (form.get("observacoes") or "").strip(),
+    )
+
+
 def _dados_equipamento(form):
     codigo = (form.get("codigo") or "").strip()
     nome = (form.get("nome") or "").strip()
@@ -65,21 +142,60 @@ def _dados_equipamento(form):
     )
 
 
-def salvar_ordem_manutencao(form):
-    equipamento_id = int(form.get("equipamento_id") or 0)
+def salvar_ordem_manutencao(form, usuario_id=0, usuario_nome="", usuario_perfil=""):
+    tipo_objeto = form.get("tipo_objeto") or "EQUIPAMENTO"
     descricao = (form.get("descricao") or "").strip()
 
-    if not equipamento_id:
-        raise ValueError("Selecione um equipamento.")
+    if tipo_objeto not in TIPOS_OBJETO_MANUTENCAO:
+        raise ValueError("Selecione o tipo de manutencao.")
 
     if not descricao:
         raise ValueError("Descreva a ocorrencia ou servico solicitado.")
 
-    if not repo.equipamento_existe(equipamento_id):
-        raise ValueError("Equipamento nao encontrado.")
+    equipamento_id = 0
+    veiculo_id = None
+    categoria_predial = None
+    local_predial = None
+    local_predial_descricao = None
+
+    if tipo_objeto == "EQUIPAMENTO":
+        equipamento_id = int(form.get("equipamento_id") or 0)
+        if not equipamento_id:
+            raise ValueError("Selecione o equipamento.")
+        if not repo.equipamento_ativo(equipamento_id):
+            raise ValueError("Equipamento inexistente ou inativo.")
+
+    if tipo_objeto == "VEICULO":
+        veiculo_id = int(form.get("veiculo_id") or 0)
+        if not repo.listar_veiculos_ativos():
+            raise ValueError("Nenhum veiculo ativo cadastrado.")
+        if not veiculo_id:
+            raise ValueError("Selecione o veiculo.")
+        if not repo.veiculo_ativo(veiculo_id):
+            raise ValueError("Veiculo inexistente ou inativo.")
+
+    if tipo_objeto == "PREDIAL":
+        categoria_predial = form.get("categoria_predial") or ""
+        local_predial = form.get("local_predial") or ""
+        categorias_validas = {codigo for codigo, _rotulo in CATEGORIAS_PREDIAIS}
+        if categoria_predial not in categorias_validas:
+            raise ValueError("Selecione a categoria da manutencao predial.")
+        if local_predial not in LOCAIS_PREDIAIS:
+            raise ValueError("Selecione o local da manutencao.")
+        if local_predial == "Outros":
+            local_predial_descricao = (form.get("local_predial_descricao") or "").strip()
+            if not local_predial_descricao:
+                raise ValueError("Informe o local quando a opcao 'Outros' for selecionada.")
+
+    solicitante = (usuario_nome or form.get("solicitante") or "").strip()
 
     return repo.inserir_ordem((
+        tipo_objeto,
         equipamento_id,
+        veiculo_id,
+        categoria_predial,
+        local_predial,
+        local_predial_descricao,
         int(form.get("op_id") or 0) or None,
         int(form.get("parada_id") or 0) or None,
         form.get("tipo") or "Corretiva",
@@ -88,7 +204,9 @@ def salvar_ordem_manutencao(form):
         form.get("data_abertura") or datetime.now().strftime("%Y-%m-%d"),
         form.get("hora_abertura") or datetime.now().strftime("%H:%M"),
         form.get("data_prevista") or "",
-        (form.get("solicitante") or "").strip(),
+        solicitante,
+        int(usuario_id or form.get("usuario_id") or 0) or None,
+        usuario_perfil or form.get("solicitante_perfil") or "",
         (form.get("responsavel") or "").strip(),
         descricao,
         (form.get("motivo_parada") or "").strip(),
@@ -96,7 +214,10 @@ def salvar_ordem_manutencao(form):
     ))
 
 
-def atualizar_ordem_manutencao(ordem_id, form, usuario_id=0, usuario_nome="Sistema"):
+def atualizar_ordem_manutencao(ordem_id, form, usuario_id=0, usuario_nome="Sistema", usuario_perfil=""):
+    if usuario_perfil and usuario_perfil not in PERFIS_TECNICOS_OS:
+        raise PermissionError("Perfil sem permissao para encerramento tecnico da OS.")
+
     ordem_atual = repo.buscar_ordem_por_id(ordem_id)
     status = form.get("status") or "Aberta"
     if status not in STATUS_MANUTENCAO:
@@ -130,7 +251,8 @@ def atualizar_ordem_manutencao(ordem_id, form, usuario_id=0, usuario_nome="Siste
     ))
 
     if status == "Concluida" and ordem_atual:
-        repo.atualizar_status_equipamento(ordem_atual["equipamento_id"], "Operacional")
+        if ordem_atual["tipo_objeto"] == "EQUIPAMENTO" and ordem_atual["equipamento_id"]:
+            repo.atualizar_status_equipamento(ordem_atual["equipamento_id"], "Operacional")
         if ordem_atual["parada_id"]:
             repo.encerrar_parada_por_ordem(ordem_atual["parada_id"], data_conclusao, hora_conclusao, horas_paradas)
         if ordem_atual["sgi_nc_id"]:
@@ -148,15 +270,29 @@ def buscar_equipamentos_manutencao(busca=""):
     return repo.listar_equipamentos()
 
 
+def buscar_equipamentos_ativos_manutencao():
+    return repo.listar_equipamentos_ativos()
+
+
 def buscar_equipamento_manutencao_por_id(equipamento_id):
     return repo.buscar_equipamento_por_id(equipamento_id)
 
 
-def buscar_ordens_manutencao(status_filtro="Todos", equipamento_id=""):
-    return repo.listar_ordens(status_filtro, equipamento_id)
+def buscar_veiculos_manutencao(busca=""):
+    return repo.listar_veiculos(busca)
 
 
-def salvar_recursos_ordem_manutencao(ordem_id, form):
+def buscar_veiculos_ativos_manutencao():
+    return repo.listar_veiculos_ativos()
+
+
+def buscar_ordens_manutencao(status_filtro="Todos", equipamento_id="", tipo_objeto="Todos", veiculo_id=""):
+    return repo.listar_ordens(status_filtro, equipamento_id, tipo_objeto, veiculo_id)
+
+
+def salvar_recursos_ordem_manutencao(ordem_id, form, usuario_perfil=""):
+    if usuario_perfil and usuario_perfil not in PERFIS_TECNICOS_OS:
+        raise PermissionError("Perfil sem permissao para lancar recursos da OS.")
     ordem_id = int(ordem_id or 0)
     if not ordem_id or not repo.buscar_ordem_por_id(ordem_id):
         raise ValueError("Ordem de manutencao nao encontrada.")
@@ -217,7 +353,7 @@ def _item_lista(lista, indice):
     return ""
 
 
-def calcular_resumo_manutencao(equipamentos, ordens):
+def calcular_resumo_manutencao(equipamentos, ordens, veiculos=None):
     abertas = sum(1 for item in ordens if item["status"] == "Aberta")
     andamento = sum(1 for item in ordens if item["status"] == "Em andamento")
     aguardando = sum(1 for item in ordens if item["status"] == "Aguardando peca")
@@ -228,6 +364,7 @@ def calcular_resumo_manutencao(equipamentos, ordens):
 
     return {
         "equipamentos": len(equipamentos),
+        "veiculos": len(veiculos or []),
         "abertas": abertas,
         "andamento": andamento,
         "aguardando": aguardando,
@@ -248,24 +385,47 @@ def preparar_contexto_cadastro_equipamentos(args=None):
     }
 
 
+def preparar_contexto_cadastro_veiculos(args=None):
+    args = args or {}
+    busca = (args.get("busca") or "").strip()
+    return {
+        "veiculos": buscar_veiculos_manutencao(busca),
+        "tipos_veiculo": TIPOS_VEICULO,
+        "busca": busca,
+    }
+
+
 def preparar_contexto_manutencao(args):
     status_filtro = args.get("status") or "Todos"
     equipamento_filtro = args.get("equipamento_id") or ""
+    tipo_objeto_filtro = args.get("tipo_objeto") or "Todos"
+    veiculo_filtro = args.get("veiculo_id") or ""
     equipamentos = buscar_equipamentos_manutencao()
-    ordens = buscar_ordens_manutencao(status_filtro, equipamento_filtro)
+    equipamentos_ativos = buscar_equipamentos_ativos_manutencao()
+    veiculos = buscar_veiculos_manutencao()
+    veiculos_ativos = buscar_veiculos_ativos_manutencao()
+    ordens = buscar_ordens_manutencao(status_filtro, equipamento_filtro, tipo_objeto_filtro, veiculo_filtro)
     recursos_por_ordem = repo.listar_recursos_por_ordens([item["id"] for item in ordens])
     return {
         "equipamentos": equipamentos,
+        "equipamentos_ativos": equipamentos_ativos,
+        "veiculos": veiculos,
+        "veiculos_ativos": veiculos_ativos,
         "ordens": ordens,
         "recursos_por_ordem": recursos_por_ordem,
-        "resumo": calcular_resumo_manutencao(equipamentos, ordens),
+        "resumo": calcular_resumo_manutencao(equipamentos_ativos, ordens, veiculos_ativos),
         "tipos": TIPOS_MANUTENCAO,
+        "tipos_objeto": TIPOS_OBJETO_MANUTENCAO,
+        "categorias_prediais": CATEGORIAS_PREDIAIS,
+        "locais_prediais": LOCAIS_PREDIAIS,
         "prioridades": PRIORIDADES_MANUTENCAO,
         "status_opcoes": STATUS_MANUTENCAO,
         "tipos_recurso": TIPOS_RECURSO_ORDEM,
         "status_recurso": STATUS_RECURSO_ORDEM,
         "status_filtro": status_filtro,
         "equipamento_filtro": equipamento_filtro,
+        "tipo_objeto_filtro": tipo_objeto_filtro,
+        "veiculo_filtro": veiculo_filtro,
         "hoje": datetime.now().strftime("%Y-%m-%d"),
     }
 
@@ -299,6 +459,7 @@ def criar_ordem_por_parada(parada_id, op_id, equipamento_id, setor, motivo, data
 
     form = {
         "equipamento_id": str(equipamento_id),
+        "tipo_objeto": "EQUIPAMENTO",
         "op_id": str(op_id),
         "parada_id": str(parada_id),
         "tipo": "Corretiva",
@@ -323,6 +484,7 @@ def criar_ordem_por_nc(nc, form, usuario):
     dados = dict(form)
     dados.update({
         "equipamento_id": str(equipamento_id),
+        "tipo_objeto": "EQUIPAMENTO",
         "tipo": form.get("tipo") or "Corretiva",
         "prioridade": {"NORMAL": "Media", "ALTA": "Alta", "CRITICA": "Critica"}.get(nc["criticidade"], "Media"),
         "solicitante": usuario,
@@ -332,7 +494,7 @@ def criar_ordem_por_nc(nc, form, usuario):
             f"Ativo/local: {nc['ativo_nome']}. NC: {nc['descricao']}"
         ),
     })
-    ordem_id = salvar_ordem_manutencao(dados)
+    ordem_id = salvar_ordem_manutencao(dados, int(form.get("usuario_id") or 0), usuario, form.get("solicitante_perfil") or "")
     from modules.qualidade import repositories as qualidade_repo
     qualidade_repo.vincular_ordem(nc["id"], ordem_id)
     qualidade_repo.registrar_evento(

@@ -48,12 +48,56 @@ def register_manutencao_routes(app):
 
         return redirect(url_for("cadastro_equipamentos_manutencao", busca=request.form.get("busca", "")))
 
+    @app.route("/cadastros/veiculos", methods=["GET", "POST"])
+    @perfil_permitido("pcp")
+    def cadastro_veiculos_manutencao():
+        if request.method == "POST":
+            try:
+                manutencao_service.salvar_veiculo_manutencao(request.form)
+                flash("Veiculo cadastrado com sucesso.")
+            except Exception as erro:
+                flash(str(erro))
+
+            return redirect(url_for("cadastro_veiculos_manutencao"))
+
+        return render_template(
+            "cadastro_veiculos.html",
+            **manutencao_service.preparar_contexto_cadastro_veiculos(request.args)
+        )
+
+    @app.route("/cadastros/veiculos/<int:veiculo_id>/editar", methods=["POST"])
+    @perfil_permitido("pcp")
+    def editar_veiculo_manutencao(veiculo_id):
+        try:
+            manutencao_service.atualizar_veiculo_manutencao(veiculo_id, request.form)
+            flash("Veiculo atualizado com sucesso.")
+        except Exception as erro:
+            flash(str(erro))
+
+        return redirect(url_for("cadastro_veiculos_manutencao", busca=request.form.get("busca", "")))
+
+    @app.route("/cadastros/veiculos/<int:veiculo_id>/inativar", methods=["POST"])
+    @perfil_permitido("pcp")
+    def inativar_veiculo_manutencao(veiculo_id):
+        try:
+            manutencao_service.inativar_veiculo_manutencao(veiculo_id)
+            flash("Veiculo inativado com sucesso.")
+        except Exception as erro:
+            flash(str(erro))
+
+        return redirect(url_for("cadastro_veiculos_manutencao", busca=request.form.get("busca", "")))
+
     @app.route("/manutencao", methods=["GET", "POST"])
-    @perfil_permitido("pcp", "producao")
+    @perfil_permitido("qualidade", "producao", "pcp", "manutencao", "gerencia")
     def manutencao():
         if request.method == "POST":
             try:
-                manutencao_service.salvar_ordem_manutencao(request.form)
+                manutencao_service.salvar_ordem_manutencao(
+                    request.form,
+                    session.get("usuario_id", 0),
+                    session.get("nome", "Usuario"),
+                    session.get("perfil", ""),
+                )
                 flash("Ordem de manutencao aberta com sucesso.")
             except Exception as erro:
                 flash(str(erro))
@@ -66,11 +110,16 @@ def register_manutencao_routes(app):
         )
 
     @app.route("/manutencao/ordem/<int:ordem_id>/atualizar", methods=["POST"])
-    @perfil_permitido("pcp", "producao")
+    @perfil_permitido("manutencao", "gerencia")
     def atualizar_ordem_manutencao_rota(ordem_id):
         try:
             manutencao_service.atualizar_ordem_manutencao(
-                ordem_id, request.form, session.get("usuario_id", 0), session.get("nome", "Sistema"))
+                ordem_id,
+                request.form,
+                session.get("usuario_id", 0),
+                session.get("nome", "Sistema"),
+                session.get("perfil", ""),
+            )
             flash("Ordem de manutencao atualizada com sucesso.")
         except Exception as erro:
             flash(str(erro))
@@ -78,10 +127,11 @@ def register_manutencao_routes(app):
         return redirect(url_for("manutencao"))
 
     @app.route("/manutencao/ordem/<int:ordem_id>/recursos", methods=["POST"])
-    @perfil_permitido("pcp", "producao")
+    @perfil_permitido("manutencao", "gerencia")
     def salvar_recursos_ordem_manutencao_rota(ordem_id):
         try:
-            manutencao_service.salvar_recursos_ordem_manutencao(ordem_id, request.form)
+            manutencao_service.salvar_recursos_ordem_manutencao(
+                ordem_id, request.form, session.get("perfil", ""))
             flash("Lista de materiais e terceiros atualizada com sucesso.")
         except Exception as erro:
             flash(str(erro))
@@ -90,6 +140,8 @@ def register_manutencao_routes(app):
             "manutencao",
             status=request.form.get("status_filtro", "Todos"),
             equipamento_id=request.form.get("equipamento_filtro", ""),
+            tipo_objeto=request.form.get("tipo_objeto_filtro", "Todos"),
+            veiculo_id=request.form.get("veiculo_filtro", ""),
         ))
 
     @app.route("/manutencao/ordem/sgi/<int:nc_id>", methods=["GET", "POST"])
@@ -113,7 +165,7 @@ def register_manutencao_routes(app):
                 flash(str(erro))
         return render_template(
             "manutencao_ordem_sgi.html", nc=nc,
-            equipamentos=manutencao_service.buscar_equipamentos_manutencao(),
+            equipamentos=manutencao_service.buscar_equipamentos_ativos_manutencao(),
             tipos=manutencao_service.TIPOS_MANUTENCAO,
             hoje=__import__("datetime").datetime.now().strftime("%Y-%m-%d"),
         )
@@ -125,11 +177,10 @@ def register_manutencao_routes(app):
         if not ordem:
             flash("Ordem de manutencao nao encontrada.")
             return redirect(url_for("sgi_qualidade"))
-        equipamento = manutencao_service.buscar_equipamento_manutencao_por_id(ordem["equipamento_id"])
         verificacao_id = None
         if ordem["sgi_nc_id"]:
             from modules.qualidade import repositories as qualidade_repo
             nc = qualidade_repo.buscar_nc(ordem["sgi_nc_id"])
             verificacao_id = nc["verificacao_id"] if nc else None
         return render_template("manutencao_ordem_detalhe.html", ordem=ordem,
-                               equipamento=equipamento, verificacao_id=verificacao_id)
+                               verificacao_id=verificacao_id)

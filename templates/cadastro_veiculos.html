@@ -1,0 +1,218 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+
+<div class="manutencao-page">
+
+<section class="hero-dashboard expedicao-hero manutencao-hero">
+    <div>
+        <span class="eyebrow">Cadastros</span>
+        <h2>Cadastro de Veiculos</h2>
+        <div class="hero-resumo-inline">
+            <span><strong>Base:</strong> frota operacional</span>
+            <span><strong>Uso:</strong> ordens de manutencao</span>
+            <span><strong>Status:</strong> ativos e historico</span>
+        </div>
+    </div>
+
+    <div class="expedicao-acoes-topo manutencao-acoes-topo">
+        <a href="{{ url_for('cadastro_equipamentos_manutencao') }}" class="botao-dre-exportar manutencao-link-btn">Equipamentos</a>
+        <a href="{{ url_for('manutencao') }}" class="botao-dre-exportar manutencao-link-btn">Ordens de Manutencao</a>
+    </div>
+</section>
+
+<div class="card expedicao-card manutencao-card">
+    <div class="section-title-row">
+        <div>
+            <span class="eyebrow">Veiculo</span>
+            <h2>Novo veiculo</h2>
+        </div>
+    </div>
+
+    <form method="POST" class="form-grid manutencao-form">
+        <div>
+            <label>Codigo interno</label>
+            <input type="text" name="codigo" placeholder="Ex.: FRO-001" required>
+        </div>
+        <div>
+            <label>Identificacao ou nome</label>
+            <input type="text" name="identificacao" placeholder="Ex.: Caminhao de aves 01" required>
+        </div>
+        <div>
+            <label>Placa</label>
+            <input type="text" name="placa" placeholder="ABC1D23">
+        </div>
+        <div>
+            <label>Tipo de veiculo</label>
+            <select name="tipo" data-tipo-veiculo>
+                <option value="">Selecione</option>
+                {% for tipo in tipos_veiculo %}
+                    <option value="{{ tipo }}">{{ tipo }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div data-tipo-veiculo-outro hidden>
+            <label>Descricao do tipo</label>
+            <input type="text" name="tipo_outro">
+        </div>
+        <div>
+            <label>Marca</label>
+            <input type="text" name="marca">
+        </div>
+        <div>
+            <label>Modelo</label>
+            <input type="text" name="modelo">
+        </div>
+        <div>
+            <label>Ano</label>
+            <input type="number" name="ano" min="1900" max="2100">
+        </div>
+        <div>
+            <label>Finalidade</label>
+            <input type="text" name="finalidade">
+        </div>
+        <div>
+            <label>Setor responsavel</label>
+            <input type="text" name="setor_responsavel">
+        </div>
+        <div>
+            <label>Status</label>
+            <select name="status">
+                <option value="Ativo">Ativo</option>
+                <option value="Inativo">Inativo</option>
+            </select>
+        </div>
+        <div class="form-span-2">
+            <label>Observacoes</label>
+            <textarea name="observacoes" rows="2"></textarea>
+        </div>
+        <div class="form-span-2">
+            <button type="submit" class="botao-principal manutencao-btn">Cadastrar veiculo</button>
+        </div>
+    </form>
+</div>
+
+<div class="card expedicao-card manutencao-card">
+    <div class="section-title-row">
+        <div>
+            <span class="eyebrow">Frota</span>
+            <h2>Veiculos cadastrados</h2>
+        </div>
+    </div>
+
+    <form method="GET" action="{{ url_for('cadastro_veiculos_manutencao') }}" class="form-grid manutencao-filter manutencao-filter-equipamentos">
+        <div>
+            <label>Buscar veiculo</label>
+            <input type="text" name="busca" value="{{ busca }}" placeholder="Codigo, identificacao, placa, tipo ou status">
+        </div>
+        <div class="manutencao-filter-actions">
+            <button type="submit" class="botao-dre-exportar manutencao-btn secundario">Buscar</button>
+            {% if busca %}
+                <a href="{{ url_for('cadastro_veiculos_manutencao') }}" class="botao-dre-exportar manutencao-link-btn">Limpar</a>
+            {% endif %}
+        </div>
+    </form>
+
+    {% if veiculos %}
+        <div class="tabela-responsiva tabela-executiva expedicao-tabela manutencao-tabela">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Codigo</th>
+                        <th>Identificacao</th>
+                        <th>Placa</th>
+                        <th>Tipo</th>
+                        <th>Marca / Modelo</th>
+                        <th>Status</th>
+                        <th>Acoes</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for veiculo in veiculos %}
+                    <tr>
+                        <td><strong>{{ veiculo.codigo }}</strong></td>
+                        <td>{{ veiculo.identificacao }}</td>
+                        <td>{{ veiculo.placa or "-" }}</td>
+                        <td>{{ veiculo.tipo or "-" }}{% if veiculo.tipo_outro %}<br><small>{{ veiculo.tipo_outro }}</small>{% endif %}</td>
+                        <td>{{ veiculo.marca or "-" }} {{ veiculo.modelo or "" }}</td>
+                        <td>{{ veiculo.status }}</td>
+                        <td>
+                            <div class="manutencao-acoes-tabela">
+                                <details>
+                                    <summary class="botao-tabela-almoxarifado manutencao-btn-tabela">Editar</summary>
+                                    <form method="POST" action="{{ url_for('editar_veiculo_manutencao', veiculo_id=veiculo.id) }}" class="form-grid manutencao-update-form manutencao-equipamento-edit-form">
+                                        <input type="hidden" name="busca" value="{{ busca }}">
+                                        <div><label>Codigo interno</label><input type="text" name="codigo" value="{{ veiculo.codigo }}" required></div>
+                                        <div><label>Identificacao</label><input type="text" name="identificacao" value="{{ veiculo.identificacao }}" required></div>
+                                        <div><label>Placa</label><input type="text" name="placa" value="{{ veiculo.placa or '' }}"></div>
+                                        <div>
+                                            <label>Tipo</label>
+                                            <select name="tipo" data-tipo-veiculo>
+                                                <option value="">Selecione</option>
+                                                {% for tipo in tipos_veiculo %}
+                                                    <option value="{{ tipo }}" {% if veiculo.tipo == tipo %}selected{% endif %}>{{ tipo }}</option>
+                                                {% endfor %}
+                                            </select>
+                                        </div>
+                                        <div data-tipo-veiculo-outro {% if veiculo.tipo != "Outro" %}hidden{% endif %}>
+                                            <label>Descricao do tipo</label>
+                                            <input type="text" name="tipo_outro" value="{{ veiculo.tipo_outro or '' }}">
+                                        </div>
+                                        <div><label>Marca</label><input type="text" name="marca" value="{{ veiculo.marca or '' }}"></div>
+                                        <div><label>Modelo</label><input type="text" name="modelo" value="{{ veiculo.modelo or '' }}"></div>
+                                        <div><label>Ano</label><input type="number" name="ano" min="1900" max="2100" value="{{ veiculo.ano or '' }}"></div>
+                                        <div><label>Finalidade</label><input type="text" name="finalidade" value="{{ veiculo.finalidade or '' }}"></div>
+                                        <div><label>Setor responsavel</label><input type="text" name="setor_responsavel" value="{{ veiculo.setor_responsavel or '' }}"></div>
+                                        <div>
+                                            <label>Status</label>
+                                            <select name="status">
+                                                <option value="Ativo" {% if veiculo.status == "Ativo" %}selected{% endif %}>Ativo</option>
+                                                <option value="Inativo" {% if veiculo.status == "Inativo" %}selected{% endif %}>Inativo</option>
+                                            </select>
+                                        </div>
+                                        <div class="form-span-2"><label>Observacoes</label><textarea name="observacoes" rows="2">{{ veiculo.observacoes or '' }}</textarea></div>
+                                        <div class="form-span-2 manutencao-form-actions"><button type="submit" class="botao-principal manutencao-btn">Salvar alteracoes</button></div>
+                                    </form>
+                                </details>
+                                <form method="POST" action="{{ url_for('inativar_veiculo_manutencao', veiculo_id=veiculo.id) }}" onsubmit="return confirm('Inativar este veiculo? Ele permanecera no historico das OS.');">
+                                    <input type="hidden" name="busca" value="{{ busca }}">
+                                    <button type="submit" class="botao-tabela-almoxarifado manutencao-btn-tabela manutencao-btn-remover">Inativar</button>
+                                </form>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% else %}
+        <p class="obs">{% if busca %}Nenhum veiculo encontrado para a busca aplicada.{% else %}Nenhum veiculo cadastrado.{% endif %}</p>
+    {% endif %}
+</div>
+
+</div>
+
+<script>
+function alternarTipoOutroVeiculo(select) {
+    const form = select.closest("form");
+    const bloco = form.querySelector("[data-tipo-veiculo-outro]");
+    const input = bloco?.querySelector("input[name='tipo_outro']");
+    const visivel = select.value === "Outro";
+    if (bloco) {
+        bloco.hidden = !visivel;
+    }
+    if (input) {
+        input.required = visivel;
+        if (!visivel) {
+            input.value = "";
+        }
+    }
+}
+
+document.querySelectorAll("[data-tipo-veiculo]").forEach((select) => {
+    select.addEventListener("change", () => alternarTipoOutroVeiculo(select));
+    alternarTipoOutroVeiculo(select);
+});
+</script>
+
+{% endblock %}

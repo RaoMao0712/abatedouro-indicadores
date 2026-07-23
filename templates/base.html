@@ -90,8 +90,11 @@
             {% if perfil == "admin" or perfil == "producao" %}
                 <a href="{{ url_for('apontamento_mao_obra') }}">Mão de Obra</a>
                 <a href="{{ url_for('apontamento_paradas') }}">Paradas</a>
-                <a href="{{ url_for('manutencao') }}">Manutencao</a>
                 <a href="{{ url_for('tempos_setor') }}">Tempos</a>
+            {% endif %}
+
+            {% if perfil == "admin" or perfil == "pcp" or perfil == "producao" or perfil == "qualidade" or perfil == "gerencia" or perfil == "manutencao" %}
+                <a href="{{ url_for('manutencao') }}">Manutencao</a>
             {% endif %}
 
             {% if perfil == "admin" or perfil == "qualidade" %}
@@ -110,6 +113,7 @@
                 <a href="{{ url_for('fornecedores') }}">Fornecedores</a>
                 <a href="{{ url_for('plano_contas_gerencial') }}">Plano de Contas</a>
                 <a href="{{ url_for('cadastro_equipamentos_manutencao') }}">Equipamentos</a>
+                <a href="{{ url_for('cadastro_veiculos_manutencao') }}">Veiculos</a>
             {% endif %}
 
             {% if perfil == "admin" %}

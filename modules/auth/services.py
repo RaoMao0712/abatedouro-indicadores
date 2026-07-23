@@ -19,6 +19,9 @@ def destino_por_perfil(perfil):
     if perfil == "producao":
         return "consultar_op"
 
+    if perfil == "manutencao":
+        return "manutencao"
+
     return "login"
 
 

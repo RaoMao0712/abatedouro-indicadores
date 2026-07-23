@@ -24,6 +24,12 @@
     </div>
 
     <div class="card kpi-card manutencao-kpi">
+        <span class="kpi-label">Veiculos ativos</span>
+        <strong>{{ resumo.veiculos }}</strong>
+        <small>frota disponivel para OS</small>
+    </div>
+
+    <div class="card kpi-card manutencao-kpi">
         <span class="kpi-label">Abertas</span>
         <strong>{{ resumo.abertas }}</strong>
         <small>ordens aguardando inicio</small>
@@ -64,15 +70,64 @@
 
     <form method="POST" class="form-grid manutencao-form">
         <div>
+            <label>Tipo de manutencao</label>
+            <select name="tipo_objeto" required data-tipo-objeto-os>
+                <option value="EQUIPAMENTO">Equipamento</option>
+                <option value="PREDIAL">Manutencao Predial</option>
+                <option value="VEICULO">Veiculo</option>
+            </select>
+        </div>
+
+        <div data-campo-equipamento>
             <label>Equipamento</label>
-            <select name="equipamento_id" required>
+            <select name="equipamento_id">
                 <option value="">Selecione</option>
-                {% for equipamento in equipamentos %}
+                {% for equipamento in equipamentos_ativos %}
                     <option value="{{ equipamento.id }}">
                         {{ equipamento.codigo }} - {{ equipamento.nome }} | {{ equipamento.setor }}
                     </option>
                 {% endfor %}
             </select>
+        </div>
+
+        <div data-campo-veiculo hidden>
+            <label>Veiculo</label>
+            <select name="veiculo_id">
+                <option value="">Selecione</option>
+                {% for veiculo in veiculos_ativos %}
+                    <option value="{{ veiculo.id }}">
+                        {{ veiculo.identificacao }}{% if veiculo.placa %} | {{ veiculo.placa }}{% endif %}
+                    </option>
+                {% endfor %}
+            </select>
+            {% if not veiculos_ativos %}
+                <small class="obs">Nenhum veiculo ativo cadastrado. Cadastre um veiculo no modulo de Cadastros antes de abrir esta ordem.</small>
+            {% endif %}
+        </div>
+
+        <div data-campo-predial hidden>
+            <label>Categoria predial</label>
+            <select name="categoria_predial">
+                <option value="">Selecione</option>
+                {% for codigo, rotulo in categorias_prediais %}
+                    <option value="{{ codigo }}">{{ rotulo }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div data-campo-predial hidden>
+            <label>Local da manutencao</label>
+            <select name="local_predial" data-local-predial>
+                <option value="">Selecione</option>
+                {% for local in locais_prediais %}
+                    <option value="{{ local }}">{{ local }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div data-campo-local-outros hidden>
+            <label>Descricao do local</label>
+            <input type="text" name="local_predial_descricao" placeholder="Informe o local">
         </div>
 
         <div>
@@ -105,7 +160,7 @@
 
         <div>
             <label>Solicitante</label>
-            <input type="text" name="solicitante" value="{{ session.get('nome', '') }}">
+            <input type="text" name="solicitante" value="{{ session.get('nome', '') }}" readonly>
         </div>
 
         <div>
@@ -149,12 +204,34 @@
         </div>
 
         <div>
+            <label>Tipo de objeto</label>
+            <select name="tipo_objeto">
+                <option value="Todos" {% if tipo_objeto_filtro == "Todos" %}selected{% endif %}>Todos</option>
+                <option value="EQUIPAMENTO" {% if tipo_objeto_filtro == "EQUIPAMENTO" %}selected{% endif %}>Equipamento</option>
+                <option value="PREDIAL" {% if tipo_objeto_filtro == "PREDIAL" %}selected{% endif %}>Predial</option>
+                <option value="VEICULO" {% if tipo_objeto_filtro == "VEICULO" %}selected{% endif %}>Veiculo</option>
+            </select>
+        </div>
+
+        <div>
             <label>Equipamento</label>
             <select name="equipamento_id">
                 <option value="">Todos</option>
                 {% for equipamento in equipamentos %}
                     <option value="{{ equipamento.id }}" {% if equipamento_filtro == equipamento.id|string %}selected{% endif %}>
                         {{ equipamento.codigo }} - {{ equipamento.nome }}
+                    </option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div>
+            <label>Veiculo</label>
+            <select name="veiculo_id">
+                <option value="">Todos</option>
+                {% for veiculo in veiculos %}
+                    <option value="{{ veiculo.id }}" {% if veiculo_filtro == veiculo.id|string %}selected{% endif %}>
+                        {{ veiculo.identificacao }}{% if veiculo.placa %} | {{ veiculo.placa }}{% endif %}
                     </option>
                 {% endfor %}
             </select>
@@ -171,7 +248,8 @@
                 <thead>
                     <tr>
                         <th>Ordem</th>
-                        <th>Equipamento</th>
+                        <th>Tipo de objeto</th>
+                        <th>Objeto</th>
                         <th>Tipo</th>
                         <th>Prioridade</th>
                         <th>Status</th>
@@ -196,8 +274,17 @@
                             {% endif %}
                         </td>
                         <td>
-                            <strong>{{ ordem.equipamento_codigo }}</strong><br>
-                            <small>{{ ordem.equipamento_nome }} | {{ ordem.equipamento_setor }}</small>
+                            {% if ordem.tipo_objeto == "VEICULO" %}Veiculo{% elif ordem.tipo_objeto == "PREDIAL" %}Predial{% else %}Equipamento{% endif %}
+                        </td>
+                        <td>
+                            <strong>{{ ordem.objeto_nome }}</strong><br>
+                            {% if ordem.tipo_objeto == "EQUIPAMENTO" %}
+                                <small>{{ ordem.equipamento_codigo or "-" }} | {{ ordem.equipamento_setor or "-" }}</small>
+                            {% elif ordem.tipo_objeto == "VEICULO" %}
+                                <small>{{ ordem.veiculo_codigo or "-" }}</small>
+                            {% elif ordem.tipo_objeto == "PREDIAL" and ordem.local_predial_descricao %}
+                                <small>{{ ordem.local_predial_descricao }}</small>
+                            {% endif %}
                         </td>
                         <td>{{ ordem.tipo }}</td>
                         <td>
@@ -216,6 +303,7 @@
                         <td>{{ ordem.custo_real|br_moeda }}</td>
                         <td>
                             <div class="manutencao-ordem-acoes">
+                            {% if session.get("perfil") in ["admin", "manutencao", "gerencia"] %}
                             <details>
                                 <summary class="botao-tabela-almoxarifado manutencao-btn-tabela">Atualizar</summary>
                                 <form method="POST" action="{{ url_for('atualizar_ordem_manutencao_rota', ordem_id=ordem.id) }}" class="form-grid manutencao-update-form">
@@ -273,6 +361,8 @@
                                 <form method="POST" action="{{ url_for('salvar_recursos_ordem_manutencao_rota', ordem_id=ordem.id) }}" class="manutencao-recursos-form">
                                     <input type="hidden" name="status_filtro" value="{{ status_filtro }}">
                                     <input type="hidden" name="equipamento_filtro" value="{{ equipamento_filtro }}">
+                                    <input type="hidden" name="tipo_objeto_filtro" value="{{ tipo_objeto_filtro }}">
+                                    <input type="hidden" name="veiculo_filtro" value="{{ veiculo_filtro }}">
 
                                     <div class="manutencao-recursos-lista" data-recursos-lista>
                                         {% set recursos_ordem = recursos_por_ordem.get(ordem.id|string, []) %}
@@ -340,6 +430,9 @@
                                     </div>
                                 </form>
                             </details>
+                            {% else %}
+                                <a href="{{ url_for('visualizar_ordem_manutencao', ordem_id=ordem.id) }}" class="botao-tabela-almoxarifado manutencao-btn-tabela">Detalhe</a>
+                            {% endif %}
                             </div>
                         </td>
                     </tr>
@@ -357,6 +450,55 @@
 <script>
 const tiposRecursoOrdem = {{ tipos_recurso|tojson }};
 const statusRecursoOrdem = {{ status_recurso|tojson }};
+
+function atualizarCamposObjetoOs() {
+    const seletor = document.querySelector("[data-tipo-objeto-os]");
+    if (!seletor) {
+        return;
+    }
+    const tipo = seletor.value;
+    const blocoEquipamento = document.querySelector("[data-campo-equipamento]");
+    const blocoVeiculo = document.querySelector("[data-campo-veiculo]");
+    const blocosPredial = document.querySelectorAll("[data-campo-predial]");
+    const blocoOutros = document.querySelector("[data-campo-local-outros]");
+    const equipamento = document.querySelector("select[name='equipamento_id']");
+    const veiculo = document.querySelector("select[name='veiculo_id']");
+    const categoria = document.querySelector("select[name='categoria_predial']");
+    const local = document.querySelector("select[name='local_predial']");
+    const descricaoLocal = document.querySelector("input[name='local_predial_descricao']");
+
+    blocoEquipamento.hidden = tipo !== "EQUIPAMENTO";
+    blocoVeiculo.hidden = tipo !== "VEICULO";
+    blocosPredial.forEach((bloco) => { bloco.hidden = tipo !== "PREDIAL"; });
+
+    equipamento.required = tipo === "EQUIPAMENTO";
+    veiculo.required = tipo === "VEICULO";
+    categoria.required = tipo === "PREDIAL";
+    local.required = tipo === "PREDIAL";
+
+    if (tipo !== "EQUIPAMENTO") {
+        equipamento.value = "";
+    }
+    if (tipo !== "VEICULO") {
+        veiculo.value = "";
+    }
+    if (tipo !== "PREDIAL") {
+        categoria.value = "";
+        local.value = "";
+        descricaoLocal.value = "";
+    }
+
+    const exigeOutros = tipo === "PREDIAL" && local.value === "Outros";
+    blocoOutros.hidden = !exigeOutros;
+    descricaoLocal.required = exigeOutros;
+    if (!exigeOutros) {
+        descricaoLocal.value = "";
+    }
+}
+
+document.querySelector("[data-tipo-objeto-os]")?.addEventListener("change", atualizarCamposObjetoOs);
+document.querySelector("[data-local-predial]")?.addEventListener("change", atualizarCamposObjetoOs);
+atualizarCamposObjetoOs();
 
 function criarOpcaoRecurso(valor) {
     return `<option value="${valor}">${valor}</option>`;
