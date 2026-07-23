@@ -8,6 +8,16 @@ from . import repositories as repo
 from .plm_config import CRITICIDADES, FORMULARIOS_PLM, LIMITES_LUX
 
 
+PLM01_TITULO = "Controle de Manutencao de Instalacoes e Equipamentos"
+PLM01_ALCANCE = (
+    "Alcance: Instalacoes, equipamentos em geral, iluminacao, ventilacao e "
+    "controle de condensacao, aguas residuais, calibracao e afericao de instrumentos."
+)
+PLM01_TIPOS = ("Instalacoes", "Equipamentos")
+PLM01_HIGIENIZACAO = ("Sim", "Nao")
+PLM01_CONDICOES = ("C", "NC")
+
+
 def salvar_apontamento_descarte(form):
     op_id = int(form["op_id"])
     validar_op_aberta(op_id)
@@ -121,25 +131,34 @@ def contexto_central_sgi(args=None):
         "mes": args.get("mes") or datetime.now().strftime("%Y-%m"),
         "formulario_tipo": args.get("formulario_tipo") or "Todos",
         "setor_id": args.get("setor_id") or "Todos",
+        "tipo_item": args.get("tipo_item") or "Todos",
+        "condicao_final": args.get("condicao_final") or "Todos",
         "setor": "Todos",
         "status": args.get("status") or "Todos",
     }
     verificacoes = repo.listar_verificacoes(filtros)
+    plm01_fichas = repo.listar_plm01_resumos(filtros)
     return {
         "formularios": FORMULARIOS_PLM,
         "verificacoes": verificacoes,
+        "plm01_fichas": plm01_fichas,
         "filtros": filtros,
         "setores": repo.listar_setores(),
         "ambientes": repo.listar_locais("Ambiente"),
         "estruturas": repo.listar_locais("Estrutura"),
-        "total_concluidas": sum(1 for item in verificacoes if item["status"] == "Concluida"),
+        "total_concluidas": sum(1 for item in verificacoes if item["status"] == "Concluida") + len(plm01_fichas),
         "total_pendencias": sum(int(item["ncs_abertas"] or 0) for item in verificacoes),
         "total_ncs": sum(int(item["total_ncs"] or 0) for item in verificacoes),
         "pendencias_gerencia": sum(int(item["pendencias_gerencia"] or 0) for item in verificacoes),
+        "total_plm01_linhas": sum(int(item["total_linhas"] or 0) for item in plm01_fichas),
+        "plm01_tipos": PLM01_TIPOS,
+        "plm01_condicoes": PLM01_CONDICOES,
     }
 
 
 def contexto_nova_verificacao(tipo):
+    if tipo in ("plm01_instalacoes", "plm01_balancas", "plm01"):
+        return contexto_plm01_mensal({"competencia": datetime.now().strftime("%Y-%m")})
     formulario = FORMULARIOS_PLM.get(tipo)
     if not formulario:
         raise ValueError("Formulario PLM invalido.")
@@ -161,6 +180,8 @@ def _valor(form, nome):
 
 
 def salvar_verificacao_sgi(tipo, form, usuario_id, usuario_nome):
+    if tipo in ("plm01_instalacoes", "plm01_balancas", "plm01"):
+        return salvar_plm01_mensal(form, usuario_id, usuario_nome)
     formulario = FORMULARIOS_PLM.get(tipo)
     if not formulario:
         raise ValueError("Formulario PLM invalido.")
@@ -327,3 +348,181 @@ def contexto_consolidado(args):
             "setores": repo.listar_setores(),
             "ambientes": repo.listar_locais("Ambiente"), "estruturas": repo.listar_locais("Estrutura"),
             "equipamentos": repo.listar_equipamentos()}
+
+
+def _competencia_atual():
+    return datetime.now().strftime("%Y-%m")
+
+
+def _normalizar_competencia(valor):
+    competencia = (valor or "").strip() or _competencia_atual()
+    try:
+        datetime.strptime(competencia + "-01", "%Y-%m-%d")
+    except Exception:
+        raise ValueError("Competencia invalida.")
+    return competencia
+
+
+def _formatar_competencia(competencia):
+    nomes = [
+        "Janeiro", "Fevereiro", "Marco", "Abril", "Maio", "Junho",
+        "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
+    ]
+    data = datetime.strptime(competencia + "-01", "%Y-%m-%d")
+    return f"{nomes[data.month - 1]} de {data.year}"
+
+
+def _linha_vazia_plm01(ordem):
+    return {
+        "id": "", "ordem": ordem, "data": "", "setor_id": "", "setor_nome": "",
+        "tipo_item": "", "descricao_atividade": "",
+        "higienizacao_apos_reparo": "", "condicao_final": "",
+        "justificativa": "", "persistida": False,
+    }
+
+
+def _montar_grade_plm01(linhas_salvas):
+    grade = []
+    for linha in linhas_salvas:
+        item = dict(linha)
+        item["persistida"] = True
+        item["justificativa"] = ""
+        grade.append(item)
+    proxima = len(grade) + 1
+    while len(grade) < 18:
+        grade.append(_linha_vazia_plm01(proxima))
+        proxima += 1
+    return grade
+
+
+def contexto_plm01_mensal(args=None):
+    args = args or {}
+    competencia = _normalizar_competencia(args.get("competencia") or args.get("mes"))
+    ficha = repo.buscar_plm01_ficha(competencia)
+    linhas_salvas = repo.listar_plm01_linhas(ficha["id"]) if ficha else []
+    historico = repo.listar_plm01_historico(ficha["id"]) if ficha else []
+    return {
+        "competencia": competencia,
+        "competencia_formatada": _formatar_competencia(competencia),
+        "ficha": ficha,
+        "linhas": _montar_grade_plm01(linhas_salvas),
+        "historico": historico,
+        "formularios": FORMULARIOS_PLM,
+        "setores": repo.listar_setores(),
+        "titulo": PLM01_TITULO,
+        "alcance": PLM01_ALCANCE,
+        "tipos": PLM01_TIPOS,
+        "higienizacoes": PLM01_HIGIENIZACAO,
+        "condicoes": PLM01_CONDICOES,
+    }
+
+
+def _form_list(form, nome):
+    try:
+        return form.getlist(nome)
+    except AttributeError:
+        valor = form.get(nome, [])
+        return valor if isinstance(valor, list) else [valor]
+
+
+def _linha_iniciada(campos):
+    return any((campos.get(chave) or "").strip() for chave in (
+        "data", "setor_id", "tipo_item", "descricao_atividade",
+        "higienizacao_apos_reparo", "condicao_final"
+    ))
+
+
+def _linha_mudou(linha_existente, linha):
+    if not linha_existente:
+        return False
+    for campo in (
+        "data", "tipo_item", "descricao_atividade",
+        "higienizacao_apos_reparo", "condicao_final"
+    ):
+        if str(linha_existente[campo] or "") != str(linha[campo] or ""):
+            return True
+    if str(linha_existente["setor_id"] or "") != str(linha["setor_id"] or ""):
+        return True
+    return False
+
+
+def validar_linhas_plm01(form, competencia):
+    ids = _form_list(form, "linha_id[]")
+    ordens = _form_list(form, "ordem[]")
+    datas = _form_list(form, "data_linha[]")
+    setores = _form_list(form, "setor_id[]")
+    tipos = _form_list(form, "tipo_item[]")
+    descricoes = _form_list(form, "descricao_atividade[]")
+    higienizacoes = _form_list(form, "higienizacao_apos_reparo[]")
+    condicoes = _form_list(form, "condicao_final[]")
+    justificativas = _form_list(form, "justificativa[]")
+    total = max(map(len, (ordens, datas, setores, tipos, descricoes, higienizacoes, condicoes)))
+    linhas = []
+    for indice in range(total):
+        campos = {
+            "id": ids[indice] if indice < len(ids) else "",
+            "ordem": ordens[indice] if indice < len(ordens) else str(indice + 1),
+            "data": datas[indice] if indice < len(datas) else "",
+            "setor_id": setores[indice] if indice < len(setores) else "",
+            "tipo_item": tipos[indice] if indice < len(tipos) else "",
+            "descricao_atividade": descricoes[indice] if indice < len(descricoes) else "",
+            "higienizacao_apos_reparo": higienizacoes[indice] if indice < len(higienizacoes) else "",
+            "condicao_final": condicoes[indice] if indice < len(condicoes) else "",
+            "justificativa": justificativas[indice] if indice < len(justificativas) else "",
+        }
+        if not _linha_iniciada(campos):
+            continue
+        faltantes = []
+        for campo, rotulo in (
+            ("data", "data"), ("setor_id", "setor"), ("tipo_item", "tipo"),
+            ("descricao_atividade", "descricao das atividades"),
+            ("higienizacao_apos_reparo", "higienizacao apos reparo"),
+            ("condicao_final", "condicao final"),
+        ):
+            if not (campos[campo] or "").strip():
+                faltantes.append(rotulo)
+        if faltantes:
+            raise ValueError(f"Linha {campos['ordem']}: informe {', '.join(faltantes)}.")
+        try:
+            ordem = int(campos["ordem"])
+        except Exception:
+            raise ValueError("Ordem de linha invalida.")
+        try:
+            data_linha = datetime.strptime(campos["data"], "%Y-%m-%d")
+        except Exception:
+            raise ValueError(f"Linha {ordem}: data invalida.")
+        if data_linha.strftime("%Y-%m") != competencia:
+            raise ValueError(f"Linha {ordem}: a data deve pertencer a competencia selecionada.")
+        setor = repo.buscar_setor(int(campos["setor_id"]))
+        if not setor:
+            raise ValueError(f"Linha {ordem}: selecione um setor cadastrado ativo.")
+        if campos["tipo_item"] not in PLM01_TIPOS:
+            raise ValueError(f"Linha {ordem}: selecione Instalacoes ou Equipamentos.")
+        if campos["higienizacao_apos_reparo"] not in PLM01_HIGIENIZACAO:
+            raise ValueError(f"Linha {ordem}: higienizacao deve ser Sim ou Nao.")
+        if campos["condicao_final"] not in PLM01_CONDICOES:
+            raise ValueError(f"Linha {ordem}: condicao final deve ser C ou NC.")
+        existente = repo.buscar_plm01_linha(int(campos["id"])) if str(campos["id"]).isdigit() else None
+        linha = {
+            "id": int(campos["id"]) if str(campos["id"]).isdigit() else None,
+            "ordem": ordem,
+            "data": campos["data"],
+            "setor_id": int(campos["setor_id"]),
+            "setor_nome": setor["nome"],
+            "tipo_item": campos["tipo_item"],
+            "descricao_atividade": campos["descricao_atividade"].strip(),
+            "higienizacao_apos_reparo": campos["higienizacao_apos_reparo"],
+            "condicao_final": campos["condicao_final"],
+            "justificativa": campos["justificativa"].strip(),
+        }
+        if _linha_mudou(existente, linha) and not linha["justificativa"]:
+            raise ValueError(f"Linha {ordem}: informe justificativa para alterar registro ja salvo.")
+        linhas.append(linha)
+    return linhas
+
+
+def salvar_plm01_mensal(form, usuario_id, usuario_nome):
+    competencia = _normalizar_competencia(form.get("competencia"))
+    linhas = validar_linhas_plm01(form, competencia)
+    ficha_id = repo.salvar_plm01_ficha(competencia, linhas, usuario_id, usuario_nome)
+    return ficha_id

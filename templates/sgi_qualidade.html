@@ -1,15 +1,6 @@
 {% extends "base.html" %}
 {% block conteudo %}
-{% set frequencias = {
-  'plm01_instalacoes': 'Conforme rotina', 'plm01_balancas': 'Conforme plano de calibracao',
-  'plm02_sanitarios': 'Diaria', 'plm03_iluminacao': 'Conforme monitoramento',
-  'plm04_ventilacao': 'Diaria', 'plm05_condensacao': 'Diaria'
-} %}
-{% set momentos = {
-  'plm01_instalacoes': 'Durante a inspecao', 'plm01_balancas': 'Antes do uso',
-  'plm02_sanitarios': 'Antes do inicio das atividades', 'plm03_iluminacao': 'Durante a verificacao',
-  'plm04_ventilacao': 'Antes do abate', 'plm05_condensacao': 'Antes do abate'
-} %}
+{% set tipo_inicial = 'plm01' %}
 <div class="financeiro-page movimentacoes-page sgi-page">
   <section class="hero-dashboard financeiro-hero-executivo movimentacoes-hero sgi-operational-header">
     <div class="financeiro-hero-titulo">
@@ -23,42 +14,39 @@
     </div>
     <form method="get" class="financeiro-filtro-form sgi-header-filters">
       <label>Mes<input type="month" name="mes" value="{{ filtros.mes }}"></label>
-      <label>Formulario<select name="formulario_tipo"><option>Todos</option>{% for tipo, ficha in formularios.items() %}<option value="{{ tipo }}" {% if filtros.formulario_tipo==tipo %}selected{% endif %}>{{ ficha.codigo }} · {{ ficha.nome }}</option>{% endfor %}</select></label>
+      <label>Formulario<select name="formulario_tipo"><option>Todos</option><option value="plm01" {% if filtros.formulario_tipo=='plm01' %}selected{% endif %}>PLM 01 · Mensal</option>{% for tipo, ficha in formularios.items() %}{% if tipo not in ['plm01_instalacoes','plm01_balancas'] %}<option value="{{ tipo }}" {% if filtros.formulario_tipo==tipo %}selected{% endif %}>{{ ficha.codigo }} · {{ ficha.nome }}</option>{% endif %}{% endfor %}</select></label>
       <label>Setor<select name="setor_id"><option value="Todos">Todos</option>{% for setor in setores %}<option value="{{ setor.id }}" {% if filtros.setor_id==setor.id|string %}selected{% endif %}>{{ setor.nome }}</option>{% endfor %}</select></label>
+      <label>Tipo PLM 01<select name="tipo_item"><option>Todos</option>{% for tipo in plm01_tipos %}<option value="{{ tipo }}" {% if filtros.tipo_item==tipo %}selected{% endif %}>{{ tipo }}</option>{% endfor %}</select></label>
+      <label>Condicao<select name="condicao_final"><option>Todos</option>{% for condicao in plm01_condicoes %}<option value="{{ condicao }}" {% if filtros.condicao_final==condicao %}selected{% endif %}>{{ condicao }}</option>{% endfor %}</select></label>
       <button class="botao-hero-filtro" type="submit">Filtrar</button>
-      <a class="sgi-action-secondary" href="{{ url_for('sgi_consolidado_mensal') }}">Consolidado mensal</a>
+      <a class="sgi-action-secondary" href="{{ url_for('sgi_consolidado_mensal', mes=filtros.mes) }}">Consolidado mensal</a>
     </form>
   </section>
 
-  {% set aba_ativa = 'plm01_instalacoes' %}{% include '_sgi_plm_tabs.html' %}
+  {% set aba_ativa = 'plm01' %}{% include '_sgi_plm_tabs.html' %}
 
   <section class="cards-executivos financeiro-kpis movimentacoes-kpis sgi-kpis">
-    <article class="card kpi-card destaque"><span>VERIFICACOES FILTRADAS</span><strong>{{ verificacoes|length }}</strong><small>registros no periodo</small></article>
-    <article class="card kpi-card destaque"><span>CONCLUIDAS</span><strong>{{ total_concluidas }}</strong><small>verificacoes finalizadas</small></article>
-    <article class="card kpi-card"><span>NAO CONFORMIDADES</span><strong>{{ total_ncs }}</strong><small>NCs registradas</small></article>
+    <article class="card kpi-card destaque"><span>FICHAS PLM 01</span><strong>{{ plm01_fichas|length }}</strong><small>competencias encontradas</small></article>
+    <article class="card kpi-card destaque"><span>LINHAS PLM 01</span><strong>{{ total_plm01_linhas }}</strong><small>linhas preenchidas</small></article>
+    <article class="card kpi-card"><span>VERIFICACOES PLM 02-05</span><strong>{{ verificacoes|length }}</strong><small>registros no periodo</small></article>
     <article class="card kpi-card{% if total_pendencias %} alerta{% endif %}"><span>PENDENCIAS ABERTAS</span><strong>{{ total_pendencias }}</strong><small>{% if pendencias_gerencia %}{{ pendencias_gerencia }} aguardando a Gerencia{% else %}nenhuma decisao pendente{% endif %}</small></article>
   </section>
 
-  {% set tipo_inicial = 'plm01_instalacoes' %}{% set ficha_inicial = formularios[tipo_inicial] %}
   <section class="card financeiro-form-card movimentacoes-form-card sgi-selected-form">
     <div class="section-title-row">
-      <div><span class="eyebrow">FORMULARIO SELECIONADO</span><h2>{{ ficha_inicial.codigo }} · {{ ficha_inicial.nome }}</h2><p>{{ ficha_inicial.itens|length }} itens fixos · vinculo obrigatorio</p></div>
-      <a class="botao-hero-filtro" href="{{ url_for('sgi_nova_verificacao', tipo=tipo_inicial) }}">Iniciar verificacao</a>
+      <div><span class="eyebrow">FORMULARIO SELECIONADO</span><h2>PLM 01 · Controle de Manutencao de Instalacoes e Equipamentos</h2><p>Ficha mensal com 18 linhas iniciais e linhas adicionais.</p></div>
+      <a class="botao-hero-filtro" href="{{ url_for('sgi_plm01_mensal', competencia=filtros.mes) }}">Abrir PLM 01</a>
     </div>
     <div class="sgi-form-context">
-      <span><b>FREQUENCIA</b>{{ frequencias[tipo_inicial] }}</span>
-      <span><b>MOMENTO</b>{{ momentos[tipo_inicial] }}</span>
-      <span><b>VINCULOS</b>{{ ficha_inicial.vinculos|join(' · ') }}</span>
+      <span><b>FREQUENCIA</b>Mensal</span>
+      <span><b>TIPOS</b>Instalacoes · Equipamentos</span>
+      <span><b>SETOR</b>Cadastro oficial de setores</span>
     </div>
   </section>
 
   <details class="sgi-config card">
-    <summary>Central de Configuracao · setores, ambientes e estruturas</summary>
-    <p class="obs">Equipamentos continuam no cadastro oficial de Manutencao.</p>
-    <form method="post" action="{{ url_for('sgi_cadastrar_setor') }}" class="sgi-grid-form">
-      <label>Novo setor<input name="nome" required></label>
-      <button class="botao-hero-filtro" type="submit">Cadastrar setor</button>
-    </form>
+    <summary>Central de Configuracao · ambientes e estruturas</summary>
+    <p class="obs">Uso mantido para PLM 02 a 05. A PLM 01 usa apenas setores oficiais e nao exige ambientes, estruturas ou equipamentos individuais.</p>
     <form method="post" action="{{ url_for('sgi_cadastrar_local') }}" class="sgi-grid-form">
       <label>Tipo<select name="tipo" required><option>Ambiente</option><option>Estrutura</option></select></label>
       <label>Nome<input name="nome" required></label>
@@ -76,7 +64,15 @@
   </details>
 
   <section class="card sgi-lista">
-    <div class="section-title-row"><div><span class="eyebrow">HISTORICO</span><h2>Verificacoes registradas</h2></div></div>
+    <div class="section-title-row"><div><span class="eyebrow">PLM 01</span><h2>Fichas mensais</h2></div></div>
+    <div class="tabela-responsiva"><table><thead><tr><th>Competencia</th><th>Linhas</th><th>Setores envolvidos</th><th>C</th><th>NC</th><th>Ultima atualizacao</th><th>Acoes</th></tr></thead><tbody>
+      {% for ficha in plm01_fichas %}<tr><td>{{ ficha.competencia }}</td><td>{{ ficha.total_linhas }}</td><td>{{ ficha.setores_envolvidos or '-' }}</td><td>{{ ficha.total_c }}</td><td>{{ ficha.total_nc }}</td><td>{{ ficha.ultimo_salvamento_nome or '-' }}<br><small>{{ ficha.atualizado_em }}</small></td><td><a href="{{ url_for('sgi_plm01_mensal', competencia=ficha.competencia) }}">Consultar</a> · <a href="{{ url_for('sgi_plm01_mensal', competencia=ficha.competencia) }}">Editar</a> · <a href="{{ url_for('sgi_plm01_imprimir', competencia=ficha.competencia) }}">Imprimir</a></td></tr>
+      {% else %}<tr><td colspan="7">Nenhuma ficha PLM 01 encontrada para os filtros selecionados.</td></tr>{% endfor %}
+    </tbody></table></div>
+  </section>
+
+  <section class="card sgi-lista">
+    <div class="section-title-row"><div><span class="eyebrow">PLM 02-05</span><h2>Verificacoes registradas</h2></div></div>
     <div class="tabela-responsiva"><table><thead><tr><th>Data</th><th>Ficha</th><th>Setor / vinculo</th><th>Status</th><th>NC</th><th></th></tr></thead><tbody>
       {% for v in verificacoes %}<tr><td>{{ v.data }}</td><td><strong>{{ v.formulario_codigo }}</strong><br><small>{{ v.formulario_nome }}</small></td><td>{{ v.setor_nome or v.setor }}<br><small>{{ v.vinculo_tipo }}: {{ v.vinculo_nome }}</small></td><td><span class="sgi-badge ok">{{ v.status }}</span></td><td><span class="sgi-badge {% if v.ncs_abertas %}nc{% else %}ok{% endif %}">{{ v.total_ncs }} total / {{ v.ncs_abertas }} aberta(s)</span>{% if v.pendencias_gerencia %}<br><small>Decisao da Gerencia pendente</small>{% endif %}</td><td><a href="{{ url_for('sgi_verificacao_detalhe', verificacao_id=v.id) }}">Visualizar</a></td></tr>
       {% else %}<tr><td colspan="6">Nenhuma verificacao encontrada.</td></tr>{% endfor %}

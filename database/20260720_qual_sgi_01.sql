@@ -53,4 +53,52 @@ CREATE TABLE IF NOT EXISTS sgi_eventos (
   evento TEXT NOT NULL, descricao TEXT, justificativa TEXT, usuario_id INTEGER NOT NULL,
   usuario_nome TEXT NOT NULL, criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+CREATE TABLE IF NOT EXISTS sgi_plm01_fichas (
+  id SERIAL PRIMARY KEY,
+  empresa TEXT NOT NULL DEFAULT 'FrigoDatta Abatedouro',
+  estabelecimento TEXT NOT NULL DEFAULT 'Abatedouro',
+  formulario_codigo TEXT NOT NULL DEFAULT 'PLM 01',
+  formulario_nome TEXT NOT NULL,
+  competencia TEXT NOT NULL,
+  status TEXT DEFAULT 'Aberta',
+  criado_por INTEGER,
+  criado_por_nome TEXT,
+  criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  ultimo_salvamento_por INTEGER,
+  ultimo_salvamento_nome TEXT,
+  atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(empresa, estabelecimento, formulario_codigo, competencia)
+);
+CREATE TABLE IF NOT EXISTS sgi_plm01_linhas (
+  id SERIAL PRIMARY KEY,
+  ficha_id INTEGER NOT NULL,
+  ordem INTEGER NOT NULL,
+  data TEXT NOT NULL,
+  setor_id INTEGER NOT NULL,
+  setor_nome TEXT NOT NULL,
+  tipo_item TEXT NOT NULL,
+  descricao_atividade TEXT NOT NULL,
+  higienizacao_apos_reparo TEXT NOT NULL,
+  condicao_final TEXT NOT NULL,
+  ativo TEXT DEFAULT 'Sim',
+  criado_por INTEGER,
+  criado_por_nome TEXT,
+  criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  atualizado_por INTEGER,
+  atualizado_por_nome TEXT,
+  atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(ficha_id, ordem)
+);
+CREATE TABLE IF NOT EXISTS sgi_plm01_linha_historico (
+  id SERIAL PRIMARY KEY,
+  linha_id INTEGER NOT NULL,
+  ficha_id INTEGER NOT NULL,
+  campo TEXT NOT NULL,
+  valor_anterior TEXT,
+  valor_novo TEXT,
+  justificativa TEXT NOT NULL,
+  usuario_id INTEGER NOT NULL,
+  usuario_nome TEXT NOT NULL,
+  criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 ALTER TABLE manutencao_ordens ADD COLUMN IF NOT EXISTS sgi_nc_id INTEGER;

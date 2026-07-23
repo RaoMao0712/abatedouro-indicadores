@@ -54,6 +54,37 @@ def criar_tabelas_sgi():
             usuario_id INTEGER NOT NULL, usuario_nome TEXT NOT NULL,
             criado_em {timestamp} DEFAULT CURRENT_TIMESTAMP
         )""",
+        f"""CREATE TABLE IF NOT EXISTS sgi_plm01_fichas (
+            id {pk}, empresa TEXT NOT NULL DEFAULT 'FrigoDatta Abatedouro',
+            estabelecimento TEXT NOT NULL DEFAULT 'Abatedouro',
+            formulario_codigo TEXT NOT NULL DEFAULT 'PLM 01',
+            formulario_nome TEXT NOT NULL,
+            competencia TEXT NOT NULL,
+            status TEXT DEFAULT 'Aberta',
+            criado_por INTEGER, criado_por_nome TEXT,
+            criado_em {timestamp} DEFAULT CURRENT_TIMESTAMP,
+            ultimo_salvamento_por INTEGER, ultimo_salvamento_nome TEXT,
+            atualizado_em {timestamp} DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(empresa, estabelecimento, formulario_codigo, competencia)
+        )""",
+        f"""CREATE TABLE IF NOT EXISTS sgi_plm01_linhas (
+            id {pk}, ficha_id INTEGER NOT NULL, ordem INTEGER NOT NULL,
+            data TEXT NOT NULL, setor_id INTEGER NOT NULL, setor_nome TEXT NOT NULL,
+            tipo_item TEXT NOT NULL, descricao_atividade TEXT NOT NULL,
+            higienizacao_apos_reparo TEXT NOT NULL, condicao_final TEXT NOT NULL,
+            ativo TEXT DEFAULT 'Sim',
+            criado_por INTEGER, criado_por_nome TEXT,
+            criado_em {timestamp} DEFAULT CURRENT_TIMESTAMP,
+            atualizado_por INTEGER, atualizado_por_nome TEXT,
+            atualizado_em {timestamp} DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(ficha_id, ordem)
+        )""",
+        f"""CREATE TABLE IF NOT EXISTS sgi_plm01_linha_historico (
+            id {pk}, linha_id INTEGER NOT NULL, ficha_id INTEGER NOT NULL,
+            campo TEXT NOT NULL, valor_anterior TEXT, valor_novo TEXT,
+            justificativa TEXT NOT NULL, usuario_id INTEGER NOT NULL,
+            usuario_nome TEXT NOT NULL, criado_em {timestamp} DEFAULT CURRENT_TIMESTAMP
+        )""",
     ]
     for comando in tabelas:
         cursor.execute(q(comando))
@@ -117,6 +148,161 @@ def buscar_equipamento(equipamento_id):
     conn = conectar(); cursor = conn.cursor()
     cursor.execute(q("SELECT * FROM manutencao_equipamentos WHERE id = ?"), (equipamento_id,))
     row = cursor.fetchone(); conn.close(); return row
+
+
+def buscar_plm01_ficha(competencia):
+    conn = conectar(); cursor = conn.cursor()
+    cursor.execute(q("""SELECT * FROM sgi_plm01_fichas
+        WHERE empresa = 'FrigoDatta Abatedouro'
+          AND estabelecimento = 'Abatedouro'
+          AND formulario_codigo = 'PLM 01'
+          AND competencia = ?"""), (competencia,))
+    ficha = cursor.fetchone(); conn.close(); return ficha
+
+
+def listar_plm01_linhas(ficha_id, apenas_ativas=True):
+    if not ficha_id:
+        return []
+    conn = conectar(); cursor = conn.cursor()
+    sql = """SELECT l.*, s.nome AS setor_oficial_nome
+        FROM sgi_plm01_linhas l
+        LEFT JOIN cadastros_setores s ON s.id = l.setor_id
+        WHERE l.ficha_id = ?"""
+    params = [int(ficha_id)]
+    if apenas_ativas:
+        sql += " AND COALESCE(l.ativo, 'Sim') = 'Sim'"
+    cursor.execute(q(sql + " ORDER BY l.ordem"), tuple(params))
+    rows = cursor.fetchall(); conn.close(); return rows
+
+
+def buscar_plm01_linha(linha_id):
+    conn = conectar(); cursor = conn.cursor()
+    cursor.execute(q("SELECT * FROM sgi_plm01_linhas WHERE id = ?"), (int(linha_id),))
+    row = cursor.fetchone(); conn.close(); return row
+
+
+def listar_plm01_historico(ficha_id):
+    conn = conectar(); cursor = conn.cursor()
+    cursor.execute(q("""SELECT h.*, l.ordem
+        FROM sgi_plm01_linha_historico h
+        LEFT JOIN sgi_plm01_linhas l ON l.id = h.linha_id
+        WHERE h.ficha_id = ?
+        ORDER BY h.criado_em DESC, h.id DESC"""), (int(ficha_id),))
+    rows = cursor.fetchall(); conn.close(); return rows
+
+
+def salvar_plm01_ficha(competencia, linhas, usuario_id, usuario_nome):
+    formulario_nome = "Controle de Manutencao de Instalacoes e Equipamentos"
+    with transaction() as conn:
+        cursor = conn.cursor()
+        cursor.execute(q("""SELECT * FROM sgi_plm01_fichas
+            WHERE empresa = 'FrigoDatta Abatedouro'
+              AND estabelecimento = 'Abatedouro'
+              AND formulario_codigo = 'PLM 01'
+              AND competencia = ?"""), (competencia,))
+        ficha = cursor.fetchone()
+        if ficha:
+            ficha_id = ficha["id"]
+            cursor.execute(q("""UPDATE sgi_plm01_fichas
+                SET formulario_nome = ?, ultimo_salvamento_por = ?,
+                    ultimo_salvamento_nome = ?, atualizado_em = CURRENT_TIMESTAMP
+                WHERE id = ?"""), (formulario_nome, usuario_id, usuario_nome, ficha_id))
+        else:
+            cursor.execute(q("""INSERT INTO sgi_plm01_fichas (
+                formulario_nome, competencia, criado_por, criado_por_nome,
+                ultimo_salvamento_por, ultimo_salvamento_nome
+            ) VALUES (?, ?, ?, ?, ?, ?)"""), (
+                formulario_nome, competencia, usuario_id, usuario_nome, usuario_id, usuario_nome))
+            cursor.execute("SELECT LASTVAL() AS id" if DATABASE_URL else "SELECT last_insert_rowid() AS id")
+            ficha_id = cursor.fetchone()["id"]
+
+        cursor.execute(q("SELECT * FROM sgi_plm01_linhas WHERE ficha_id = ?"), (ficha_id,))
+        existentes = {int(row["id"]): row for row in cursor.fetchall()}
+        existentes_por_ordem = {int(row["ordem"]): row for row in existentes.values()}
+
+        campos_auditoria = (
+            "data", "setor_id", "setor_nome", "tipo_item", "descricao_atividade",
+            "higienizacao_apos_reparo", "condicao_final"
+        )
+        for linha in linhas:
+            linha_id = int(linha.get("id") or 0)
+            ordem = int(linha["ordem"])
+            existente = existentes.get(linha_id) if linha_id else existentes_por_ordem.get(ordem)
+            valores = (
+                ficha_id, ordem, linha["data"], linha["setor_id"], linha["setor_nome"],
+                linha["tipo_item"], linha["descricao_atividade"],
+                linha["higienizacao_apos_reparo"], linha["condicao_final"],
+                usuario_id, usuario_nome, usuario_id, usuario_nome
+            )
+            if existente:
+                mudancas = []
+                for campo in campos_auditoria:
+                    anterior = "" if existente[campo] is None else str(existente[campo])
+                    novo = "" if linha[campo] is None else str(linha[campo])
+                    if anterior != novo:
+                        mudancas.append((campo, anterior, novo))
+                if mudancas:
+                    for campo, anterior, novo in mudancas:
+                        cursor.execute(q("""INSERT INTO sgi_plm01_linha_historico (
+                            linha_id, ficha_id, campo, valor_anterior, valor_novo,
+                            justificativa, usuario_id, usuario_nome
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"""), (
+                            existente["id"], ficha_id, campo, anterior, novo,
+                            linha["justificativa"], usuario_id, usuario_nome))
+                    cursor.execute(q("""UPDATE sgi_plm01_linhas
+                        SET ordem = ?, data = ?, setor_id = ?, setor_nome = ?,
+                            tipo_item = ?, descricao_atividade = ?,
+                            higienizacao_apos_reparo = ?, condicao_final = ?,
+                            ativo = 'Sim', atualizado_por = ?, atualizado_por_nome = ?,
+                            atualizado_em = CURRENT_TIMESTAMP
+                        WHERE id = ?"""), (
+                            ordem, linha["data"], linha["setor_id"], linha["setor_nome"],
+                            linha["tipo_item"], linha["descricao_atividade"],
+                            linha["higienizacao_apos_reparo"], linha["condicao_final"],
+                            usuario_id, usuario_nome, existente["id"]))
+            else:
+                cursor.execute(q("""INSERT INTO sgi_plm01_linhas (
+                    ficha_id, ordem, data, setor_id, setor_nome, tipo_item,
+                    descricao_atividade, higienizacao_apos_reparo, condicao_final,
+                    criado_por, criado_por_nome, atualizado_por, atualizado_por_nome
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""), valores)
+    return ficha_id
+
+
+def listar_plm01_resumos(filtros=None):
+    filtros = filtros or {}
+    condicoes, params = ["1=1"], []
+    if filtros.get("mes"):
+        condicoes.append("f.competencia = ?"); params.append(filtros["mes"])
+    if filtros.get("setor_id") and filtros["setor_id"] != "Todos":
+        condicoes.append("EXISTS (SELECT 1 FROM sgi_plm01_linhas sl WHERE sl.ficha_id=f.id AND COALESCE(sl.ativo,'Sim')='Sim' AND sl.setor_id=?)")
+        params.append(int(filtros["setor_id"]))
+    if filtros.get("tipo_item") and filtros["tipo_item"] != "Todos":
+        condicoes.append("EXISTS (SELECT 1 FROM sgi_plm01_linhas tl WHERE tl.ficha_id=f.id AND COALESCE(tl.ativo,'Sim')='Sim' AND tl.tipo_item=?)")
+        params.append(filtros["tipo_item"])
+    if filtros.get("condicao_final") and filtros["condicao_final"] != "Todos":
+        condicoes.append("EXISTS (SELECT 1 FROM sgi_plm01_linhas cl WHERE cl.ficha_id=f.id AND COALESCE(cl.ativo,'Sim')='Sim' AND cl.condicao_final=?)")
+        params.append(filtros["condicao_final"])
+    conn = conectar(); cursor = conn.cursor()
+    cursor.execute(q(f"""SELECT f.*,
+        (SELECT COUNT(*) FROM sgi_plm01_linhas l WHERE l.ficha_id=f.id AND COALESCE(l.ativo,'Sim')='Sim') AS total_linhas,
+        (SELECT COUNT(*) FROM sgi_plm01_linhas l WHERE l.ficha_id=f.id AND COALESCE(l.ativo,'Sim')='Sim' AND l.condicao_final='C') AS total_c,
+        (SELECT COUNT(*) FROM sgi_plm01_linhas l WHERE l.ficha_id=f.id AND COALESCE(l.ativo,'Sim')='Sim' AND l.condicao_final='NC') AS total_nc
+        FROM sgi_plm01_fichas f
+        WHERE {' AND '.join(condicoes)}
+        ORDER BY f.competencia DESC, f.id DESC"""), tuple(params))
+    fichas = cursor.fetchall()
+    resultados = []
+    for ficha in fichas:
+        cursor.execute(q("""SELECT DISTINCT setor_nome
+            FROM sgi_plm01_linhas
+            WHERE ficha_id=? AND COALESCE(ativo,'Sim')='Sim'
+            ORDER BY setor_nome"""), (ficha["id"],))
+        setores = ", ".join(row["setor_nome"] for row in cursor.fetchall())
+        item = dict(ficha)
+        item["setores_envolvidos"] = setores
+        resultados.append(item)
+    conn.close(); return resultados
 
 
 def inserir_verificacao(cabecalho, itens, ncs, acoes, evento):
