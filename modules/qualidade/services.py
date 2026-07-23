@@ -377,7 +377,7 @@ def _linha_vazia_plm01(ordem):
         "id": "", "ordem": ordem, "data": "", "setor_id": "", "setor_nome": "",
         "tipo_item": "", "descricao_atividade": "",
         "higienizacao_apos_reparo": "", "condicao_final": "",
-        "justificativa": "", "persistida": False,
+        "persistida": False,
     }
 
 
@@ -386,7 +386,6 @@ def _montar_grade_plm01(linhas_salvas):
     for linha in linhas_salvas:
         item = dict(linha)
         item["persistida"] = True
-        item["justificativa"] = ""
         grade.append(item)
     proxima = len(grade) + 1
     while len(grade) < 18:
@@ -455,7 +454,6 @@ def validar_linhas_plm01(form, competencia):
     descricoes = _form_list(form, "descricao_atividade[]")
     higienizacoes = _form_list(form, "higienizacao_apos_reparo[]")
     condicoes = _form_list(form, "condicao_final[]")
-    justificativas = _form_list(form, "justificativa[]")
     total = max(map(len, (ordens, datas, setores, tipos, descricoes, higienizacoes, condicoes)))
     linhas = []
     for indice in range(total):
@@ -468,7 +466,6 @@ def validar_linhas_plm01(form, competencia):
             "descricao_atividade": descricoes[indice] if indice < len(descricoes) else "",
             "higienizacao_apos_reparo": higienizacoes[indice] if indice < len(higienizacoes) else "",
             "condicao_final": condicoes[indice] if indice < len(condicoes) else "",
-            "justificativa": justificativas[indice] if indice < len(justificativas) else "",
         }
         if not _linha_iniciada(campos):
             continue
@@ -513,10 +510,7 @@ def validar_linhas_plm01(form, competencia):
             "descricao_atividade": campos["descricao_atividade"].strip(),
             "higienizacao_apos_reparo": campos["higienizacao_apos_reparo"],
             "condicao_final": campos["condicao_final"],
-            "justificativa": campos["justificativa"].strip(),
         }
-        if _linha_mudou(existente, linha) and not linha["justificativa"]:
-            raise ValueError(f"Linha {ordem}: informe justificativa para alterar registro ja salvo.")
         linhas.append(linha)
     return linhas
 

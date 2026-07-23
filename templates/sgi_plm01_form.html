@@ -41,6 +41,15 @@
 
     <div class="sgi-plm01-table-wrap">
       <table class="sgi-plm01-table">
+        <colgroup>
+          <col class="sgi-plm01-col-ordem">
+          <col class="sgi-plm01-col-data">
+          <col class="sgi-plm01-col-setor">
+          <col class="sgi-plm01-col-tipo">
+          <col class="sgi-plm01-col-descricao">
+          <col class="sgi-plm01-col-higienizacao">
+          <col class="sgi-plm01-col-condicao">
+        </colgroup>
         <thead>
           <tr>
             <th>N.</th>
@@ -50,7 +59,6 @@
             <th>Descricao das atividades</th>
             <th>Higienizacao apos reparo</th>
             <th>Condicao final</th>
-            <th>Justificativa de alteracao</th>
           </tr>
         </thead>
         <tbody id="plm01-linhas">
@@ -63,7 +71,6 @@
             <td><textarea name="descricao_atividade[]" rows="1">{{ linha.descricao_atividade or '' }}</textarea></td>
             <td><select name="higienizacao_apos_reparo[]"><option value="">Selecione</option>{% for opcao in higienizacoes %}<option value="{{ opcao }}" {% if linha.higienizacao_apos_reparo == opcao %}selected{% endif %}>{{ opcao }}</option>{% endfor %}</select></td>
             <td><select name="condicao_final[]"><option value="">Selecione</option>{% for opcao in condicoes %}<option value="{{ opcao }}" {% if linha.condicao_final == opcao %}selected{% endif %}>{{ opcao }}</option>{% endfor %}</select><small>C - Conforme · NC - Nao Conforme</small></td>
-            <td><textarea name="justificativa[]" rows="1" placeholder="{% if linha.persistida %}Obrigatoria se alterar{% else %}Nova linha{% endif %}"></textarea></td>
           </tr>
           {% endfor %}
         </tbody>
@@ -78,8 +85,8 @@
   {% if historico %}
   <section class="card sgi-plm01-historico">
     <div class="section-title-row"><div><span class="eyebrow">HISTORICO</span><h2>Alteracoes registradas</h2></div></div>
-    <table><thead><tr><th>Linha</th><th>Campo</th><th>Anterior</th><th>Novo</th><th>Justificativa</th><th>Usuario</th><th>Data</th></tr></thead><tbody>
-      {% for h in historico %}<tr><td>{{ h.ordem }}</td><td>{{ h.campo }}</td><td>{{ h.valor_anterior }}</td><td>{{ h.valor_novo }}</td><td>{{ h.justificativa }}</td><td>{{ h.usuario_nome }}</td><td>{{ h.criado_em }}</td></tr>{% endfor %}
+    <table><thead><tr><th>Linha</th><th>Campo</th><th>Anterior</th><th>Novo</th><th>Usuario</th><th>Data</th></tr></thead><tbody>
+      {% for h in historico %}<tr><td>{{ h.ordem }}</td><td>{{ h.campo }}</td><td>{{ h.valor_anterior }}</td><td>{{ h.valor_novo }}</td><td>{{ h.usuario_nome }}</td><td>{{ h.criado_em }}</td></tr>{% endfor %}
     </tbody></table>
   </section>
   {% endif %}

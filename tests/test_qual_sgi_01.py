@@ -83,7 +83,6 @@ def form_plm01(competencia, linhas):
         "descricao_atividade[]": [],
         "higienizacao_apos_reparo[]": [],
         "condicao_final[]": [],
-        "justificativa[]": [],
     }
     for indice, linha in enumerate(linhas, start=1):
         dados["linha_id[]"].append(str(linha.get("id", "")))
@@ -94,7 +93,6 @@ def form_plm01(competencia, linhas):
         dados["descricao_atividade[]"].append(linha.get("descricao_atividade", ""))
         dados["higienizacao_apos_reparo[]"].append(linha.get("higienizacao_apos_reparo", ""))
         dados["condicao_final[]"].append(linha.get("condicao_final", ""))
-        dados["justificativa[]"].append(linha.get("justificativa", ""))
     return dados
 
 
@@ -299,7 +297,7 @@ def test_plm01_manual_competencia_linhas_pesquisa_e_impressao():
     assert client.get("/sgi/qualidade/plm01/imprimir?competencia=2026-06").status_code == 200
 
 
-def test_plm01_rejeita_linha_parcial_data_fora_e_edicao_sem_justificativa():
+def test_plm01_rejeita_linha_parcial_data_fora_e_edita_com_historico_automatico():
     cadastros = preparar_cadastros()
     setor = cadastros["setor"]
     parcial = form_plm01("2026-06", [{"ordem": 1, "data": "2026-06-02", "setor_id": setor["id"]}])
@@ -334,12 +332,10 @@ def test_plm01_rejeita_linha_parcial_data_fora_e_edicao_sem_justificativa():
     }])
     try:
         sgi.salvar_plm01_mensal(alterado, 1, "Teste")
-        assert False, "deveria exigir justificativa"
     except ValueError as erro:
-        assert "justificativa" in str(erro)
-    alterado["justificativa[]"][0] = "Correcao da descricao"
-    sgi.salvar_plm01_mensal(alterado, 1, "Teste")
-    assert repo.listar_plm01_historico(ficha_id)
+        assert False, f"nao deveria exigir justificativa manual: {erro}"
+    historico = repo.listar_plm01_historico(ficha_id)
+    assert historico and historico[0]["usuario_nome"] == "Teste"
 
 
 def test_rejeita_setor_e_vinculo_manipulados():
@@ -393,6 +389,8 @@ def test_rotas_renderizam_selects_oficiais_e_preservam_mes():
     assert 'name="setor_id[]"' in html_form
     assert 'name="setor" required' not in html_form
     assert 'Adicionar linha' in html_form and 'Salvar PLM 01' in html_form
+    assert 'Justificativa de alteracao' not in html_form
+    assert 'name="justificativa[]"' not in html_form
 
 
 def test_schema_estruturado_e_sem_hard_delete_sgi():
