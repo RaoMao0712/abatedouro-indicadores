@@ -248,7 +248,8 @@ def salvar_plm01_ficha(competencia, linhas, usuario_id, usuario_nome):
                             justificativa, usuario_id, usuario_nome
                         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"""), (
                             existente["id"], ficha_id, campo, anterior, novo,
-                            linha["justificativa"], usuario_id, usuario_nome))
+                            "Alteracao registrada automaticamente pela edicao da PLM 01.",
+                            usuario_id, usuario_nome))
                     cursor.execute(q("""UPDATE sgi_plm01_linhas
                         SET ordem = ?, data = ?, setor_id = ?, setor_nome = ?,
                             tipo_item = ?, descricao_atividade = ?,
