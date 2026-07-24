@@ -51,6 +51,27 @@ def _agora():
     return datetime.now(FUSO_MANAUS).strftime("%Y-%m-%d %H:%M:%S%z")
 
 
+def formatar_data_hora_emissao_manaus(valor):
+    """Formata a emissão sem alterar o instante ou atribuir fuso a valor ingênuo."""
+    if not valor:
+        return "-"
+    if isinstance(valor, datetime):
+        data_hora = valor
+    else:
+        texto = str(valor).strip()
+        if not texto:
+            return "-"
+        try:
+            data_hora = datetime.fromisoformat(texto)
+        except ValueError:
+            return "-"
+    if data_hora.tzinfo is None or data_hora.utcoffset() is None:
+        return data_hora.strftime("%d/%m/%Y às %H:%M")
+    return data_hora.astimezone(FUSO_MANAUS).strftime(
+        "%d/%m/%Y às %H:%M — horário de Manaus"
+    )
+
+
 def _usuario():
     try:
         return nome_usuario_atual() or "Sistema"

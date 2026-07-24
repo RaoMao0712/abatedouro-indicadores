@@ -25,7 +25,7 @@
         <div><small>Destino</small><strong>{{ expedicao.destino }}</strong></div>
         <div><small>Responsável</small><strong>{{ expedicao.responsavel or expedicao.criado_por or "-" }}</strong></div>
         <div><small>Emitido por</small><strong>{{ expedicao.emitido_por or "-" }}</strong></div>
-        <div><small>Data e hora da emissão</small><strong>{{ expedicao.emitido_em or "-" }}</strong></div>
+        <div><small>Data e hora da emissão</small><strong>{{ emissao_formatada }}</strong></div>
     </section>
 
     {% set itens_gi = itens|selectattr("sku", "equalto", "Galinha Inteira")|list %}

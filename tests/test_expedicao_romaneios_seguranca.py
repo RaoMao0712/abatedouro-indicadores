@@ -5,6 +5,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -248,8 +249,15 @@ class RomaneiosSegurancaTest(unittest.TestCase):
 
     def test_15_mz_aberto_imprime_como_rascunho(self):
         mz_id = self.criar_mz()
-        resposta = self.cliente().get(f"/expedicao/{mz_id}/imprimir")
-        self.assertIn("RASCUNHO", resposta.get_data(as_text=True))
+        with patch(
+            "modules.expedicao.estoque_service._agora",
+            return_value="2026-07-24 16:54:00-0400",
+        ):
+            resposta = self.cliente().get(f"/expedicao/{mz_id}/imprimir")
+        texto = resposta.get_data(as_text=True)
+        self.assertIn("RASCUNHO", texto)
+        self.assertIn("24/07/2026 às 16:54 — horário de Manaus", texto)
+        self.assertNotIn("2026-07-24 16:54:00-0400", texto)
 
     def test_16_mz_concluido_imprime_sem_rascunho(self):
         self.contexto()
