@@ -295,8 +295,11 @@ def test_permissoes_abertura_e_bloqueio_tecnico_por_rota():
 
 
 def test_rotas_renderizam_campos_oficiais():
-    criar_equipamento("EQ-R")
+    equipamento_rota = criar_equipamento("EQ-R")
     criar_veiculo("VEI-R")
+    dados_os_rota = form_base()
+    dados_os_rota.update({"tipo_objeto": "EQUIPAMENTO", "equipamento_id": str(equipamento_rota["id"])})
+    manutencao_service.salvar_ordem_manutencao(dados_os_rota, 1, "Solicitante", "pcp")
     client = app.test_client()
     sessao(client, "pcp")
 
@@ -325,13 +328,37 @@ def test_rotas_renderizam_campos_oficiais():
     assert "Utilize os filtros para consultar as Ordens de Servico." in html_buscar
     assert 'class="botao-tabela-almoxarifado manutencao-btn-tabela">Detalhes</a>' not in html_buscar
 
-    buscar_filtrado = client.get("/manutencao?aba=buscar&status=Aberta")
+    total_ordens = len(manutencao_service.buscar_ordens_manutencao())
+    buscar_todos = client.get("/manutencao?aba=buscar&consultar=1&status=Todos&tipo_objeto=Todos&prioridade=Todos")
+    html_todos = buscar_todos.get_data(as_text=True)
+    assert buscar_todos.status_code == 200
+    assert html_todos.count('class="botao-tabela-almoxarifado manutencao-btn-tabela">Detalhes</a>') == total_ordens
+    assert 'name="consultar" value="1"' in html_todos
+    assert '<option value="Todos" selected>Todos</option>' in html_todos
+    assert '<option value="Todos" selected>Todas</option>' in html_todos
+
+    buscar_filtrado = client.get("/manutencao?aba=buscar&consultar=1&status=Aberta")
     html_filtrado = buscar_filtrado.get_data(as_text=True)
     assert buscar_filtrado.status_code == 200
     assert 'class="botao-tabela-almoxarifado manutencao-btn-tabela">Detalhes</a>' in html_filtrado
     assert "Atualizar</summary>" not in html_filtrado
 
-    materiais = client.get("/manutencao?aba=materiais&status=Aberta")
+    buscar_combinado = client.get("/manutencao?aba=buscar&consultar=1&status=Aberta&prioridade=Media")
+    html_combinado = buscar_combinado.get_data(as_text=True)
+    assert buscar_combinado.status_code == 200
+    assert "Media" in html_combinado
+
+    buscar_objeto_pesquisa = client.get("/manutencao?aba=buscar&consultar=1&tipo_objeto=EQUIPAMENTO&pesquisa=EQ-R")
+    html_objeto_pesquisa = buscar_objeto_pesquisa.get_data(as_text=True)
+    assert buscar_objeto_pesquisa.status_code == 200
+    assert "EQ-R" in html_objeto_pesquisa
+
+    buscar_vazio = client.get("/manutencao?aba=buscar&consultar=1&pesquisa=SEM-RESULTADO-OS")
+    html_vazio = buscar_vazio.get_data(as_text=True)
+    assert buscar_vazio.status_code == 200
+    assert "Nenhuma ordem encontrada para os filtros aplicados." in html_vazio
+
+    materiais = client.get("/manutencao?aba=materiais&consultar=1&status=Aberta")
     assert materiais.status_code == 200
     assert "Materiais necessarios por OS" in materiais.get_data(as_text=True)
 

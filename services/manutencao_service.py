@@ -762,12 +762,7 @@ def preparar_contexto_cadastro_equipamentos(args=None):
 
 
 def filtros_busca_aplicados(args):
-    campos = ["status", "equipamento_id", "tipo_objeto", "veiculo_id", "setor", "responsavel", "prioridade", "pesquisa"]
-    for campo in campos:
-        valor = (args.get(campo) or "").strip()
-        if valor and valor != "Todos":
-            return True
-    return False
+    return (args.get("consultar") or "").strip() == "1"
 
 
 def _data(valor):

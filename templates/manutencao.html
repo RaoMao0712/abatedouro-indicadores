@@ -44,6 +44,7 @@
 {% macro filtros_busca(destino_aba) %}
 <form method="GET" action="{{ url_for('manutencao') }}" class="manutencao-filtros">
     <input type="hidden" name="aba" value="{{ destino_aba }}">
+    <input type="hidden" name="consultar" value="1">
     <label>Status
         <select name="status">
             <option value="Todos" {% if status_filtro == "Todos" %}selected{% endif %}>Todos</option>
