@@ -18,6 +18,7 @@ PERFIS_ABERTURA_OS = ("qualidade", "producao", "pcp", "manutencao", "gerencia")
 PERFIS_TECNICOS_OS = ("manutencao", "gerencia", "admin")
 PERFIS_MATERIAIS_OS = ("qualidade", "pcp", "manutencao", "gerencia", "admin")
 PERFIS_CANCELAMENTO_OS = ("manutencao", "gerencia", "admin")
+PERFIS_DADOS_GERAIS_OS = ("gerencia", "admin")
 
 
 def criar_tabelas_manutencao():
@@ -292,17 +293,105 @@ def salvar_ficha_ordem_manutencao(ordem_id, form, usuario_id=0, usuario_nome="Si
         raise ValueError("OS cancelada nao pode ser editada.")
 
     perfil = usuario_perfil or ""
-    if perfil in PERFIS_TECNICOS_OS:
+    if perfil in PERFIS_DADOS_GERAIS_OS:
+        dados, ordem_atual, status, data_conclusao, hora_conclusao, horas_paradas = preparar_atualizacao_ficha_ordem_manutencao(
+            ordem_id, form)
+        linhas = coletar_linhas_recursos_ordem(form) if perfil in PERFIS_MATERIAIS_OS else []
+        evento = montar_evento_atualizacao_os(ordem_atual, dados)
+        repo.atualizar_ficha_ordem_com_recursos(ordem_id, dados, linhas, usuario_id, usuario_nome, evento)
+        aplicar_pos_atualizacao_ordem(
+            ordem_id, ordem_atual, status, data_conclusao, hora_conclusao, horas_paradas, usuario_id, usuario_nome)
+    elif perfil in PERFIS_TECNICOS_OS:
         dados, ordem_atual, status, data_conclusao, hora_conclusao, horas_paradas = preparar_atualizacao_ordem_manutencao(
             ordem_id, form)
         linhas = coletar_linhas_recursos_ordem(form) if perfil in PERFIS_MATERIAIS_OS else []
-        repo.atualizar_ordem_com_recursos(ordem_id, dados, linhas, usuario_id, usuario_nome)
+        evento = montar_evento_execucao_os(ordem_atual, dados)
+        repo.atualizar_ordem_com_recursos(ordem_id, dados, linhas, usuario_id, usuario_nome, evento)
         aplicar_pos_atualizacao_ordem(
             ordem_id, ordem_atual, status, data_conclusao, hora_conclusao, horas_paradas, usuario_id, usuario_nome)
     elif perfil not in PERFIS_MATERIAIS_OS:
         raise PermissionError("Perfil sem permissao para editar a OS.")
     else:
         salvar_recursos_ordem_manutencao(ordem_id, form, perfil, usuario_id, usuario_nome)
+
+
+def preparar_atualizacao_ficha_ordem_manutencao(ordem_id, form):
+    dados_execucao, ordem_atual, status, data_conclusao, hora_conclusao, horas_paradas = preparar_atualizacao_ordem_manutencao(
+        ordem_id, form)
+
+    tipo = form.get("tipo") or ordem_atual["tipo"]
+    if tipo not in TIPOS_MANUTENCAO:
+        raise ValueError("Tipo de manutencao invalido.")
+
+    prioridade = form.get("prioridade") or ordem_atual["prioridade"]
+    if prioridade not in PRIORIDADES_MANUTENCAO:
+        raise ValueError("Prioridade de manutencao invalida.")
+
+    descricao = (form.get("descricao") or "").strip()
+    if not descricao:
+        raise ValueError("Descreva a ocorrencia ou servico solicitado.")
+
+    data_abertura = form.get("data_abertura") or ordem_atual["data_abertura"]
+    data_prevista = form.get("data_prevista") or ""
+    custo_estimado = somar_valor_estimado_recursos(coletar_linhas_recursos_ordem(form))
+    if custo_estimado == 0:
+        custo_estimado = float(form.get("custo_estimado") or ordem_atual["custo_estimado"] or 0)
+
+    dados = (
+        tipo,
+        prioridade,
+        data_abertura,
+        data_prevista,
+        dados_execucao[2],
+        descricao,
+        custo_estimado,
+        *dados_execucao[:2],
+        *dados_execucao[3:],
+    )
+    return dados, ordem_atual, status, data_conclusao, hora_conclusao, horas_paradas
+
+
+def montar_evento_atualizacao_os(ordem_atual, dados):
+    nomes = [
+        "tipo", "prioridade", "data_abertura", "data_prevista", "responsavel",
+        "descricao", "custo_estimado", "status", "data_conclusao", "diagnostico",
+        "solucao", "horas_paradas", "custo_real", "hora_conclusao",
+        "pecas_utilizadas", "observacoes_finais",
+    ]
+    alterados = {}
+    for nome, novo in zip(nomes, dados):
+        anterior = ordem_atual[nome] if nome in ordem_atual.keys() else None
+        if str(anterior or "") != str(novo or ""):
+            alterados[nome] = {"anterior": anterior, "novo": novo}
+    if not alterados:
+        return None
+    return {
+        "evento": "OS atualizada",
+        "descricao": "Ficha da ordem de servico atualizada",
+        "anterior": str({campo: valor["anterior"] for campo, valor in alterados.items()}),
+        "novo": str({campo: valor["novo"] for campo, valor in alterados.items()}),
+    }
+
+
+def montar_evento_execucao_os(ordem_atual, dados):
+    nomes = [
+        "status", "data_conclusao", "responsavel", "diagnostico", "solucao",
+        "horas_paradas", "custo_real", "hora_conclusao",
+        "pecas_utilizadas", "observacoes_finais",
+    ]
+    alterados = {}
+    for nome, novo in zip(nomes, dados):
+        anterior = ordem_atual[nome] if nome in ordem_atual.keys() else None
+        if str(anterior or "") != str(novo or ""):
+            alterados[nome] = {"anterior": anterior, "novo": novo}
+    if not alterados:
+        return None
+    return {
+        "evento": "OS atualizada",
+        "descricao": "Execucao da ordem de servico atualizada",
+        "anterior": str({campo: valor["anterior"] for campo, valor in alterados.items()}),
+        "novo": str({campo: valor["novo"] for campo, valor in alterados.items()}),
+    }
 
 
 def usuario_pode_editar_materiais(perfil):

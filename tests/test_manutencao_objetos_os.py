@@ -394,6 +394,95 @@ def test_ficha_unica_edita_material_e_execucao_com_bloqueios():
     assert recursos[0]["quantidade"] == 3
 
 
+def test_ficha_gerencia_edita_dados_gerais_descricao_e_registra_historico():
+    ordem_id, _equipamento = abrir_os("EQ-GERAL")
+
+    client = app.test_client()
+    sessao(client, "gerencia", 90)
+    detalhe = client.get(f"/manutencao/ordem/{ordem_id}")
+    html = detalhe.get_data(as_text=True)
+    assert 'name="descricao"' in html
+    assert 'name="descricao_visual"' not in html
+    assert 'name="prioridade"' in html
+    assert 'name="data_prevista"' in html
+
+    resposta = client.post(f"/manutencao/ordem/{ordem_id}/salvar", data={
+        "tipo": "Preventiva",
+        "prioridade": "Alta",
+        "data_abertura": "2026-07-24",
+        "data_prevista": "2026-08-02",
+        "responsavel": "Responsavel Geral",
+        "descricao": "Descricao editada pela gerencia",
+        "custo_estimado": "0",
+        "status": "Em andamento",
+        "data_conclusao": "",
+        "hora_conclusao": "",
+        "horas_paradas": "2.25",
+        "custo_real": "321.50",
+        "diagnostico": "Diagnostico editado",
+        "solucao": "Solucao editada",
+        "pecas_utilizadas": "Peca X",
+        "observacoes_finais": "Observacao editada",
+    })
+    assert resposta.status_code == 302
+
+    ordem = manutencao_service.repo.buscar_ordem_por_id(ordem_id)
+    assert ordem["tipo"] == "Preventiva"
+    assert ordem["prioridade"] == "Alta"
+    assert ordem["data_abertura"] == "2026-07-24"
+    assert ordem["data_prevista"] == "2026-08-02"
+    assert ordem["responsavel"] == "Responsavel Geral"
+    assert ordem["descricao"] == "Descricao editada pela gerencia"
+    assert ordem["status"] == "Em andamento"
+    assert float(ordem["horas_paradas"]) == 2.25
+    assert float(ordem["custo_real"]) == 321.50
+    assert ordem["diagnostico"] == "Diagnostico editado"
+    assert ordem["solucao"] == "Solucao editada"
+    assert ordem["pecas_utilizadas"] == "Peca X"
+    assert ordem["observacoes_finais"] == "Observacao editada"
+
+    html_recarregado = client.get(f"/manutencao/ordem/{ordem_id}").get_data(as_text=True)
+    assert "Descricao editada pela gerencia" in html_recarregado
+    eventos = manutencao_service.repo.listar_eventos_ordem(ordem_id)
+    assert any(evento["evento"] == "OS atualizada" and "descricao" in (evento["valor_novo"] or "") for evento in eventos)
+
+
+def test_manutencao_nao_altera_descricao_ou_dados_gerais():
+    ordem_id, _equipamento = abrir_os("EQ-BLOQ-GERAL")
+    client = app.test_client()
+    sessao(client, "manutencao", 91)
+
+    html = client.get(f"/manutencao/ordem/{ordem_id}").get_data(as_text=True)
+    assert 'name="descricao"' not in html
+    assert 'name="prioridade"' not in html
+
+    resposta = client.post(f"/manutencao/ordem/{ordem_id}/salvar", data={
+        "tipo": "Preventiva",
+        "prioridade": "Critica",
+        "data_abertura": "2026-08-01",
+        "data_prevista": "2026-08-09",
+        "descricao": "Descricao indevida",
+        "status": "Em andamento",
+        "responsavel": "Tecnico permitido",
+        "horas_paradas": "0",
+        "custo_real": "0",
+        "diagnostico": "Diagnostico permitido",
+        "solucao": "",
+        "pecas_utilizadas": "",
+        "observacoes_finais": "",
+    })
+    assert resposta.status_code == 302
+
+    ordem = manutencao_service.repo.buscar_ordem_por_id(ordem_id)
+    assert ordem["tipo"] == "Corretiva"
+    assert ordem["prioridade"] == "Media"
+    assert ordem["descricao"] == "Solicitacao de manutencao"
+    assert ordem["data_abertura"] == "2026-07-23"
+    assert ordem["data_prevista"] in ("", None)
+    assert ordem["responsavel"] == "Tecnico permitido"
+    assert ordem["diagnostico"] == "Diagnostico permitido"
+
+
 def test_cancelamento_os_controlado_e_indicadores():
     ordem_id, equipamento = abrir_os("EQ-CAN")
 

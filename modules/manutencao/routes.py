@@ -257,7 +257,11 @@ def register_manutencao_routes(app):
             verificacao_id=verificacao_id,
             tipos_recurso=manutencao_service.TIPOS_RECURSO_ORDEM,
             status_recurso=manutencao_service.STATUS_RECURSO_ORDEM,
+            status_opcoes=manutencao_service.STATUS_MANUTENCAO,
+            tipos=manutencao_service.TIPOS_MANUTENCAO,
+            prioridades=manutencao_service.PRIORIDADES_MANUTENCAO,
             insumos_manutencao=insumos_manutencao,
             perfis_materiais=manutencao_service.PERFIS_MATERIAIS_OS,
             perfis_cancelamento=manutencao_service.PERFIS_CANCELAMENTO_OS,
+            perfis_dados_gerais=manutencao_service.PERFIS_DADOS_GERAIS_OS,
         )

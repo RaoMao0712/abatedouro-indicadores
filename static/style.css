@@ -9341,7 +9341,9 @@ small {
 .manutencao-filtros label{display:grid;gap:4px;font-size:.75rem;font-weight:700;color:#465954}
 .manutencao-filtros input,.manutencao-filtros select{width:100%;padding:8px;border:1px solid #cbd8d3;border-radius:8px;background:#fff}
 .manutencao-info-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
-.manutencao-info-grid p{margin:0;padding:10px;border:1px solid #e0e8e5;border-radius:8px;background:#fbfdfc}
+.manutencao-info-grid p,.manutencao-info-grid label{margin:0;padding:10px;border:1px solid #e0e8e5;border-radius:8px;background:#fbfdfc}
+.manutencao-info-grid label{display:grid;gap:5px;font-size:.78rem;font-weight:700;color:#465954}
+.manutencao-info-grid input,.manutencao-info-grid select{width:100%;padding:8px;border:1px solid #cbd8d3;border-radius:8px;background:#fff}
 .manutencao-ficha-os{gap:10px}
 .manutencao-ficha-form{display:grid;gap:10px}
 .manutencao-ficha-topo{align-items:center}

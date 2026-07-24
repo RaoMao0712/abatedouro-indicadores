@@ -497,13 +497,36 @@ def atualizar_ordem(ordem_id, dados):
     conn.close()
 
 
-def atualizar_ordem_com_recursos(ordem_id, dados, recursos=None, usuario_id=0, usuario_nome="Sistema"):
+def atualizar_ordem_com_recursos(ordem_id, dados, recursos=None, usuario_id=0, usuario_nome="Sistema", evento=None):
     criar_tabelas_manutencao()
     conn = conectar()
     cursor = conn.cursor()
     try:
         _atualizar_ordem_cursor(cursor, ordem_id, dados)
         _salvar_recursos_ordem_cursor(cursor, ordem_id, recursos or [], usuario_id, usuario_nome)
+        if evento:
+            _registrar_evento_cursor(
+                cursor, ordem_id, None, evento["evento"], evento["descricao"],
+                evento.get("anterior", ""), evento.get("novo", ""), usuario_id, usuario_nome)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def atualizar_ficha_ordem_com_recursos(ordem_id, dados, recursos=None, usuario_id=0, usuario_nome="Sistema", evento=None):
+    criar_tabelas_manutencao()
+    conn = conectar()
+    cursor = conn.cursor()
+    try:
+        _atualizar_ficha_ordem_cursor(cursor, ordem_id, dados)
+        _salvar_recursos_ordem_cursor(cursor, ordem_id, recursos or [], usuario_id, usuario_nome)
+        if evento:
+            _registrar_evento_cursor(
+                cursor, ordem_id, None, evento["evento"], evento["descricao"],
+                evento.get("anterior", ""), evento.get("novo", ""), usuario_id, usuario_nome)
         conn.commit()
     except Exception:
         conn.rollback()
@@ -519,6 +542,30 @@ def _atualizar_ordem_cursor(cursor, ordem_id, dados):
         status = ?,
         data_conclusao = ?,
         responsavel = ?,
+        diagnostico = ?,
+        solucao = ?,
+        horas_paradas = ?,
+        custo_real = ?,
+        hora_conclusao = ?,
+        pecas_utilizadas = ?,
+        observacoes_finais = ?
+    WHERE id = ?
+    """), (*dados, ordem_id))
+
+
+def _atualizar_ficha_ordem_cursor(cursor, ordem_id, dados):
+    cursor.execute(q("""
+    UPDATE manutencao_ordens
+    SET
+        tipo = ?,
+        prioridade = ?,
+        data_abertura = ?,
+        data_prevista = ?,
+        responsavel = ?,
+        descricao = ?,
+        custo_estimado = ?,
+        status = ?,
+        data_conclusao = ?,
         diagnostico = ?,
         solucao = ?,
         horas_paradas = ?,
