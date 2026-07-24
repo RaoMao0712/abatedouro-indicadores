@@ -939,6 +939,113 @@ def test_manutencao_nao_altera_descricao_ou_dados_gerais():
     assert ordem["diagnostico"] == "Diagnostico permitido"
 
 
+def test_ficha_salva_observacao_material_com_insumo_none_literal():
+    ordem_id, _equipamento = abrir_os("EQ-OBS-NONE")
+    manutencao_service.salvar_recursos_ordem_manutencao(
+        ordem_id, MultiDict(form_material("Material com observacao")), "gerencia", 92, "Gerente")
+    recurso = manutencao_service.repo.listar_recursos_por_ordens([ordem_id])[str(ordem_id)][0]
+
+    payload = form_ficha_dados_gerais(
+        descricao="Observacao atualizada sem converter None",
+        status="Em andamento",
+    )
+    payload.setlist("recurso_id[]", [str(recurso["id"])])
+    payload.setlist("remover[]", ["Nao"])
+    payload.setlist("recurso_tipo[]", ["Material"])
+    payload.setlist("recurso_descricao[]", ["Material com observacao"])
+    payload.setlist("recurso_insumo_id[]", ["None"])
+    payload.setlist("recurso_descricao_complementar[]", ["None"])
+    payload.setlist("recurso_quantidade[]", ["2"])
+    payload.setlist("recurso_unidade[]", ["Un"])
+    payload.setlist("recurso_fornecedor[]", ["None"])
+    payload.setlist("recurso_valor_estimado[]", ["0"])
+    payload.setlist("recurso_status[]", ["Necessario"])
+    payload.setlist("recurso_observacoes[]", ["123/ABC-45 - referencia livre"])
+
+    client = app.test_client()
+    sessao(client, "gerencia", 92)
+    resposta = client.post(f"/manutencao/ordem/{ordem_id}/salvar", data=payload, follow_redirects=True)
+    html = resposta.get_data(as_text=True)
+
+    assert resposta.status_code == 200
+    assert "invalid literal for int()" not in html
+    recursos = manutencao_service.repo.listar_recursos_por_ordens([ordem_id])[str(ordem_id)]
+    assert len(recursos) == 1
+    assert recursos[0]["insumo_id"] is None
+    assert recursos[0]["descricao_complementar"] == ""
+    assert recursos[0]["fornecedor"] == ""
+    assert recursos[0]["observacoes"] == "123/ABC-45 - referencia livre"
+    assert "123/ABC-45 - referencia livre" in client.get(f"/manutencao/ordem/{ordem_id}").get_data(as_text=True)
+
+
+def test_recurso_id_none_literal_cria_linha_nova_sem_excecao():
+    ordem_id, _equipamento = abrir_os("EQ-LINHA-NOVA-NONE")
+    payload = form_ficha_dados_gerais(
+        descricao="Linha nova com id None literal",
+        status="Em andamento",
+    )
+    payload.setlist("recurso_id[]", ["None"])
+    payload.setlist("remover[]", ["Nao"])
+    payload.setlist("recurso_tipo[]", ["Outra aquisicao"])
+    payload.setlist("recurso_descricao[]", ["Compra avulsa"])
+    payload.setlist("recurso_insumo_id[]", ["undefined"])
+    payload.setlist("recurso_descricao_complementar[]", [""])
+    payload.setlist("recurso_quantidade[]", ["1"])
+    payload.setlist("recurso_unidade[]", ["Un"])
+    payload.setlist("recurso_fornecedor[]", [""])
+    payload.setlist("recurso_valor_estimado[]", ["12,50"])
+    payload.setlist("recurso_status[]", ["Necessario"])
+    payload.setlist("recurso_observacoes[]", ["789"])
+
+    manutencao_service.salvar_ficha_ordem_manutencao(ordem_id, payload, 93, "Gerente", "gerencia")
+
+    recursos = manutencao_service.repo.listar_recursos_por_ordens([ordem_id])[str(ordem_id)]
+    assert len(recursos) == 1
+    assert recursos[0]["descricao"] == "Compra avulsa"
+    assert recursos[0]["observacoes"] == "789"
+    assert round(float(recursos[0]["valor_estimado"]), 2) == 12.50
+
+
+def test_recurso_de_outra_os_falha_sem_gravacao_parcial():
+    ordem_id, _equipamento = abrir_os("EQ-OS-VALIDA-ID")
+    outra_ordem_id, _outro_equipamento = abrir_os("EQ-OS-DONO-ID")
+    manutencao_service.salvar_recursos_ordem_manutencao(
+        ordem_id, MultiDict(form_material("Material preservado")), "gerencia", 94, "Gerente")
+    manutencao_service.salvar_recursos_ordem_manutencao(
+        outra_ordem_id, MultiDict(form_material("Material de outra OS")), "gerencia", 95, "Gerente")
+    recurso_ordem = manutencao_service.repo.listar_recursos_por_ordens([ordem_id])[str(ordem_id)][0]
+    recurso_outra = manutencao_service.repo.listar_recursos_por_ordens([outra_ordem_id])[str(outra_ordem_id)][0]
+
+    payload = form_ficha_dados_gerais(
+        descricao="Teste transacional com linha cruzada",
+        status="Em andamento",
+    )
+    payload.setlist("recurso_id[]", [str(recurso_ordem["id"]), str(recurso_outra["id"])])
+    payload.setlist("remover[]", ["Nao", "Nao"])
+    payload.setlist("recurso_tipo[]", ["Material", "Material"])
+    payload.setlist("recurso_descricao[]", ["Material preservado editado", "Material invasor"])
+    payload.setlist("recurso_insumo_id[]", ["None", ""])
+    payload.setlist("recurso_descricao_complementar[]", ["", ""])
+    payload.setlist("recurso_quantidade[]", ["3", "1"])
+    payload.setlist("recurso_unidade[]", ["Un", "Un"])
+    payload.setlist("recurso_fornecedor[]", ["", ""])
+    payload.setlist("recurso_valor_estimado[]", ["0", "0"])
+    payload.setlist("recurso_status[]", ["Necessario", "Necessario"])
+    payload.setlist("recurso_observacoes[]", ["NAO DEVE GRAVAR", "Linha cruzada"])
+
+    try:
+        manutencao_service.salvar_ficha_ordem_manutencao(ordem_id, payload, 94, "Gerente", "gerencia")
+        assert False, "linha de outra OS deveria ser rejeitada"
+    except ValueError as erro:
+        assert "nao pertence a esta OS" in str(erro)
+
+    recursos = manutencao_service.repo.listar_recursos_por_ordens([ordem_id])[str(ordem_id)]
+    assert recursos[0]["descricao"] == "Material preservado"
+    assert recursos[0]["observacoes"] == "Necessidade preliminar"
+    outra = manutencao_service.repo.listar_recursos_por_ordens([outra_ordem_id])[str(outra_ordem_id)]
+    assert outra[0]["descricao"] == "Material de outra OS"
+
+
 def test_cancelamento_os_controlado_e_indicadores():
     ordem_id, equipamento = abrir_os("EQ-CAN")
 

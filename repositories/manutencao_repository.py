@@ -1147,11 +1147,13 @@ def salvar_recursos_ordem(ordem_id, linhas, usuario_id=0, usuario_nome="Sistema"
 
 def _salvar_recursos_ordem_cursor(cursor, ordem_id, linhas, usuario_id=0, usuario_nome="Sistema"):
     for linha in linhas:
-        recurso_id = int(linha.get("id") or 0)
+        recurso_id = _inteiro_opcional(linha.get("id"), "ID da linha de material")
 
         if linha.get("remover") == "Sim":
             if recurso_id:
                 anterior = _buscar_recurso_cursor(cursor, recurso_id, ordem_id)
+                if not anterior:
+                    raise ValueError("A linha de material informada nao pertence a esta OS.")
                 cursor.execute(q("""
                 UPDATE manutencao_ordem_recursos
                 SET status = ?,
@@ -1173,7 +1175,7 @@ def _salvar_recursos_ordem_cursor(cursor, ordem_id, linhas, usuario_id=0, usuari
             ordem_id,
             linha.get("tipo") or "Material",
             descricao,
-            int(linha.get("insumo_id") or 0) or None,
+            _inteiro_opcional(linha.get("insumo_id"), "insumo da linha de material"),
             (linha.get("descricao_complementar") or "").strip(),
             float(linha.get("quantidade") or 0),
             (linha.get("unidade") or "").strip(),
@@ -1187,6 +1189,8 @@ def _salvar_recursos_ordem_cursor(cursor, ordem_id, linhas, usuario_id=0, usuari
 
         if recurso_id:
             anterior = _buscar_recurso_cursor(cursor, recurso_id, ordem_id)
+            if not anterior:
+                raise ValueError("A linha de material informada nao pertence a esta OS.")
             cursor.execute(q("""
             UPDATE manutencao_ordem_recursos
             SET
@@ -1232,3 +1236,15 @@ def _salvar_recursos_ordem_cursor(cursor, ordem_id, linhas, usuario_id=0, usuari
                 cursor, ordem_id, novo["id"], "Material incluido",
                 "Item incluido na lista de materiais", "", str(dados[1:10]),
                 usuario_id, usuario_nome)
+
+
+def _inteiro_opcional(valor, campo):
+    if valor is None or str(valor).strip().lower() in ("", "none", "null", "undefined", "-"):
+        return None
+    try:
+        numero = int(str(valor).strip())
+    except (TypeError, ValueError):
+        raise ValueError(f"Informe um numero valido para {campo}.")
+    if numero < 0:
+        raise ValueError(f"Informe um numero valido para {campo}.")
+    return numero or None
