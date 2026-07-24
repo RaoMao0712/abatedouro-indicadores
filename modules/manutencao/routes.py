@@ -1,6 +1,6 @@
 """Rotas do modulo de Manutencao."""
 
-from flask import flash, redirect, render_template, request, session, url_for
+from flask import abort, flash, redirect, render_template, request, session, url_for
 
 from modules.auth.decorators import perfil_permitido
 from . import services as manutencao_service
@@ -177,6 +177,17 @@ def register_manutencao_routes(app):
 
         return redirect(url_for("visualizar_ordem_manutencao", ordem_id=ordem_id))
 
+    @app.route("/manutencao/ordens/imprimir")
+    @perfil_permitido("qualidade", "pcp", "producao", "manutencao", "gerencia")
+    def imprimir_relatorio_ordens_manutencao():
+        return render_template(
+            "manutencao_ordens_impressao.html",
+            **manutencao_service.contexto_relatorio_ordens_impressao(
+                request.args,
+                session.get("nome", "Sistema"),
+            )
+        )
+
     @app.route("/manutencao/ordem/<int:ordem_id>/recursos/painel", methods=["POST"])
     @perfil_permitido("qualidade", "pcp", "manutencao", "gerencia")
     def salvar_recursos_ordem_manutencao_painel(ordem_id):
@@ -272,3 +283,14 @@ def register_manutencao_routes(app):
             perfis_cancelamento=manutencao_service.PERFIS_CANCELAMENTO_OS,
             perfis_dados_gerais=manutencao_service.PERFIS_DADOS_GERAIS_OS,
         )
+
+    @app.route("/manutencao/ordem/<int:ordem_id>/imprimir")
+    @perfil_permitido("qualidade", "pcp", "producao", "manutencao", "gerencia")
+    def imprimir_ordem_manutencao(ordem_id):
+        contexto = manutencao_service.contexto_ordem_impressao(
+            ordem_id,
+            session.get("nome", "Sistema"),
+        )
+        if not contexto:
+            abort(404)
+        return render_template("manutencao_ordem_impressao.html", **contexto)

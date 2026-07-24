@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Relatorio de Ordens de Servico</title>
+    <style>
+        @page { size: A4 landscape; margin: 10mm; }
+        * { box-sizing: border-box; }
+        body { margin: 0; font-family: Arial, sans-serif; color: #111; font-size: 10px; }
+        .no-print { display: flex; gap: 8px; justify-content: flex-end; margin: 10px 0; }
+        .no-print a, .no-print button { border: 1px solid #1f2937; border-radius: 4px; padding: 7px 11px; background: #fff; color: #111; font-weight: 700; text-decoration: none; cursor: pointer; }
+        .cabecalho { display: grid; grid-template-columns: 78px 1fr auto; gap: 12px; align-items: center; border-bottom: 2px solid #111; padding-bottom: 8px; margin-bottom: 8px; }
+        .cabecalho img { max-height: 58px; max-width: 72px; object-fit: contain; }
+        h1 { margin: 0 0 4px; font-size: 20px; }
+        .empresa { margin: 0; font-weight: 700; }
+        .meta { text-align: right; line-height: 1.45; }
+        .filtros { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px 8px; margin: 8px 0 10px; padding: 7px; border: 1px solid #777; }
+        .filtros span { display: block; }
+        .resumo { display: flex; justify-content: space-between; align-items: center; margin: 8px 0; font-weight: 700; }
+        table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+        thead { display: table-header-group; }
+        tr { break-inside: avoid; page-break-inside: avoid; }
+        th, td { border: 1px solid #555; padding: 4px; text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+        th { background: #eee; font-weight: 800; }
+        .col-os { width: 5%; }
+        .col-status { width: 8%; }
+        .col-tipo { width: 7%; }
+        .col-objeto { width: 16%; }
+        .col-setor { width: 9%; }
+        .col-natureza { width: 8%; }
+        .col-prioridade { width: 7%; }
+        .col-pessoa { width: 10%; }
+        .col-data { width: 7%; }
+        .vazio { padding: 22px; border: 1px solid #777; text-align: center; font-weight: 700; }
+        @media print {
+            .no-print { display: none !important; }
+            body { font-size: 9.5px; }
+            th { background: #eee !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        }
+    </style>
+</head>
+<body>
+    <div class="no-print">
+        <a href="{{ url_for('manutencao') }}?{{ request.query_string.decode() }}">Voltar</a>
+        <button type="button" onclick="window.print()">Imprimir</button>
+    </div>
+
+    <header class="cabecalho">
+        <img src="{{ url_for('static', filename='imagens/logo.png') }}" alt="FrigoDatta">
+        <div>
+            <p class="empresa">FrigoDatta Abatedouro</p>
+            <h1>Relatorio de Ordens de Servico</h1>
+            <span>Modulo de Manutencao</span>
+        </div>
+        <div class="meta">
+            <div><strong>Emissao:</strong> {{ emitido_em }}</div>
+            <div><strong>Emitido por:</strong> {{ emitido_por }}</div>
+            <div><strong>Total:</strong> {{ total_ordens }} OS</div>
+        </div>
+    </header>
+
+    <section class="filtros">
+        {% for nome, valor in filtros_legiveis %}
+        <span><strong>{{ nome }}:</strong> {{ valor or "-" }}</span>
+        {% endfor %}
+    </section>
+
+    <div class="resumo">
+        <span>Ordens encontradas: {{ total_ordens }}</span>
+        <span>Ordenacao igual a tela de consulta</span>
+    </div>
+
+    {% if ordens %}
+    <table>
+        <thead>
+            <tr>
+                <th class="col-os">OS</th>
+                <th class="col-status">Status</th>
+                <th class="col-tipo">Tipo</th>
+                <th class="col-objeto">Objeto</th>
+                <th class="col-setor">Setor/Local</th>
+                <th class="col-natureza">Natureza</th>
+                <th class="col-prioridade">Prioridade</th>
+                <th class="col-pessoa">Solicitante</th>
+                <th class="col-pessoa">Responsavel</th>
+                <th class="col-data">Abertura</th>
+                <th class="col-data">Prazo</th>
+                <th>Origem</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for ordem in ordens %}
+            <tr>
+                <td>#{{ ordem.id }}</td>
+                <td>{{ ordem.status or "-" }}</td>
+                <td>{{ rotulo_tipo_objeto(ordem.tipo_objeto) }}</td>
+                <td>{{ ordem.objeto_nome or "-" }}</td>
+                <td>{{ ordem.equipamento_setor or ordem.local_predial or "-" }}</td>
+                <td>{{ ordem.tipo or "-" }}</td>
+                <td>{{ ordem.prioridade or "-" }}</td>
+                <td>{{ ordem.solicitante or "-" }}</td>
+                <td>{{ ordem.responsavel or "-" }}</td>
+                <td>{{ formatar_data_br(ordem.data_abertura) }}</td>
+                <td>{{ formatar_data_br(ordem.data_prevista) }}</td>
+                <td>{{ rotulo_origem_ordem(ordem) }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="vazio">Nenhuma ordem encontrada para os filtros aplicados.</div>
+    {% endif %}
+</body>
+</html>

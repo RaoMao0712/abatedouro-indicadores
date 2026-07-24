@@ -210,6 +210,12 @@
         <section class="card expedicao-card manutencao-card">
             <div class="section-title-row"><div><span class="eyebrow">Consulta</span><h2>Buscar Ordens de Servico</h2></div></div>
             {{ filtros_busca('buscar') }}
+            {% if tem_busca and ordens %}
+            <div class="manutencao-grade-header">
+                <span class="obs">{{ ordens|length }} ordem(ns) encontrada(s)</span>
+                <a href="{{ url_for('imprimir_relatorio_ordens_manutencao') }}?{{ request.query_string.decode() }}" class="botao-dre-imprimir manutencao-link-btn" target="_blank" rel="noopener">IMPRIMIR RELATORIO</a>
+            </div>
+            {% endif %}
             {{ tabela_ordens(ordens, 'busca') }}
         </section>
     {% elif aba == 'materiais' %}

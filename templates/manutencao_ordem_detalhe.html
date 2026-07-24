@@ -53,6 +53,7 @@
         </div>
         <div class="manutencao-topo-acoes">
             <a href="{{ url_for('manutencao', aba='buscar') }}" class="botao-dre-exportar manutencao-link-btn">Voltar</a>
+            <a href="{{ url_for('imprimir_ordem_manutencao', ordem_id=ordem.id) }}" class="botao-dre-imprimir manutencao-link-btn" target="_blank" rel="noopener">IMPRIMIR OS</a>
             {% if pode_salvar %}
             <button type="submit" form="form-ficha-os" class="botao-principal manutencao-btn">Salvar alteracoes</button>
             {% endif %}

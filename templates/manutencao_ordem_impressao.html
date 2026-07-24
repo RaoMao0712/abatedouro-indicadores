@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Ordem de Servico #{{ ordem.id }}</title>
+    <style>
+        @page { size: A4 portrait; margin: 12mm; }
+        * { box-sizing: border-box; }
+        body { margin: 0; font-family: Arial, sans-serif; color: #111; font-size: 11px; line-height: 1.35; }
+        .no-print { display: flex; gap: 8px; justify-content: flex-end; margin: 10px 0; }
+        .no-print a, .no-print button { border: 1px solid #1f2937; border-radius: 4px; padding: 7px 11px; background: #fff; color: #111; font-weight: 700; text-decoration: none; cursor: pointer; }
+        .cabecalho { display: grid; grid-template-columns: 80px 1fr auto; gap: 12px; align-items: center; border-bottom: 2px solid #111; padding-bottom: 8px; margin-bottom: 10px; }
+        .cabecalho img { max-height: 62px; max-width: 74px; object-fit: contain; }
+        h1 { margin: 0 0 4px; font-size: 22px; }
+        h2 { margin: 14px 0 7px; font-size: 13px; border-bottom: 1px solid #777; padding-bottom: 3px; text-transform: uppercase; }
+        .empresa { margin: 0; font-weight: 700; }
+        .meta { text-align: right; line-height: 1.45; }
+        .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px 8px; }
+        .campo { border: 1px solid #777; padding: 5px 6px; min-height: 30px; break-inside: avoid; }
+        .campo strong { display: block; font-size: 9px; text-transform: uppercase; color: #333; }
+        .texto { border: 1px solid #777; padding: 7px; white-space: pre-wrap; overflow-wrap: anywhere; break-inside: avoid; }
+        table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+        thead { display: table-header-group; }
+        tr { break-inside: avoid; page-break-inside: avoid; }
+        th, td { border: 1px solid #555; padding: 5px; text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+        th { background: #eee; font-weight: 800; }
+        .totais { display: flex; justify-content: flex-end; gap: 18px; margin-top: 7px; font-weight: 700; }
+        .vazio { padding: 10px; border: 1px solid #777; font-weight: 700; }
+        .cancelada { border: 2px solid #111; padding: 8px; margin: 10px 0; font-weight: 700; }
+        .assinaturas { display: grid; grid-template-columns: 1fr 1fr; gap: 42px; margin-top: 30px; }
+        .assinaturas span { border-top: 1px solid #111; text-align: center; padding-top: 5px; }
+        @media print {
+            .no-print { display: none !important; }
+            th { background: #eee !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        }
+    </style>
+</head>
+<body>
+    <div class="no-print">
+        <a href="{{ url_for('visualizar_ordem_manutencao', ordem_id=ordem.id) }}">Voltar</a>
+        <button type="button" onclick="window.print()">Imprimir</button>
+    </div>
+
+    <header class="cabecalho">
+        <img src="{{ url_for('static', filename='imagens/logo.png') }}" alt="FrigoDatta">
+        <div>
+            <p class="empresa">FrigoDatta Abatedouro</p>
+            <h1>Ordem de Servico</h1>
+            <span>OS #{{ ordem.id }}</span>
+        </div>
+        <div class="meta">
+            <div><strong>Situacao:</strong> {{ ordem.status or "-" }}</div>
+            <div><strong>Emissao:</strong> {{ emitido_em }}</div>
+            <div><strong>Emitido por:</strong> {{ emitido_por }}</div>
+        </div>
+    </header>
+
+    <h2>Dados da OS</h2>
+    <section class="grid">
+        <div class="campo"><strong>Tipo</strong>{{ rotulo_tipo_objeto(ordem.tipo_objeto) }}</div>
+        <div class="campo"><strong>Objeto</strong>{{ ordem.objeto_nome or "-" }}</div>
+        <div class="campo"><strong>Setor ou local</strong>{{ ordem.equipamento_setor or ordem.local_predial or "-" }}</div>
+        <div class="campo"><strong>Natureza</strong>{{ ordem.tipo or "-" }}</div>
+        <div class="campo"><strong>Prioridade</strong>{{ ordem.prioridade or "-" }}</div>
+        <div class="campo"><strong>Status</strong>{{ ordem.status or "-" }}</div>
+        <div class="campo"><strong>Data de abertura</strong>{{ formatar_data_br(ordem.data_abertura) }}{% if ordem.hora_abertura %} {{ ordem.hora_abertura }}{% endif %}</div>
+        <div class="campo"><strong>Prazo</strong>{{ formatar_data_br(ordem.data_prevista) }}</div>
+        <div class="campo"><strong>Solicitante</strong>{{ ordem.solicitante or "-" }}</div>
+        <div class="campo"><strong>Responsavel</strong>{{ ordem.responsavel or "-" }}</div>
+        <div class="campo"><strong>Origem</strong>{{ rotulo_origem_ordem(ordem) }}</div>
+        <div class="campo"><strong>Custo estimado</strong>{{ ordem.custo_estimado|br_moeda }}</div>
+        {% if ordem.local_predial_descricao %}<div class="campo"><strong>Local complementar</strong>{{ ordem.local_predial_descricao }}</div>{% endif %}
+        {% if ordem.motivo_parada %}<div class="campo"><strong>Motivo da parada</strong>{{ ordem.motivo_parada }}</div>{% endif %}
+    </section>
+
+    <h2>Ocorrencia</h2>
+    <div class="texto">{{ ordem.descricao or "-" }}</div>
+
+    <h2>Materiais e Aquisicoes Necessarias</h2>
+    {% if recursos %}
+    <table>
+        <thead>
+            <tr>
+                <th style="width:12%">Tipo</th>
+                <th>Material, servico ou aquisicao</th>
+                <th style="width:10%">Qtd.</th>
+                <th style="width:10%">Un.</th>
+                <th style="width:13%">Valor estimado</th>
+                <th style="width:15%">Situacao</th>
+                <th>Observacao</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for recurso in recursos %}
+            <tr>
+                <td>{{ recurso.tipo or "-" }}</td>
+                <td>{{ recurso.descricao or recurso.insumo_nome or "-" }}{% if recurso.descricao_complementar %}<br>{{ recurso.descricao_complementar }}{% endif %}</td>
+                <td>{{ recurso.quantidade|br_numero }}</td>
+                <td>{{ recurso.unidade or recurso.insumo_unidade or "-" }}</td>
+                <td>{{ recurso.valor_estimado|br_moeda }}</td>
+                <td>{{ recurso.status or "-" }}</td>
+                <td>{{ recurso.observacoes or "-" }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    <div class="totais">
+        <span>Linhas: {{ total_recursos }}</span>
+        <span>Total estimado: {{ total_estimado|br_moeda }}</span>
+    </div>
+    {% else %}
+    <div class="vazio">Nenhum material ou aquisicao informado.</div>
+    <div class="totais">
+        <span>Linhas: 0</span>
+        <span>Total estimado: {{ 0|br_moeda }}</span>
+    </div>
+    {% endif %}
+
+    {% if ordem.diagnostico or ordem.solucao or ordem.pecas_utilizadas or ordem.observacoes_finais or ordem.data_conclusao or ordem.hora_conclusao or ordem.horas_paradas or ordem.custo_real %}
+    <h2>Execucao e Encerramento</h2>
+    <section class="grid">
+        {% if ordem.data_conclusao or ordem.hora_conclusao %}<div class="campo"><strong>Conclusao</strong>{{ formatar_data_br(ordem.data_conclusao) }}{% if ordem.hora_conclusao %} {{ ordem.hora_conclusao }}{% endif %}</div>{% endif %}
+        {% if ordem.horas_paradas %}<div class="campo"><strong>Horas paradas</strong>{{ ordem.horas_paradas|br_numero }}</div>{% endif %}
+        {% if ordem.custo_real %}<div class="campo"><strong>Custo realizado</strong>{{ ordem.custo_real|br_moeda }}</div>{% endif %}
+        {% if ordem.responsavel %}<div class="campo"><strong>Responsavel pela conclusao</strong>{{ ordem.responsavel }}</div>{% endif %}
+    </section>
+    {% if ordem.diagnostico %}<h2>Diagnostico</h2><div class="texto">{{ ordem.diagnostico }}</div>{% endif %}
+    {% if ordem.solucao %}<h2>Solucao Aplicada</h2><div class="texto">{{ ordem.solucao }}</div>{% endif %}
+    {% if ordem.pecas_utilizadas %}<h2>Pecas Utilizadas</h2><div class="texto">{{ ordem.pecas_utilizadas }}</div>{% endif %}
+    {% if ordem.observacoes_finais %}<h2>Observacoes Finais</h2><div class="texto">{{ ordem.observacoes_finais }}</div>{% endif %}
+    {% endif %}
+
+    {% if ordem.status == "Cancelada" %}
+    <section class="cancelada">
+        <div>Situacao: Cancelada</div>
+        <div>Motivo: {{ ordem.cancelamento_motivo or "-" }}</div>
+        <div>Usuario: {{ ordem.cancelado_por_nome or "-" }}</div>
+        <div>Data e hora: {{ formatar_data_hora_br(ordem.cancelado_em) }}</div>
+    </section>
+    {% endif %}
+
+    <div class="assinaturas">
+        <span>Solicitante</span>
+        <span>Responsavel</span>
+    </div>
+</body>
+</html>

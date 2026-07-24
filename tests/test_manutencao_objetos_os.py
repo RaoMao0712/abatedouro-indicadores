@@ -381,6 +381,137 @@ def test_rotas_renderizam_campos_oficiais():
     assert 'name="identificacao"' in html_veiculos
 
 
+def test_impressao_relatorio_os_e_ordem_individual():
+    equipamento_base = criar_equipamento("EQ-PRINT")
+    veiculo = criar_veiculo("VEI-PRINT")
+    os_aberta = manutencao_service.salvar_ordem_manutencao({
+        "tipo_objeto": "EQUIPAMENTO",
+        "equipamento_id": str(equipamento_base["id"]),
+        "tipo": "Corretiva",
+        "prioridade": "Alta",
+        "data_abertura": "2026-07-20",
+        "data_prevista": "2026-07-30",
+        "descricao": "Texto longo da ocorrencia para impressao " * 5,
+    }, 1, "Solicitante Print", "pcp")
+    os_veiculo = manutencao_service.salvar_ordem_manutencao({
+        "tipo_objeto": "VEICULO",
+        "veiculo_id": str(veiculo["id"]),
+        "tipo": "Preventiva",
+        "prioridade": "Media",
+        "data_abertura": "2026-07-21",
+        "descricao": "OS veiculo para pesquisa textual",
+    }, 2, "Solicitante Veiculo", "qualidade")
+    os_cancelada, _ = abrir_os("EQ-PRINT-CAN")
+    manutencao_service.cancelar_ordem_manutencao(
+        os_cancelada, "Cancelamento para impressao", 3, "Gerente", "gerencia")
+    os_concluida, _ = abrir_os("EQ-PRINT-CON")
+    manutencao_service.atualizar_ordem_manutencao(os_concluida, {
+        "status": "Concluida",
+        "data_conclusao": "2026-07-24",
+        "hora_conclusao": "11:20",
+        "responsavel": "Tecnico Print",
+        "diagnostico": "Diagnostico impresso",
+        "solucao": "Solucao impressa",
+        "pecas_utilizadas": "Peca impressa",
+        "observacoes_finais": "Observacao final impressa",
+        "horas_paradas": "2.5",
+        "custo_real": "150",
+    }, 4, "Manutencao", "manutencao")
+    for indice in range(25):
+        equipamento = criar_equipamento(f"EQ-PRINT-{indice:02d}")
+        manutencao_service.salvar_ordem_manutencao({
+            "tipo_objeto": "EQUIPAMENTO",
+            "equipamento_id": str(equipamento["id"]),
+            "tipo": "Corretiva",
+            "prioridade": "Baixa" if indice % 2 else "Media",
+            "data_abertura": "2026-07-22",
+            "descricao": f"OS impressao pagina {indice}",
+        }, 5, "Solicitante Lote", "pcp")
+
+    manutencao_service.salvar_recursos_ordem_manutencao(
+        os_aberta,
+        MultiDict({
+            "recurso_id[]": ["", "", ""],
+            "remover[]": ["Nao", "Nao", "Nao"],
+            "recurso_tipo[]": ["Material", "Servico", "Outra aquisicao"],
+            "recurso_descricao[]": ["Material print", "Servico print", "Compra print"],
+            "recurso_insumo_id[]": ["", "", ""],
+            "recurso_descricao_complementar[]": ["", "Complemento servico", ""],
+            "recurso_quantidade[]": ["2", "1.5", "1"],
+            "recurso_unidade[]": ["Un", "h", "Un"],
+            "recurso_fornecedor[]": ["", "", ""],
+            "recurso_valor_estimado[]": ["20", "100", "300"],
+            "recurso_status[]": ["Necessario", "Disponivel", "Aguardando aquisicao"],
+            "recurso_observacoes[]": ["Obs material", "Obs servico", "Obs compra"],
+        }),
+        "pcp", 5, "Usuario pcp")
+
+    client = app.test_client()
+    sessao(client, "gerencia", 120)
+
+    inicial = client.get("/manutencao?aba=buscar")
+    assert "IMPRIMIR RELATORIO" not in inicial.get_data(as_text=True)
+
+    busca_todos = client.get("/manutencao?aba=buscar&consultar=1&status=Todos&tipo_objeto=Todos&prioridade=Todos")
+    html_busca_todos = busca_todos.get_data(as_text=True)
+    assert busca_todos.status_code == 200
+    assert "IMPRIMIR RELATORIO" in html_busca_todos
+
+    relatorio_todos = client.get("/manutencao/ordens/imprimir?status=Todos&tipo_objeto=Todos&prioridade=Todos")
+    html_relatorio_todos = relatorio_todos.get_data(as_text=True)
+    assert relatorio_todos.status_code == 200
+    assert "Relatorio de Ordens de Servico" in html_relatorio_todos
+    assert html_relatorio_todos.count("<tr>") >= 30
+    assert "Solicitante Print" in html_relatorio_todos
+    assert "window.print()" in html_relatorio_todos
+    assert "sidebar-menu" not in html_relatorio_todos
+
+    relatorio_status = client.get("/manutencao/ordens/imprimir?status=Cancelada")
+    html_status = relatorio_status.get_data(as_text=True)
+    assert "Cancelada" in html_status
+    assert "Cancelamento" not in html_status
+
+    relatorio_prioridade = client.get("/manutencao/ordens/imprimir?prioridade=Alta")
+    assert "Alta" in relatorio_prioridade.get_data(as_text=True)
+
+    relatorio_objeto = client.get("/manutencao/ordens/imprimir?tipo_objeto=VEICULO&pesquisa=veiculo")
+    html_objeto = relatorio_objeto.get_data(as_text=True)
+    assert "Veiculo" in html_objeto and "Veiculo VEI-PRINT" in html_objeto
+
+    relatorio_vazio = client.get("/manutencao/ordens/imprimir?pesquisa=SEM-OS-PRINT")
+    assert "Nenhuma ordem encontrada para os filtros aplicados." in relatorio_vazio.get_data(as_text=True)
+
+    detalhe = client.get(f"/manutencao/ordem/{os_aberta}")
+    assert "IMPRIMIR OS" in detalhe.get_data(as_text=True)
+
+    impressao_aberta = client.get(f"/manutencao/ordem/{os_aberta}/imprimir")
+    html_aberta = impressao_aberta.get_data(as_text=True)
+    assert impressao_aberta.status_code == 200
+    assert "Ordem de Servico" in html_aberta
+    assert "Texto longo da ocorrencia" in html_aberta
+    assert "Material print" in html_aberta and "Servico print" in html_aberta and "Compra print" in html_aberta
+    assert "Linhas: 3" in html_aberta
+    assert "R$ 420,00" in html_aberta
+    assert "sidebar-menu" not in html_aberta
+
+    impressao_sem_material = client.get(f"/manutencao/ordem/{os_veiculo}/imprimir")
+    assert "Nenhum material ou aquisicao informado." in impressao_sem_material.get_data(as_text=True)
+
+    impressao_concluida = client.get(f"/manutencao/ordem/{os_concluida}/imprimir")
+    html_concluida = impressao_concluida.get_data(as_text=True)
+    assert "Diagnostico impresso" in html_concluida
+    assert "Solucao impressa" in html_concluida
+    assert "Peca impressa" in html_concluida
+
+    impressao_cancelada = client.get(f"/manutencao/ordem/{os_cancelada}/imprimir")
+    html_cancelada = impressao_cancelada.get_data(as_text=True)
+    assert "Situacao: Cancelada" in html_cancelada
+    assert "Cancelamento para impressao" in html_cancelada
+
+    inexistente = client.get("/manutencao/ordem/999999/imprimir")
+    assert inexistente.status_code == 404
+
+
 def test_lista_materiais_permissoes_auditoria_e_validacao():
     ordem_id, _equipamento = abrir_os("EQ-MAT")
 

@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from repositories import manutencao_repository as repo
 
@@ -575,6 +576,124 @@ def buscar_ordens_manutencao(
     return repo.listar_ordens(
         status_filtro, equipamento_id, tipo_objeto, veiculo_id,
         setor, responsavel, prioridade, pesquisa)
+
+
+def agora_operacional_manaus():
+    return datetime.now(ZoneInfo("America/Manaus"))
+
+
+def formatar_data_br(valor):
+    if not valor:
+        return "-"
+    data = _data(valor)
+    if not data:
+        return "-"
+    return data.strftime("%d/%m/%Y")
+
+
+def formatar_data_hora_br(valor):
+    if not valor:
+        return "-"
+    texto = str(valor).replace("T", " ")[:19]
+    for formato in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
+        try:
+            return datetime.strptime(texto, formato).strftime("%d/%m/%Y %H:%M")
+        except ValueError:
+            pass
+    data = _data(texto)
+    return data.strftime("%d/%m/%Y") if data else "-"
+
+
+def filtros_impressao_manutencao(args):
+    status_filtro = args.get("status") or "Todos"
+    equipamento_filtro = args.get("equipamento_id") or ""
+    tipo_objeto_filtro = args.get("tipo_objeto") or "Todos"
+    veiculo_filtro = args.get("veiculo_id") or ""
+    setor_filtro = (args.get("setor") or "").strip()
+    responsavel_filtro = (args.get("responsavel") or "").strip()
+    prioridade_filtro = args.get("prioridade") or "Todos"
+    pesquisa_filtro = (args.get("pesquisa") or "").strip()
+    return {
+        "status": status_filtro,
+        "equipamento_id": equipamento_filtro,
+        "tipo_objeto": tipo_objeto_filtro,
+        "veiculo_id": veiculo_filtro,
+        "setor": setor_filtro,
+        "responsavel": responsavel_filtro,
+        "prioridade": prioridade_filtro,
+        "pesquisa": pesquisa_filtro,
+    }
+
+
+def rotulo_tipo_objeto(tipo_objeto):
+    if tipo_objeto == "VEICULO":
+        return "Veiculo"
+    if tipo_objeto == "PREDIAL":
+        return "Predial"
+    return "Equipamento"
+
+
+def rotulo_origem_ordem(ordem):
+    if ordem["origem"]:
+        return ordem["origem"]
+    if ordem["sgi_nc_id"]:
+        return f"NC SGI #{ordem['sgi_nc_id']}"
+    if ordem["op_id"]:
+        return f"OP {ordem['op_id']}"
+    return ordem["solicitante_perfil"] or "-"
+
+
+def contexto_relatorio_ordens_impressao(args, usuario_nome="Sistema"):
+    filtros = filtros_impressao_manutencao(args)
+    ordens = buscar_ordens_manutencao(
+        filtros["status"], filtros["equipamento_id"], filtros["tipo_objeto"],
+        filtros["veiculo_id"], filtros["setor"], filtros["responsavel"],
+        filtros["prioridade"], filtros["pesquisa"])
+    emissao = agora_operacional_manaus()
+
+    filtros_legiveis = [
+        ("Status", filtros["status"] or "Todos"),
+        ("Objeto", rotulo_tipo_objeto(filtros["tipo_objeto"]) if filtros["tipo_objeto"] != "Todos" else "Todos"),
+        ("Equipamento", filtros["equipamento_id"] or "Todos"),
+        ("Veiculo", filtros["veiculo_id"] or "Todos"),
+        ("Setor ou local", filtros["setor"] or "Todos"),
+        ("Responsavel", filtros["responsavel"] or "Todos"),
+        ("Prioridade", filtros["prioridade"] or "Todas"),
+        ("Pesquisa", filtros["pesquisa"] or "Todos"),
+    ]
+
+    return {
+        "ordens": ordens,
+        "filtros": filtros,
+        "filtros_legiveis": filtros_legiveis,
+        "total_ordens": len(ordens),
+        "emitido_por": usuario_nome or "Sistema",
+        "emitido_em": emissao.strftime("%d/%m/%Y %H:%M"),
+        "formatar_data_br": formatar_data_br,
+        "rotulo_tipo_objeto": rotulo_tipo_objeto,
+        "rotulo_origem_ordem": rotulo_origem_ordem,
+    }
+
+
+def contexto_ordem_impressao(ordem_id, usuario_nome="Sistema"):
+    ordem = repo.buscar_ordem_por_id(ordem_id)
+    if not ordem:
+        return None
+    recursos = repo.listar_recursos_por_ordens([ordem_id]).get(str(ordem_id), [])
+    total_estimado = sum(float(item["valor_estimado"] or 0) for item in recursos)
+    emissao = agora_operacional_manaus()
+    return {
+        "ordem": ordem,
+        "recursos": recursos,
+        "total_recursos": len(recursos),
+        "total_estimado": total_estimado,
+        "emitido_por": usuario_nome or "Sistema",
+        "emitido_em": emissao.strftime("%d/%m/%Y %H:%M"),
+        "formatar_data_br": formatar_data_br,
+        "formatar_data_hora_br": formatar_data_hora_br,
+        "rotulo_tipo_objeto": rotulo_tipo_objeto,
+        "rotulo_origem_ordem": rotulo_origem_ordem,
+    }
 
 
 def salvar_recursos_ordem_manutencao(ordem_id, form, usuario_perfil="", usuario_id=0, usuario_nome="Sistema"):
