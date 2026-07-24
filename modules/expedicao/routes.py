@@ -38,6 +38,7 @@ from .services import (
     salvar_romaneio_expedicao,
 )
 from .estoque_service import (
+    DESTINOS_CONTROLADOS,
     TIPOS_ROMANEIO,
     bloquear_produto,
     buscar_estoque_operacional,
@@ -48,6 +49,7 @@ from .estoque_service import (
     editar_romaneio_aberto,
     estornar_romaneio,
     obter_marco_zero,
+    registrar_emissao_romaneio,
     registrar_itens_historicos,
     remover_item_reservado,
     reservar_itens,
@@ -76,9 +78,9 @@ def register_expedicao_routes(app, integracoes=None):
                 if resultado.get("tipo") == "encerramento_primaria":
                     flash(
                         "Galinha Inteira encerrada na Embalagem Primaria. "
-                        f"Lote PA: {resultado['codigo_lote']} | "
-                        f"Unidades vendaveis: {resultado['unidades_vendaveis']:.0f} | "
-                        f"Peso produzido: {resultado['kg_produzidos']:.3f} kg."
+                        f"Posicoes: {', '.join(resultado['codigos_lote'])} | "
+                        f"Pacotes: {resultado['unidades_vendaveis']:.0f} | "
+                        f"Galinhas: {resultado['aves_embaladas']:.0f}."
                     )
                 else:
                     flash("Embalagem Primária apontada com sucesso. O Estoque PI foi atualizado e a OP permanece pendente para Embalagem Secundária.")
@@ -127,7 +129,7 @@ def register_expedicao_routes(app, integracoes=None):
 
 
     @app.route("/embalagem-secundaria/<int:op_id>/finalizar", methods=["POST"])
-    @perfil_permitido("pcp")
+    @perfil_permitido("pcp", "producao")
     def finalizar_embalagem_secundaria(op_id):
         try:
             fechamento = finalizar_embalagem_secundaria_op(op_id)
@@ -161,7 +163,7 @@ def register_expedicao_routes(app, integracoes=None):
 
     @app.route("/embalagem-secundaria", methods=["GET", "POST"])
 
-    @perfil_permitido("pcp")
+    @perfil_permitido("pcp", "producao")
     def embalagem_secundaria():
         if request.method == "POST":
             try:
@@ -280,6 +282,7 @@ def register_expedicao_routes(app, integracoes=None):
             "novo_romaneio.html",
             hoje=hoje,
             tipos_romaneio=TIPOS_ROMANEIO,
+            destinos_controlados=DESTINOS_CONTROLADOS,
         )
 
     @app.route("/expedicao/<int:expedicao_id>", methods=["GET", "POST"])
@@ -295,14 +298,25 @@ def register_expedicao_routes(app, integracoes=None):
             try:
                 acao = request.form.get("acao") or "reservar"
                 if acao == "reservar":
-                    reservar_itens(expedicao_id, request.form.getlist("caixa_ids"))
+                    caixa_ids = request.form.getlist("caixa_ids")
+                    reservar_itens(
+                        expedicao_id,
+                        caixa_ids,
+                        {
+                            caixa_id: request.form.get(f"quantidade_pacotes_{caixa_id}")
+                            for caixa_id in caixa_ids
+                        },
+                    )
                     flash("Itens reservados com sucesso.")
                 elif acao == "remover":
                     remover_item_reservado(expedicao_id, int(request.form.get("caixa_id") or 0))
                     flash("Item removido e situação anterior restaurada.")
                 elif acao == "concluir":
                     concluir_romaneio(expedicao_id)
-                    flash("Romaneio concluído e estoque baixado com sucesso.")
+                    if expedicao["tipo_movimentacao"] == "HISTORICO_MARCO_ZERO":
+                        flash("Romaneio histórico concluído. O estoque operacional não foi movimentado.")
+                    else:
+                        flash("Romaneio concluído e estoque baixado com sucesso.")
                 elif acao == "cancelar":
                     cancelar_romaneio(expedicao_id, request.form.get("justificativa"))
                     flash("Romaneio cancelado; reservas restauradas.")
@@ -316,8 +330,13 @@ def register_expedicao_routes(app, integracoes=None):
                     registrar_itens_historicos(expedicao_id, [
                         {
                             "sku": "Galinha Inteira",
-                            "quantidade": request.form.get("inteira_quantidade"),
-                            "peso": request.form.get("inteira_peso"),
+                            "quantidade_pacotes": request.form.get("inteira_pacotes_v1"),
+                            "galinhas_por_pacote": 1,
+                        },
+                        {
+                            "sku": "Galinha Inteira",
+                            "quantidade_pacotes": request.form.get("inteira_pacotes_v2"),
+                            "galinhas_por_pacote": 2,
                         },
                         {
                             "sku": "Galinha Cortada",
@@ -421,6 +440,8 @@ def register_expedicao_routes(app, integracoes=None):
         if not expedicao:
             flash("Romaneio não encontrado.")
             return redirect(url_for("expedicao"))
+        registrar_emissao_romaneio(expedicao_id)
+        expedicao = buscar_expedicao_por_id(expedicao_id)
         itens = buscar_itens_expedicao(expedicao_id)
         return render_template(
             "romaneio_impressao.html",

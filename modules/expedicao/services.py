@@ -3,7 +3,7 @@
 from datetime import datetime, timedelta
 import unicodedata
 
-from database import DATABASE_URL, conectar, q
+from database import DATABASE_URL, conectar, q, transaction
 from modules.auth.services import nome_usuario_atual, perfil_atual
 from modules.producao.services import buscar_op_por_id, gerar_producao_automatica_setores
 
@@ -540,85 +540,73 @@ def validar_balanco_aves_op(op, aves_produzidas, perdas):
     return saldo_aves
 
 
-def registrar_lote_pa_galinha_inteira(cursor, op, unidades_vendaveis, aves_embaladas, kg_produzidos, observacoes):
-    codigo_lote = f"GI-OP-{int(op['id']):05d}"
+def registrar_posicoes_pa_galinha_inteira(cursor, op, pacotes_v1, pacotes_v2, observacoes):
     data_fabricacao = op["data"] or datetime.now().strftime("%Y-%m-%d")
     data_validade = calcular_validade_padrao(data_fabricacao)
-    observacao_lote = observacoes or f"Lote Galinha Inteira. Aves embaladas: {aves_embaladas:g}."
     local_abatedouro_id = obter_local_abatedouro_id(cursor)
-
-    if DATABASE_URL:
-        cursor.execute(q("""
-        INSERT INTO pa_caixas (
-            codigo_caixa,
-            sku,
-            data_fabricacao,
-            data_validade,
-            peso_bruto,
-            peso_liquido,
-            quantidade_bandejas,
-            status,
-            origem,
-            observacoes,
-            local_estoque_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        RETURNING id
-        """), (
+    posicoes = []
+    for variacao, quantidade_pacotes, galinhas_por_pacote in (
+        ("V1", int(pacotes_v1), 1),
+        ("V2", int(pacotes_v2), 2),
+    ):
+        if quantidade_pacotes <= 0:
+            continue
+        quantidade_galinhas = quantidade_pacotes * galinhas_por_pacote
+        codigo_lote = f"GI-PCT-OP-{int(op['id']):05d}-{variacao}"
+        apresentacao = (
+            "Pacote com 1 galinha inteira"
+            if galinhas_por_pacote == 1
+            else "Pacote com 2 galinhas inteiras"
+        )
+        parametros = (
             codigo_lote,
             op["sku"] or "Galinha Inteira",
             data_fabricacao,
             data_validade,
-            kg_produzidos,
-            kg_produzidos,
-            unidades_vendaveis,
             "Em estoque",
             "Embalagem Primaria",
-            observacao_lote,
-            local_abatedouro_id
-        ))
-        caixa_id = cursor.fetchone()["id"]
-    else:
-        cursor.execute(q("""
+            observacoes or apresentacao,
+            local_abatedouro_id,
+            "PACOTE",
+            apresentacao,
+            galinhas_por_pacote,
+            quantidade_pacotes,
+            quantidade_galinhas,
+        )
+        sql = """
         INSERT INTO pa_caixas (
-            codigo_caixa,
-            sku,
-            data_fabricacao,
-            data_validade,
-            peso_bruto,
-            peso_liquido,
-            quantidade_bandejas,
-            status,
-            origem,
-            observacoes,
-            local_estoque_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """), (
-            codigo_lote,
-            op["sku"] or "Galinha Inteira",
-            data_fabricacao,
-            data_validade,
-            kg_produzidos,
-            kg_produzidos,
-            unidades_vendaveis,
-            "Em estoque",
-            "Embalagem Primaria",
-            observacao_lote,
-            local_abatedouro_id
-        ))
-        caixa_id = cursor.lastrowid
-
-    cursor.execute(q("""
-    INSERT INTO pa_caixa_composicao (
-        caixa_id,
-        op_id,
-        quantidade_bandejas
-    ) VALUES (?, ?, ?)
-    """), (caixa_id, op["id"], unidades_vendaveis))
-
-    return codigo_lote
+            codigo_caixa, sku, data_fabricacao, data_validade,
+            peso_bruto, peso_liquido, peso_tara, quantidade_bandejas,
+            status, origem, observacoes, local_estoque_id,
+            unidade_estoque, apresentacao, galinhas_por_pacote,
+            quantidade_pacotes, quantidade_galinhas,
+            quantidade_pacotes_reservados
+        ) VALUES (?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+        """
+        if DATABASE_URL:
+            cursor.execute(q(sql + " RETURNING id"), parametros)
+            posicao_id = cursor.fetchone()["id"]
+        else:
+            cursor.execute(q(sql), parametros)
+            posicao_id = cursor.lastrowid
+        cursor.execute(q("""
+        INSERT INTO pa_caixa_composicao (
+            caixa_id, op_id, quantidade_bandejas
+        ) VALUES (?, ?, ?)
+        """), (posicao_id, op["id"], quantidade_galinhas))
+        posicoes.append({"id": posicao_id, "codigo": codigo_lote})
+    return posicoes
 
 
-def registrar_apontamento_embalagem_primaria(op, quantidade_bandejas, observacoes="", kg_produzidos=None, pacotes_1_ave=0, pacotes_2_aves=0):
+def registrar_apontamento_embalagem_primaria(
+    op,
+    quantidade_bandejas,
+    observacoes="",
+    kg_produzidos=None,
+    pacotes_1_ave=0,
+    pacotes_2_aves=0,
+    checkpoint=None,
+):
     criar_tabelas_estoque_pi_pa()
     from .estoque_service import (
         ativar_estoque_op_encerrada,
@@ -645,91 +633,73 @@ def registrar_apontamento_embalagem_primaria(op, quantidade_bandejas, observacoe
     if sku_sem_embalagem_secundaria(sku):
         pacotes_1 = parse_numero_form(pacotes_1_ave or 0)
         pacotes_2 = parse_numero_form(pacotes_2_aves or 0)
+        if not pacotes_1.is_integer() or not pacotes_2.is_integer():
+            raise ValueError("A quantidade de pacotes deve ser inteira.")
+        pacotes_1 = int(pacotes_1)
+        pacotes_2 = int(pacotes_2)
         aves_embaladas = pacotes_1 + (pacotes_2 * 2)
         unidades_vendaveis = pacotes_1 + pacotes_2
-        kg_final = parse_numero_form(kg_produzidos or 0)
 
         if aves_embaladas <= 0:
-            aves_embaladas = bandejas
-            unidades_vendaveis = bandejas
-
-        if aves_embaladas <= 0:
-            raise ValueError("Informe as aves embaladas ou os pacotes de Galinha Inteira.")
-
-        if unidades_vendaveis <= 0:
-            raise ValueError("Informe uma quantidade valida de unidades vendaveis.")
-
-        if kg_final <= 0:
-            raise ValueError("Informe o peso liquido produzido em kg para calcular o rendimento da OP.")
-
-        conn = conectar()
-        cursor = conn.cursor()
-        perdas = calcular_perdas_aves_op(cursor, op["id"])
-        conn.close()
-
-        validar_balanco_aves_op(op, aves_embaladas, perdas)
-        remover_movimentacoes_estoque_pi_por_op(op["id"])
+            raise ValueError("Informe separadamente os pacotes V1 e V2 de Galinha Inteira.")
 
         observacao_final = observacoes or f"Pacotes 1 ave: {pacotes_1:g} | Pacotes 2 aves: {pacotes_2:g}"
-
-        conn = conectar()
-        cursor = conn.cursor()
-
-        cursor.execute(q("""
-        INSERT INTO embalagem_primaria_apontamentos (
-            op_id,
-            data_apontamento,
-            sku,
-            quantidade_bandejas,
-            observacoes
-        ) VALUES (?, ?, ?, ?, ?)
-        """), (
-            op["id"],
-            op["data"],
-            sku,
-            aves_embaladas,
-            observacao_final
-        ))
-
-        codigo_lote = registrar_lote_pa_galinha_inteira(
-            cursor,
-            op,
-            unidades_vendaveis,
-            aves_embaladas,
-            kg_final,
-            observacao_final
-        )
-        cursor.execute(q("SELECT id FROM pa_caixas WHERE codigo_caixa = ?"), (codigo_lote,))
-        caixa_lote = cursor.fetchone()
-        if caixa_lote:
-            marcar_pa_pendente(cursor, caixa_lote["id"])
-
-        cursor.execute(q("""
-        UPDATE ordens_producao
-        SET status = ?
-        WHERE id = ?
-        """), ("Encerrada", op["id"]))
-        ativar_estoque_op_encerrada(cursor, op["id"])
-
-        conn.commit()
-        conn.close()
-
-        gerar_producao_automatica_setores(
-            op=op,
-            data_lancamento=op["data"],
-            hora_inicio="N/A",
-            hora_fim="N/A",
-            unidades_produzidas=unidades_vendaveis,
-            kg_produzidos=kg_final,
-            descontar_almoco=False
-        )
+        with transaction() as conn:
+            cursor = conn.cursor()
+            cursor.execute(q("SELECT status FROM ordens_producao WHERE id = ?"), (op["id"],))
+            estado = cursor.fetchone()
+            if not estado or estado["status"] == "Encerrada":
+                raise ValueError("Esta OP ja esta encerrada.")
+            perdas = calcular_perdas_aves_op(cursor, op["id"])
+            validar_balanco_aves_op(op, aves_embaladas, perdas)
+            cursor.execute(q("DELETE FROM estoque_produto_intermediario WHERE op_id = ?"), (op["id"],))
+            cursor.execute(q("DELETE FROM embalagem_primaria_apontamentos WHERE op_id = ?"), (op["id"],))
+            cursor.execute(q("""
+            INSERT INTO embalagem_primaria_apontamentos (
+                op_id, data_apontamento, sku, quantidade_bandejas,
+                observacoes, pacotes_v1, pacotes_v2, total_galinhas
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """), (
+                op["id"], op["data"], sku, aves_embaladas,
+                observacao_final, pacotes_1, pacotes_2, aves_embaladas,
+            ))
+            if checkpoint:
+                checkpoint("antes_formacao_estoque")
+            posicoes = registrar_posicoes_pa_galinha_inteira(
+                cursor, op, pacotes_1, pacotes_2, observacao_final
+            )
+            for posicao in posicoes:
+                marcar_pa_pendente(cursor, posicao["id"])
+            if checkpoint:
+                checkpoint("durante_formacao_estoque")
+            gerar_producao_automatica_setores(
+                op=op,
+                data_lancamento=op["data"],
+                hora_inicio="N/A",
+                hora_fim="N/A",
+                unidades_produzidas=aves_embaladas,
+                kg_produzidos=None,
+                descontar_almoco=False,
+                conn=conn,
+            )
+            cursor.execute(q("""
+            UPDATE ordens_producao
+            SET status = ?
+            WHERE id = ? AND status <> 'Encerrada'
+            """), ("Encerrada", op["id"]))
+            if cursor.rowcount != 1:
+                raise ValueError("A OP foi encerrada por outra solicitacao.")
+            ativar_estoque_op_encerrada(cursor, op["id"])
+            if checkpoint:
+                checkpoint("apos_formacao_estoque")
 
         return {
             "tipo": "encerramento_primaria",
-            "codigo_lote": codigo_lote,
+            "codigos_lote": [item["codigo"] for item in posicoes],
             "aves_embaladas": aves_embaladas,
             "unidades_vendaveis": unidades_vendaveis,
-            "kg_produzidos": kg_final,
+            "pacotes_v1": pacotes_1,
+            "pacotes_v2": pacotes_2,
         }
 
     # Substitui o apontamento anterior da mesma OP, se existir.
@@ -1176,6 +1146,8 @@ def registrar_caixa_pa_manual(form):
 
     data_fabricacao = form.get("data_fabricacao") or datetime.now().strftime("%Y-%m-%d")
     data_validade = form.get("data_validade") or calcular_validade_padrao(data_fabricacao)
+    if data_validade != calcular_validade_padrao(data_fabricacao):
+        raise ValueError("A validade da Galinha Cortada deve seguir a regra vigente de um ano.")
     codigo_caixa = form.get("codigo_caixa") or gerar_codigo_caixa()
 
     conn = conectar()
@@ -1226,6 +1198,8 @@ def registrar_caixas_pa_lote(form):
 
     data_fabricacao = form.get("data_fabricacao") or datetime.now().strftime("%Y-%m-%d")
     data_validade = form.get("data_validade") or calcular_validade_padrao(data_fabricacao)
+    if data_validade != calcular_validade_padrao(data_fabricacao):
+        raise ValueError("A validade da Galinha Cortada deve seguir a regra vigente de um ano.")
     observacoes = form.get("observacoes") or "Lançamento em lote na Embalagem Secundária"
 
     codigos = []
@@ -1263,7 +1237,7 @@ def registrar_caixas_pa_lote(form):
     return codigos
 
 
-def calcular_fechamento_industrial_op(op_id):
+def calcular_fechamento_industrial_op(op_id, conn=None):
     """
     Consolida as validações necessárias para finalizar a Embalagem Secundária
     e encerrar oficialmente a OP.
@@ -1276,12 +1250,15 @@ def calcular_fechamento_industrial_op(op_id):
     garantir_schema_producao()
     criar_tabelas_estoque_pi_pa()
 
-    op = buscar_op_por_id(op_id)
-    if not op:
-        raise ValueError("OP não encontrada.")
-
-    conn = conectar()
+    conexao_propria = conn is None
+    conn = conn or conectar()
     cursor = conn.cursor()
+    cursor.execute(q("SELECT * FROM ordens_producao WHERE id = ?"), (op_id,))
+    op = cursor.fetchone()
+    if not op:
+        if conexao_propria:
+            conn.close()
+        raise ValueError("OP não encontrada.")
 
     cursor.execute(q("""
     SELECT COALESCE(SUM(quantidade_bandejas), 0) AS total
@@ -1318,8 +1295,18 @@ def calcular_fechamento_industrial_op(op_id):
     SELECT
         COUNT(DISTINCT cx.id) AS caixas,
         COALESCE(SUM(comp.quantidade_bandejas), 0) AS bandejas_consumidas,
-        COALESCE(SUM(cx.peso_liquido), 0) AS peso_liquido_total,
-        COALESCE(SUM(cx.peso_bruto), 0) AS peso_bruto_total
+        COALESCE(SUM(
+            cx.peso_liquido * comp.quantidade_bandejas /
+            NULLIF((SELECT SUM(c2.quantidade_bandejas)
+                    FROM pa_caixa_composicao c2
+                    WHERE c2.caixa_id = comp.caixa_id), 0)
+        ), 0) AS peso_liquido_total,
+        COALESCE(SUM(
+            cx.peso_bruto * comp.quantidade_bandejas /
+            NULLIF((SELECT SUM(c2.quantidade_bandejas)
+                    FROM pa_caixa_composicao c2
+                    WHERE c2.caixa_id = comp.caixa_id), 0)
+        ), 0) AS peso_bruto_total
     FROM pa_caixa_composicao comp
     INNER JOIN pa_caixas cx ON cx.id = comp.caixa_id
     WHERE comp.op_id = ?
@@ -1327,7 +1314,8 @@ def calcular_fechamento_industrial_op(op_id):
     """), (op_id,))
     caixas = cursor.fetchone()
 
-    conn.close()
+    if conexao_propria:
+        conn.close()
 
     aves_vivas = float(op["quantidade_aves"] or 0)
     mortes_antes_pendura = float(op["mortes_antes_pendura"] or 0) + mortes_na_gaiola_descartes
@@ -1387,42 +1375,43 @@ def calcular_fechamento_industrial_op(op_id):
     }
 
 
-def finalizar_embalagem_secundaria_op(op_id):
+def finalizar_embalagem_secundaria_op(op_id, checkpoint=None):
+    """Valida, gera producao, encerra a OP e forma estoque em uma transacao."""
     from .estoque_service import ativar_estoque_op_encerrada, criar_tabelas_estoque_confiavel
 
+    garantir_schema_producao()
+    criar_tabelas_estoque_pi_pa()
     criar_tabelas_estoque_confiavel()
-    fechamento = calcular_fechamento_industrial_op(op_id)
-
-    if not fechamento["pode_encerrar"]:
-        raise ValueError("Não foi possível encerrar a OP: " + " ".join(fechamento["pendencias"]))
-
-    op = fechamento["op"]
-    unidades_produzidas = fechamento["bandejas_consumidas"]
-    kg_produzidos = fechamento["peso_liquido_total"]
-
-    gerar_producao_automatica_setores(
-        op=op,
-        data_lancamento=op["data"],
-        hora_inicio="N/A",
-        hora_fim="N/A",
-        unidades_produzidas=unidades_produzidas,
-        kg_produzidos=kg_produzidos,
-        descontar_almoco=False
-    )
-
-    conn = conectar()
-    cursor = conn.cursor()
-
-    cursor.execute(q("""
-    UPDATE ordens_producao
-    SET status = ?
-    WHERE id = ?
-    """), ("Encerrada", op_id))
-    ativar_estoque_op_encerrada(cursor, op_id)
-
-    conn.commit()
-    conn.close()
-
+    with transaction() as conn:
+        fechamento = calcular_fechamento_industrial_op(op_id, conn=conn)
+        if not fechamento["pode_encerrar"]:
+            raise ValueError("Nao foi possivel encerrar a OP: " + " ".join(fechamento["pendencias"]))
+        op = fechamento["op"]
+        if checkpoint:
+            checkpoint("antes_formacao_estoque")
+        gerar_producao_automatica_setores(
+            op=op,
+            data_lancamento=op["data"],
+            hora_inicio="N/A",
+            hora_fim="N/A",
+            unidades_produzidas=fechamento["bandejas_consumidas"],
+            kg_produzidos=fechamento["peso_liquido_total"],
+            descontar_almoco=False,
+            conn=conn,
+        )
+        cursor = conn.cursor()
+        cursor.execute(q("""
+        UPDATE ordens_producao
+        SET status = ?
+        WHERE id = ? AND status <> 'Encerrada'
+        """), ("Encerrada", op_id))
+        if cursor.rowcount != 1:
+            raise ValueError("A OP foi encerrada por outra solicitacao.")
+        if checkpoint:
+            checkpoint("durante_formacao_estoque")
+        ativar_estoque_op_encerrada(cursor, op_id)
+        if checkpoint:
+            checkpoint("apos_formacao_estoque")
     return fechamento
 
 
@@ -1555,6 +1544,7 @@ def buscar_resumo_pa_completo():
         COALESCE(SUM(CASE WHEN status = ? THEN quantidade_bandejas ELSE 0 END), 0) AS saldo_pa_bandejas,
         COALESCE(SUM(CASE WHEN status = ? THEN peso_liquido ELSE 0 END), 0) AS saldo_pa_kg
     FROM pa_caixas
+    WHERE COALESCE(estoque_operacional, 0) = 1
     """), ("Em estoque", "Em estoque", "Em estoque"))
 
     resumo = cursor.fetchone()
@@ -1588,6 +1578,7 @@ def buscar_saldo_pa_por_local():
         COALESCE(SUM(CASE WHEN cx.status = ? THEN cx.peso_bruto ELSE 0 END), 0) AS peso_bruto_total
     FROM pa_caixas cx
     LEFT JOIN locais_estoque le ON le.id = cx.local_estoque_id
+    WHERE COALESCE(cx.estoque_operacional, 0) = 1
     GROUP BY COALESCE(le.nome, ?), cx.sku
     ORDER BY local_estoque ASC, cx.sku ASC
     """), (
@@ -1745,7 +1736,12 @@ def salvar_romaneio_expedicao(form):
     - Sem itens.
     - Sem baixa de estoque.
     """
-    from .estoque_service import TIPOS_ROMANEIO, criar_tabelas_estoque_confiavel
+    from .estoque_service import (
+        TIPOS_ROMANEIO,
+        DESTINOS_CONTROLADOS,
+        criar_tabelas_estoque_confiavel,
+        registrar_evento_romaneio,
+    )
 
     criar_tabelas_expedicao()
     criar_tabelas_estoque_confiavel()
@@ -1755,7 +1751,7 @@ def salvar_romaneio_expedicao(form):
     if tipo_movimentacao not in TIPOS_ROMANEIO:
         raise ValueError("Tipo de romaneio inválido.")
     origem = (form.get("origem") or LOCAL_ESTOQUE_ABATEDOURO).strip()
-    destino = (form.get("destino") or LOCAL_ESTOQUE_LSM).strip()
+    destino = DESTINOS_CONTROLADOS[tipo_movimentacao]
     responsavel = (form.get("responsavel") or "").strip()
     observacoes = (form.get("observacoes") or "").strip()
 
@@ -1778,39 +1774,54 @@ def salvar_romaneio_expedicao(form):
 
     numero_romaneio = gerar_numero_romaneio(data_romaneio, tipo_movimentacao)
 
-    conn = conectar()
-    cursor = conn.cursor()
-
-    cursor.execute(q("""
-    INSERT INTO expedicoes (
-        numero_romaneio,
-        data,
-        tipo_movimentacao,
-        origem,
-        destino,
-        responsavel,
-        observacoes,
-        status,
-        criado_por,
-        perfil_criacao,
-        atualizado_em
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """), (
-        numero_romaneio,
-        data_romaneio,
-        tipo_movimentacao,
-        origem,
-        destino,
-        responsavel,
-        observacoes,
-        "Aberto",
-        nome_usuario_atual() or "Sistema",
-        perfil_atual() or "sistema",
-        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-    ))
-
-    conn.commit()
-    conn.close()
+    with transaction() as conn:
+        cursor = conn.cursor()
+        cursor.execute(q("""
+        INSERT INTO expedicoes (
+            numero_romaneio,
+            data,
+            tipo_movimentacao,
+            origem,
+            destino,
+            responsavel,
+            observacoes,
+            status,
+            criado_por,
+            perfil_criacao,
+            atualizado_em
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """), (
+            numero_romaneio,
+            data_romaneio,
+            tipo_movimentacao,
+            origem,
+            destino,
+            responsavel,
+            observacoes,
+            "Aberto",
+            nome_usuario_atual() or "Sistema",
+            perfil_atual() or "sistema",
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        ))
+        cursor.execute(q("SELECT id FROM expedicoes WHERE numero_romaneio = ?"), (numero_romaneio,))
+        expedicao_id = cursor.fetchone()["id"]
+        registrar_evento_romaneio(
+            cursor,
+            expedicao_id,
+            "CRIACAO_ROMANEIO",
+            estado_anterior=None,
+            estado_novo="Aberto",
+            dados_alterados={
+                "numero_romaneio": numero_romaneio,
+                "data": data_romaneio,
+                "tipo_movimentacao": tipo_movimentacao,
+                "origem": origem,
+                "destino": destino,
+                "responsavel": responsavel,
+                "observacoes": observacoes,
+            },
+            idempotency_key=f"CRIACAO-ROMANEIO-{expedicao_id}",
+        )
 
     return numero_romaneio
 
@@ -2093,6 +2104,7 @@ def montar_contexto_estoque_produtos():
             COALESCE(SUM(CASE WHEN cx.status = ? THEN cx.peso_bruto ELSE 0 END), 0) AS peso_bruto_total
         FROM pa_caixas cx
         LEFT JOIN locais_estoque le ON le.id = cx.local_estoque_id
+        WHERE COALESCE(cx.estoque_operacional, 0) = 1
         GROUP BY COALESCE(le.nome, ?), cx.sku
         ORDER BY local_estoque ASC, cx.sku ASC
         """), (
@@ -2110,6 +2122,7 @@ def montar_contexto_estoque_produtos():
             COALESCE(SUM(CASE WHEN status = ? THEN quantidade_bandejas ELSE 0 END), 0) AS saldo_pa_bandejas,
             COALESCE(SUM(CASE WHEN status = ? THEN peso_liquido ELSE 0 END), 0) AS saldo_pa_kg
         FROM pa_caixas
+        WHERE COALESCE(estoque_operacional, 0) = 1
         """), ("Em estoque", "Em estoque", "Em estoque"))
         resumo_pa = cursor.fetchone()
     finally:
@@ -2266,11 +2279,31 @@ def calcular_resumo_itens_expedicao(itens):
     total_itens = len(itens)
     total_unidades = sum(float(item["quantidade_unidades"] or 0) for item in itens)
     total_kg = sum(float(item["quantidade_kg"] or 0) for item in itens)
+    total_pacotes = sum(float(item["quantidade_pacotes"] or 0) for item in itens)
+    total_galinhas = sum(float(item["quantidade_galinhas"] or 0) for item in itens)
+    total_caixas = sum(
+        1 if item["caixa_id"] else float(item["quantidade_unidades"] or 0)
+        for item in itens
+        if (item["unidade_estoque"] or "CAIXA") == "CAIXA"
+    )
+    total_bandejas = sum(
+        float(item["quantidade_unidades"] or 0)
+        for item in itens
+        if (item["unidade_estoque"] or "CAIXA") == "CAIXA" and item["caixa_id"]
+    )
+    total_peso_bruto = sum(float(item["peso_bruto"] or 0) for item in itens)
+    total_tara = sum(float(item["peso_tara"] or 0) for item in itens)
 
     return {
         "total_itens": total_itens,
         "total_unidades": round(total_unidades, 2),
-        "total_kg": round(total_kg, 2)
+        "total_kg": round(total_kg, 3),
+        "total_pacotes": int(total_pacotes),
+        "total_galinhas": int(total_galinhas),
+        "total_caixas": total_caixas,
+        "total_bandejas": round(total_bandejas, 2),
+        "total_peso_bruto": round(total_peso_bruto, 3),
+        "total_tara": round(total_tara, 3),
     }
 
 

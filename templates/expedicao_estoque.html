@@ -6,10 +6,12 @@
         <nav class="expedicao-acoes-topo"><a href="{{ url_for('expedicao') }}">Romaneios</a><a href="{{ url_for('nao_conformes_expedicao') }}">Não conformes</a><a href="{{ url_for('historico_estoque_expedicao') }}">Histórico</a></nav>
     </section>
     <section class="expedicao-kpis">
-        <div class="card expedicao-kpi azul"><span>Físico total</span><strong>{{ resumo.itens_fisicos|br_numero(0) }}</strong><small>{{ resumo.peso_fisico|br_numero(3) }} kg</small></div>
-        <div class="card expedicao-kpi verde"><span>Conforme disponível</span><strong>{{ resumo.itens_disponiveis|br_numero(0) }}</strong><small>{{ resumo.peso_disponivel|br_numero(3) }} kg</small></div>
-        <div class="card expedicao-kpi"><span>Reservado</span><strong>{{ resumo.itens_reservados|br_numero(0) }}</strong><small>{{ resumo.peso_reservado|br_numero(3) }} kg</small></div>
-        <div class="card expedicao-kpi vermelho"><span>Não conforme bloqueado</span><strong>{{ resumo.itens_bloqueados|br_numero(0) }}</strong><small>{{ resumo.peso_bloqueado|br_numero(3) }} kg</small></div>
+        <div class="card expedicao-kpi azul"><span>Físico total</span><strong>{{ resumo.unidades_fisicas|br_numero(0) }}</strong><small>Caixas + pacotes presentes</small></div>
+        <div class="card expedicao-kpi verde"><span>Conforme disponível</span><strong>{{ resumo.unidades_disponiveis|br_numero(0) }}</strong><small>{{ resumo.peso_disponivel|br_numero(3) }} kg aplicáveis</small></div>
+        <div class="card expedicao-kpi"><span>Reservado</span><strong>{{ resumo.unidades_reservadas|br_numero(0) }}</strong><small>{{ resumo.peso_reservado|br_numero(3) }} kg aplicáveis</small></div>
+        <div class="card expedicao-kpi vermelho"><span>Não conforme bloqueado</span><strong>{{ resumo.unidades_bloqueadas|br_numero(0) }}</strong><small>{{ resumo.peso_bloqueado|br_numero(3) }} kg aplicáveis</small></div>
+        <div class="card expedicao-kpi"><span>Em reprocessamento</span><strong>{{ resumo.unidades_reprocessamento|br_numero(0) }}</strong><small>{{ resumo.peso_reprocessamento|br_numero(3) }} kg aplicáveis</small></div>
+        <div class="card expedicao-kpi"><span>Demais condições físicas</span><strong>{{ resumo.unidades_outras_condicoes|br_numero(0) }}</strong><small>Conferência de reconciliação</small></div>
     </section>
     <section class="card">
         <div class="tabela-responsiva tabela-executiva expedicao-tabela"><table>
@@ -17,7 +19,7 @@
             <tbody>{% for item in itens %}
             <tr>
                 <td><strong>{{ item.codigo_caixa }}</strong></td><td>{{ item.sku }}</td><td>{{ item.op_id or "-" }}</td><td>{{ item.data_fabricacao or "-" }}</td><td>{{ item.data_validade or "-" }}</td>
-                <td>{{ item.quantidade_bandejas|br_numero }}</td><td>{{ item.peso_liquido|br_numero(3) }} kg</td><td>{{ item.local_estoque or "-" }} / {{ item.zona_estoque }}</td><td>{{ item.condicao|replace('_',' ') }}</td><td>{{ item.disponibilidade|replace('_',' ') }}</td>
+                <td>{% if item.unidade_estoque == "PACOTE" %}{{ item.quantidade_pacotes|br_numero(0) }} pacotes — {{ item.quantidade_galinhas|br_numero(0) }} galinhas{% else %}{{ item.quantidade_bandejas|br_numero }} bandejas{% endif %}</td><td>{% if item.unidade_estoque == "PACOTE" %}Não aplicável{% else %}{{ item.peso_liquido|br_numero(3) }} kg{% endif %}</td><td>{{ item.local_estoque or "-" }} / {{ item.zona_estoque }}</td><td>{{ item.condicao|replace('_',' ') }}</td><td>{{ item.disponibilidade|replace('_',' ') }}</td>
                 <td>{% if item.condicao == "CONFORME" and item.disponibilidade == "DISPONIVEL" %}<details><summary>Bloquear</summary><form method="POST" action="{{ url_for('bloquear_estoque_expedicao', caixa_id=item.id) }}"><input name="motivo" required placeholder="Motivo"><input name="observacao" placeholder="Observação"><button type="submit">Confirmar</button></form></details>{% endif %}</td>
             </tr>
             {% else %}<tr><td colspan="11">O estoque operacional está zerado.</td></tr>{% endfor %}</tbody>

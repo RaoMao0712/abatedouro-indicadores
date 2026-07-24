@@ -17,11 +17,23 @@
                 </select>
             </div>
             <div><label>Origem</label><input name="origem" value="Abatedouro" required></div>
-            <div><label>Destino</label><input name="destino" value="Câmara Fria LSM" required></div>
+            <div><label>Destino operacional</label><input name="destino" value="{{ destinos_controlados.TRANSFERENCIA }}" readonly required><small class="obs">Destino controlado conforme o tipo de movimentação.</small></div>
             <div><label>Responsável</label><input name="responsavel" placeholder="Nome do responsável"></div>
             <div style="grid-column:1/-1"><label>Observações</label><textarea name="observacoes" rows="3"></textarea></div>
             <div style="grid-column:1/-1"><button type="submit">Criar romaneio</button></div>
         </form>
     </section>
 </div>
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    const destinos = {{ destinos_controlados|tojson }};
+    const tipo = document.querySelector('select[name="tipo_movimentacao"]');
+    const destino = document.querySelector('input[name="destino"]');
+    function atualizarDestino() {
+        destino.value = destinos[tipo.value] || "";
+    }
+    tipo.addEventListener("change", atualizarDestino);
+    atualizarDestino();
+});
+</script>
 {% endblock %}

@@ -161,7 +161,10 @@
                     <td>{{ caixa.quantidade_bandejas|br_numero }}</td>
                     <td>{{ caixa.peso_liquido|br_numero }}</td>
                     <td>
-                        {% if caixa.status == "Em estoque" %}
+                        {% if not caixa.estoque_operacional %}
+                            <span class="badge-expedicao neutro">Registro histórico anterior ao marco zero</span>
+                            <small class="obs">Não compõe o estoque operacional</small>
+                        {% elif caixa.status == "Em estoque" %}
                             <span class="badge-expedicao entrada">{{ caixa.status }}</span>
                         {% else %}
                             <span class="badge-expedicao saida">{{ caixa.status }}</span>

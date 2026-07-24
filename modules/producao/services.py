@@ -823,7 +823,16 @@ def salvar_apontamento_parada(form):
             observacoes=form.get("observacoes", ""),
         )
 
-def gerar_producao_automatica_setores(op, data_lancamento, hora_inicio, hora_fim, unidades_produzidas, kg_produzidos=None, descontar_almoco=False):
+def gerar_producao_automatica_setores(
+    op,
+    data_lancamento,
+    hora_inicio,
+    hora_fim,
+    unidades_produzidas,
+    kg_produzidos=None,
+    descontar_almoco=False,
+    conn=None,
+):
     setores_por_sku = {
         "Galinha Inteira": [
             "Recepção e Pendura",
@@ -845,7 +854,8 @@ def gerar_producao_automatica_setores(op, data_lancamento, hora_inicio, hora_fim
 
     texto_almoco = "Sim" if descontar_almoco else "Não"
 
-    conn = conectar()
+    conexao_propria = conn is None
+    conn = conn or conectar()
     cursor = conn.cursor()
 
     cursor.execute(q("""
@@ -924,8 +934,9 @@ def gerar_producao_automatica_setores(op, data_lancamento, hora_inicio, hora_fim
             f"Kg final produzido informado no encerramento da OP | Início: {hora_inicio} | Fim: {hora_fim} | Descontar almoço 1h12: {texto_almoco}"
         ))
 
-    conn.commit()
-    conn.close()
+    if conexao_propria:
+        conn.commit()
+        conn.close()
 
 
 def buscar_op_por_id(op_id):

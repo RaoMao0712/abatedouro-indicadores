@@ -7,7 +7,6 @@ from flask import flash, redirect, render_template, request, url_for
 from database import conectar, q
 from modules.auth.decorators import perfil_permitido
 from modules.auth.services import usuario_eh_admin
-from modules.expedicao.estoque_service import ativar_estoque_op_encerrada
 from modules.qualidade import services as qualidade_service
 from utils import normalizar_chave_setor, setores_padrao
 
@@ -22,7 +21,6 @@ from .services import (
     cancelar_ultima_caixa_pesagem_op,
     contexto_apontamento,
     copiar_mao_obra_de_op,
-    gerar_producao_automatica_setores,
     registrar_peso_caixa_op,
     salvar_apontamento_mao_obra,
     salvar_apontamento_parada,
@@ -828,48 +826,12 @@ def register_producao_routes(app, integracoes=None):
             flash("Esta OP já está encerrada.")
             return redirect(url_for("consultar_op", op_id=op_id))
 
-        try:
-            hora_inicio = request.form["hora_inicio"]
-            hora_fim = request.form["hora_fim"]
-            unidades_produzidas = float(request.form["unidades_produzidas"])
-            kg_produzidos_raw = request.form.get("kg_produzidos", "")
-            descontar_almoco = request.form.get("descontar_almoco") == "sim"
+        if (op["sku"] or "Galinha Cortada") == "Galinha Inteira":
+            flash("Galinha Inteira deve ser encerrada pela Embalagem Primária, com pacotes V1 e V2.")
+            return redirect(url_for("embalagem_primaria", op_id=op_id))
 
-            kg_produzidos = None
-            if (op["sku"] or "Galinha Cortada") == "Galinha Cortada":
-                if not kg_produzidos_raw:
-                    raise ValueError("Informe o kg produzido para Galinha Cortada.")
-                kg_produzidos = float(kg_produzidos_raw)
-
-            gerar_producao_automatica_setores(
-                op=op,
-                data_lancamento=op["data"],
-                hora_inicio=hora_inicio,
-                hora_fim=hora_fim,
-                unidades_produzidas=unidades_produzidas,
-                kg_produzidos=kg_produzidos,
-                descontar_almoco=descontar_almoco
-            )
-
-            conn = conectar()
-            cursor = conn.cursor()
-
-            cursor.execute(q("""
-            UPDATE ordens_producao
-            SET status = ?
-            WHERE id = ?
-            """), ("Encerrada", op_id))
-            ativar_estoque_op_encerrada(cursor, op_id)
-
-            conn.commit()
-            conn.close()
-
-            flash("OP encerrada com sucesso. A produção final foi gerada automaticamente.")
-
-        except ValueError as erro:
-            flash(str(erro))
-
-        return redirect(url_for("consultar_op", op_id=op_id))
+        flash("Galinha Cortada deve ser encerrada pela validação final da Embalagem Secundária.")
+        return redirect(url_for("embalagem_secundaria", op_id=op_id))
 
 
     @app.route("/op/<int:op_id>/reabrir", methods=["POST"])

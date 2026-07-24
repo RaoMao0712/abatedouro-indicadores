@@ -295,14 +295,15 @@ class ExpedicaoMarcoZeroTest(unittest.TestCase):
         status_antes = consultar_um("SELECT status FROM ordens_producao WHERE id = ?", (self.op_legada,))["status"]
         romaneio = self.criar_romaneio("HISTORICO_MARCO_ZERO")
         registrar_itens_historicos(romaneio, [
-            {"sku": "Galinha Inteira", "quantidade": 80, "peso": 100},
+            {"sku": "Galinha Inteira", "quantidade_pacotes": 40, "galinhas_por_pacote": 1},
+            {"sku": "Galinha Inteira", "quantidade_pacotes": 20, "galinhas_por_pacote": 2},
             {"sku": "Galinha Cortada", "quantidade": 120, "peso": 150},
         ])
         concluir_romaneio(romaneio)
         status_depois = consultar_um("SELECT status FROM ordens_producao WHERE id = ?", (self.op_legada,))["status"]
         self.assertEqual(status_antes, status_depois)
         self.assertEqual(buscar_expedicao_por_id(romaneio)["status"], "Concluído")
-        self.assertEqual(len(buscar_itens_expedicao(romaneio)), 2)
+        self.assertEqual(len(buscar_itens_expedicao(romaneio)), 3)
         self.assertEqual(
             consultar_um("SELECT estoque_operacional FROM pa_caixas WHERE id = ?", (self.caixa_legada,))["estoque_operacional"],
             0,

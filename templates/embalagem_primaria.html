@@ -82,12 +82,6 @@
             <input type="number" name="pacotes_2_aves" min="0" step="1" placeholder="Ex.: 150">
         </div>
 
-        <div class="campo-galinha-inteira">
-            <label>Peso liquido produzido (kg)</label>
-            <input type="number" name="kg_produzidos" min="0" step="0.001" placeholder="Ex.: 720.500">
-            <small class="obs">Usado somente para rendimento. A venda da Galinha Inteira permanece por unidade.</small>
-        </div>
-
         <div class="form-span-2">
             <label>Observações</label>
             <textarea name="observacoes" rows="2" placeholder="Ex.: produção do dia enviada para congelamento">{{ apontamento_edicao.observacoes if apontamento_edicao else '' }}</textarea>
@@ -102,7 +96,7 @@
     </form>
 
     <p class="obs">
-        Para Galinha Cortada, esta etapa gera PI e a OP segue para Embalagem Secundaria. Para Galinha Inteira, a OP encerra na Embalagem Primaria, gera PA em unidades vendaveis e registra kg apenas para rendimento.
+        Para Galinha Cortada, esta etapa gera PI e a OP segue para Embalagem Secundária. Para Galinha Inteira, informe separadamente pacotes V1 e V2; a conciliação usa o total real de galinhas e não registra peso.
     </p>
 </div>
 
@@ -223,16 +217,17 @@ document.addEventListener("DOMContentLoaded", function () {
 
         if (quantidade) {
             quantidade.required = !inteira;
-            quantidade.placeholder = inteira ? "Opcional: aves embaladas" : "Ex.: 1200";
+            quantidade.closest("div").style.display = inteira ? "none" : "block";
+            quantidade.placeholder = "Ex.: 1200";
         }
 
         if (labelQuantidade) {
-            labelQuantidade.textContent = inteira ? "Aves embaladas (opcional)" : "Bandejas produzidas";
+            labelQuantidade.textContent = "Bandejas produzidas";
         }
 
         if (ajudaQuantidade) {
             ajudaQuantidade.textContent = inteira
-                ? "Se informar pacotes 1/2 aves, o sistema calcula as aves embaladas automaticamente."
+                ? "Informe obrigatoriamente as apresentações V1 e V2; o sistema calcula o total de galinhas."
                 : "Para Galinha Cortada, informe as bandejas que seguirao para a Embalagem Secundaria.";
         }
 
