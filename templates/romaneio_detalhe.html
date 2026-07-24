@@ -1,131 +1,297 @@
 {% extends "base.html" %}
 {% block conteudo %}
-<div class="expedicao-page">
-    <section class="card expedicao-cabecalho-compacto">
+{% set is_mz = expedicao.tipo_movimentacao == "HISTORICO_MARCO_ZERO" %}
+{% set status_classe = "concluido" if expedicao.status == "Concluído" else expedicao.status|lower %}
+{% set responsavel_exibido = expedicao.responsavel or expedicao.criado_por or session.get("nome", "") %}
+{% set documento_aberto = expedicao.status == "Aberto" %}
+{% set pode_concluir = documento_aberto and responsavel_exibido and ((is_mz and resumo_mz.valido) or (not is_mz and itens|length > 0)) %}
+<div class="expedicao-page romaneio-detalhe-page">
+    <header class="romaneio-documento-header">
         <div>
             <span class="eyebrow">Romaneio</span>
-            <h2 class="numero-romaneio">{{ expedicao.numero_romaneio }}</h2>
-            <small>{{ expedicao.tipo_movimentacao|replace('_', ' ')|title }} · {{ expedicao.status }}</small>
+            <div class="romaneio-titulo-linha">
+                <h2 class="numero-romaneio">{{ expedicao.numero_romaneio }}</h2>
+                <span class="badge-expedicao {{ status_classe }}">{{ expedicao.status }}</span>
+            </div>
+            <p>{{ tipo_descricao }}</p>
         </div>
-        <nav class="expedicao-acoes-topo no-print">
-            <a href="{{ url_for('expedicao') }}">Voltar</a>
-            <a href="{{ url_for('imprimir_romaneio_expedicao', expedicao_id=expedicao.id) }}">Imprimir</a>
+        <nav class="romaneio-header-actions no-print">
+            <a class="romaneio-btn romaneio-btn-secondary" href="{{ url_for('expedicao') }}">← Voltar</a>
+            <a class="romaneio-btn romaneio-btn-print" href="{{ url_for('imprimir_romaneio_expedicao', expedicao_id=expedicao.id) }}">⎙ Pré-visualizar</a>
         </nav>
+    </header>
+
+    {% if is_mz %}
+    <ol class="romaneio-etapas" aria-label="Etapas do documento">
+        <li class="concluida"><span>1</span>Cabeçalho</li>
+        <li class="{{ 'concluida' if resumo_mz.tem_totais else 'atual' }}"><span>2</span>Totais históricos</li>
+        <li class="{{ 'concluida' if resumo_mz.valido else '' }}"><span>3</span>Conferência</li>
+        <li class="{{ 'concluida' if expedicao.status == 'Concluído' else '' }}"><span>4</span>Conclusão</li>
+    </ol>
+    {% endif %}
+
+    <section class="card romaneio-resumo-grid">
+        <div><small>Data</small><strong>{{ expedicao.data[8:10] }}/{{ expedicao.data[5:7] }}/{{ expedicao.data[0:4] }}</strong></div>
+        <div><small>Origem</small><strong>{{ expedicao.origem or "Abatedouro" }}</strong></div>
+        <div><small>Destino</small><strong>{{ expedicao.destino }}</strong></div>
+        <div><small>Responsável</small><strong>{{ responsavel_exibido or "Não informado" }}</strong></div>
+        <div class="romaneio-resumo-situacao">
+            <small>Situação dos totais</small>
+            {% if is_mz and not resumo_mz.tem_totais %}
+            <strong class="texto-alerta">Totais ainda não informados</strong>
+            {% elif is_mz %}
+            <strong class="texto-sucesso">Totais históricos registrados</strong>
+            {% else %}
+            <strong>{{ resumo_itens.total_itens|br_numero(0) }} item(ns) reservado(s)</strong>
+            {% endif %}
+        </div>
     </section>
 
-    <section class="card expedicao-resumo-documento">
-        <span><strong>Data:</strong> {{ expedicao.data }}</span>
-        <span><strong>Origem:</strong> {{ expedicao.origem or "Abatedouro" }}</span>
-        <span><strong>Destino:</strong> {{ expedicao.destino }}</span>
-        <span><strong>Responsável:</strong> {{ expedicao.responsavel or expedicao.criado_por or "-" }}</span>
-        <span><strong>Itens:</strong> {{ resumo_itens.total_itens|br_numero(0) }}</span>
-        {% if resumo_itens.total_pacotes %}<span><strong>Pacotes:</strong> {{ resumo_itens.total_pacotes|br_numero(0) }}</span><span><strong>Galinhas:</strong> {{ resumo_itens.total_galinhas|br_numero(0) }}</span>{% endif %}
-        {% if resumo_itens.total_kg %}<span><strong>Peso:</strong> {{ resumo_itens.total_kg|br_numero(3) }} kg</span>{% endif %}
-    </section>
+    <div id="aviso-alteracoes" class="romaneio-unsaved no-print" hidden>Existem alterações não salvas.</div>
 
-    {% if expedicao.status == "Aberto" %}
-    <details class="card no-print">
-        <summary><strong>Editar cabeçalho</strong></summary>
-        <form method="POST" class="form-grid" style="margin-top:1rem">
+    {% if documento_aberto %}
+    <details class="card romaneio-details no-print">
+        <summary><span>Editar cabeçalho</span><small>Data, responsável e observações</small></summary>
+        <form method="POST" class="romaneio-form-grid romaneio-track-form" data-form="cabecalho">
             <input type="hidden" name="acao" value="editar_cabecalho">
-            <div><label>Data</label><input type="date" name="data" value="{{ expedicao.data }}" required></div>
-            <div><label>Origem</label><input name="origem" value="{{ expedicao.origem or 'Abatedouro' }}" required></div>
-            <div><label>Destino operacional</label><input name="destino" value="{{ expedicao.destino }}" readonly required></div>
-            <div><label>Responsável</label><input name="responsavel" value="{{ expedicao.responsavel or '' }}"></div>
-            <div style="grid-column:1/-1"><label>Observações</label><textarea name="observacoes">{{ expedicao.observacoes or '' }}</textarea></div>
-            <button type="submit">Salvar alterações</button>
+            <label>Data<input type="date" name="data" value="{{ expedicao.data }}" required></label>
+            <label>Origem<input name="origem" value="{{ expedicao.origem or 'Abatedouro' }}" {% if is_mz %}readonly{% endif %} required></label>
+            <label>Destino operacional<input name="destino" value="{{ expedicao.destino }}" readonly required></label>
+            <label>Responsável<input name="responsavel" value="{{ responsavel_exibido }}" required></label>
+            <label class="campo-largo">Observações<textarea name="observacoes" rows="3">{{ expedicao.observacoes or '' }}</textarea></label>
+            <div class="romaneio-form-actions campo-largo">
+                <button type="submit" class="romaneio-btn romaneio-btn-primary" data-save-button disabled>Salvar alterações</button>
+                <small>Salvar o cabeçalho não conclui nem movimenta o documento.</small>
+            </div>
         </form>
     </details>
     {% endif %}
 
-    {% if expedicao.status == "Aberto" and expedicao.tipo_movimentacao == "HISTORICO_MARCO_ZERO" %}
-    <section class="card">
-        <h3>Totais da transferência histórica</h3>
-        <form method="POST" class="form-grid">
+    {% if is_mz %}
+    <section class="card romaneio-secao">
+        <div class="romaneio-secao-titulo">
+            <div><span class="romaneio-passo">Etapa 2</span><h3>Totais históricos</h3></div>
+            {% if documento_aberto %}<small>Salve o rascunho antes da conferência.</small>{% endif %}
+        </div>
+        {% if documento_aberto %}
+        <form method="POST" class="romaneio-form-grid romaneio-totais-form romaneio-track-form" data-form="totais" novalidate>
             <input type="hidden" name="acao" value="salvar_historico">
-            <div><label>Galinha Inteira — pacotes V1 (1 galinha)</label><input type="number" step="1" min="0" name="inteira_pacotes_v1"></div>
-            <div><label>Galinha Inteira — pacotes V2 (2 galinhas)</label><input type="number" step="1" min="0" name="inteira_pacotes_v2"></div>
-            <div><label>Galinha Cortada — caixas</label><input type="number" step="1" min="0" name="cortada_quantidade"></div>
-            <div><label>Galinha Cortada — peso (kg)</label><input type="number" step="0.001" min="0" name="cortada_peso"></div>
-            <button type="submit">Salvar totais históricos</button>
+            <label>Galinha Inteira — V1
+                <span>Pacotes com uma galinha</span>
+                <input id="mz-v1" type="number" step="1" min="0" name="inteira_pacotes_v1" value="{{ resumo_mz.pacotes_v1 if resumo_mz.tem_totais else '' }}" inputmode="numeric" required>
+            </label>
+            <label>Galinha Inteira — V2
+                <span>Pacotes com duas galinhas</span>
+                <input id="mz-v2" type="number" step="1" min="0" name="inteira_pacotes_v2" value="{{ resumo_mz.pacotes_v2 if resumo_mz.tem_totais else '' }}" inputmode="numeric" required>
+            </label>
+            <label>Galinha Cortada — caixas
+                <span>Somente caixas inteiras</span>
+                <input id="mz-caixas" type="number" step="1" min="0" name="cortada_quantidade" value="{{ resumo_mz.caixas_cortada if resumo_mz.tem_totais else '' }}" inputmode="numeric" required>
+            </label>
+            <label>Galinha Cortada — peso
+                <span>Quilogramas; vírgula ou ponto</span>
+                <input id="mz-peso" type="text" name="cortada_peso" value="{{ resumo_mz.peso_cortada if resumo_mz.tem_totais else '' }}" inputmode="decimal" pattern="^[0-9]+([.,][0-9]{1,3})?$" required>
+            </label>
+            <div class="romaneio-calculo campo-largo" aria-live="polite">
+                <div><small>Total de pacotes</small><strong id="calc-pacotes">{{ resumo_mz.total_pacotes }}</strong></div>
+                <div><small>Total de galinhas</small><strong id="calc-galinhas">{{ resumo_mz.total_galinhas }}</strong></div>
+                <div><small>Caixas cortadas</small><strong id="calc-caixas">{{ resumo_mz.caixas_cortada }}</strong></div>
+                <div><small>Peso cortada</small><strong><span id="calc-peso">{{ resumo_mz.peso_cortada|br_numero(3) }}</span> kg</strong></div>
+            </div>
+            <p id="erro-totais" class="romaneio-form-error campo-largo" hidden></p>
+            <div class="romaneio-form-actions campo-largo">
+                <button type="submit" class="romaneio-btn romaneio-btn-primary" data-save-button disabled>Salvar totais históricos</button>
+                <small>Esta ação salva somente o rascunho; não conclui o romaneio.</small>
+            </div>
         </form>
+        {% endif %}
     </section>
-    {% elif expedicao.status == "Aberto" %}
-    <section class="card">
-        <h3>Itens elegíveis para reserva</h3>
-        {% if caixas_disponiveis %}
-        <form method="POST">
-            <input type="hidden" name="acao" value="reservar">
+
+    <section class="card romaneio-secao">
+        <div class="romaneio-secao-titulo"><div><span class="romaneio-passo">Etapa 3</span><h3>Resumo da transferência histórica</h3></div></div>
+        {% if not resumo_mz.tem_totais %}
+        <p class="romaneio-empty-state">Informe e salve os totais históricos para preparar a conferência.</p>
+        {% else %}
+        <div class="romaneio-resumo-historico">
+            {% if resumo_mz.pacotes_v1 %}
+            <div><strong>Galinha Inteira V1</strong><span>Pacote com uma galinha</span><b>{{ resumo_mz.pacotes_v1 }} pacotes · {{ resumo_mz.pacotes_v1 }} galinhas</b></div>
+            {% endif %}
+            {% if resumo_mz.pacotes_v2 %}
+            <div><strong>Galinha Inteira V2</strong><span>Pacote com duas galinhas</span><b>{{ resumo_mz.pacotes_v2 }} pacotes · {{ resumo_mz.pacotes_v2 * 2 }} galinhas</b></div>
+            {% endif %}
+            {% if resumo_mz.caixas_cortada %}
+            <div><strong>Galinha Cortada</strong><span>Controle histórico por caixas e peso</span><b>{{ resumo_mz.caixas_cortada }} caixas · {{ resumo_mz.peso_cortada|br_numero(3) }} kg</b></div>
+            {% endif %}
+        </div>
+        {% endif %}
+    </section>
+
+    <section class="card romaneio-secao romaneio-conferencia">
+        <div class="romaneio-secao-titulo"><div><span class="romaneio-passo">Conferência salva</span><h3>Valores do documento</h3></div></div>
+        <dl>
+            <div><dt>Data</dt><dd>{{ expedicao.data[8:10] }}/{{ expedicao.data[5:7] }}/{{ expedicao.data[0:4] }}</dd></div>
+            <div><dt>Origem</dt><dd>{{ expedicao.origem }}</dd></div>
+            <div><dt>Destino</dt><dd>{{ expedicao.destino }}</dd></div>
+            <div><dt>Responsável</dt><dd>{{ responsavel_exibido or "Não informado" }}</dd></div>
+            <div><dt>V1</dt><dd>{{ resumo_mz.pacotes_v1 }} pacotes</dd></div>
+            <div><dt>V2</dt><dd>{{ resumo_mz.pacotes_v2 }} pacotes</dd></div>
+            <div><dt>Total de pacotes</dt><dd>{{ resumo_mz.total_pacotes }}</dd></div>
+            <div><dt>Total de galinhas</dt><dd>{{ resumo_mz.total_galinhas }}</dd></div>
+            <div><dt>Galinha Cortada</dt><dd>{{ resumo_mz.caixas_cortada }} caixas</dd></div>
+            <div><dt>Peso da cortada</dt><dd>{{ resumo_mz.peso_cortada|br_numero(3) }} kg</dd></div>
+            <div class="campo-largo"><dt>Observações</dt><dd>{{ expedicao.observacoes or "Sem observações" }}</dd></div>
+        </dl>
+    </section>
+    {% else %}
+        {% if documento_aberto %}
+        <section class="card romaneio-secao">
+            <h3>Itens elegíveis para reserva</h3>
+            {% if caixas_disponiveis %}
+            <form method="POST">
+                <input type="hidden" name="acao" value="reservar">
+                <div class="tabela-responsiva tabela-executiva expedicao-tabela">
+                    <table>
+                        <thead><tr><th></th><th>Identificação/lote</th><th>SKU</th><th>Apresentação</th><th>OP</th><th>Produção</th><th>Validade</th><th>Quantidade</th><th>Galinhas</th><th>Peso líquido</th><th>Condição</th></tr></thead>
+                        <tbody>
+                        {% for caixa in caixas_disponiveis %}
+                        <tr>
+                            <td><input type="checkbox" name="caixa_ids" value="{{ caixa.id }}"></td>
+                            <td><strong>{{ caixa.codigo_caixa }}</strong></td><td>{{ caixa.sku }}</td><td>{{ caixa.apresentacao or "Caixa" }}</td><td>{{ caixa.op_id or "-" }}</td><td>{{ caixa.data_fabricacao or "-" }}</td><td>{{ caixa.data_validade or "-" }}</td>
+                            <td>{% if caixa.unidade_estoque == "PACOTE" %}<input type="number" min="1" step="1" max="{{ caixa.quantidade_pacotes - (caixa.quantidade_pacotes_reservados or 0) }}" name="quantidade_pacotes_{{ caixa.id }}" value="{{ caixa.quantidade_pacotes - (caixa.quantidade_pacotes_reservados or 0) }}">{% else %}{{ caixa.quantidade_bandejas|br_numero }} bandejas{% endif %}</td>
+                            <td>{% if caixa.unidade_estoque == "PACOTE" %}{{ caixa.quantidade_galinhas|br_numero(0) }}{% else %}Não aplicável{% endif %}</td>
+                            <td>{% if caixa.unidade_estoque == "PACOTE" %}Não aplicável{% else %}{{ caixa.peso_liquido|br_numero(3) }} kg{% endif %}</td><td>{{ caixa.condicao|replace('_', ' ') }}</td>
+                        </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <button type="submit" class="romaneio-btn romaneio-btn-primary">Reservar selecionados</button>
+            </form>
+            {% else %}<p class="romaneio-empty-state">Nenhum item elegível para este tipo de romaneio.</p>{% endif %}
+        </section>
+        {% endif %}
+        <section class="card romaneio-secao">
+            <h3>Itens do romaneio</h3>
             <div class="tabela-responsiva tabela-executiva expedicao-tabela">
                 <table>
-                    <thead><tr><th></th><th>Identificação/lote</th><th>SKU</th><th>Apresentação</th><th>OP</th><th>Produção</th><th>Validade</th><th>Quantidade a reservar</th><th>Galinhas</th><th>Peso líquido</th><th>Condição</th></tr></thead>
+                    <thead><tr><th>Identificação/lote</th><th>SKU</th><th>Apresentação</th><th>OP</th><th>Quantidade</th><th>Galinhas</th><th>Peso</th><th>Situação</th>{% if documento_aberto %}<th></th>{% endif %}</tr></thead>
                     <tbody>
-                    {% for caixa in caixas_disponiveis %}
+                    {% for item in itens %}
                     <tr>
-                        <td><input type="checkbox" name="caixa_ids" value="{{ caixa.id }}"></td>
-                        <td><strong>{{ caixa.codigo_caixa }}</strong></td>
-                        <td>{{ caixa.sku }}</td>
-                        <td>{{ caixa.apresentacao or "Caixa" }}</td>
-                        <td>{{ caixa.op_id or "-" }}</td>
-                        <td>{{ caixa.data_fabricacao or "-" }}</td>
-                        <td>{{ caixa.data_validade or "-" }}</td>
-                        <td>
-                            {% if caixa.unidade_estoque == "PACOTE" %}
-                            <input type="number" min="1" step="1" max="{{ caixa.quantidade_pacotes - (caixa.quantidade_pacotes_reservados or 0) }}" name="quantidade_pacotes_{{ caixa.id }}" value="{{ caixa.quantidade_pacotes - (caixa.quantidade_pacotes_reservados or 0) }}">
-                            <small>{{ caixa.quantidade_pacotes - (caixa.quantidade_pacotes_reservados or 0) }} pacotes disponíveis</small>
-                            {% else %}{{ caixa.quantidade_bandejas|br_numero }} bandejas{% endif %}
-                        </td>
-                        <td>{% if caixa.unidade_estoque == "PACOTE" %}{{ caixa.quantidade_galinhas|br_numero(0) }}{% else %}Não aplicável{% endif %}</td>
-                        <td>{% if caixa.unidade_estoque == "PACOTE" %}Não aplicável{% else %}{{ caixa.peso_liquido|br_numero(3) }} kg{% endif %}</td>
-                        <td>{{ caixa.condicao|replace('_', ' ') }}</td>
+                        <td>{{ item.codigo_caixa or "Total declarado" }}</td><td>{{ item.sku }}</td><td>{{ item.apresentacao or ("Caixa" if item.sku == "Galinha Cortada" else "-") }}</td><td>{{ item.op_id or "-" }}</td>
+                        <td>{% if item.unidade_estoque == "PACOTE" %}{{ item.quantidade_pacotes|br_numero(0) }} pacotes{% else %}{{ item.quantidade_unidades|br_numero }}{% endif %}</td>
+                        <td>{% if item.unidade_estoque == "PACOTE" %}{{ item.quantidade_galinhas|br_numero(0) }}{% else %}Não aplicável{% endif %}</td>
+                        <td>{% if item.unidade_estoque == "PACOTE" %}Não aplicável{% else %}{{ item.quantidade_kg|br_numero(3) }} kg{% endif %}</td>
+                        <td>{{ item.disponibilidade_caixa|replace('_', ' ') if item.disponibilidade_caixa else expedicao.status }}</td>
+                        {% if documento_aberto %}<td>{% if item.caixa_id %}<form method="POST"><input type="hidden" name="acao" value="remover"><input type="hidden" name="caixa_id" value="{{ item.caixa_id }}"><button type="submit" class="romaneio-btn romaneio-btn-secondary">Remover</button></form>{% endif %}</td>{% endif %}
                     </tr>
-                    {% endfor %}
+                    {% else %}<tr><td colspan="9">Nenhum item registrado.</td></tr>{% endfor %}
                     </tbody>
                 </table>
             </div>
-            <button type="submit">Reservar selecionados</button>
-        </form>
-        {% else %}<p>Nenhum item elegível para este tipo de romaneio.</p>{% endif %}
-    </section>
+        </section>
     {% endif %}
 
-    <section class="card">
-        <h3>Itens do romaneio</h3>
-        <div class="tabela-responsiva tabela-executiva expedicao-tabela">
-            <table>
-                <thead><tr><th>Identificação/lote</th><th>SKU</th><th>Apresentação</th><th>OP</th><th>Quantidade</th><th>Total de galinhas</th><th>Peso</th><th>Situação</th>{% if expedicao.status == "Aberto" %}<th></th>{% endif %}</tr></thead>
-                <tbody>
-                {% for item in itens %}
-                <tr>
-                    <td>{{ item.codigo_caixa or "Total declarado" }}</td>
-                    <td>{{ item.sku }}</td>
-                    <td>{{ item.apresentacao or ("Caixa" if item.sku == "Galinha Cortada" else "-") }}</td>
-                    <td>{{ item.op_id or "-" }}</td>
-                    <td>{% if item.unidade_estoque == "PACOTE" %}{{ item.quantidade_pacotes|br_numero(0) }} pacotes{% else %}{{ item.quantidade_unidades|br_numero }}{% endif %}</td>
-                    <td>{% if item.unidade_estoque == "PACOTE" %}{{ item.quantidade_galinhas|br_numero(0) }}{% else %}Não aplicável{% endif %}</td>
-                    <td>{% if item.unidade_estoque == "PACOTE" %}Não aplicável{% else %}{{ item.quantidade_kg|br_numero(3) }} kg{% endif %}</td>
-                    <td>{{ item.disponibilidade_caixa|replace('_', ' ') if item.disponibilidade_caixa else expedicao.status }}</td>
-                    {% if expedicao.status == "Aberto" %}
-                    <td>
-                        {% if item.caixa_id %}
-                        <form method="POST"><input type="hidden" name="acao" value="remover"><input type="hidden" name="caixa_id" value="{{ item.caixa_id }}"><button type="submit" class="botao-secundario">Remover</button></form>
-                        {% endif %}
-                    </td>
-                    {% endif %}
-                </tr>
-                {% else %}<tr><td colspan="9">Nenhum item registrado.</td></tr>{% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </section>
+    <section class="card no-print romaneio-finalizacao">
+        <div class="romaneio-secao-titulo"><div><span class="romaneio-passo">Etapa 4</span><h3>Conclusão</h3></div></div>
+        {% if documento_aberto %}
+        <form method="POST" id="form-concluir" data-server-allowed="{{ '1' if pode_concluir else '0' }}" onsubmit="return confirm('Confirma a conclusão deste romaneio após a conferência dos valores salvos?')">
+            <input type="hidden" name="acao" value="concluir">
+            <label class="romaneio-confirmacao">
+                <input id="confirmacao-conclusao" type="checkbox" name="confirmacao_conclusao" value="confirmado">
+                {% if is_mz %}
+                <span>Confirmo que os totais foram conferidos e correspondem à transferência histórica realizada para a Câmara Fria LSM. Este documento não movimentará o estoque operacional iniciado após o marco zero.</span>
+                {% else %}
+                <span>Confirmo que os itens e o destino operacional deste romaneio foram conferidos.</span>
+                {% endif %}
+            </label>
+            {% if not pode_concluir %}<p class="romaneio-bloqueio">Complete o cabeçalho e salve ao menos um total histórico válido para concluir.</p>{% endif %}
+            <button id="botao-concluir" type="submit" class="romaneio-btn romaneio-btn-success" disabled>Concluir romaneio</button>
+        </form>
 
-    <section class="card no-print expedicao-acoes-documento">
-        {% if expedicao.status == "Aberto" %}
-        <form method="POST"><input type="hidden" name="acao" value="concluir"><button type="submit">Concluir romaneio</button></form>
-        <form method="POST" class="form-inline"><input type="hidden" name="acao" value="cancelar"><input name="justificativa" required placeholder="Justificativa do cancelamento"><button type="submit" class="botao-perigo">Cancelar</button></form>
-        {% elif expedicao.status == "Concluído" and expedicao.tipo_movimentacao != "HISTORICO_MARCO_ZERO" %}
-        <form method="POST" class="form-inline"><input type="hidden" name="acao" value="estornar"><input name="justificativa" required placeholder="Justificativa do estorno"><button type="submit">Estornar movimentação</button></form>
+        <details class="romaneio-cancelamento">
+            <summary>Cancelar romaneio</summary>
+            <form method="POST" id="form-cancelar" onsubmit="return confirm('Esta ação cancelará o romaneio e ficará registrada na auditoria. Deseja continuar?')">
+                <input type="hidden" name="acao" value="cancelar">
+                <label>Justificativa obrigatória<textarea id="justificativa-cancelamento" name="justificativa" minlength="5" required></textarea></label>
+                <label class="romaneio-confirmacao perigo"><input id="confirmacao-cancelamento" type="checkbox" name="confirmacao_cancelamento" value="confirmado"><span>Estou ciente de que o cancelamento será registrado na auditoria.</span></label>
+                <button id="botao-cancelar" type="submit" class="romaneio-btn romaneio-btn-danger" disabled>Confirmar cancelamento</button>
+            </form>
+        </details>
+        {% elif expedicao.status == "Concluído" and not is_mz %}
+        <form method="POST" class="form-inline"><input type="hidden" name="acao" value="estornar"><input name="justificativa" required placeholder="Justificativa do estorno"><button type="submit" class="romaneio-btn romaneio-btn-secondary">Estornar movimentação</button></form>
+        {% else %}
+        <p>Documento em modo de consulta. Edição e alteração de totais estão bloqueadas.</p>
         {% endif %}
     </section>
 </div>
+
+<script>
+(() => {
+    const trackedForms = [...document.querySelectorAll(".romaneio-track-form")];
+    const unsavedWarning = document.getElementById("aviso-alteracoes");
+    const initial = new Map(trackedForms.map(form => [form, new URLSearchParams(new FormData(form)).toString()]));
+    const serialize = form => new URLSearchParams(new FormData(form)).toString();
+    const isDirty = form => serialize(form) !== initial.get(form);
+    const anyDirty = () => trackedForms.some(isDirty);
+    const conclusionButton = document.getElementById("botao-concluir");
+    const conclusionCheck = document.getElementById("confirmacao-conclusao");
+    const conclusionForm = document.getElementById("form-concluir");
+
+    function numberValue(id) {
+        const input = document.getElementById(id);
+        if (!input || input.value.trim() === "") return 0;
+        const value = Number(input.value.replace(",", "."));
+        return Number.isFinite(value) ? value : NaN;
+    }
+
+    function validateTotals() {
+        const form = document.querySelector('[data-form="totais"]');
+        if (!form) return true;
+        const v1 = numberValue("mz-v1");
+        const v2 = numberValue("mz-v2");
+        const caixas = numberValue("mz-caixas");
+        const peso = numberValue("mz-peso");
+        const integerValues = [v1, v2, caixas];
+        let message = "";
+        if (integerValues.some(value => !Number.isInteger(value) || value < 0)) message = "V1, V2 e caixas devem ser inteiros não negativos.";
+        else if (!Number.isFinite(peso) || peso < 0) message = "Informe um peso não negativo válido.";
+        else if ((caixas > 0) !== (peso > 0)) message = "Caixas e peso de Galinha Cortada devem ser informados em conjunto.";
+        else if (v1 === 0 && v2 === 0 && caixas === 0) message = "Informe ao menos uma quantidade positiva.";
+        document.getElementById("calc-pacotes").textContent = Number.isFinite(v1 + v2) ? v1 + v2 : "—";
+        document.getElementById("calc-galinhas").textContent = Number.isFinite(v1 + (v2 * 2)) ? v1 + (v2 * 2) : "—";
+        document.getElementById("calc-caixas").textContent = Number.isFinite(caixas) ? caixas : "—";
+        document.getElementById("calc-peso").textContent = Number.isFinite(peso) ? peso.toLocaleString("pt-BR", {minimumFractionDigits: 3, maximumFractionDigits: 3}) : "—";
+        const error = document.getElementById("erro-totais");
+        error.textContent = message;
+        error.hidden = !message;
+        return !message && form.checkValidity();
+    }
+
+    function refresh() {
+        trackedForms.forEach(form => {
+            const button = form.querySelector("[data-save-button]");
+            if (button) button.disabled = !isDirty(form) || (form.dataset.form === "totais" && !validateTotals());
+        });
+        const dirty = anyDirty();
+        if (unsavedWarning) unsavedWarning.hidden = !dirty;
+        if (conclusionButton && conclusionForm) {
+            const serverAllowed = conclusionForm.dataset.serverAllowed === "1";
+            conclusionButton.disabled = !serverAllowed || dirty || !conclusionCheck.checked;
+        }
+    }
+
+    trackedForms.forEach(form => form.addEventListener("input", refresh));
+    if (conclusionCheck) conclusionCheck.addEventListener("change", refresh);
+    const cancelReason = document.getElementById("justificativa-cancelamento");
+    const cancelCheck = document.getElementById("confirmacao-cancelamento");
+    const cancelButton = document.getElementById("botao-cancelar");
+    const refreshCancel = () => {
+        if (cancelButton) cancelButton.disabled = !(cancelReason.value.trim().length >= 5 && cancelCheck.checked);
+    };
+    if (cancelReason) cancelReason.addEventListener("input", refreshCancel);
+    if (cancelCheck) cancelCheck.addEventListener("change", refreshCancel);
+    refresh();
+})();
+</script>
 {% endblock %}

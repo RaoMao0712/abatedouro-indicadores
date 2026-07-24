@@ -1,7 +1,8 @@
 {% extends "base.html" %}
 {% block conteudo %}
 <div class="expedicao-page">
-    <section class="card expedicao-cabecalho-compacto"><div><span class="eyebrow">Expedição</span><h2>Produtos Não Conformes</h2></div><nav class="expedicao-acoes-topo"><a href="{{ url_for('estoque_camara_expedicao') }}">Estoque</a><a href="{{ url_for('novo_romaneio_expedicao') }}">Novo romaneio específico</a></nav></section>
+    <section class="card expedicao-cabecalho-compacto"><div><span class="eyebrow">Expedição</span><h2>Produtos Não Conformes</h2></div><a class="romaneio-btn romaneio-btn-primary no-print" href="{{ url_for('novo_romaneio_expedicao') }}">+ Novo romaneio específico</a></section>
+    <nav class="romaneio-tabs no-print"><a href="{{ url_for('expedicao') }}">Romaneios</a><a href="{{ url_for('estoque_camara_expedicao') }}">Estoque da Câmara</a><a class="ativo" href="{{ url_for('nao_conformes_expedicao') }}">Produtos Não Conformes</a><a href="{{ url_for('historico_estoque_expedicao') }}">Histórico</a></nav>
     <section class="card"><div class="tabela-responsiva tabela-executiva expedicao-tabela"><table>
         <thead><tr><th>Identificação</th><th>SKU</th><th>OP</th><th>Quantidade</th><th>Peso</th><th>Motivo</th><th>Situação</th><th>Destinação</th></tr></thead>
         <tbody>{% for item in itens %}<tr>

@@ -1,7 +1,8 @@
 {% extends "base.html" %}
 {% block conteudo %}
 <div class="expedicao-page">
-    <section class="card expedicao-cabecalho-compacto"><div><span class="eyebrow">Expedição</span><h2>Histórico e Rastreabilidade</h2></div><a href="{{ url_for('expedicao') }}">Romaneios</a></section>
+    <section class="card expedicao-cabecalho-compacto"><div><span class="eyebrow">Expedição</span><h2>Histórico e Rastreabilidade</h2></div></section>
+    <nav class="romaneio-tabs no-print"><a href="{{ url_for('expedicao') }}">Romaneios</a><a href="{{ url_for('estoque_camara_expedicao') }}">Estoque da Câmara</a><a href="{{ url_for('nao_conformes_expedicao') }}">Produtos Não Conformes</a><a class="ativo" href="{{ url_for('historico_estoque_expedicao') }}">Histórico</a></nav>
     <section class="card"><div class="tabela-responsiva tabela-executiva expedicao-tabela"><table>
         <thead><tr><th>Data e hora</th><th>Identificação</th><th>SKU</th><th>Romaneio</th><th>Ação</th><th>Situação</th><th>Condição</th><th>Quantidade</th><th>Peso</th><th>Usuário/perfil</th><th>Justificativa</th></tr></thead>
         <tbody>{% for evento in eventos %}<tr>

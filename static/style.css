@@ -9420,3 +9420,69 @@ small {
 .manutencao-grade-total strong{color:#174b3d;font-size:.95rem}
 @media(max-width:1180px){.manutencao-charts{grid-template-columns:1fr}.manutencao-filtros{grid-template-columns:repeat(3,minmax(120px,1fr))}.manutencao-info-grid,.manutencao-info-grid-compacta{grid-template-columns:repeat(2,minmax(0,1fr))}.manutencao-recurso-linha{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:640px){.manutencao-cabecalho{display:grid}.manutencao-filtros,.manutencao-info-grid,.manutencao-recurso-linha{grid-template-columns:1fr}.manutencao-fichas{display:flex;overflow-x:auto;flex-wrap:nowrap}.manutencao-fichas .movimentacoes-ficha{flex:0 0 135px}}
+
+/* Expedição — organização visual e segurança operacional dos romaneios */
+.romaneios-page,.romaneio-detalhe-page{display:grid;gap:12px;max-width:100%;min-width:0}
+.romaneios-page .card,.romaneio-detalhe-page .card{margin:0;border-radius:12px;box-shadow:0 2px 8px rgba(25,55,46,.07)}
+.romaneios-header,.romaneio-documento-header{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;padding:4px 2px}
+.romaneios-header h2,.romaneio-documento-header h2{margin:2px 0 0;color:#173f35;font-size:1.55rem}
+.romaneios-header p,.romaneio-documento-header p{margin:3px 0 0;color:#66746f;font-size:.8rem}
+.romaneio-btn{display:inline-flex;width:auto!important;min-height:34px;align-items:center;justify-content:center;gap:6px;padding:8px 13px!important;border:1px solid transparent;border-radius:8px;text-decoration:none!important;font-size:.78rem;font-weight:800;line-height:1.1;cursor:pointer;box-shadow:none}
+.romaneio-btn:disabled{cursor:not-allowed;opacity:.46}
+.romaneio-btn-primary{background:#ed6f1c!important;color:#fff!important;border-color:#d85e11!important}
+.romaneio-btn-primary:hover{background:#d95f13!important}
+.romaneio-btn-secondary{background:#fff!important;color:#244a40!important;border-color:#c7d5d0!important}
+.romaneio-btn-print{background:#eff5f2!important;color:#214b40!important;border-color:#c7d8d2!important}
+.romaneio-btn-filter{align-self:end;background:#234f43!important;color:#fff!important;border-color:#234f43!important}
+.romaneio-btn-success{background:#19704f!important;color:#fff!important;border-color:#155c42!important}
+.romaneio-btn-danger{background:#fff!important;color:#a52720!important;border-color:#c43c34!important}
+.romaneio-tabs{display:flex;gap:4px;overflow-x:auto;padding:4px;border:1px solid #d9e3df;border-radius:10px;background:#f5f8f7}
+.romaneio-tabs a{padding:8px 12px;border-radius:7px;color:#52655f;text-decoration:none!important;white-space:nowrap;font-size:.75rem;font-weight:800}
+.romaneio-tabs a:hover,.romaneio-tabs a.ativo{background:#fff;color:#1c5848;box-shadow:0 1px 4px rgba(25,55,46,.1)}
+.romaneio-filtros{display:grid!important;grid-template-columns:repeat(4,minmax(130px,1fr)) auto!important;align-items:end!important;gap:8px!important;padding:12px!important}
+.romaneio-filtros label,.romaneio-form-grid label,.romaneio-cancelamento label{display:grid;gap:4px;margin:0;color:#52635e;font-size:.72rem;font-weight:800}
+.romaneio-filtros input,.romaneio-filtros select,.romaneio-form-grid input,.romaneio-form-grid textarea,.romaneio-cancelamento textarea{width:100%;min-height:34px;padding:7px 9px;border:1px solid #cbd8d3;border-radius:7px;background:#fff;color:#203c34;font-size:.78rem}
+.romaneio-form-grid input[readonly]{background:#eef3f1;color:#42564f;cursor:not-allowed}
+.romaneio-kpis{grid-template-columns:repeat(5,minmax(0,1fr))!important;gap:8px!important}
+.romaneio-kpis .expedicao-kpi{min-height:68px!important;padding:10px 12px!important;border-left-width:3px!important}
+.romaneio-kpis .expedicao-kpi.cinza{border-left-color:#68756f}
+.romaneio-kpis .expedicao-kpi span{font-size:.66rem!important}
+.romaneio-kpis .expedicao-kpi strong{font-size:1.28rem!important}
+.romaneio-lista-card{padding:0!important;overflow:hidden}
+.romaneio-lista-card .tabela-responsiva{border:0;border-radius:0}
+.romaneio-lista-card table{min-width:1040px}
+.romaneio-lista-card th{padding:9px 10px!important;background:#f4f7f6!important;font-size:.65rem!important}
+.romaneio-lista-card td{padding:9px 10px!important;font-size:.73rem!important}
+.romaneio-link-documento{color:#174f40!important;text-decoration:none!important;font-weight:900}
+.romaneio-link-documento:hover{text-decoration:underline!important}
+.romaneio-chip{display:inline-flex;margin-top:4px;padding:3px 6px;border-radius:99px;font-size:.58rem;font-weight:900;letter-spacing:.04em;text-transform:uppercase}
+.romaneio-chip.mz{background:#fff0df;color:#9a4b11}
+.romaneio-pendente{color:#9a5c16;font-size:.7rem;font-weight:800}
+.badge-expedicao{display:inline-flex!important;min-width:72px;justify-content:center;padding:4px 8px!important;border-radius:99px!important;font-size:.64rem!important;font-weight:900!important}
+.badge-expedicao.aberto{background:#fff4d8!important;color:#8a5700!important}
+.badge-expedicao.concluido{background:#dff4e9!important;color:#176541!important}
+.badge-expedicao.cancelado{background:#fee5e3!important;color:#a6241e!important}
+.badge-expedicao.estornado{background:#e8ecea!important;color:#4d5b56!important}
+.romaneio-vazio,.romaneio-empty-state{padding:18px!important;color:#66756f;text-align:center}
+.romaneio-titulo-linha{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.romaneio-header-actions{display:flex;gap:7px;flex-wrap:wrap}
+.romaneio-etapas{display:grid;grid-template-columns:repeat(4,1fr);gap:0;margin:0;padding:0;list-style:none;border:1px solid #d8e3df;border-radius:10px;background:#fff;overflow:hidden}
+.romaneio-etapas li{display:flex;align-items:center;gap:7px;padding:8px 10px;border-right:1px solid #e3ebe8;color:#78847f;font-size:.68rem;font-weight:800}
+.romaneio-etapas li:last-child{border:0}.romaneio-etapas li span{display:grid;width:22px;height:22px;place-items:center;border-radius:50%;background:#e9efed;color:#53625d}
+.romaneio-etapas li.concluida{color:#1c644d}.romaneio-etapas li.concluida span{background:#dcefe7;color:#176143}.romaneio-etapas li.atual{background:#fff9ef;color:#9a5b12}.romaneio-etapas li.atual span{background:#fce3bf;color:#8a4b05}
+.romaneio-resumo-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:0;padding:0!important;overflow:hidden}
+.romaneio-resumo-grid>div{display:grid;gap:3px;min-height:64px;padding:11px 13px;border-right:1px solid #e2e9e6}
+.romaneio-resumo-grid>div:last-child{border-right:0}.romaneio-resumo-grid small,.romaneio-calculo small{color:#71807b;font-size:.62rem;font-weight:850;letter-spacing:.05em;text-transform:uppercase}.romaneio-resumo-grid strong{color:#24483e;font-size:.78rem}.romaneio-resumo-situacao{grid-column:auto}.texto-alerta{color:#9b5d13!important}.texto-sucesso{color:#176541!important}
+.romaneio-unsaved{position:sticky;top:64px;z-index:10;padding:9px 12px;border:1px solid #e8b65b;border-radius:8px;background:#fff7e6;color:#80510b;font-size:.75rem;font-weight:850;box-shadow:0 3px 10px rgba(91,58,10,.12)}
+.romaneio-details{padding:0!important;overflow:hidden}.romaneio-details>summary{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 14px;background:#f7f9f8;color:#264a40;cursor:pointer;list-style:none;font-size:.8rem}.romaneio-details>summary::-webkit-details-marker{display:none}.romaneio-details>summary small{color:#78847f;font-size:.68rem}.romaneio-details[open]>summary{border-bottom:1px solid #dfe7e4}
+.romaneio-form-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;padding:14px}.romaneio-form-grid label>span{color:#77837f;font-size:.62rem;font-weight:500}.campo-largo{grid-column:1/-1}.romaneio-form-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.romaneio-form-actions small{color:#71807b;font-size:.68rem}
+.romaneio-secao{padding:14px!important}.romaneio-secao h3{margin:0;color:#24483e;font-size:.96rem}.romaneio-secao-titulo{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px}.romaneio-secao-titulo small{color:#72807b;font-size:.68rem}.romaneio-passo{display:block;margin-bottom:2px;color:#d96517;font-size:.58rem;font-weight:900;letter-spacing:.08em;text-transform:uppercase}
+.romaneio-calculo{display:grid;grid-template-columns:repeat(4,1fr);overflow:hidden;border:1px solid #dce6e2;border-radius:9px;background:#f7faf8}.romaneio-calculo>div{display:grid;gap:3px;padding:10px 12px;border-right:1px solid #dce6e2}.romaneio-calculo>div:last-child{border:0}.romaneio-calculo strong{color:#174f40;font-size:1.05rem}.romaneio-form-error{margin:0;padding:8px 10px;border-radius:7px;background:#feeeee;color:#9c261f;font-size:.72rem;font-weight:800}
+.romaneio-resumo-historico{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.romaneio-resumo-historico>div{display:grid;gap:4px;padding:11px;border:1px solid #dce6e2;border-radius:8px;background:#fbfcfc}.romaneio-resumo-historico strong{color:#1f5143;font-size:.78rem}.romaneio-resumo-historico span{color:#6f7e79;font-size:.66rem}.romaneio-resumo-historico b{color:#293f38;font-size:.75rem}
+.romaneio-conferencia dl{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:1px;margin:0;overflow:hidden;border:1px solid #dce6e2;border-radius:8px;background:#dce6e2}.romaneio-conferencia dl>div{display:grid;gap:3px;padding:9px;background:#fff}.romaneio-conferencia dt{color:#75827d;font-size:.59rem;font-weight:850;text-transform:uppercase}.romaneio-conferencia dd{margin:0;color:#263f38;font-size:.72rem;font-weight:800}
+.romaneio-finalizacao{padding:14px!important}.romaneio-confirmacao{display:flex!important;align-items:flex-start;gap:9px;padding:10px;border:1px solid #cfe0da;border-radius:8px;background:#f5faf8;color:#3d574f!important;font-size:.72rem!important;line-height:1.4}.romaneio-confirmacao input{width:16px!important;min-height:16px!important;margin:1px 0 0}.romaneio-confirmacao.perigo{margin:9px 0;border-color:#efc4c1;background:#fff7f6;color:#8b322d!important}.romaneio-bloqueio{margin:8px 0;color:#8f5b14;font-size:.7rem;font-weight:750}.romaneio-finalizacao form>.romaneio-btn{margin-top:9px}.romaneio-cancelamento{margin-top:14px;border-top:1px solid #e6cdca}.romaneio-cancelamento>summary{width:max-content;margin-top:10px;padding:7px 9px;border:1px solid #dba6a2;border-radius:7px;color:#9b2e28;cursor:pointer;font-size:.7rem;font-weight:850}.romaneio-cancelamento form{display:grid;gap:7px;max-width:680px;margin-top:9px;padding:10px;border:1px solid #efd2cf;border-radius:8px;background:#fffafa}
+.romaneio-print-toolbar{display:flex;justify-content:flex-end;gap:7px;margin-bottom:12px}.documento-marca{padding:9px;border:4px solid;text-align:center;font-size:1.55rem;font-weight:950;letter-spacing:.18em}.documento-marca.rascunho{border-color:#c07818;color:#a05f0c;background:#fff9ed}.documento-marca.invalidado{border-color:#b52821;color:#b52821;background:#fff5f4}.documento-aviso{margin:8px 0 14px;color:#8a5812;text-align:center;font-size:.72rem;font-weight:800}.romaneio-print-header{display:flex;align-items:flex-end;justify-content:space-between;gap:18px;padding-bottom:10px;border-bottom:2px solid #23483e}.romaneio-print-header h1{margin:0;color:#173f35;font-size:1.4rem}.romaneio-print-header p{margin:3px 0 0;color:#5f6f69}.romaneio-print-header>div:last-child{display:grid;text-align:right}.romaneio-print-meta{display:grid;grid-template-columns:repeat(3,1fr);margin:12px 0;border:1px solid #bccac5}.romaneio-print-meta>div{display:grid;gap:2px;padding:8px;border-right:1px solid #d2ddd9;border-bottom:1px solid #d2ddd9}.romaneio-print-meta small{color:#68766f;font-size:.62rem;text-transform:uppercase}.romaneio-print-meta strong{font-size:.75rem}.romaneio-impressao td small{display:block;color:#68766f}.romaneio-impressao tfoot{background:#f3f6f5}.romaneio-print-observacoes,.romaneio-print-justificativa{margin-top:12px;padding:10px;border:1px solid #ccd8d3}.romaneio-print-observacoes p,.romaneio-print-justificativa p{margin:4px 0 0}
+@media(max-width:1050px){.romaneio-filtros{grid-template-columns:repeat(2,minmax(130px,1fr)) auto!important}.romaneio-resumo-grid{grid-template-columns:repeat(2,1fr)}.romaneio-resumo-grid>div{border-bottom:1px solid #e2e9e6}.romaneio-form-grid{grid-template-columns:repeat(2,1fr)}.romaneio-conferencia dl{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:700px){.romaneios-header,.romaneio-documento-header{display:grid;align-items:start}.romaneio-header-actions{justify-content:flex-start}.romaneio-filtros,.romaneio-form-grid{grid-template-columns:1fr!important}.romaneio-kpis{grid-template-columns:repeat(2,1fr)!important}.romaneio-etapas{grid-template-columns:1fr 1fr}.romaneio-etapas li:nth-child(2){border-right:0}.romaneio-resumo-grid,.romaneio-calculo,.romaneio-resumo-historico,.romaneio-conferencia dl{grid-template-columns:1fr 1fr}.campo-largo{grid-column:1/-1}}
+@media(max-width:460px){.romaneio-kpis,.romaneio-resumo-grid,.romaneio-calculo,.romaneio-resumo-historico,.romaneio-conferencia dl{grid-template-columns:1fr!important}.romaneio-tabs{padding-bottom:7px}.romaneio-btn{width:100%!important}.romaneio-header-actions{display:grid}.romaneio-etapas{grid-template-columns:1fr}}
+@media print{.documento-marca{font-size:1.2rem}.romaneio-print-meta{grid-template-columns:repeat(3,1fr)}.romaneio-impressao{padding:0}.romaneio-impressao table{font-size:9px}.romaneio-impressao th,.romaneio-impressao td{padding:5px}}

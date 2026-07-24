@@ -1,59 +1,81 @@
 {% extends "base.html" %}
 {% block conteudo %}
-<div class="expedicao-page">
-    <section class="card expedicao-cabecalho-compacto">
+<div class="expedicao-page romaneios-page">
+    <header class="romaneios-header">
         <div>
             <span class="eyebrow">Expedição</span>
             <h2>Romaneios</h2>
-            <small>Marco zero ativo desde {{ marco.ativado_em if marco else "-" }}</small>
+            <p>Marco zero ativo desde <strong>{{ marco.ativado_em if marco else "-" }}</strong></p>
         </div>
-        <nav class="expedicao-acoes-topo no-print">
-            <a href="{{ url_for('estoque_camara_expedicao') }}">Estoque da Câmara</a>
-            <a href="{{ url_for('nao_conformes_expedicao') }}">Produtos Não Conformes</a>
-            <a href="{{ url_for('historico_estoque_expedicao') }}">Histórico</a>
-            <a href="{{ url_for('novo_romaneio_expedicao') }}" class="botao-expedicao-novo">Novo romaneio</a>
-        </nav>
-    </section>
+        <a href="{{ url_for('novo_romaneio_expedicao') }}" class="romaneio-btn romaneio-btn-primary no-print">+ Novo romaneio</a>
+    </header>
 
-    <form method="GET" class="card expedicao-filtro-form">
-        <div><label>Data inicial</label><input type="date" name="data_inicio" value="{{ data_inicio }}"></div>
-        <div><label>Data final</label><input type="date" name="data_fim" value="{{ data_fim }}"></div>
-        <div>
-            <label>Status</label>
+    <nav class="romaneio-tabs no-print" aria-label="Navegação da Expedição">
+        <a class="ativo" href="{{ url_for('expedicao') }}">Romaneios</a>
+        <a href="{{ url_for('estoque_camara_expedicao') }}">Estoque da Câmara</a>
+        <a href="{{ url_for('nao_conformes_expedicao') }}">Produtos Não Conformes</a>
+        <a href="{{ url_for('historico_estoque_expedicao') }}">Histórico</a>
+    </nav>
+
+    <form method="GET" class="card expedicao-filtro-form romaneio-filtros">
+        <label>Data inicial<input type="date" name="data_inicio" value="{{ data_inicio }}"></label>
+        <label>Data final<input type="date" name="data_fim" value="{{ data_fim }}"></label>
+        <label>Status
             <select name="status">
                 {% for opcao in status_opcoes %}
                 <option value="{{ opcao }}" {% if status == opcao %}selected{% endif %}>{{ opcao }}</option>
                 {% endfor %}
             </select>
-        </div>
-        <button type="submit">Filtrar</button>
+        </label>
+        <label>Tipo
+            <select name="tipo">
+                <option value="Todos" {% if tipo_movimentacao == "Todos" %}selected{% endif %}>Todos</option>
+                {% for codigo, descricao in tipos_romaneio.items() %}
+                <option value="{{ codigo }}" {% if tipo_movimentacao == codigo %}selected{% endif %}>{{ descricao }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <button type="submit" class="romaneio-btn romaneio-btn-filter">Aplicar filtros</button>
     </form>
 
-    <section class="expedicao-kpis">
-        <div class="card expedicao-kpi azul"><span>Romaneios</span><strong>{{ resumo.total_romaneios|br_numero(0) }}</strong></div>
+    <section class="expedicao-kpis romaneio-kpis" aria-label="Indicadores dos documentos filtrados">
+        <div class="card expedicao-kpi azul"><span>Total</span><strong>{{ resumo.total_romaneios|br_numero(0) }}</strong></div>
         <div class="card expedicao-kpi"><span>Abertos</span><strong>{{ resumo.abertos|br_numero(0) }}</strong></div>
         <div class="card expedicao-kpi verde"><span>Concluídos</span><strong>{{ resumo.concluidos|br_numero(0) }}</strong></div>
         <div class="card expedicao-kpi vermelho"><span>Cancelados</span><strong>{{ resumo.cancelados|br_numero(0) }}</strong></div>
+        <div class="card expedicao-kpi cinza"><span>Estornados</span><strong>{{ resumo.estornados|br_numero(0) }}</strong></div>
     </section>
 
-    <section class="card">
+    <section class="card romaneio-lista-card">
         <div class="tabela-responsiva tabela-executiva expedicao-tabela">
             <table>
-                <thead><tr><th>Romaneio</th><th>Data</th><th>Tipo</th><th>Origem</th><th>Destino</th><th>Responsável</th><th>Itens</th><th>Status</th></tr></thead>
+                <thead>
+                    <tr><th>Número</th><th>Data</th><th>Tipo</th><th>Origem</th><th>Destino</th><th>Responsável</th><th>Resumo</th><th>Status</th></tr>
+                </thead>
                 <tbody>
                 {% for item in expedicoes %}
+                    {% set status_classe = "concluido" if item.status == "Concluído" else item.status|lower %}
                     <tr>
-                        <td class="numero-romaneio"><a href="{{ url_for('detalhe_romaneio_expedicao', expedicao_id=item.id) }}"><strong>{{ item.numero_romaneio }}</strong></a></td>
-                        <td>{{ item.data }}</td>
-                        <td>{{ item.tipo_movimentacao|replace('_', ' ')|title }}</td>
+                        <td class="numero-romaneio">
+                            <a class="romaneio-link-documento" href="{{ url_for('detalhe_romaneio_expedicao', expedicao_id=item.id) }}">{{ item.numero_romaneio }}</a>
+                            {% if item.tipo_movimentacao == "HISTORICO_MARCO_ZERO" %}<span class="romaneio-chip mz">Marco Zero</span>{% endif %}
+                        </td>
+                        <td>{{ item.data[8:10] }}/{{ item.data[5:7] }}/{{ item.data[0:4] }}</td>
+                        <td>{{ tipos_romaneio.get(item.tipo_movimentacao, item.tipo_movimentacao|replace('_', ' ')|title) }}</td>
                         <td>{{ item.origem or "Abatedouro" }}</td>
                         <td>{{ item.destino }}</td>
                         <td>{{ item.responsavel or item.criado_por or "-" }}</td>
-                        <td>{{ item.total_itens|br_numero(0) }}</td>
-                        <td><span class="badge-expedicao {{ item.status|lower }}">{{ item.status }}</span></td>
+                        <td>
+                            {% if item.tipo_movimentacao == "HISTORICO_MARCO_ZERO" and not item.total_itens %}
+                            <span class="romaneio-pendente">Totais pendentes</span>
+                            {% else %}
+                            {{ item.total_itens|br_numero(0) }} registro(s)
+                            {% endif %}
+                        </td>
+                        <td><span class="badge-expedicao {{ status_classe }}">{{ item.status }}</span></td>
                     </tr>
                 {% else %}
-                    <tr><td colspan="8">Nenhum romaneio encontrado para os filtros selecionados.</td></tr>
+                    <tr><td colspan="8" class="romaneio-vazio">Nenhum romaneio encontrado para os filtros selecionados.</td></tr>
                 {% endfor %}
                 </tbody>
             </table>

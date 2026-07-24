@@ -6,6 +6,7 @@ formado por OPs posteriores ao marco zero.
 """
 
 from datetime import datetime
+from decimal import Decimal, InvalidOperation
 import json
 from zoneinfo import ZoneInfo
 
@@ -62,6 +63,71 @@ def _perfil():
         return perfil_atual() or "sistema"
     except RuntimeError:
         return "sistema"
+
+
+def _decimal_nao_negativo(valor, campo):
+    texto = str(valor if valor is not None else "").strip().replace(",", ".")
+    if not texto:
+        return Decimal("0")
+    try:
+        numero = Decimal(texto)
+    except InvalidOperation as erro:
+        raise ValueError(f"{campo} deve ser um número válido.") from erro
+    if not numero.is_finite() or numero < 0:
+        raise ValueError(f"{campo} deve ser um número não negativo.")
+    return numero
+
+
+def _inteiro_nao_negativo(valor, campo):
+    numero = _decimal_nao_negativo(valor, campo)
+    if numero != numero.to_integral_value():
+        raise ValueError(f"{campo} deve ser um número inteiro não negativo.")
+    return int(numero)
+
+
+def _validar_mz_para_conclusao(romaneio, itens):
+    try:
+        datetime.strptime((romaneio["data"] or "").strip(), "%Y-%m-%d")
+    except ValueError as erro:
+        raise ValueError("A data do marco zero é inválida.") from erro
+    if not (romaneio["responsavel"] or "").strip():
+        raise ValueError("Informe o responsável antes de concluir o marco zero.")
+    if (romaneio["origem"] or "").strip() != LOCAL_ABATEDOURO:
+        raise ValueError("A origem do marco zero deve ser Abatedouro.")
+    if (romaneio["destino"] or "").strip() != LOCAL_LSM:
+        raise ValueError("O destino do marco zero deve ser Câmara Fria LSM.")
+    if not itens:
+        raise ValueError("Salve os totais históricos antes de concluir.")
+
+    v1 = sum(
+        _inteiro_nao_negativo(item["quantidade_pacotes"], "Pacotes V1")
+        for item in itens
+        if item["sku"] == "Galinha Inteira"
+        and int(item["galinhas_por_pacote"] or 0) == 1
+    )
+    v2 = sum(
+        _inteiro_nao_negativo(item["quantidade_pacotes"], "Pacotes V2")
+        for item in itens
+        if item["sku"] == "Galinha Inteira"
+        and int(item["galinhas_por_pacote"] or 0) == 2
+    )
+    caixas = sum(
+        _inteiro_nao_negativo(item["quantidade_unidades"], "Caixas de Galinha Cortada")
+        for item in itens
+        if item["sku"] == "Galinha Cortada"
+    )
+    peso = sum(
+        (
+            _decimal_nao_negativo(item["quantidade_kg"], "Peso da Galinha Cortada")
+            for item in itens
+            if item["sku"] == "Galinha Cortada"
+        ),
+        Decimal("0"),
+    )
+    if (caixas > 0) != (peso > 0):
+        raise ValueError("Caixas e peso de Galinha Cortada devem ser informados em conjunto.")
+    if v1 == 0 and v2 == 0 and caixas == 0:
+        raise ValueError("Informe ao menos um total histórico positivo antes de concluir.")
 
 
 def _alterar_coluna(cursor, sql_postgres, sql_sqlite):
@@ -761,6 +827,7 @@ def concluir_romaneio(expedicao_id):
             raise ValueError("Inclua ao menos um item antes de concluir.")
 
         if tipo == "HISTORICO_MARCO_ZERO":
+            _validar_mz_para_conclusao(romaneio, itens)
             momento = _agora()
             cursor.execute(q("""
             UPDATE expedicoes
@@ -1174,31 +1241,22 @@ def registrar_itens_historicos(expedicao_id, linhas):
         FROM expedicao_itens WHERE expedicao_id = ? ORDER BY id
         """), (expedicao_id,))
         anteriores = [dict(item) for item in cursor.fetchall()]
-        cursor.execute(q("DELETE FROM expedicao_itens WHERE expedicao_id = ?"), (expedicao_id,))
-        novos = []
+        validados = []
         for linha in linhas:
             sku = (linha.get("sku") or "").strip()
             if sku == "Galinha Inteira":
-                pacotes = float(linha.get("quantidade_pacotes") or 0)
+                pacotes = _inteiro_nao_negativo(
+                    linha.get("quantidade_pacotes"),
+                    "Pacotes V1 ou V2",
+                )
                 por_pacote = int(linha.get("galinhas_por_pacote") or 0)
-                if pacotes < 0 or not pacotes.is_integer() or por_pacote not in {1, 2}:
-                    raise ValueError("Os pacotes V1 e V2 do MZ devem ser quantidades inteiras.")
-                pacotes = int(pacotes)
+                if por_pacote not in {1, 2}:
+                    raise ValueError("A apresentação de Galinha Inteira deve ser V1 ou V2.")
                 if not pacotes:
                     continue
                 galinhas = pacotes * por_pacote
                 apresentacao = f"Pacote com {por_pacote} galinha" + ("" if por_pacote == 1 else "s")
-                cursor.execute(q("""
-                INSERT INTO expedicao_itens (
-                    expedicao_id, caixa_id, op_id, sku, quantidade_unidades,
-                    quantidade_kg, unidade_estoque, apresentacao,
-                    galinhas_por_pacote, quantidade_pacotes, quantidade_galinhas
-                ) VALUES (?, NULL, NULL, ?, ?, NULL, 'PACOTE', ?, ?, ?, ?)
-                """), (
-                    expedicao_id, sku, pacotes, apresentacao,
-                    por_pacote, pacotes, galinhas,
-                ))
-                novos.append({
+                validados.append({
                     "sku": sku,
                     "apresentacao": apresentacao,
                     "quantidade_pacotes": pacotes,
@@ -1206,19 +1264,85 @@ def registrar_itens_historicos(expedicao_id, linhas):
                     "quantidade_galinhas": galinhas,
                 })
             elif sku == "Galinha Cortada":
-                caixas = float(linha.get("quantidade") or 0)
-                peso = float(linha.get("peso") or 0)
-                if caixas < 0 or peso < 0 or (caixas == 0 and peso == 0):
-                    continue
+                caixas = _inteiro_nao_negativo(
+                    linha.get("quantidade"),
+                    "Caixas de Galinha Cortada",
+                )
+                peso = _decimal_nao_negativo(
+                    linha.get("peso"),
+                    "Peso da Galinha Cortada",
+                )
+                if (caixas > 0) != (peso > 0):
+                    raise ValueError("Caixas e peso de Galinha Cortada devem ser informados em conjunto.")
+                if caixas:
+                    validados.append({
+                        "sku": sku,
+                        "quantidade_caixas": caixas,
+                        "peso": float(peso),
+                    })
+            else:
+                raise ValueError("Produto histórico inválido.")
+
+        if not validados:
+            raise ValueError("Informe ao menos um total histórico positivo.")
+
+        assinatura_anterior = sorted(
+            (
+                item["sku"],
+                int(item["galinhas_por_pacote"] or 0),
+                int(item["quantidade_pacotes"] or 0),
+                int(item["quantidade_galinhas"] or 0),
+                int(item["quantidade_unidades"] or 0),
+                round(float(item["quantidade_kg"] or 0), 3),
+            )
+            for item in anteriores
+        )
+        assinatura_nova = sorted(
+            (
+                item["sku"],
+                int(item.get("galinhas_por_pacote") or 0),
+                int(item.get("quantidade_pacotes") or 0),
+                int(item.get("quantidade_galinhas") or 0),
+                int(item.get("quantidade_caixas") or item.get("quantidade_pacotes") or 0),
+                round(float(item.get("peso") or 0), 3),
+            )
+            for item in validados
+        )
+        if assinatura_anterior == assinatura_nova:
+            return False
+
+        cursor.execute(q("DELETE FROM expedicao_itens WHERE expedicao_id = ?"), (expedicao_id,))
+        novos = []
+        for item in validados:
+            if item["sku"] == "Galinha Inteira":
+                cursor.execute(q("""
+                INSERT INTO expedicao_itens (
+                    expedicao_id, caixa_id, op_id, sku, quantidade_unidades,
+                    quantidade_kg, unidade_estoque, apresentacao,
+                    galinhas_por_pacote, quantidade_pacotes, quantidade_galinhas
+                ) VALUES (?, NULL, NULL, ?, ?, NULL, 'PACOTE', ?, ?, ?, ?)
+                """), (
+                    expedicao_id,
+                    item["sku"],
+                    item["quantidade_pacotes"],
+                    item["apresentacao"],
+                    item["galinhas_por_pacote"],
+                    item["quantidade_pacotes"],
+                    item["quantidade_galinhas"],
+                ))
+            else:
                 cursor.execute(q("""
                 INSERT INTO expedicao_itens (
                     expedicao_id, caixa_id, op_id, sku,
                     quantidade_unidades, quantidade_kg, unidade_estoque
                 ) VALUES (?, NULL, NULL, ?, ?, ?, 'CAIXA')
-                """), (expedicao_id, sku, caixas, peso))
-                novos.append({"sku": sku, "quantidade_caixas": caixas, "peso": peso})
-        if not novos:
-            raise ValueError("Informe ao menos um total historico.")
+                """), (
+                    expedicao_id,
+                    item["sku"],
+                    item["quantidade_caixas"],
+                    item["peso"],
+                ))
+            novos.append(item)
         registrar_evento_romaneio(
             cursor,
             expedicao_id,
@@ -1227,16 +1351,21 @@ def registrar_itens_historicos(expedicao_id, linhas):
             estado_novo="Aberto",
             dados_alterados={"antes": anteriores, "depois": novos},
         )
+        return True
 
 
 def editar_romaneio_aberto(expedicao_id, form):
     """Edita somente o cabeçalho de documento ainda aberto."""
     criar_tabelas_estoque_confiavel()
     data = (form.get("data") or "").strip()
-    origem = (form.get("origem") or "").strip()
-    destino = (form.get("destino") or "").strip()
-    if not data or not origem or not destino:
+    origem_informada = (form.get("origem") or "").strip()
+    destino_informado = (form.get("destino") or "").strip()
+    if not data or not origem_informada or not destino_informado:
         raise ValueError("Informe data, origem e destino.")
+    try:
+        datetime.strptime(data, "%Y-%m-%d")
+    except ValueError as erro:
+        raise ValueError("Informe uma data válida.") from erro
     with transaction() as conn:
         cursor = conn.cursor()
         cursor.execute(q("SELECT * FROM expedicoes WHERE id = ?"), (expedicao_id,))
@@ -1246,6 +1375,33 @@ def editar_romaneio_aberto(expedicao_id, form):
         destino = DESTINOS_CONTROLADOS.get(romaneio["tipo_movimentacao"])
         if not destino:
             raise ValueError("O tipo de romaneio nao possui destino operacional configurado.")
+        origem = (
+            LOCAL_ABATEDOURO
+            if romaneio["tipo_movimentacao"] == "HISTORICO_MARCO_ZERO"
+            else origem_informada
+        )
+        responsavel = (
+            (form.get("responsavel") or "").strip()
+            or (romaneio["responsavel"] or "").strip()
+            or _usuario()
+        )
+        observacoes = (form.get("observacoes") or "").strip()
+        antes = {
+            "data": romaneio["data"],
+            "origem": romaneio["origem"],
+            "destino": romaneio["destino"],
+            "responsavel": romaneio["responsavel"],
+            "observacoes": romaneio["observacoes"],
+        }
+        depois = {
+            "data": data,
+            "origem": origem,
+            "destino": destino,
+            "responsavel": responsavel,
+            "observacoes": observacoes,
+        }
+        if antes == depois:
+            return False
         cursor.execute(q("""
         UPDATE expedicoes
         SET data = ?, origem = ?, destino = ?, responsavel = ?,
@@ -1255,8 +1411,8 @@ def editar_romaneio_aberto(expedicao_id, form):
             data,
             origem,
             destino,
-            (form.get("responsavel") or "").strip(),
-            (form.get("observacoes") or "").strip(),
+            responsavel,
+            observacoes,
             _agora(),
             expedicao_id,
         ))
@@ -1267,19 +1423,8 @@ def editar_romaneio_aberto(expedicao_id, form):
             estado_anterior="Aberto",
             estado_novo="Aberto",
             dados_alterados={
-                "antes": {
-                    "data": romaneio["data"],
-                    "origem": romaneio["origem"],
-                    "destino": romaneio["destino"],
-                    "responsavel": romaneio["responsavel"],
-                    "observacoes": romaneio["observacoes"],
-                },
-                "depois": {
-                    "data": data,
-                    "origem": origem,
-                    "destino": destino,
-                    "responsavel": (form.get("responsavel") or "").strip(),
-                    "observacoes": (form.get("observacoes") or "").strip(),
-                },
+                "antes": antes,
+                "depois": depois,
             },
         )
+        return True

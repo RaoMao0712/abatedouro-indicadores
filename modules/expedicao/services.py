@@ -1633,7 +1633,7 @@ def calcular_resumo_estoque_pa(saldos):
     return calcular_resumo_estoques_pi_pa(saldos, caixas)
 
 
-def buscar_expedicoes(data_inicio=None, data_fim=None, status=None):
+def buscar_expedicoes(data_inicio=None, data_fim=None, status=None, tipo_movimentacao=None):
     from .estoque_service import criar_tabelas_estoque_confiavel
 
     criar_tabelas_estoque_confiavel()
@@ -1651,6 +1651,10 @@ def buscar_expedicoes(data_inicio=None, data_fim=None, status=None):
     if status and status != "Todos":
         filtros.append("status = ?")
         parametros.append(status)
+
+    if tipo_movimentacao and tipo_movimentacao != "Todos":
+        filtros.append("tipo_movimentacao = ?")
+        parametros.append(tipo_movimentacao)
 
     where = ""
     if filtros:
@@ -1678,6 +1682,7 @@ def calcular_resumo_expedicao(expedicoes):
     abertos = sum(1 for item in expedicoes if item["status"] == "Aberto")
     concluidos = sum(1 for item in expedicoes if item["status"] == "Concluído")
     cancelados = sum(1 for item in expedicoes if item["status"] == "Cancelado")
+    estornados = sum(1 for item in expedicoes if item["status"] == "Estornado")
 
     total_unidades = sum(float(item["total_unidades"] or 0) for item in expedicoes)
     total_kg = sum(float(item["total_kg"] or 0) for item in expedicoes)
@@ -1687,6 +1692,7 @@ def calcular_resumo_expedicao(expedicoes):
         "abertos": abertos,
         "concluidos": concluidos,
         "cancelados": cancelados,
+        "estornados": estornados,
         "total_unidades": round(total_unidades, 2),
         "total_kg": round(total_kg, 2)
     }
@@ -2304,6 +2310,42 @@ def calcular_resumo_itens_expedicao(itens):
         "total_bandejas": round(total_bandejas, 2),
         "total_peso_bruto": round(total_peso_bruto, 3),
         "total_tara": round(total_tara, 3),
+    }
+
+
+def calcular_resumo_mz(itens):
+    """Consolida somente os valores efetivamente salvos no documento histórico."""
+    pacotes_v1 = sum(
+        int(item["quantidade_pacotes"] or 0)
+        for item in itens
+        if item["sku"] == "Galinha Inteira" and int(item["galinhas_por_pacote"] or 0) == 1
+    )
+    pacotes_v2 = sum(
+        int(item["quantidade_pacotes"] or 0)
+        for item in itens
+        if item["sku"] == "Galinha Inteira" and int(item["galinhas_por_pacote"] or 0) == 2
+    )
+    caixas_cortada = sum(
+        int(item["quantidade_unidades"] or 0)
+        for item in itens
+        if item["sku"] == "Galinha Cortada"
+    )
+    peso_cortada = round(sum(
+        float(item["quantidade_kg"] or 0)
+        for item in itens
+        if item["sku"] == "Galinha Cortada"
+    ), 3)
+    return {
+        "pacotes_v1": pacotes_v1,
+        "pacotes_v2": pacotes_v2,
+        "total_pacotes": pacotes_v1 + pacotes_v2,
+        "total_galinhas": pacotes_v1 + (pacotes_v2 * 2),
+        "caixas_cortada": caixas_cortada,
+        "peso_cortada": peso_cortada,
+        "tem_totais": bool(itens),
+        "valido": bool(itens)
+        and (pacotes_v1 > 0 or pacotes_v2 > 0 or caixas_cortada > 0)
+        and ((caixas_cortada > 0 and peso_cortada > 0) or (caixas_cortada == 0 and peso_cortada == 0)),
     }
 
 

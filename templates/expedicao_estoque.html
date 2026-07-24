@@ -3,8 +3,8 @@
 <div class="expedicao-page">
     <section class="card expedicao-cabecalho-compacto">
         <div><span class="eyebrow">Expedição</span><h2>Estoque da Câmara</h2><small>Estoque operacional posterior ao marco zero</small></div>
-        <nav class="expedicao-acoes-topo"><a href="{{ url_for('expedicao') }}">Romaneios</a><a href="{{ url_for('nao_conformes_expedicao') }}">Não conformes</a><a href="{{ url_for('historico_estoque_expedicao') }}">Histórico</a></nav>
     </section>
+    <nav class="romaneio-tabs no-print"><a href="{{ url_for('expedicao') }}">Romaneios</a><a class="ativo" href="{{ url_for('estoque_camara_expedicao') }}">Estoque da Câmara</a><a href="{{ url_for('nao_conformes_expedicao') }}">Produtos Não Conformes</a><a href="{{ url_for('historico_estoque_expedicao') }}">Histórico</a></nav>
     <section class="expedicao-kpis">
         <div class="card expedicao-kpi azul"><span>Físico total</span><strong>{{ resumo.unidades_fisicas|br_numero(0) }}</strong><small>Caixas + pacotes presentes</small></div>
         <div class="card expedicao-kpi verde"><span>Conforme disponível</span><strong>{{ resumo.unidades_disponiveis|br_numero(0) }}</strong><small>{{ resumo.peso_disponivel|br_numero(3) }} kg aplicáveis</small></div>

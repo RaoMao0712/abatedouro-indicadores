@@ -3,7 +3,7 @@
 <div class="expedicao-page">
     <section class="card expedicao-cabecalho-compacto">
         <div><span class="eyebrow">Expedição</span><h2>Novo romaneio</h2></div>
-        <a href="{{ url_for('expedicao') }}" class="botao-secundario">Voltar</a>
+        <a href="{{ url_for('expedicao') }}" class="romaneio-btn romaneio-btn-secondary">← Voltar</a>
     </section>
     <section class="card">
         <form method="POST" class="form-grid">
@@ -18,9 +18,9 @@
             </div>
             <div><label>Origem</label><input name="origem" value="Abatedouro" required></div>
             <div><label>Destino operacional</label><input name="destino" value="{{ destinos_controlados.TRANSFERENCIA }}" readonly required><small class="obs">Destino controlado conforme o tipo de movimentação.</small></div>
-            <div><label>Responsável</label><input name="responsavel" placeholder="Nome do responsável"></div>
+            <div><label>Responsável</label><input name="responsavel" value="{{ session.get('nome', '') }}" placeholder="Nome do responsável" required></div>
             <div style="grid-column:1/-1"><label>Observações</label><textarea name="observacoes" rows="3"></textarea></div>
-            <div style="grid-column:1/-1"><button type="submit">Criar romaneio</button></div>
+            <div style="grid-column:1/-1"><button type="submit" class="romaneio-btn romaneio-btn-primary">Criar romaneio</button></div>
         </form>
     </section>
 </div>

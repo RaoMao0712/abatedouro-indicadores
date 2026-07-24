@@ -27,6 +27,7 @@ from .services import (
     calcular_resumo_expedicao,
     calcular_resumo_estoques_pi_pa,
     calcular_resumo_itens_expedicao,
+    calcular_resumo_mz,
     confirmar_transferencia_romaneio,
     configurar_integracoes,
     finalizar_embalagem_secundaria_op,
@@ -250,8 +251,9 @@ def register_expedicao_routes(app, integracoes=None):
         data_inicio = request.args.get("data_inicio") or primeiro_dia_mes
         data_fim = request.args.get("data_fim") or hoje.strftime("%Y-%m-%d")
         status = request.args.get("status") or "Todos"
+        tipo_movimentacao = request.args.get("tipo") or "Todos"
 
-        expedicoes = buscar_expedicoes(data_inicio, data_fim, status)
+        expedicoes = buscar_expedicoes(data_inicio, data_fim, status, tipo_movimentacao)
         resumo = calcular_resumo_expedicao(expedicoes)
 
         return render_template(
@@ -261,7 +263,9 @@ def register_expedicao_routes(app, integracoes=None):
             data_inicio=data_inicio,
             data_fim=data_fim,
             status=status,
+            tipo_movimentacao=tipo_movimentacao,
             marco=obter_marco_zero(),
+            tipos_romaneio=TIPOS_ROMANEIO,
             status_opcoes=["Todos", "Aberto", "Concluído", "Cancelado", "Estornado"]
         )
 
@@ -312,12 +316,16 @@ def register_expedicao_routes(app, integracoes=None):
                     remover_item_reservado(expedicao_id, int(request.form.get("caixa_id") or 0))
                     flash("Item removido e situação anterior restaurada.")
                 elif acao == "concluir":
+                    if request.form.get("confirmacao_conclusao") != "confirmado":
+                        raise ValueError("Confirme conscientemente a conferência antes de concluir.")
                     concluir_romaneio(expedicao_id)
                     if expedicao["tipo_movimentacao"] == "HISTORICO_MARCO_ZERO":
                         flash("Romaneio histórico concluído. O estoque operacional não foi movimentado.")
                     else:
                         flash("Romaneio concluído e estoque baixado com sucesso.")
                 elif acao == "cancelar":
+                    if request.form.get("confirmacao_cancelamento") != "confirmado":
+                        raise ValueError("Confirme o cancelamento antes de continuar.")
                     cancelar_romaneio(expedicao_id, request.form.get("justificativa"))
                     flash("Romaneio cancelado; reservas restauradas.")
                 elif acao == "estornar":
@@ -354,6 +362,7 @@ def register_expedicao_routes(app, integracoes=None):
         expedicao = buscar_expedicao_por_id(expedicao_id)
         itens = buscar_itens_expedicao(expedicao_id)
         resumo_itens = calcular_resumo_itens_expedicao(itens)
+        resumo_mz = calcular_resumo_mz(itens)
         caixas_disponiveis = []
         if expedicao["status"] == "Aberto":
             estoque, _ = buscar_estoque_operacional()
@@ -373,7 +382,12 @@ def register_expedicao_routes(app, integracoes=None):
             expedicao=expedicao,
             itens=itens,
             resumo_itens=resumo_itens,
+            resumo_mz=resumo_mz,
             caixas_disponiveis=caixas_disponiveis,
+            tipo_descricao=TIPOS_ROMANEIO.get(
+                expedicao["tipo_movimentacao"],
+                expedicao["tipo_movimentacao"],
+            ),
             skus=["Galinha Cortada", "Galinha Inteira"]
         )
 
