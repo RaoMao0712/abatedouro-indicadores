@@ -6,6 +6,7 @@ import sqlite3
 import threading
 from database import DATABASE_URL, DB_NAME, conectar, inicializar_schema_uma_vez, q
 from database.migrations import executar_alteracao_segura
+from database.data_migrations import remover_os_validacao_codex_20260723215342
 from modules.auth import register_auth_routes
 from modules.usuarios import register_usuarios_routes
 from modules.manutencao import register_manutencao_routes
@@ -562,6 +563,7 @@ def inicializar_schema_aplicacao():
         criar_tabela_movimentacoes_financeiras,
         criar_tabela_fornecedores,
         manutencao_service.criar_tabelas_manutencao,
+        remover_os_validacao_codex_20260723215342,
         criar_tabelas_sgi,
     ])
 
