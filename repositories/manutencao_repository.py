@@ -307,6 +307,7 @@ def criar_tabelas_manutencao():
         "ALTER TABLE manutencao_ordens ADD COLUMN local_predial_descricao TEXT",
         "ALTER TABLE manutencao_ordens ADD COLUMN solicitante_id INTEGER",
         "ALTER TABLE manutencao_ordens ADD COLUMN solicitante_perfil TEXT",
+        "ALTER TABLE manutencao_ordens ADD COLUMN origem TEXT",
         "ALTER TABLE manutencao_ordens ADD COLUMN cancelamento_motivo TEXT",
         "ALTER TABLE manutencao_ordens ADD COLUMN cancelado_por_id INTEGER",
         "ALTER TABLE manutencao_ordens ADD COLUMN cancelado_por_nome TEXT",
@@ -557,10 +558,19 @@ def _atualizar_ficha_ordem_cursor(cursor, ordem_id, dados):
     cursor.execute(q("""
     UPDATE manutencao_ordens
     SET
+        tipo_objeto = ?,
+        equipamento_id = ?,
+        veiculo_id = ?,
+        categoria_predial = ?,
+        local_predial = ?,
+        local_predial_descricao = ?,
         tipo = ?,
         prioridade = ?,
         data_abertura = ?,
         data_prevista = ?,
+        solicitante = ?,
+        solicitante_id = ?,
+        origem = ?,
         responsavel = ?,
         descricao = ?,
         custo_estimado = ?,
@@ -821,6 +831,19 @@ def buscar_veiculo_por_id(veiculo_id):
     veiculo = cursor.fetchone()
     conn.close()
     return veiculo
+
+
+def listar_usuarios_solicitantes():
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute(q("""
+    SELECT id, nome, perfil
+    FROM usuarios
+    ORDER BY nome ASC
+    """))
+    usuarios = cursor.fetchall()
+    conn.close()
+    return usuarios
 
 
 def buscar_veiculo_por_codigo(codigo):

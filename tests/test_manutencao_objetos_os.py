@@ -15,6 +15,7 @@ os.environ["DB_NAME"] = str(DB_PATH)
 
 from app import app
 from services import manutencao_service
+from modules.auth.repositories import inserir_usuario
 
 
 def sessao(client, perfil, usuario_id=20):
@@ -49,6 +50,13 @@ def criar_veiculo(codigo="VEI-01", status="Ativo"):
         "status": status,
     })
     return manutencao_service.repo.buscar_veiculo_por_codigo(codigo)
+
+
+def criar_usuario_solicitante(nome_base="Solicitante Edicao", perfil="pcp"):
+    sufixo = len(manutencao_service.repo.listar_usuarios_solicitantes()) + 1
+    nome = f"{nome_base} {sufixo}"
+    inserir_usuario(nome, f"solicitante{sufixo}@teste.local", "123", perfil)
+    return next(usuario for usuario in manutencao_service.repo.listar_usuarios_solicitantes() if usuario["nome"] == nome)
 
 
 def form_base():
@@ -393,9 +401,25 @@ def test_ficha_unica_edita_material_e_execucao_com_bloqueios():
     assert recursos[0]["descricao"] == "Filtro atualizado"
     assert recursos[0]["quantidade"] == 3
 
+    resposta = client_manut.post(f"/manutencao/ordem/{ordem_id}/salvar", data={
+        "status": "Aberta",
+        "responsavel": "Tecnico",
+        "horas_paradas": "0",
+        "custo_real": "0",
+        "diagnostico": "Tentativa de reabertura",
+        "solucao": "",
+        "pecas_utilizadas": "",
+        "observacoes_finais": "",
+    })
+    assert resposta.status_code == 302
+    assert manutencao_service.repo.buscar_ordem_por_id(ordem_id)["status"] == "Concluida"
+
 
 def test_ficha_gerencia_edita_dados_gerais_descricao_e_registra_historico():
     ordem_id, _equipamento = abrir_os("EQ-GERAL")
+    equipamento_novo = criar_equipamento("EQ-GERAL-2")
+    veiculo = criar_veiculo("VEI-GERAL")
+    solicitante = criar_usuario_solicitante()
 
     client = app.test_client()
     sessao(client, "gerencia", 90)
@@ -403,14 +427,25 @@ def test_ficha_gerencia_edita_dados_gerais_descricao_e_registra_historico():
     html = detalhe.get_data(as_text=True)
     assert 'name="descricao"' in html
     assert 'name="descricao_visual"' not in html
+    assert 'name="tipo_objeto"' in html
+    assert 'name="equipamento_id"' in html
+    assert 'name="veiculo_id"' in html
+    assert 'name="categoria_predial"' in html
+    assert 'name="status"' in html
+    assert 'name="solicitante_id"' in html
+    assert 'name="origem"' in html
     assert 'name="prioridade"' in html
     assert 'name="data_prevista"' in html
 
     resposta = client.post(f"/manutencao/ordem/{ordem_id}/salvar", data={
+        "tipo_objeto": "EQUIPAMENTO",
+        "equipamento_id": str(equipamento_novo["id"]),
         "tipo": "Preventiva",
         "prioridade": "Alta",
         "data_abertura": "2026-07-24",
         "data_prevista": "2026-08-02",
+        "solicitante_id": str(solicitante["id"]),
+        "origem": "Qualidade",
         "responsavel": "Responsavel Geral",
         "descricao": "Descricao editada pela gerencia",
         "custo_estimado": "0",
@@ -427,10 +462,17 @@ def test_ficha_gerencia_edita_dados_gerais_descricao_e_registra_historico():
     assert resposta.status_code == 302
 
     ordem = manutencao_service.repo.buscar_ordem_por_id(ordem_id)
+    assert ordem["tipo_objeto"] == "EQUIPAMENTO"
+    assert ordem["equipamento_id"] == equipamento_novo["id"]
+    assert not ordem["veiculo_id"]
+    assert ordem["categoria_predial"] is None
     assert ordem["tipo"] == "Preventiva"
     assert ordem["prioridade"] == "Alta"
     assert ordem["data_abertura"] == "2026-07-24"
     assert ordem["data_prevista"] == "2026-08-02"
+    assert ordem["solicitante_id"] == solicitante["id"]
+    assert ordem["solicitante"] == solicitante["nome"]
+    assert ordem["origem"] == "Qualidade"
     assert ordem["responsavel"] == "Responsavel Geral"
     assert ordem["descricao"] == "Descricao editada pela gerencia"
     assert ordem["status"] == "Em andamento"
@@ -443,8 +485,95 @@ def test_ficha_gerencia_edita_dados_gerais_descricao_e_registra_historico():
 
     html_recarregado = client.get(f"/manutencao/ordem/{ordem_id}").get_data(as_text=True)
     assert "Descricao editada pela gerencia" in html_recarregado
+    assert equipamento_novo["nome"] in html_recarregado
+    assert "Em andamento | Alta | Responsavel: Responsavel Geral | Prazo: 2026-08-02" in html_recarregado
     eventos = manutencao_service.repo.listar_eventos_ordem(ordem_id)
     assert any(evento["evento"] == "OS atualizada" and "descricao" in (evento["valor_novo"] or "") for evento in eventos)
+    assert any("equipamento_id" in (evento["valor_novo"] or "") and "origem" in (evento["valor_novo"] or "") for evento in eventos)
+
+    resposta = client.post(f"/manutencao/ordem/{ordem_id}/salvar", data={
+        "tipo_objeto": "VEICULO",
+        "veiculo_id": str(veiculo["id"]),
+        "tipo": "Melhoria",
+        "prioridade": "Critica",
+        "data_abertura": "2026-07-25",
+        "data_prevista": "2026-08-03",
+        "solicitante_id": str(solicitante["id"]),
+        "origem": "PCP",
+        "responsavel": "Responsavel Veiculo",
+        "descricao": "Descricao veiculo",
+        "status": "Aguardando material",
+        "data_conclusao": "",
+        "hora_conclusao": "",
+        "horas_paradas": "0",
+        "custo_real": "0",
+        "diagnostico": "",
+        "solucao": "",
+        "pecas_utilizadas": "",
+        "observacoes_finais": "",
+    })
+    assert resposta.status_code == 302
+    ordem = manutencao_service.repo.buscar_ordem_por_id(ordem_id)
+    assert ordem["tipo_objeto"] == "VEICULO"
+    assert ordem["equipamento_id"] == 0
+    assert ordem["veiculo_id"] == veiculo["id"]
+    assert ordem["categoria_predial"] is None
+    assert ordem["objeto_nome"].startswith(veiculo["identificacao"])
+
+    resposta = client.post(f"/manutencao/ordem/{ordem_id}/salvar", data={
+        "tipo_objeto": "PREDIAL",
+        "categoria_predial": "CIVIL",
+        "local_predial": "Area Externa",
+        "tipo": "Corretiva",
+        "prioridade": "Media",
+        "data_abertura": "2026-07-26",
+        "data_prevista": "2026-08-04",
+        "solicitante_id": str(solicitante["id"]),
+        "origem": "Auditoria",
+        "responsavel": "Responsavel Predial",
+        "descricao": "Descricao predial",
+        "status": "Em andamento",
+        "data_conclusao": "",
+        "hora_conclusao": "",
+        "horas_paradas": "0",
+        "custo_real": "0",
+        "diagnostico": "",
+        "solucao": "",
+        "pecas_utilizadas": "",
+        "observacoes_finais": "",
+    })
+    assert resposta.status_code == 302
+    ordem = manutencao_service.repo.buscar_ordem_por_id(ordem_id)
+    assert ordem["tipo_objeto"] == "PREDIAL"
+    assert ordem["equipamento_id"] == 0
+    assert not ordem["veiculo_id"]
+    assert ordem["categoria_predial"] == "CIVIL"
+    assert ordem["local_predial"] == "Area Externa"
+
+    resposta = client.post(f"/manutencao/ordem/{ordem_id}/salvar", data={
+        "tipo_objeto": "PREDIAL",
+        "categoria_predial": "CIVIL",
+        "local_predial": "Area Externa",
+        "tipo": "Corretiva",
+        "prioridade": "Media",
+        "data_abertura": "2026-07-26",
+        "data_prevista": "2026-08-04",
+        "solicitante_id": str(solicitante["id"]),
+        "origem": "Auditoria",
+        "responsavel": "Responsavel Predial",
+        "descricao": "Descricao predial",
+        "status": "Cancelada",
+        "data_conclusao": "",
+        "hora_conclusao": "",
+        "horas_paradas": "0",
+        "custo_real": "0",
+        "diagnostico": "",
+        "solucao": "",
+        "pecas_utilizadas": "",
+        "observacoes_finais": "",
+    })
+    assert resposta.status_code == 302
+    assert manutencao_service.repo.buscar_ordem_por_id(ordem_id)["status"] == "Em andamento"
 
 
 def test_manutencao_nao_altera_descricao_ou_dados_gerais():
@@ -455,8 +584,14 @@ def test_manutencao_nao_altera_descricao_ou_dados_gerais():
     html = client.get(f"/manutencao/ordem/{ordem_id}").get_data(as_text=True)
     assert 'name="descricao"' not in html
     assert 'name="prioridade"' not in html
+    assert 'name="tipo_objeto"' not in html
+    assert 'name="solicitante_id"' not in html
+    assert 'name="origem"' not in html
 
     resposta = client.post(f"/manutencao/ordem/{ordem_id}/salvar", data={
+        "tipo_objeto": "PREDIAL",
+        "categoria_predial": "CIVIL",
+        "local_predial": "Area Externa",
         "tipo": "Preventiva",
         "prioridade": "Critica",
         "data_abertura": "2026-08-01",
@@ -474,6 +609,7 @@ def test_manutencao_nao_altera_descricao_ou_dados_gerais():
     assert resposta.status_code == 302
 
     ordem = manutencao_service.repo.buscar_ordem_por_id(ordem_id)
+    assert ordem["tipo_objeto"] == "EQUIPAMENTO"
     assert ordem["tipo"] == "Corretiva"
     assert ordem["prioridade"] == "Media"
     assert ordem["descricao"] == "Solicitacao de manutencao"

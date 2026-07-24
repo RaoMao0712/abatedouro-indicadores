@@ -14,6 +14,23 @@ MOTIVOS_MANUTENCAO = ["Mecanica", "Eletrica", "Pneumatica", "Hidraulica", "Instr
 MOTIVOS_OPERACIONAIS = ["Falta de materia-prima", "Falta de embalagem", "Setup", "Limpeza", "Espera", "Outros"]
 TIPOS_RECURSO_ORDEM = ["Material", "Servico", "Outra aquisicao", "Mao de obra externa"]
 STATUS_RECURSO_ORDEM = repo.STATUS_RECURSO_ORDEM
+ORIGENS_ORDEM_MANUTENCAO = [
+    "Manual",
+    "Qualidade",
+    "Producao",
+    "PCP",
+    "Central de Verificacoes",
+    "Auditoria",
+    "Outro",
+]
+TRANSICOES_STATUS_MANUTENCAO = {
+    "Aberta": ("Aberta", "Em andamento", "Aguardando peca", "Aguardando material", "Concluida"),
+    "Em andamento": ("Em andamento", "Aguardando peca", "Aguardando material", "Concluida"),
+    "Aguardando peca": ("Aguardando peca", "Em andamento", "Aguardando material", "Concluida"),
+    "Aguardando material": ("Aguardando material", "Em andamento", "Aguardando peca", "Concluida"),
+    "Concluida": ("Concluida",),
+    "Cancelada": ("Cancelada",),
+}
 PERFIS_ABERTURA_OS = ("qualidade", "producao", "pcp", "manutencao", "gerencia")
 PERFIS_TECNICOS_OS = ("manutencao", "gerencia", "admin")
 PERFIS_MATERIAIS_OS = ("qualidade", "pcp", "manutencao", "gerencia", "admin")
@@ -240,6 +257,11 @@ def preparar_atualizacao_ordem_manutencao(ordem_id, form):
     status = form.get("status") or "Aberta"
     if status not in STATUS_MANUTENCAO:
         raise ValueError("Status de manutencao invalido.")
+    if status == "Cancelada":
+        raise ValueError("Para cancelar a OS, use a acao de cancelamento e informe o motivo no bloco correto.")
+    status_atual = ordem_atual["status"] if ordem_atual else "Aberta"
+    if status not in status_opcoes_edicao_manutencao(status_atual):
+        raise ValueError("Transicao de status nao permitida para esta OS.")
 
     data_conclusao = form.get("data_conclusao") or ""
     if status == "Concluida" and not data_conclusao:
@@ -318,6 +340,9 @@ def salvar_ficha_ordem_manutencao(ordem_id, form, usuario_id=0, usuario_nome="Si
 def preparar_atualizacao_ficha_ordem_manutencao(ordem_id, form):
     dados_execucao, ordem_atual, status, data_conclusao, hora_conclusao, horas_paradas = preparar_atualizacao_ordem_manutencao(
         ordem_id, form)
+    tipo_objeto, equipamento_id, veiculo_id, categoria_predial, local_predial, local_predial_descricao = (
+        preparar_objeto_ordem_manutencao(form, ordem_atual)
+    )
 
     tipo = form.get("tipo") or ordem_atual["tipo"]
     if tipo not in TIPOS_MANUTENCAO:
@@ -333,15 +358,30 @@ def preparar_atualizacao_ficha_ordem_manutencao(ordem_id, form):
 
     data_abertura = form.get("data_abertura") or ordem_atual["data_abertura"]
     data_prevista = form.get("data_prevista") or ""
+    solicitante, solicitante_id = preparar_solicitante_ordem_manutencao(form, ordem_atual)
+    origem = (form.get("origem") or ordem_atual["origem"] or ordem_atual["solicitante_perfil"] or "Manual").strip()
+    if origem in ("-", ""):
+        origem = "Manual"
+    if origem not in ORIGENS_ORDEM_MANUTENCAO:
+        raise ValueError("Origem da OS invalida.")
     custo_estimado = somar_valor_estimado_recursos(coletar_linhas_recursos_ordem(form))
     if custo_estimado == 0:
         custo_estimado = float(form.get("custo_estimado") or ordem_atual["custo_estimado"] or 0)
 
     dados = (
+        tipo_objeto,
+        equipamento_id,
+        veiculo_id,
+        categoria_predial,
+        local_predial,
+        local_predial_descricao,
         tipo,
         prioridade,
         data_abertura,
         data_prevista,
+        solicitante,
+        solicitante_id,
+        origem,
         dados_execucao[2],
         descricao,
         custo_estimado,
@@ -351,10 +391,62 @@ def preparar_atualizacao_ficha_ordem_manutencao(ordem_id, form):
     return dados, ordem_atual, status, data_conclusao, hora_conclusao, horas_paradas
 
 
+def preparar_objeto_ordem_manutencao(form, ordem_atual):
+    tipo_objeto = form.get("tipo_objeto") or ordem_atual["tipo_objeto"] or "EQUIPAMENTO"
+    if tipo_objeto not in TIPOS_OBJETO_MANUTENCAO:
+        raise ValueError("Tipo de objeto da OS invalido.")
+
+    if tipo_objeto == "EQUIPAMENTO":
+        equipamento_id = int(form.get("equipamento_id") or ordem_atual["equipamento_id"] or 0)
+        equipamento = repo.buscar_equipamento_por_id(equipamento_id)
+        if not equipamento:
+            raise ValueError("Selecione um equipamento cadastrado para a OS.")
+        return tipo_objeto, equipamento_id, None, None, None, None
+
+    if tipo_objeto == "VEICULO":
+        veiculo_id = int(form.get("veiculo_id") or ordem_atual["veiculo_id"] or 0)
+        veiculo = repo.buscar_veiculo_por_id(veiculo_id)
+        if not veiculo:
+            raise ValueError("Selecione um veiculo cadastrado para a OS.")
+        return tipo_objeto, 0, veiculo_id, None, None, None
+
+    categoria = form.get("categoria_predial") or ordem_atual["categoria_predial"] or ""
+    categorias_validas = {codigo for codigo, _rotulo in CATEGORIAS_PREDIAIS}
+    if categoria not in categorias_validas:
+        raise ValueError("Categoria predial invalida.")
+
+    local = form.get("local_predial") or ordem_atual["local_predial"] or ""
+    if local not in LOCAIS_PREDIAIS:
+        raise ValueError("Local predial invalido.")
+
+    descricao_local = (form.get("local_predial_descricao") or "").strip()
+    if not descricao_local:
+        descricao_local = ordem_atual["local_predial_descricao"] or ""
+    if local == "Outros" and not descricao_local:
+        raise ValueError("Informe o local complementar para manutencao predial em Outros.")
+    if local != "Outros":
+        descricao_local = None
+    return tipo_objeto, 0, None, categoria, local, descricao_local
+
+
+def preparar_solicitante_ordem_manutencao(form, ordem_atual):
+    solicitante_id = int(form.get("solicitante_id") or 0)
+    if not solicitante_id:
+        return ordem_atual["solicitante"] or "", ordem_atual["solicitante_id"]
+
+    for usuario in repo.listar_usuarios_solicitantes():
+        if int(usuario["id"]) == solicitante_id:
+            return usuario["nome"], solicitante_id
+    raise ValueError("Solicitante informado nao existe no cadastro de usuarios.")
+
+
 def montar_evento_atualizacao_os(ordem_atual, dados):
     nomes = [
-        "tipo", "prioridade", "data_abertura", "data_prevista", "responsavel",
-        "descricao", "custo_estimado", "status", "data_conclusao", "diagnostico",
+        "tipo_objeto", "equipamento_id", "veiculo_id", "categoria_predial",
+        "local_predial", "local_predial_descricao", "tipo", "prioridade",
+        "data_abertura", "data_prevista", "solicitante", "solicitante_id",
+        "origem", "responsavel", "descricao", "custo_estimado",
+        "status", "data_conclusao", "diagnostico",
         "solucao", "horas_paradas", "custo_real", "hora_conclusao",
         "pecas_utilizadas", "observacoes_finais",
     ]
@@ -402,6 +494,10 @@ def usuario_pode_cancelar_os(perfil):
     return perfil in PERFIS_CANCELAMENTO_OS
 
 
+def status_opcoes_edicao_manutencao(status_atual):
+    return tuple(TRANSICOES_STATUS_MANUTENCAO.get(status_atual or "Aberta", (status_atual or "Aberta",)))
+
+
 def buscar_equipamentos_manutencao(busca=""):
     if busca:
         return repo.listar_equipamentos_filtrados(busca)
@@ -422,6 +518,10 @@ def buscar_veiculos_manutencao(busca=""):
 
 def buscar_veiculos_ativos_manutencao():
     return repo.listar_veiculos_ativos()
+
+
+def listar_usuarios_solicitantes_manutencao():
+    return repo.listar_usuarios_solicitantes()
 
 
 def buscar_ordens_manutencao(

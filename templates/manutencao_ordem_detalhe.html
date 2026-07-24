@@ -66,8 +66,45 @@
     <section class="card expedicao-card manutencao-card">
         <div class="section-title-row"><div><span class="eyebrow">A</span><h2>Dados da OS</h2></div></div>
         <div class="manutencao-info-grid manutencao-info-grid-compacta">
+            {% set origem_atual = ordem.origem or ordem.solicitante_perfil or "Manual" %}
+            {% if origem_atual == "-" %}{% set origem_atual = "Manual" %}{% endif %}
+            {% if pode_editar_dados_gerais %}
+            <label>Tipo<select name="tipo_objeto" data-tipo-objeto-os>
+                <option value="EQUIPAMENTO" {% if ordem.tipo_objeto == "EQUIPAMENTO" %}selected{% endif %}>Equipamento</option>
+                <option value="PREDIAL" {% if ordem.tipo_objeto == "PREDIAL" %}selected{% endif %}>Predial</option>
+                <option value="VEICULO" {% if ordem.tipo_objeto == "VEICULO" %}selected{% endif %}>Veiculo</option>
+            </select></label>
+            <div class="manutencao-objeto-os" data-objeto-os="EQUIPAMENTO">
+                <label>Objeto<select name="equipamento_id" data-objeto-campo>
+                    {% for equipamento in equipamentos %}
+                    <option value="{{ equipamento.id }}" {% if ordem.equipamento_id == equipamento.id %}selected{% endif %}>{{ equipamento.codigo }} - {{ equipamento.nome }}</option>
+                    {% endfor %}
+                </select></label>
+            </div>
+            <div class="manutencao-objeto-os" data-objeto-os="VEICULO">
+                <label>Objeto<select name="veiculo_id" data-objeto-campo>
+                    {% for veiculo in veiculos %}
+                    <option value="{{ veiculo.id }}" {% if ordem.veiculo_id == veiculo.id %}selected{% endif %}>{{ veiculo.codigo }} - {{ veiculo.identificacao }}{% if veiculo.placa %} | {{ veiculo.placa }}{% endif %}</option>
+                    {% endfor %}
+                </select></label>
+            </div>
+            <div class="manutencao-objeto-os manutencao-objeto-predial" data-objeto-os="PREDIAL">
+                <label>Objeto<select name="categoria_predial" data-objeto-campo>
+                    {% for codigo, rotulo in categorias_prediais %}
+                    <option value="{{ codigo }}" {% if ordem.categoria_predial == codigo %}selected{% endif %}>{{ rotulo }}</option>
+                    {% endfor %}
+                </select></label>
+                <label>Local<select name="local_predial" data-objeto-campo data-local-predial>
+                    {% for local in locais_prediais %}
+                    <option value="{{ local }}" {% if ordem.local_predial == local %}selected{% endif %}>{{ local }}</option>
+                    {% endfor %}
+                </select></label>
+                <label data-local-complementar>Local complementar<input type="text" name="local_predial_descricao" value="{{ ordem.local_predial_descricao or '' }}" data-objeto-campo></label>
+            </div>
+            {% else %}
             {{ campo_leitura("Tipo", "Veiculo" if ordem.tipo_objeto == "VEICULO" else "Predial" if ordem.tipo_objeto == "PREDIAL" else "Equipamento") }}
             {{ campo_leitura("Objeto", ordem.objeto_nome) }}
+            {% endif %}
             {% if pode_editar_dados_gerais %}
             <label>Natureza<select name="tipo">{% for tipo in tipos %}<option value="{{ tipo }}" {% if ordem.tipo == tipo %}selected{% endif %}>{{ tipo }}</option>{% endfor %}</select></label>
             <label>Prioridade<select name="prioridade">{% for prioridade in prioridades %}<option value="{{ prioridade }}" {% if ordem.prioridade == prioridade %}selected{% endif %}>{{ prioridade }}</option>{% endfor %}</select></label>
@@ -75,7 +112,11 @@
             {{ campo_leitura("Natureza", ordem.tipo) }}
             {{ campo_leitura("Prioridade", ordem.prioridade) }}
             {% endif %}
+            {% if pode_editar_dados_gerais %}
+            <label>Status<select name="status">{% for status in status_opcoes|default(['Aberta','Em andamento','Aguardando peca','Aguardando material','Concluida','Cancelada']) %}{% if status != "Cancelada" %}<option value="{{ status }}" {% if ordem.status == status %}selected{% endif %}>{{ status }}</option>{% endif %}{% endfor %}</select></label>
+            {% else %}
             {{ campo_leitura("Status", ordem.status) }}
+            {% endif %}
             {% if pode_editar_dados_gerais %}
             <label>Abertura<input type="date" name="data_abertura" value="{{ ordem.data_abertura or '' }}"></label>
             <label>Prazo<input type="date" name="data_prevista" value="{{ ordem.data_prevista or '' }}"></label>
@@ -83,13 +124,31 @@
             {{ campo_leitura("Abertura", (ordem.data_abertura ~ " " ~ (ordem.hora_abertura or ""))|trim) }}
             {{ campo_leitura("Prazo", ordem.data_prevista) }}
             {% endif %}
+            {% if pode_editar_dados_gerais %}
+            <label>Solicitante<select name="solicitante_id">
+                {% for usuario in usuarios_solicitantes %}
+                    <option value="{{ usuario.id }}" {% if ordem.solicitante_id == usuario.id %}selected{% endif %}>{{ usuario.nome }}</option>
+                {% endfor %}
+                {% if not ordem.solicitante_id and ordem.solicitante %}
+                <option value="" selected>{{ ordem.solicitante }}</option>
+                {% endif %}
+            </select></label>
+            {% else %}
             {{ campo_leitura("Solicitante", ordem.solicitante) }}
+            {% endif %}
             {% if pode_editar_dados_gerais %}
             <label>Responsavel<input type="text" name="responsavel" value="{{ ordem.responsavel or '' }}"></label>
             {% else %}
             {{ campo_leitura("Responsavel", ordem.responsavel) }}
             {% endif %}
-            {{ campo_leitura("Origem", "NC SGI #" ~ ordem.sgi_nc_id if ordem.sgi_nc_id else "OP " ~ ordem.op_id if ordem.op_id else "-") }}
+            {% if pode_editar_dados_gerais %}
+            <label>Origem<select name="origem">{% for origem in origens_os %}<option value="{{ origem }}" {% if origem_atual == origem %}selected{% endif %}>{{ origem }}</option>{% endfor %}</select></label>
+            {% else %}
+            {% set origem_legivel = ordem.origem or origem_atual %}
+            {% if ordem.sgi_nc_id %}{% set origem_legivel = "NC SGI #" ~ ordem.sgi_nc_id %}{% endif %}
+            {% if ordem.op_id %}{% set origem_legivel = "OP " ~ ordem.op_id %}{% endif %}
+            {{ campo_leitura("Origem", origem_legivel or "-") }}
+            {% endif %}
             {% if ordem.local_predial_descricao %}{{ campo_leitura("Local complementar", ordem.local_predial_descricao) }}{% endif %}
             {% if ordem.motivo_parada %}{{ campo_leitura("Motivo parada", ordem.motivo_parada) }}{% endif %}
         </div>
@@ -144,7 +203,11 @@
         <div class="section-title-row"><div><span class="eyebrow">E</span><h2>Encerramento</h2></div></div>
         {% if pode_executar %}
         <div class="form-grid manutencao-update-form">
-            <div><label>Status<select name="status">{% for status in status_opcoes|default(['Aberta','Em andamento','Aguardando peca','Aguardando material','Concluida','Cancelada']) %}<option value="{{ status }}" {% if ordem.status == status %}selected{% endif %}>{{ status }}</option>{% endfor %}</select></label></div>
+            {% if pode_editar_dados_gerais %}
+            <div><label>Status<input type="text" value="{{ ordem.status }}" readonly></label></div>
+            {% else %}
+            <div><label>Status<select name="status">{% for status in status_opcoes|default(['Aberta','Em andamento','Aguardando peca','Aguardando material','Concluida','Cancelada']) %}{% if status != "Cancelada" %}<option value="{{ status }}" {% if ordem.status == status %}selected{% endif %}>{{ status }}</option>{% endif %}{% endfor %}</select></label></div>
+            {% endif %}
             <div><label>Conclusao<input type="date" name="data_conclusao" value="{{ ordem.data_conclusao or '' }}"></label></div>
             <div><label>Hora conclusao<input type="time" name="hora_conclusao" value="{{ ordem.hora_conclusao or '' }}"></label></div>
             {% if pode_editar_dados_gerais %}
@@ -201,6 +264,23 @@
 <script>
 const tiposRecursoOrdem = {{ tipos_recurso|tojson }};
 const statusRecursoOrdem = {{ status_recurso|tojson }};
+function atualizarObjetoOrdem() {
+    const seletorTipo = document.querySelector("[data-tipo-objeto-os]");
+    if (!seletorTipo) return;
+    const tipo = seletorTipo.value;
+    document.querySelectorAll("[data-objeto-os]").forEach((grupo) => {
+        const ativo = grupo.getAttribute("data-objeto-os") === tipo;
+        grupo.hidden = !ativo;
+        grupo.querySelectorAll("[data-objeto-campo]").forEach((campo) => {
+            campo.disabled = !ativo;
+        });
+    });
+    const localPredial = document.querySelector("[data-local-predial]");
+    const complemento = document.querySelector("[data-local-complementar]");
+    if (localPredial && complemento) {
+        complemento.hidden = tipo !== "PREDIAL" || localPredial.value !== "Outros";
+    }
+}
 function optionRecurso(valor, rotulo) { return `<option value="${valor}">${rotulo || valor}</option>`; }
 function rotuloTipoRecurso(tipo) {
     if (tipo === "Material") return "Material/Peca";
@@ -265,6 +345,10 @@ document.addEventListener("click", function(evento) {
 document.addEventListener("input", function(evento) {
     if (evento.target.matches("[data-recurso-valor]")) atualizarTotalRecursos();
 });
+document.addEventListener("change", function(evento) {
+    if (evento.target.matches("[data-tipo-objeto-os], [data-local-predial]")) atualizarObjetoOrdem();
+});
+atualizarObjetoOrdem();
 document.querySelectorAll("[data-recursos-lista]").forEach(atualizarVazioRecursos);
 atualizarTotalRecursos();
 </script>
