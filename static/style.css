@@ -6322,18 +6322,15 @@ button:hover {
 }
 
 .manutencao-recursos-form {
-    position: fixed;
-    top: 92px;
-    right: 28px;
-    z-index: 65;
-    width: min(1040px, calc(100vw - 56px));
-    max-height: calc(100vh - 124px);
+    position: static;
+    width: 100%;
+    max-height: none;
     padding: 14px;
-    overflow-y: auto;
+    overflow: visible;
     border: 1px solid #d8e0e8;
     border-radius: 8px;
     background: #f8fafc;
-    box-shadow: 0 18px 34px rgba(15, 23, 42, 0.18);
+    box-shadow: none;
 }
 
 .manutencao-recursos-lista {
@@ -9326,7 +9323,8 @@ small {
 @media(max-width:700px){.sgi-plm01-competencia,.sgi-plm01-actions{display:grid}.sgi-plm01-meta{grid-template-columns:1fr}}
 @media print{@page{size:A4 landscape;margin:10mm}.sgi-plm01-print .sgi-plm01-table{min-width:0}.sgi-plm01-table th{position:static}.sgi-plm01-table th,.sgi-plm01-table td{padding:4px;font-size:9px}.sgi-plm01-alcance{font-size:10px}.sgi-plm01-print{gap:6px}}
 /* Manutencao - painel operacional em fichas */
-.manutencao-painel,.manutencao-detalhe{display:grid;gap:14px}
+.manutencao-painel,.manutencao-detalhe{display:grid;gap:14px;max-width:100%;min-width:0;overflow-x:hidden}
+.manutencao-painel *,.manutencao-detalhe *{box-sizing:border-box;min-width:0}
 .manutencao-cabecalho{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;padding:4px 2px 0}
 .manutencao-cabecalho h2{margin:0;font-size:1.45rem;color:#173f35}
 .manutencao-cabecalho p{margin:4px 0 0;color:#65736f;font-size:.86rem}
@@ -9344,12 +9342,26 @@ small {
 .manutencao-filtros input,.manutencao-filtros select{width:100%;padding:8px;border:1px solid #cbd8d3;border-radius:8px;background:#fff}
 .manutencao-info-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
 .manutencao-info-grid p{margin:0;padding:10px;border:1px solid #e0e8e5;border-radius:8px;background:#fbfdfc}
-.manutencao-recursos-form{display:grid;gap:10px}
-.manutencao-recursos-lista{display:grid;gap:10px}
-.manutencao-recurso-linha{display:grid;grid-template-columns:120px 180px minmax(180px,1fr) minmax(160px,1fr) 80px 80px 150px minmax(140px,1fr) auto;gap:8px;align-items:end;padding:10px;border:1px solid #dbe6e2;border-radius:8px;background:#fbfdfc}
+.manutencao-ficha-os{gap:10px}
+.manutencao-ficha-form{display:grid;gap:10px}
+.manutencao-ficha-topo{align-items:center}
+.manutencao-topo-acoes,.manutencao-ficha-rodape{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+.manutencao-info-grid-compacta{grid-template-columns:repeat(4,minmax(0,1fr))}
+.manutencao-campo-cheio{display:grid;gap:5px;font-size:.78rem;font-weight:700}
+.manutencao-execucao-grid textarea,.manutencao-campo-cheio textarea{min-height:58px!important;height:auto!important;resize:vertical}
+.manutencao-recursos-bloco{display:grid;gap:10px;padding:10px;border:1px solid #dbe6e2;border-radius:8px;background:#fbfdfc}
+.manutencao-grade-header{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.manutencao-grade-header h3{margin:0;color:#1f3b4d;font-size:1rem}
+.manutencao-grade-header .obs{margin:3px 0 0}
+.manutencao-recursos-form{position:static!important;inset:auto!important;width:auto!important;max-height:none!important;overflow:visible!important;display:grid;gap:10px;z-index:auto!important}
+.manutencao-recursos-lista{position:static!important;display:grid;gap:8px;min-width:0}
+.manutencao-recursos-lista.vazia::before{content:attr(data-vazio);display:block;padding:10px;border:1px dashed #cbd8d3;border-radius:8px;background:#fff;color:#64736e;font-size:.78rem}
+.manutencao-recurso-linha{display:grid;grid-template-columns:120px minmax(220px,1.6fr) 82px 80px 120px minmax(130px,1fr) minmax(150px,1fr) auto;gap:8px;align-items:end;padding:10px;border:1px solid #dbe6e2;border-radius:8px;background:#fff;min-width:0}
 .manutencao-recurso-linha label{display:grid;gap:4px;font-size:.72rem;font-weight:700}
 .manutencao-recurso-linha input,.manutencao-recurso-linha select{width:100%;padding:8px;border:1px solid #cbd8d3;border-radius:8px;background:#fff}
 .manutencao-recurso-linha.removida{opacity:.55}
 .manutencao-recursos-toolbar{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap}
-@media(max-width:1180px){.manutencao-charts{grid-template-columns:1fr}.manutencao-filtros{grid-template-columns:repeat(3,minmax(120px,1fr))}.manutencao-info-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.manutencao-recurso-linha{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.manutencao-grade-total{display:flex;justify-content:flex-end;align-items:center;gap:8px;padding-top:2px;color:#52625d;font-size:.8rem}
+.manutencao-grade-total strong{color:#174b3d;font-size:.95rem}
+@media(max-width:1180px){.manutencao-charts{grid-template-columns:1fr}.manutencao-filtros{grid-template-columns:repeat(3,minmax(120px,1fr))}.manutencao-info-grid,.manutencao-info-grid-compacta{grid-template-columns:repeat(2,minmax(0,1fr))}.manutencao-recurso-linha{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:640px){.manutencao-cabecalho{display:grid}.manutencao-filtros,.manutencao-info-grid,.manutencao-recurso-linha{grid-template-columns:1fr}.manutencao-fichas{display:flex;overflow-x:auto;flex-wrap:nowrap}.manutencao-fichas .movimentacoes-ficha{flex:0 0 135px}}

@@ -12,7 +12,7 @@ LOCAIS_PREDIAIS = repo.LOCAIS_PREDIAIS
 TIPOS_VEICULO = repo.TIPOS_VEICULO
 MOTIVOS_MANUTENCAO = ["Mecanica", "Eletrica", "Pneumatica", "Hidraulica", "Instrumentacao"]
 MOTIVOS_OPERACIONAIS = ["Falta de materia-prima", "Falta de embalagem", "Setup", "Limpeza", "Espera", "Outros"]
-TIPOS_RECURSO_ORDEM = ["Material", "Servico", "Mao de obra externa"]
+TIPOS_RECURSO_ORDEM = ["Material", "Servico", "Outra aquisicao", "Mao de obra externa"]
 STATUS_RECURSO_ORDEM = repo.STATUS_RECURSO_ORDEM
 PERFIS_ABERTURA_OS = ("qualidade", "producao", "pcp", "manutencao", "gerencia")
 PERFIS_TECNICOS_OS = ("manutencao", "gerencia", "admin")
@@ -191,7 +191,12 @@ def salvar_ordem_manutencao(form, usuario_id=0, usuario_nome="", usuario_perfil=
 
     solicitante = (usuario_nome or form.get("solicitante") or "").strip()
 
-    return repo.inserir_ordem((
+    linhas_recursos = coletar_linhas_recursos_ordem(form)
+    custo_estimado_form = float(form.get("custo_estimado") or 0)
+    custo_estimado_recursos = somar_valor_estimado_recursos(linhas_recursos)
+    custo_estimado = custo_estimado_recursos if custo_estimado_recursos > 0 else custo_estimado_form
+
+    return repo.inserir_ordem_com_recursos((
         tipo_objeto,
         equipamento_id,
         veiculo_id,
@@ -212,14 +217,21 @@ def salvar_ordem_manutencao(form, usuario_id=0, usuario_nome="", usuario_perfil=
         (form.get("responsavel") or "").strip(),
         descricao,
         (form.get("motivo_parada") or "").strip(),
-        float(form.get("custo_estimado") or 0),
-    ))
+        custo_estimado,
+    ), linhas_recursos, usuario_id, usuario_nome)
 
 
 def atualizar_ordem_manutencao(ordem_id, form, usuario_id=0, usuario_nome="Sistema", usuario_perfil=""):
     if usuario_perfil and usuario_perfil not in PERFIS_TECNICOS_OS:
         raise PermissionError("Perfil sem permissao para encerramento tecnico da OS.")
 
+    dados, ordem_atual, status, data_conclusao, hora_conclusao, horas_paradas = preparar_atualizacao_ordem_manutencao(
+        ordem_id, form)
+    repo.atualizar_ordem(ordem_id, dados)
+    aplicar_pos_atualizacao_ordem(ordem_id, ordem_atual, status, data_conclusao, hora_conclusao, horas_paradas, usuario_id, usuario_nome)
+
+
+def preparar_atualizacao_ordem_manutencao(ordem_id, form):
     ordem_atual = repo.buscar_ordem_por_id(ordem_id)
     if ordem_atual and ordem_atual["status"] == "Cancelada":
         raise ValueError("OS cancelada nao pode ser executada ou editada operacionalmente.")
@@ -242,7 +254,7 @@ def atualizar_ordem_manutencao(ordem_id, form, usuario_id=0, usuario_nome="Siste
         if horas_calculadas > 0:
             horas_paradas = horas_calculadas
 
-    repo.atualizar_ordem(ordem_id, (
+    dados = (
         status,
         data_conclusao,
         (form.get("responsavel") or "").strip(),
@@ -253,8 +265,11 @@ def atualizar_ordem_manutencao(ordem_id, form, usuario_id=0, usuario_nome="Siste
         hora_conclusao,
         (form.get("pecas_utilizadas") or "").strip(),
         (form.get("observacoes_finais") or "").strip(),
-    ))
+    )
+    return dados, ordem_atual, status, data_conclusao, hora_conclusao, horas_paradas
 
+
+def aplicar_pos_atualizacao_ordem(ordem_id, ordem_atual, status, data_conclusao, hora_conclusao, horas_paradas, usuario_id, usuario_nome):
     if status == "Concluida" and ordem_atual:
         if ordem_atual["tipo_objeto"] == "EQUIPAMENTO" and ordem_atual["equipamento_id"]:
             repo.atualizar_status_equipamento(ordem_atual["equipamento_id"], "Operacional")
@@ -267,6 +282,27 @@ def atualizar_ordem_manutencao(ordem_id, form, usuario_id=0, usuario_nome="Siste
                 "NC", ordem_atual["sgi_nc_id"], "OS concluida",
                 f"OS #{ordem_id} concluida; aguardando validacao da Qualidade.",
                 usuario_id, usuario_nome)
+
+
+def salvar_ficha_ordem_manutencao(ordem_id, form, usuario_id=0, usuario_nome="Sistema", usuario_perfil=""):
+    ordem = repo.buscar_ordem_por_id(ordem_id)
+    if not ordem:
+        raise ValueError("Ordem de manutencao nao encontrada.")
+    if ordem["status"] == "Cancelada":
+        raise ValueError("OS cancelada nao pode ser editada.")
+
+    perfil = usuario_perfil or ""
+    if perfil in PERFIS_TECNICOS_OS:
+        dados, ordem_atual, status, data_conclusao, hora_conclusao, horas_paradas = preparar_atualizacao_ordem_manutencao(
+            ordem_id, form)
+        linhas = coletar_linhas_recursos_ordem(form) if perfil in PERFIS_MATERIAIS_OS else []
+        repo.atualizar_ordem_com_recursos(ordem_id, dados, linhas, usuario_id, usuario_nome)
+        aplicar_pos_atualizacao_ordem(
+            ordem_id, ordem_atual, status, data_conclusao, hora_conclusao, horas_paradas, usuario_id, usuario_nome)
+    elif perfil not in PERFIS_MATERIAIS_OS:
+        raise PermissionError("Perfil sem permissao para editar a OS.")
+    else:
+        salvar_recursos_ordem_manutencao(ordem_id, form, perfil, usuario_id, usuario_nome)
 
 
 def usuario_pode_editar_materiais(perfil):
@@ -324,18 +360,23 @@ def salvar_recursos_ordem_manutencao(ordem_id, form, usuario_perfil="", usuario_
     if ordem["status"] == "Cancelada":
         raise ValueError("OS cancelada nao pode receber alteracao de materiais.")
 
-    recurso_ids = form.getlist("recurso_id[]")
-    remover = form.getlist("remover[]")
-    tipos = form.getlist("recurso_tipo[]")
-    descricoes = form.getlist("recurso_descricao[]")
-    insumos = form.getlist("recurso_insumo_id[]")
-    complementos = form.getlist("recurso_descricao_complementar[]")
-    quantidades = form.getlist("recurso_quantidade[]")
-    unidades = form.getlist("recurso_unidade[]")
-    fornecedores = form.getlist("recurso_fornecedor[]")
-    valores = form.getlist("recurso_valor_estimado[]")
-    status = form.getlist("recurso_status[]")
-    observacoes = form.getlist("recurso_observacoes[]")
+    linhas = coletar_linhas_recursos_ordem(form)
+    repo.salvar_recursos_ordem(ordem_id, linhas, usuario_id, usuario_nome)
+
+
+def coletar_linhas_recursos_ordem(form):
+    recurso_ids = _getlist_form(form, "recurso_id[]")
+    remover = _getlist_form(form, "remover[]")
+    tipos = _getlist_form(form, "recurso_tipo[]")
+    descricoes = _getlist_form(form, "recurso_descricao[]")
+    insumos = _getlist_form(form, "recurso_insumo_id[]")
+    complementos = _getlist_form(form, "recurso_descricao_complementar[]")
+    quantidades = _getlist_form(form, "recurso_quantidade[]")
+    unidades = _getlist_form(form, "recurso_unidade[]")
+    fornecedores = _getlist_form(form, "recurso_fornecedor[]")
+    valores = _getlist_form(form, "recurso_valor_estimado[]")
+    status = _getlist_form(form, "recurso_status[]")
+    observacoes = _getlist_form(form, "recurso_observacoes[]")
 
     total_linhas = max(
         len(recurso_ids),
@@ -354,6 +395,7 @@ def salvar_recursos_ordem_manutencao(ordem_id, form, usuario_perfil="", usuario_
 
     linhas = []
     for indice in range(total_linhas):
+        removida = _item_lista(remover, indice) == "Sim"
         tipo = _item_lista(tipos, indice) or "Material"
         if tipo not in TIPOS_RECURSO_ORDEM:
             raise ValueError("Tipo de recurso invalido.")
@@ -362,17 +404,34 @@ def salvar_recursos_ordem_manutencao(ordem_id, form, usuario_perfil="", usuario_
         if status_linha not in STATUS_RECURSO_ORDEM:
             raise ValueError("Status de recurso invalido.")
 
+        descricao = _item_lista(descricoes, indice)
         quantidade = float(_item_lista(quantidades, indice) or 0)
+        valor_estimado = float(_item_lista(valores, indice) or 0)
         if quantidade < 0:
             raise ValueError("Quantidade do material nao pode ser negativa.")
+        if valor_estimado < 0:
+            raise ValueError("Valor estimado do material nao pode ser negativo.")
 
-        descricao = _item_lista(descricoes, indice)
-        if descricao and quantidade == 0:
+        tem_conteudo = any([
+            descricao,
+            _item_lista(insumos, indice),
+            _item_lista(complementos, indice),
+            quantidade,
+            _item_lista(unidades, indice),
+            _item_lista(fornecedores, indice),
+            valor_estimado,
+            _item_lista(observacoes, indice),
+        ])
+        if not tem_conteudo and not _item_lista(recurso_ids, indice):
+            continue
+        if not removida and not descricao:
+            raise ValueError("Informe a descricao do material, servico ou aquisicao.")
+        if not removida and quantidade <= 0:
             raise ValueError("Informe a quantidade do material ou servico.")
 
         linhas.append({
             "id": _item_lista(recurso_ids, indice),
-            "remover": _item_lista(remover, indice) or "Nao",
+            "remover": "Sim" if removida else "Nao",
             "tipo": tipo,
             "descricao": descricao,
             "insumo_id": _item_lista(insumos, indice),
@@ -380,12 +439,27 @@ def salvar_recursos_ordem_manutencao(ordem_id, form, usuario_perfil="", usuario_
             "quantidade": quantidade,
             "unidade": _item_lista(unidades, indice),
             "fornecedor": _item_lista(fornecedores, indice),
-            "valor_estimado": _item_lista(valores, indice),
+            "valor_estimado": valor_estimado,
             "status": status_linha,
             "observacoes": _item_lista(observacoes, indice),
         })
 
-    repo.salvar_recursos_ordem(ordem_id, linhas, usuario_id, usuario_nome)
+    return linhas
+
+
+def somar_valor_estimado_recursos(linhas):
+    return sum(float(linha.get("valor_estimado") or 0) for linha in linhas if linha.get("remover") != "Sim")
+
+
+def _getlist_form(form, chave):
+    if hasattr(form, "getlist"):
+        return form.getlist(chave)
+    valor = form.get(chave, []) if hasattr(form, "get") else []
+    if isinstance(valor, (list, tuple)):
+        return list(valor)
+    if valor in (None, ""):
+        return []
+    return [valor]
 
 
 def cancelar_ordem_manutencao(ordem_id, motivo, usuario_id=0, usuario_nome="Sistema", usuario_perfil=""):

@@ -84,6 +84,28 @@ def form_material(descricao="Rolamento", quantidade="2", status="Necessario"):
     }
 
 
+def form_materiais_variados(equipamento_id):
+    dados = form_base()
+    dados.update({
+        "tipo_objeto": "EQUIPAMENTO",
+        "equipamento_id": str(equipamento_id),
+        "responsavel": "Manutencao",
+        "recurso_id[]": ["", "", ""],
+        "remover[]": ["Nao", "Nao", "Nao"],
+        "recurso_tipo[]": ["Material", "Servico", "Outra aquisicao"],
+        "recurso_descricao[]": ["Rolamento", "Servico eletrico", "Compra emergencial"],
+        "recurso_insumo_id[]": ["", "", ""],
+        "recurso_descricao_complementar[]": ["", "", ""],
+        "recurso_quantidade[]": ["2", "1", "3"],
+        "recurso_unidade[]": ["Un", "h", "Un"],
+        "recurso_fornecedor[]": ["", "", ""],
+        "recurso_valor_estimado[]": ["100.50", "250", "30"],
+        "recurso_status[]": ["Necessario", "Necessario", "Necessario"],
+        "recurso_observacoes[]": ["", "", ""],
+    })
+    return MultiDict(dados)
+
+
 def test_abertura_por_equipamento_preserva_fluxo_antigo():
     equipamento = criar_equipamento("EQ-A")
     dados = form_base()
@@ -97,6 +119,30 @@ def test_abertura_por_equipamento_preserva_fluxo_antigo():
     assert not ordem["veiculo_id"]
     assert ordem["solicitante"] == "Solicitante"
     assert ordem["solicitante_perfil"] == "pcp"
+
+
+def test_abertura_com_materiais_servico_aquisicao_e_custo_transacional():
+    equipamento = criar_equipamento("EQ-GRID")
+    ordem_id = manutencao_service.salvar_ordem_manutencao(
+        form_materiais_variados(equipamento["id"]), 10, "Solicitante", "pcp")
+
+    ordem = manutencao_service.repo.buscar_ordem_por_id(ordem_id)
+    recursos = manutencao_service.repo.listar_recursos_por_ordens([ordem_id])[str(ordem_id)]
+
+    assert len(recursos) == 3
+    assert {recurso["tipo"] for recurso in recursos} == {"Material", "Servico", "Outra aquisicao"}
+    assert round(float(ordem["custo_estimado"] or 0), 2) == 380.50
+
+    dados_invalidos = form_materiais_variados(equipamento["id"])
+    dados_invalidos.setlist("recurso_descricao[]", ["Linha invalida"])
+    dados_invalidos.setlist("recurso_quantidade[]", ["0"])
+    total_antes = len(manutencao_service.buscar_ordens_manutencao())
+    try:
+        manutencao_service.salvar_ordem_manutencao(dados_invalidos, 11, "Solicitante", "pcp")
+        assert False, "linha com quantidade zerada deveria falhar"
+    except ValueError:
+        pass
+    assert len(manutencao_service.buscar_ordens_manutencao()) == total_antes
 
 
 def test_equipamento_inexistente_ou_inativo_e_rejeitado():
@@ -226,6 +272,10 @@ def test_rotas_renderizam_campos_oficiais():
     assert "Manutencao Predial" in html_abrir
     assert 'name="categoria_predial"' in html_abrir
     assert 'name="veiculo_id"' in html_abrir
+    assert "Materiais e aquisicoes necessarias" in html_abrir
+    assert 'name="recurso_valor_estimado[]"' in html_abrir
+    assert "Abrir ordem" in html_abrir
+    assert "Salvar materiais" not in html_abrir
 
     buscar = client.get("/manutencao?aba=buscar")
     html_buscar = buscar.get_data(as_text=True)
@@ -247,9 +297,11 @@ def test_rotas_renderizam_campos_oficiais():
     detalhe = client.get(f"/manutencao/ordem/{ordem_id}")
     html_detalhe = detalhe.get_data(as_text=True)
     assert detalhe.status_code == 200
-    assert "Informacoes Gerais" in html_detalhe
-    assert "Materiais Necessarios" in html_detalhe
-    assert "Execucao, Horas e Custos" in html_detalhe
+    assert "Dados da OS" in html_detalhe
+    assert "Materiais e Aquisicoes Necessarias" in html_detalhe
+    assert "Execucao" in html_detalhe
+    assert "Salvar materiais" not in html_detalhe
+    assert "Salvar alteracoes" in html_detalhe
     assert "Historico" in html_detalhe
 
     veiculos = client.get("/cadastros/veiculos")
@@ -290,6 +342,56 @@ def test_lista_materiais_permissoes_auditoria_e_validacao():
         assert False, "quantidade negativa deveria falhar"
     except ValueError as erro:
         assert "Quantidade" in str(erro)
+
+
+def test_ficha_unica_edita_material_e_execucao_com_bloqueios():
+    ordem_id, _equipamento = abrir_os("EQ-FICHA")
+    client = app.test_client()
+    sessao(client, "pcp", 81)
+    resposta = client.post(f"/manutencao/ordem/{ordem_id}/salvar", data=form_material("Filtro", "2"))
+    assert resposta.status_code == 302
+    recursos = manutencao_service.repo.listar_recursos_por_ordens([ordem_id])[str(ordem_id)]
+    assert len(recursos) == 1
+    assert recursos[0]["descricao"] == "Filtro"
+
+    client_prod = app.test_client()
+    sessao(client_prod, "producao", 82)
+    bloqueio = client_prod.post(f"/manutencao/ordem/{ordem_id}/salvar", data=form_material("Nao pode", "1"))
+    assert bloqueio.status_code in (302, 403)
+    assert len(manutencao_service.repo.listar_recursos_por_ordens([ordem_id])[str(ordem_id)]) == 1
+
+    client_manut = app.test_client()
+    sessao(client_manut, "manutencao", 83)
+    resposta = client_manut.post(f"/manutencao/ordem/{ordem_id}/salvar", data={
+        "status": "Concluida",
+        "data_conclusao": "2026-07-24",
+        "hora_conclusao": "10:30",
+        "responsavel": "Tecnico",
+        "horas_paradas": "1.5",
+        "custo_real": "120",
+        "diagnostico": "Falha identificada",
+        "solucao": "Ajuste aplicado",
+        "pecas_utilizadas": "Filtro",
+        "observacoes_finais": "Concluido",
+        "recurso_id[]": [str(recursos[0]["id"])],
+        "remover[]": ["Nao"],
+        "recurso_tipo[]": ["Material"],
+        "recurso_descricao[]": ["Filtro atualizado"],
+        "recurso_insumo_id[]": [""],
+        "recurso_descricao_complementar[]": [""],
+        "recurso_quantidade[]": ["3"],
+        "recurso_unidade[]": ["Un"],
+        "recurso_fornecedor[]": [""],
+        "recurso_valor_estimado[]": ["45"],
+        "recurso_status[]": ["Necessario"],
+        "recurso_observacoes[]": ["Atualizado na ficha"],
+    })
+    assert resposta.status_code == 302
+    ordem = manutencao_service.repo.buscar_ordem_por_id(ordem_id)
+    recursos = manutencao_service.repo.listar_recursos_por_ordens([ordem_id])[str(ordem_id)]
+    assert ordem["status"] == "Concluida"
+    assert recursos[0]["descricao"] == "Filtro atualizado"
+    assert recursos[0]["quantidade"] == 3
 
 
 def test_cancelamento_os_controlado_e_indicadores():

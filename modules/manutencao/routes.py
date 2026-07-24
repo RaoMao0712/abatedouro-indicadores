@@ -160,6 +160,23 @@ def register_manutencao_routes(app):
 
         return redirect(url_for("visualizar_ordem_manutencao", ordem_id=ordem_id))
 
+    @app.route("/manutencao/ordem/<int:ordem_id>/salvar", methods=["POST"])
+    @perfil_permitido("qualidade", "pcp", "manutencao", "gerencia")
+    def salvar_ficha_ordem_manutencao_rota(ordem_id):
+        try:
+            manutencao_service.salvar_ficha_ordem_manutencao(
+                ordem_id,
+                request.form,
+                session.get("usuario_id", 0),
+                session.get("nome", "Sistema"),
+                session.get("perfil", ""),
+            )
+            flash("Ordem de servico atualizada com sucesso.")
+        except Exception as erro:
+            flash(str(erro))
+
+        return redirect(url_for("visualizar_ordem_manutencao", ordem_id=ordem_id))
+
     @app.route("/manutencao/ordem/<int:ordem_id>/recursos/painel", methods=["POST"])
     @perfil_permitido("qualidade", "pcp", "manutencao", "gerencia")
     def salvar_recursos_ordem_manutencao_painel(ordem_id):

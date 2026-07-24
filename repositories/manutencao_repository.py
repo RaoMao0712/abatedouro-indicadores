@@ -429,6 +429,29 @@ def inserir_ordem(dados):
     criar_tabelas_manutencao()
     conn = conectar()
     cursor = conn.cursor()
+    ordem_id = _inserir_ordem_cursor(cursor, dados)
+    conn.commit()
+    conn.close()
+    return ordem_id
+
+
+def inserir_ordem_com_recursos(dados, recursos=None, usuario_id=0, usuario_nome="Sistema"):
+    criar_tabelas_manutencao()
+    conn = conectar()
+    cursor = conn.cursor()
+    try:
+        ordem_id = _inserir_ordem_cursor(cursor, dados)
+        _salvar_recursos_ordem_cursor(cursor, ordem_id, recursos or [], usuario_id, usuario_nome)
+        conn.commit()
+        return ordem_id
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def _inserir_ordem_cursor(cursor, dados):
     cursor.execute(q("""
     INSERT INTO manutencao_ordens (
         tipo_objeto,
@@ -460,10 +483,8 @@ def inserir_ordem(dados):
         SET status = ?
         WHERE id = ?
         """), ("Em Manutencao", dados[1]))
-    conn.commit()
     cursor.execute("SELECT LASTVAL() as id" if DATABASE_URL else "SELECT last_insert_rowid() as id")
     ordem = cursor.fetchone()
-    conn.close()
     return ordem["id"]
 
 
@@ -471,6 +492,27 @@ def atualizar_ordem(ordem_id, dados):
     criar_tabelas_manutencao()
     conn = conectar()
     cursor = conn.cursor()
+    _atualizar_ordem_cursor(cursor, ordem_id, dados)
+    conn.commit()
+    conn.close()
+
+
+def atualizar_ordem_com_recursos(ordem_id, dados, recursos=None, usuario_id=0, usuario_nome="Sistema"):
+    criar_tabelas_manutencao()
+    conn = conectar()
+    cursor = conn.cursor()
+    try:
+        _atualizar_ordem_cursor(cursor, ordem_id, dados)
+        _salvar_recursos_ordem_cursor(cursor, ordem_id, recursos or [], usuario_id, usuario_nome)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def _atualizar_ordem_cursor(cursor, ordem_id, dados):
     cursor.execute(q("""
     UPDATE manutencao_ordens
     SET
@@ -486,8 +528,6 @@ def atualizar_ordem(ordem_id, dados):
         observacoes_finais = ?
     WHERE id = ?
     """), (*dados, ordem_id))
-    conn.commit()
-    conn.close()
 
 
 def buscar_ordem_por_id(ordem_id):
@@ -1025,7 +1065,17 @@ def salvar_recursos_ordem(ordem_id, linhas, usuario_id=0, usuario_nome="Sistema"
     criar_tabelas_manutencao()
     conn = conectar()
     cursor = conn.cursor()
+    try:
+        _salvar_recursos_ordem_cursor(cursor, ordem_id, linhas, usuario_id, usuario_nome)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
+
+def _salvar_recursos_ordem_cursor(cursor, ordem_id, linhas, usuario_id=0, usuario_nome="Sistema"):
     for linha in linhas:
         recurso_id = int(linha.get("id") or 0)
 
@@ -1082,7 +1132,7 @@ def salvar_recursos_ordem(ordem_id, linhas, usuario_id=0, usuario_nome="Sistema"
                 observacoes = ?,
                 atualizado_em = CURRENT_TIMESTAMP
             WHERE id = ? AND ordem_id = ?
-            """), (*dados[1:10], recurso_id, ordem_id))
+            """), (*dados[1:11], recurso_id, ordem_id))
             if anterior:
                 _registrar_evento_cursor(
                     cursor, ordem_id, recurso_id, "Material alterado",
@@ -1112,6 +1162,3 @@ def salvar_recursos_ordem(ordem_id, linhas, usuario_id=0, usuario_nome="Sistema"
                 cursor, ordem_id, novo["id"], "Material incluido",
                 "Item incluido na lista de materiais", "", str(dados[1:10]),
                 usuario_id, usuario_nome)
-
-    conn.commit()
-    conn.close()

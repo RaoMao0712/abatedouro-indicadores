@@ -129,6 +129,24 @@
 {% endif %}
 {% endmacro %}
 
+{% macro grade_recursos_abertura() %}
+<section class="manutencao-recursos-bloco form-span-2">
+    <div class="manutencao-grade-header">
+        <div>
+            <span class="eyebrow">Materiais</span>
+            <h3>Materiais e aquisicoes necessarias</h3>
+            <p class="obs">Inclua materiais, servicos ou outras aquisicoes previstas para esta OS.</p>
+        </div>
+        <button type="button" class="botao-dre-exportar manutencao-btn secundario" data-adicionar-recurso>Adicionar linha</button>
+    </div>
+    <div class="manutencao-recursos-lista" data-recursos-lista data-vazio="Nenhuma linha informada. A OS pode ser aberta sem materiais."></div>
+    <div class="manutencao-grade-total">
+        <span>Total estimado da grade</span>
+        <strong data-total-recursos>R$ 0,00</strong>
+    </div>
+</section>
+{% endmacro %}
+
 <div class="manutencao-page manutencao-painel">
     <header class="manutencao-cabecalho">
         <div>
@@ -181,8 +199,9 @@
                 <div><label>Previsao</label><input type="date" name="data_prevista"></div>
                 <div><label>Solicitante</label><input type="text" name="solicitante" value="{{ session.get('nome', '') }}" readonly></div>
                 <div><label>Responsavel</label><input type="text" name="responsavel"></div>
-                <div><label>Custo estimado</label><input type="number" name="custo_estimado" step="0.01" min="0" placeholder="0,00"></div>
+                <div><label>Custo estimado</label><input type="number" name="custo_estimado" step="0.01" min="0" value="0" readonly data-custo-estimado></div>
                 <div class="form-span-2"><label>Descricao da ocorrencia ou servico</label><textarea name="descricao" rows="3" required></textarea></div>
+                {{ grade_recursos_abertura() }}
                 <div class="form-span-2"><button type="submit" class="botao-principal manutencao-btn">Abrir ordem</button></div>
             </form>
         </section>
@@ -233,6 +252,79 @@ function atualizarCamposObjetoOs() {
 document.querySelector("[data-tipo-objeto-os]")?.addEventListener("change", atualizarCamposObjetoOs);
 document.querySelector("[data-local-predial]")?.addEventListener("change", atualizarCamposObjetoOs);
 atualizarCamposObjetoOs();
+
+const tiposRecursoOrdem = {{ tipos_recurso|tojson }};
+const statusRecursoOrdem = {{ status_recurso|tojson }};
+const insumosManutencao = {{ insumos_manutencao|map(attribute='id')|list|tojson }};
+const nomesInsumosManutencao = {{ insumos_manutencao|map(attribute='descricao')|list|tojson }};
+function optionRecurso(valor, rotulo) { return `<option value="${valor}">${rotulo || valor}</option>`; }
+function optionInsumo(_valor, indice) { return `<option value="${insumosManutencao[indice]}">${nomesInsumosManutencao[indice]}</option>`; }
+function rotuloTipoRecurso(tipo) {
+    if (tipo === "Material") return "Material/Peca";
+    if (tipo === "Servico") return "Servico";
+    if (tipo === "Outra aquisicao") return "Outra aquisicao";
+    return tipo;
+}
+function criarLinhaRecurso() {
+    const linha = document.createElement("div");
+    linha.className = "manutencao-recurso-linha";
+    linha.setAttribute("data-recurso-linha", "");
+    linha.innerHTML = `<input type="hidden" name="recurso_id[]" value=""><input type="hidden" name="remover[]" value="Nao" data-recurso-remover>
+        <div><label>Tipo</label><select name="recurso_tipo[]">${tiposRecursoOrdem.filter((tipo) => tipo !== "Mao de obra externa").map((tipo) => optionRecurso(tipo, rotuloTipoRecurso(tipo))).join("")}</select></div>
+        <div><label>Material, servico ou aquisicao</label><input type="text" name="recurso_descricao[]" required placeholder="Descricao do item"></div>
+        <div><label>Qtd.</label><input type="number" step="0.01" min="0.01" name="recurso_quantidade[]" value="1" required data-recurso-quantidade></div>
+        <div><label>Un.</label><input type="text" name="recurso_unidade[]" placeholder="un, h, kg"></div>
+        <div><label>Valor estimado</label><input type="number" step="0.01" min="0" name="recurso_valor_estimado[]" value="0" data-recurso-valor></div>
+        <div><label>Observacao</label><input type="text" name="recurso_observacoes[]"></div>
+        <input type="hidden" name="recurso_insumo_id[]" value=""><input type="hidden" name="recurso_descricao_complementar[]" value=""><input type="hidden" name="recurso_fornecedor[]" value=""><input type="hidden" name="recurso_status[]" value="Necessario">
+        <button type="button" class="botao-tabela-almoxarifado manutencao-btn-tabela manutencao-btn-remover" data-remover-recurso>Remover</button>`;
+    return linha;
+}
+function atualizarTotalRecursos() {
+    const linhas = document.querySelectorAll("[data-recurso-linha]:not(.removida)");
+    let total = 0;
+    linhas.forEach((linha) => {
+        total += Number(linha.querySelector("[data-recurso-valor]")?.value || 0);
+    });
+    document.querySelectorAll("[data-total-recursos]").forEach((el) => {
+        el.textContent = total.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+    });
+    document.querySelectorAll("[data-custo-estimado]").forEach((el) => { el.value = total.toFixed(2); });
+}
+function atualizarVazioRecursos(lista) {
+    if (!lista) return;
+    const temLinha = lista.querySelector("[data-recurso-linha]:not(.removida)");
+    lista.classList.toggle("vazia", !temLinha);
+}
+document.addEventListener("click", function(evento) {
+    const adicionar = evento.target.closest("[data-adicionar-recurso]");
+    if (adicionar) {
+        const lista = adicionar.closest(".manutencao-recursos-bloco, form").querySelector("[data-recursos-lista]");
+        lista.appendChild(criarLinhaRecurso());
+        atualizarVazioRecursos(lista);
+        atualizarTotalRecursos();
+        return;
+    }
+    const remover = evento.target.closest("[data-remover-recurso]");
+    if (remover) {
+        const linha = remover.closest("[data-recurso-linha]");
+        const lista = linha.closest("[data-recursos-lista]");
+        const id = linha.querySelector("input[name='recurso_id[]']").value;
+        if (id) {
+            linha.querySelector("[data-recurso-remover]").value = "Sim";
+            linha.classList.add("removida");
+        } else {
+            linha.remove();
+        }
+        atualizarVazioRecursos(lista);
+        atualizarTotalRecursos();
+    }
+});
+document.addEventListener("input", function(evento) {
+    if (evento.target.matches("[data-recurso-valor]")) atualizarTotalRecursos();
+});
+document.querySelectorAll("[data-recursos-lista]").forEach(atualizarVazioRecursos);
+atualizarTotalRecursos();
 </script>
 
 {% endblock %}
