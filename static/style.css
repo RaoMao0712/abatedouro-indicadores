@@ -9322,6 +9322,59 @@ small {
 @media(max-width:1180px){.sgi-plm01-meta{grid-template-columns:1fr 1fr}.sgi-plm01-meta span+span{border-left:0;border-top:1px solid var(--prumo-line)}}
 @media(max-width:700px){.sgi-plm01-competencia,.sgi-plm01-actions{display:grid}.sgi-plm01-meta{grid-template-columns:1fr}}
 @media print{@page{size:A4 landscape;margin:10mm}.sgi-plm01-print .sgi-plm01-table{min-width:0}.sgi-plm01-table th{position:static}.sgi-plm01-table th,.sgi-plm01-table td{padding:4px;font-size:9px}.sgi-plm01-alcance{font-size:10px}.sgi-plm01-print{gap:6px}}
+
+/* Expedição — marco zero e estoque operacional */
+.expedicao-cabecalho-compacto {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 16px 20px;
+}
+.expedicao-cabecalho-compacto h2 { margin: 2px 0; }
+.expedicao-resumo-documento {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px 20px;
+}
+.expedicao-acoes-documento,
+.form-inline {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+.expedicao-acoes-documento { justify-content: space-between; }
+.form-inline input { min-width: 280px; }
+.numero-romaneio { white-space: nowrap; }
+.botao-perigo { background: #b42318; }
+.romaneio-impressao {
+    max-width: 1100px;
+    margin: 0 auto;
+    background: #fff;
+    padding: 28px;
+}
+.romaneio-impressao header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    border-bottom: 2px solid #222;
+    margin-bottom: 18px;
+}
+.romaneio-impressao table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+.romaneio-impressao th,
+.romaneio-impressao td { border: 1px solid #777; padding: 7px; text-align: left; }
+.assinaturas { display: grid; grid-template-columns: 1fr 1fr; gap: 80px; margin-top: 70px; }
+.assinaturas span { border-top: 1px solid #222; text-align: center; padding-top: 6px; }
+@media (max-width: 760px) {
+    .expedicao-cabecalho-compacto { align-items: flex-start; flex-direction: column; }
+    .expedicao-resumo-documento { grid-template-columns: 1fr; }
+}
+@media print {
+    @page { size: A4 portrait; margin: 12mm; }
+    .romaneio-impressao { padding: 0; max-width: none; }
+    .romaneio-impressao .expedicao-resumo-documento { grid-template-columns: repeat(3, 1fr); }
+}
 /* Manutencao - painel operacional em fichas */
 .manutencao-painel,.manutencao-detalhe{display:grid;gap:14px;max-width:100%;min-width:0;overflow-x:hidden}
 .manutencao-painel *,.manutencao-detalhe *{box-sizing:border-box;min-width:0}

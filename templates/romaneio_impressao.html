@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block conteudo %}
+<div class="romaneio-impressao">
+    <div class="no-print"><a href="{{ url_for('detalhe_romaneio_expedicao', expedicao_id=expedicao.id) }}">Voltar</a><button onclick="window.print()">Imprimir</button></div>
+    <header><h1>FrigoDatta</h1><h2>{{ tipo_descricao }}</h2><strong class="numero-romaneio">{{ expedicao.numero_romaneio }}</strong></header>
+    <section class="expedicao-resumo-documento"><span><strong>Data:</strong> {{ expedicao.data }}</span><span><strong>Origem:</strong> {{ expedicao.origem or "Abatedouro" }}</span><span><strong>Destino:</strong> {{ expedicao.destino }}</span><span><strong>Responsável:</strong> {{ expedicao.responsavel or expedicao.criado_por or "-" }}</span><span><strong>Status:</strong> {{ expedicao.status }}</span></section>
+    <table><thead><tr><th>Identificação</th><th>SKU</th><th>OP</th><th>Quantidade</th><th>Peso líquido</th></tr></thead><tbody>
+        {% for item in itens %}<tr><td>{{ item.codigo_caixa or "Total declarado" }}</td><td>{{ item.sku }}</td><td>{{ item.op_id or "-" }}</td><td>{{ item.quantidade_unidades|br_numero }}</td><td>{{ item.quantidade_kg|br_numero(3) }} kg</td></tr>{% endfor %}
+        <tr><th colspan="3">Totais</th><th>{{ resumo.total_unidades|br_numero }}</th><th>{{ resumo.total_kg|br_numero(3) }} kg</th></tr>
+    </tbody></table>
+    <p><strong>Observações:</strong> {{ expedicao.observacoes or "-" }}</p>
+    {% if expedicao.justificativa %}<p><strong>Justificativa:</strong> {{ expedicao.justificativa }}</p>{% endif %}
+    <div class="assinaturas"><span>Responsável pela movimentação</span><span>Conferência</span></div>
+</div>
+{% endblock %}

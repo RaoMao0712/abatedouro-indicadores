@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block conteudo %}
+<div class="expedicao-page">
+    <section class="card expedicao-cabecalho-compacto"><div><span class="eyebrow">Expedição</span><h2>Produtos Não Conformes</h2></div><nav class="expedicao-acoes-topo"><a href="{{ url_for('estoque_camara_expedicao') }}">Estoque</a><a href="{{ url_for('novo_romaneio_expedicao') }}">Novo romaneio específico</a></nav></section>
+    <section class="card"><div class="tabela-responsiva tabela-executiva expedicao-tabela"><table>
+        <thead><tr><th>Identificação</th><th>SKU</th><th>OP</th><th>Quantidade</th><th>Peso</th><th>Motivo</th><th>Situação</th><th>Destinação</th></tr></thead>
+        <tbody>{% for item in itens %}<tr>
+            <td><strong>{{ item.codigo_caixa }}</strong></td><td>{{ item.sku }}</td><td>{{ item.op_id or "-" }}</td><td>{{ item.quantidade_bandejas|br_numero }}</td><td>{{ item.peso_liquido|br_numero(3) }} kg</td><td>{{ item.motivo_nao_conformidade or "-" }}</td><td>{{ item.disponibilidade|replace('_',' ') }}</td>
+            <td>{% if item.disponibilidade in ["BLOQUEADO", "REPROCESSAMENTO"] %}<form method="POST" action="{{ url_for('destinar_estoque_expedicao', caixa_id=item.id) }}"><select name="destino"><option value="PERMANECER_BLOQUEADO">Permanecer bloqueado</option><option value="LIBERAR">Liberar para estoque conforme</option><option value="REPROCESSAMENTO">Reprocessamento</option></select><input name="justificativa" required placeholder="Justificativa"><button type="submit">Registrar</button></form>{% else %}Use romaneio específico{% endif %}</td>
+        </tr>{% else %}<tr><td colspan="8">Nenhum Produto Não Conforme registrado.</td></tr>{% endfor %}</tbody>
+    </table></div></section>
+</div>
+{% endblock %}

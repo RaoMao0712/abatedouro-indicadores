@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block conteudo %}
+<div class="expedicao-page">
+    <section class="card expedicao-cabecalho-compacto">
+        <div><span class="eyebrow">Expedição</span><h2>Estoque da Câmara</h2><small>Estoque operacional posterior ao marco zero</small></div>
+        <nav class="expedicao-acoes-topo"><a href="{{ url_for('expedicao') }}">Romaneios</a><a href="{{ url_for('nao_conformes_expedicao') }}">Não conformes</a><a href="{{ url_for('historico_estoque_expedicao') }}">Histórico</a></nav>
+    </section>
+    <section class="expedicao-kpis">
+        <div class="card expedicao-kpi azul"><span>Físico total</span><strong>{{ resumo.itens_fisicos|br_numero(0) }}</strong><small>{{ resumo.peso_fisico|br_numero(3) }} kg</small></div>
+        <div class="card expedicao-kpi verde"><span>Conforme disponível</span><strong>{{ resumo.itens_disponiveis|br_numero(0) }}</strong><small>{{ resumo.peso_disponivel|br_numero(3) }} kg</small></div>
+        <div class="card expedicao-kpi"><span>Reservado</span><strong>{{ resumo.itens_reservados|br_numero(0) }}</strong><small>{{ resumo.peso_reservado|br_numero(3) }} kg</small></div>
+        <div class="card expedicao-kpi vermelho"><span>Não conforme bloqueado</span><strong>{{ resumo.itens_bloqueados|br_numero(0) }}</strong><small>{{ resumo.peso_bloqueado|br_numero(3) }} kg</small></div>
+    </section>
+    <section class="card">
+        <div class="tabela-responsiva tabela-executiva expedicao-tabela"><table>
+            <thead><tr><th>Identificação</th><th>SKU</th><th>OP</th><th>Lote/produção</th><th>Validade</th><th>Quantidade</th><th>Peso</th><th>Local/zona</th><th>Condição</th><th>Disponibilidade</th><th></th></tr></thead>
+            <tbody>{% for item in itens %}
+            <tr>
+                <td><strong>{{ item.codigo_caixa }}</strong></td><td>{{ item.sku }}</td><td>{{ item.op_id or "-" }}</td><td>{{ item.data_fabricacao or "-" }}</td><td>{{ item.data_validade or "-" }}</td>
+                <td>{{ item.quantidade_bandejas|br_numero }}</td><td>{{ item.peso_liquido|br_numero(3) }} kg</td><td>{{ item.local_estoque or "-" }} / {{ item.zona_estoque }}</td><td>{{ item.condicao|replace('_',' ') }}</td><td>{{ item.disponibilidade|replace('_',' ') }}</td>
+                <td>{% if item.condicao == "CONFORME" and item.disponibilidade == "DISPONIVEL" %}<details><summary>Bloquear</summary><form method="POST" action="{{ url_for('bloquear_estoque_expedicao', caixa_id=item.id) }}"><input name="motivo" required placeholder="Motivo"><input name="observacao" placeholder="Observação"><button type="submit">Confirmar</button></form></details>{% endif %}</td>
+            </tr>
+            {% else %}<tr><td colspan="11">O estoque operacional está zerado.</td></tr>{% endfor %}</tbody>
+        </table></div>
+    </section>
+</div>
+{% endblock %}

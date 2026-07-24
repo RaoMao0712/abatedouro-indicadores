@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 import unicodedata
 
 from database import DATABASE_URL, conectar, q
-from modules.auth.services import nome_usuario_atual
+from modules.auth.services import nome_usuario_atual, perfil_atual
 from modules.producao.services import buscar_op_por_id, gerar_producao_automatica_setores
 
 _CRIAR_BANCO = None
@@ -620,6 +620,13 @@ def registrar_lote_pa_galinha_inteira(cursor, op, unidades_vendaveis, aves_embal
 
 def registrar_apontamento_embalagem_primaria(op, quantidade_bandejas, observacoes="", kg_produzidos=None, pacotes_1_ave=0, pacotes_2_aves=0):
     criar_tabelas_estoque_pi_pa()
+    from .estoque_service import (
+        ativar_estoque_op_encerrada,
+        criar_tabelas_estoque_confiavel,
+        marcar_pa_pendente,
+    )
+
+    criar_tabelas_estoque_confiavel()
 
     if not op:
         raise ValueError("OP não encontrada.")
@@ -692,12 +699,17 @@ def registrar_apontamento_embalagem_primaria(op, quantidade_bandejas, observacoe
             kg_final,
             observacao_final
         )
+        cursor.execute(q("SELECT id FROM pa_caixas WHERE codigo_caixa = ?"), (codigo_lote,))
+        caixa_lote = cursor.fetchone()
+        if caixa_lote:
+            marcar_pa_pendente(cursor, caixa_lote["id"])
 
         cursor.execute(q("""
         UPDATE ordens_producao
         SET status = ?
         WHERE id = ?
         """), ("Encerrada", op["id"]))
+        ativar_estoque_op_encerrada(cursor, op["id"])
 
         conn.commit()
         conn.close()
@@ -1063,6 +1075,8 @@ def validar_saldo_pi_para_composicoes(composicoes):
 
 
 def inserir_caixa_pa(cursor, codigo_caixa, sku, data_fabricacao, data_validade, peso_bruto, peso_liquido, total_bandejas, observacoes, composicao):
+    from .estoque_service import marcar_pa_pendente
+
     local_abatedouro_id = obter_local_abatedouro_id(cursor)
 
     if DATABASE_URL:
@@ -1136,6 +1150,12 @@ def inserir_caixa_pa(cursor, codigo_caixa, sku, data_fabricacao, data_validade, 
 
         registrar_saida_pi_por_caixa(cursor, op_id, sku, qtd, caixa_id)
 
+    cursor.execute(q("""
+    UPDATE pa_caixas
+    SET peso_tara = ?
+    WHERE id = ?
+    """), (0.5, caixa_id))
+    marcar_pa_pendente(cursor, caixa_id)
     return caixa_id
 
 
@@ -1146,13 +1166,10 @@ def registrar_caixa_pa_manual(form):
     validar_saldo_pi_para_composicoes([composicao])
 
     peso_bruto = parse_numero_form(form.get("peso_bruto") or 0)
-    peso_liquido = parse_numero_form(form.get("peso_liquido") or 0)
+    peso_liquido = peso_bruto - 0.5
 
     if peso_bruto <= 0:
         raise ValueError("Informe o peso bruto da caixa.")
-
-    if peso_liquido <= 0:
-        peso_liquido = peso_bruto - 0.5
 
     if peso_liquido <= 0:
         raise ValueError("O peso líquido calculado precisa ser maior que zero.")
@@ -1193,20 +1210,13 @@ def registrar_caixas_pa_lote(form):
         raise ValueError("Informe ao menos um peso bruto no lançamento em lote.")
 
     pesos_brutos = [parse_numero_form(linha) for linha in linhas]
-    pesos_liquidos_raw = [linha.strip() for linha in (form.get("pesos_liquidos_lote") or "").splitlines() if linha.strip()]
-
-    if pesos_liquidos_raw and len(pesos_liquidos_raw) != len(pesos_brutos):
-        raise ValueError("A lista de pesos líquidos editados deve ter a mesma quantidade de linhas da lista de pesos brutos.")
 
     pesos_liquidos = []
-    for indice, peso_bruto in enumerate(pesos_brutos):
+    for peso_bruto in pesos_brutos:
         if peso_bruto <= 0:
             raise ValueError("Todos os pesos brutos do lote precisam ser maiores que zero.")
 
-        if pesos_liquidos_raw:
-            peso_liquido = parse_numero_form(pesos_liquidos_raw[indice])
-        else:
-            peso_liquido = peso_bruto - 0.5
+        peso_liquido = peso_bruto - 0.5
 
         if peso_liquido <= 0:
             raise ValueError("Todos os pesos líquidos do lote precisam ser maiores que zero.")
@@ -1378,6 +1388,9 @@ def calcular_fechamento_industrial_op(op_id):
 
 
 def finalizar_embalagem_secundaria_op(op_id):
+    from .estoque_service import ativar_estoque_op_encerrada, criar_tabelas_estoque_confiavel
+
+    criar_tabelas_estoque_confiavel()
     fechamento = calcular_fechamento_industrial_op(op_id)
 
     if not fechamento["pode_encerrar"]:
@@ -1405,6 +1418,7 @@ def finalizar_embalagem_secundaria_op(op_id):
     SET status = ?
     WHERE id = ?
     """), ("Encerrada", op_id))
+    ativar_estoque_op_encerrada(cursor, op_id)
 
     conn.commit()
     conn.close()
@@ -1629,6 +1643,9 @@ def calcular_resumo_estoque_pa(saldos):
 
 
 def buscar_expedicoes(data_inicio=None, data_fim=None, status=None):
+    from .estoque_service import criar_tabelas_estoque_confiavel
+
+    criar_tabelas_estoque_confiavel()
     filtros = []
     parametros = []
 
@@ -1651,15 +1668,12 @@ def buscar_expedicoes(data_inicio=None, data_fim=None, status=None):
     conn = conectar()
     cursor = conn.cursor()
     cursor.execute(q(f"""
-    SELECT
-        e.*,
-        COALESCE(COUNT(i.id), 0) as total_itens,
-        COALESCE(SUM(i.quantidade_unidades), 0) as total_unidades,
-        COALESCE(SUM(i.quantidade_kg), 0) as total_kg
+    SELECT e.*,
+        (SELECT COUNT(*) FROM expedicao_itens i WHERE i.expedicao_id = e.id) AS total_itens,
+        (SELECT COALESCE(SUM(i.quantidade_unidades), 0) FROM expedicao_itens i WHERE i.expedicao_id = e.id) AS total_unidades,
+        (SELECT COALESCE(SUM(i.quantidade_kg), 0) FROM expedicao_itens i WHERE i.expedicao_id = e.id) AS total_kg
     FROM expedicoes e
-    LEFT JOIN expedicao_itens i ON i.expedicao_id = e.id
     {where}
-    GROUP BY e.id, e.numero_romaneio, e.data, e.tipo_movimentacao, e.destino, e.responsavel, e.observacoes, e.status, e.criado_em
     ORDER BY e.data DESC, e.id DESC
     """), tuple(parametros))
 
@@ -1686,7 +1700,7 @@ def calcular_resumo_expedicao(expedicoes):
         "total_kg": round(total_kg, 2)
     }
 
-def gerar_numero_romaneio(data_romaneio):
+def gerar_numero_romaneio(data_romaneio, tipo_movimentacao="TRANSFERENCIA"):
     """
     Gera número sequencial diário do romaneio.
     Formato: ROM-AAAAMMDD-001
@@ -1700,7 +1714,8 @@ def gerar_numero_romaneio(data_romaneio):
     criar_tabelas_expedicao()
 
     data_base = (data_romaneio or datetime.now().strftime("%Y-%m-%d")).strip()
-    prefixo = "ROM-" + data_base.replace("-", "")
+    prefixo_base = "MZ" if tipo_movimentacao == "HISTORICO_MARCO_ZERO" else "ROM"
+    prefixo = prefixo_base + "-" + data_base.replace("-", "")
 
     conn = conectar()
     cursor = conn.cursor()
@@ -1730,17 +1745,38 @@ def salvar_romaneio_expedicao(form):
     - Sem itens.
     - Sem baixa de estoque.
     """
+    from .estoque_service import TIPOS_ROMANEIO, criar_tabelas_estoque_confiavel
+
     criar_tabelas_expedicao()
+    criar_tabelas_estoque_confiavel()
 
     data_romaneio = (form.get("data") or "").strip()
-    destino = LOCAL_ESTOQUE_LSM
+    tipo_movimentacao = (form.get("tipo_movimentacao") or "TRANSFERENCIA").strip()
+    if tipo_movimentacao not in TIPOS_ROMANEIO:
+        raise ValueError("Tipo de romaneio inválido.")
+    origem = (form.get("origem") or LOCAL_ESTOQUE_ABATEDOURO).strip()
+    destino = (form.get("destino") or LOCAL_ESTOQUE_LSM).strip()
     responsavel = (form.get("responsavel") or "").strip()
     observacoes = (form.get("observacoes") or "").strip()
 
     if not data_romaneio:
         raise ValueError("Informe a data do romaneio.")
 
-    numero_romaneio = gerar_numero_romaneio(data_romaneio)
+    if tipo_movimentacao == "HISTORICO_MARCO_ZERO":
+        conn_verificacao = conectar()
+        cursor_verificacao = conn_verificacao.cursor()
+        cursor_verificacao.execute("""
+        SELECT COUNT(*) AS total
+        FROM expedicoes
+        WHERE tipo_movimentacao = 'HISTORICO_MARCO_ZERO'
+          AND status <> 'Cancelado'
+        """)
+        historicos_existentes = int(cursor_verificacao.fetchone()["total"] or 0)
+        conn_verificacao.close()
+        if historicos_existentes:
+            raise ValueError("Já existe um romaneio de transferência histórica do marco zero.")
+
+    numero_romaneio = gerar_numero_romaneio(data_romaneio, tipo_movimentacao)
 
     conn = conectar()
     cursor = conn.cursor()
@@ -1750,19 +1786,27 @@ def salvar_romaneio_expedicao(form):
         numero_romaneio,
         data,
         tipo_movimentacao,
+        origem,
         destino,
         responsavel,
         observacoes,
-        status
-    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        status,
+        criado_por,
+        perfil_criacao,
+        atualizado_em
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """), (
         numero_romaneio,
         data_romaneio,
-        "TRANSFERENCIA",
+        tipo_movimentacao,
+        origem,
         destino,
         responsavel,
         observacoes,
-        "Aberto"
+        "Aberto",
+        nome_usuario_atual() or "Sistema",
+        perfil_atual() or "sistema",
+        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     ))
 
     conn.commit()
@@ -1804,6 +1848,7 @@ def buscar_itens_expedicao(expedicao_id):
         cx.peso_liquido,
         cx.quantidade_bandejas,
         cx.status AS status_caixa,
+        cx.disponibilidade AS disponibilidade_caixa,
         COALESCE(le.nome, ?) AS local_atual,
         mov.usuario AS usuario_transferencia,
         mov.criado_em AS data_transferencia
@@ -1824,8 +1869,11 @@ def buscar_itens_expedicao(expedicao_id):
 
 
 def buscar_caixas_disponiveis_transferencia():
+    from .estoque_service import criar_tabelas_estoque_confiavel
+
     criar_tabelas_expedicao()
     criar_tabelas_estoque_pi_pa()
+    criar_tabelas_estoque_confiavel()
 
     conn = conectar()
     cursor = conn.cursor()
@@ -1850,6 +1898,9 @@ def buscar_caixas_disponiveis_transferencia():
     LEFT JOIN pa_caixa_composicao comp ON comp.caixa_id = cx.id
     WHERE cx.local_estoque_id = ?
       AND cx.status = ?
+      AND cx.estoque_operacional = 1
+      AND cx.condicao = 'CONFORME'
+      AND cx.disponibilidade = 'DISPONIVEL'
     GROUP BY
         cx.id,
         cx.codigo_caixa,

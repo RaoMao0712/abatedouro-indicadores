@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block conteudo %}
+<div class="expedicao-page">
+    <section class="card expedicao-cabecalho-compacto"><div><span class="eyebrow">Expedição</span><h2>Histórico e Rastreabilidade</h2></div><a href="{{ url_for('expedicao') }}">Romaneios</a></section>
+    <section class="card"><div class="tabela-responsiva tabela-executiva expedicao-tabela"><table>
+        <thead><tr><th>Data e hora</th><th>Identificação</th><th>SKU</th><th>Romaneio</th><th>Ação</th><th>Situação</th><th>Condição</th><th>Quantidade</th><th>Peso</th><th>Usuário/perfil</th><th>Justificativa</th></tr></thead>
+        <tbody>{% for evento in eventos %}<tr>
+            <td>{{ evento.criado_em }}</td><td>{{ evento.codigo_caixa or "-" }}</td><td>{{ evento.sku or "-" }}</td><td class="numero-romaneio">{{ evento.numero_romaneio or "-" }}</td><td>{{ evento.acao|replace('_',' ') }}</td><td>{{ evento.situacao_anterior or "-" }} → {{ evento.situacao_nova or "-" }}</td><td>{{ evento.condicao_anterior or "-" }} → {{ evento.condicao_nova or "-" }}</td><td>{{ evento.quantidade|br_numero }}</td><td>{{ evento.peso|br_numero(3) }} kg</td><td>{{ evento.usuario }} / {{ evento.perfil }}</td><td>{{ evento.justificativa or evento.observacao or "-" }}</td>
+        </tr>{% else %}<tr><td colspan="11">Nenhum evento operacional registrado.</td></tr>{% endfor %}</tbody>
+    </table></div></section>
+</div>
+{% endblock %}

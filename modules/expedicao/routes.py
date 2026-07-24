@@ -37,6 +37,21 @@ from .services import (
     resetar_processamento_op,
     salvar_romaneio_expedicao,
 )
+from .estoque_service import (
+    TIPOS_ROMANEIO,
+    bloquear_produto,
+    buscar_estoque_operacional,
+    buscar_historico_estoque,
+    cancelar_romaneio,
+    concluir_romaneio,
+    destinar_produto,
+    editar_romaneio_aberto,
+    estornar_romaneio,
+    obter_marco_zero,
+    registrar_itens_historicos,
+    remover_item_reservado,
+    reservar_itens,
+)
 
 
 def register_expedicao_routes(app, integracoes=None):
@@ -101,7 +116,7 @@ def register_expedicao_routes(app, integracoes=None):
 
 
     @app.route("/estoque-produtos")
-    @perfil_permitido("pcp")
+    @perfil_permitido("pcp", "qualidade")
     def estoque_produtos():
         contexto = montar_contexto_estoque_produtos()
 
@@ -226,7 +241,7 @@ def register_expedicao_routes(app, integracoes=None):
         )
 
     @app.route("/expedicao")
-    @perfil_permitido("pcp")
+    @perfil_permitido("pcp", "qualidade")
     def expedicao():
         hoje = datetime.now()
         primeiro_dia_mes = hoje.replace(day=1).strftime("%Y-%m-%d")
@@ -244,11 +259,12 @@ def register_expedicao_routes(app, integracoes=None):
             data_inicio=data_inicio,
             data_fim=data_fim,
             status=status,
-            status_opcoes=["Todos", "Aberto", "Concluído", "Cancelado"]
+            marco=obter_marco_zero(),
+            status_opcoes=["Todos", "Aberto", "Concluído", "Cancelado", "Estornado"]
         )
 
     @app.route("/expedicao/novo", methods=["GET", "POST"])
-    @perfil_permitido("pcp")
+    @perfil_permitido("pcp", "qualidade")
     def novo_romaneio_expedicao():
         hoje = datetime.now().strftime("%Y-%m-%d")
 
@@ -262,11 +278,12 @@ def register_expedicao_routes(app, integracoes=None):
 
         return render_template(
             "novo_romaneio.html",
-            hoje=hoje
+            hoje=hoje,
+            tipos_romaneio=TIPOS_ROMANEIO,
         )
 
     @app.route("/expedicao/<int:expedicao_id>", methods=["GET", "POST"])
-    @perfil_permitido("pcp")
+    @perfil_permitido("pcp", "qualidade")
     def detalhe_romaneio_expedicao(expedicao_id):
         expedicao = buscar_expedicao_por_id(expedicao_id)
 
@@ -276,24 +293,61 @@ def register_expedicao_routes(app, integracoes=None):
 
         if request.method == "POST":
             try:
-                resultado = confirmar_transferencia_romaneio(
-                    expedicao_id,
-                    request.form.getlist("caixa_ids")
-                )
-                flash(
-                    "Romaneio de transferencia concluido. "
-                    f"Caixas: {resultado['caixas']} | "
-                    f"Peso liquido: {resultado['peso_liquido']:.3f} kg."
-                )
+                acao = request.form.get("acao") or "reservar"
+                if acao == "reservar":
+                    reservar_itens(expedicao_id, request.form.getlist("caixa_ids"))
+                    flash("Itens reservados com sucesso.")
+                elif acao == "remover":
+                    remover_item_reservado(expedicao_id, int(request.form.get("caixa_id") or 0))
+                    flash("Item removido e situação anterior restaurada.")
+                elif acao == "concluir":
+                    concluir_romaneio(expedicao_id)
+                    flash("Romaneio concluído e estoque baixado com sucesso.")
+                elif acao == "cancelar":
+                    cancelar_romaneio(expedicao_id, request.form.get("justificativa"))
+                    flash("Romaneio cancelado; reservas restauradas.")
+                elif acao == "estornar":
+                    estornar_romaneio(expedicao_id, request.form.get("justificativa"))
+                    flash("Romaneio estornado; situações anteriores restauradas.")
+                elif acao == "editar_cabecalho":
+                    editar_romaneio_aberto(expedicao_id, request.form)
+                    flash("Cabeçalho do romaneio atualizado.")
+                elif acao == "salvar_historico":
+                    registrar_itens_historicos(expedicao_id, [
+                        {
+                            "sku": "Galinha Inteira",
+                            "quantidade": request.form.get("inteira_quantidade"),
+                            "peso": request.form.get("inteira_peso"),
+                        },
+                        {
+                            "sku": "Galinha Cortada",
+                            "quantidade": request.form.get("cortada_quantidade"),
+                            "peso": request.form.get("cortada_peso"),
+                        },
+                    ])
+                    flash("Totais históricos registrados.")
+                else:
+                    raise ValueError("Ação inválida.")
                 return redirect(url_for("detalhe_romaneio_expedicao", expedicao_id=expedicao_id))
             except Exception as erro:
-                flash(f"Erro ao confirmar transferencia: {erro}")
+                flash(str(erro))
 
+        expedicao = buscar_expedicao_por_id(expedicao_id)
         itens = buscar_itens_expedicao(expedicao_id)
         resumo_itens = calcular_resumo_itens_expedicao(itens)
         caixas_disponiveis = []
         if expedicao["status"] == "Aberto":
-            caixas_disponiveis = buscar_caixas_disponiveis_transferencia()
+            estoque, _ = buscar_estoque_operacional()
+            if expedicao["tipo_movimentacao"] == "TRANSFERENCIA":
+                caixas_disponiveis = [
+                    item for item in estoque
+                    if item["condicao"] == "CONFORME" and item["disponibilidade"] == "DISPONIVEL"
+                ]
+            elif expedicao["tipo_movimentacao"] in {"DESCARTE", "DEVOLUCAO", "TRANSFERENCIA_AUTORIZADA"}:
+                caixas_disponiveis = [
+                    item for item in estoque
+                    if item["condicao"] == "NAO_CONFORME" and item["disponibilidade"] == "BLOQUEADO"
+                ]
 
         return render_template(
             "romaneio_detalhe.html",
@@ -302,4 +356,79 @@ def register_expedicao_routes(app, integracoes=None):
             resumo_itens=resumo_itens,
             caixas_disponiveis=caixas_disponiveis,
             skus=["Galinha Cortada", "Galinha Inteira"]
+        )
+
+    @app.route("/expedicao/estoque")
+    @perfil_permitido("pcp", "qualidade")
+    def estoque_camara_expedicao():
+        itens, resumo = buscar_estoque_operacional()
+        return render_template(
+            "expedicao_estoque.html",
+            itens=itens,
+            resumo=resumo,
+            marco=obter_marco_zero(),
+        )
+
+    @app.route("/expedicao/nao-conformes")
+    @perfil_permitido("pcp", "qualidade")
+    def nao_conformes_expedicao():
+        itens, _ = buscar_estoque_operacional()
+        return render_template(
+            "expedicao_nao_conformes.html",
+            itens=[item for item in itens if item["condicao"] == "NAO_CONFORME"],
+        )
+
+    @app.route("/expedicao/estoque/<int:caixa_id>/bloquear", methods=["POST"])
+    @perfil_permitido("pcp", "qualidade")
+    def bloquear_estoque_expedicao(caixa_id):
+        try:
+            bloquear_produto(
+                caixa_id,
+                request.form.get("motivo"),
+                request.form.get("observacao"),
+            )
+            flash("Produto bloqueado e segregado como não conforme.")
+        except ValueError as erro:
+            flash(str(erro))
+        return redirect(request.referrer or url_for("estoque_camara_expedicao"))
+
+    @app.route("/expedicao/estoque/<int:caixa_id>/destinar", methods=["POST"])
+    @perfil_permitido("pcp", "qualidade")
+    def destinar_estoque_expedicao(caixa_id):
+        try:
+            destinar_produto(
+                caixa_id,
+                request.form.get("destino"),
+                request.form.get("justificativa"),
+            )
+            flash("Destinação registrada com histórico preservado.")
+        except ValueError as erro:
+            flash(str(erro))
+        return redirect(url_for("nao_conformes_expedicao"))
+
+    @app.route("/expedicao/historico")
+    @perfil_permitido("pcp", "qualidade")
+    def historico_estoque_expedicao():
+        return render_template(
+            "expedicao_historico.html",
+            eventos=buscar_historico_estoque(),
+        )
+
+    @app.route("/expedicao/<int:expedicao_id>/imprimir")
+    @perfil_permitido("pcp", "qualidade")
+    def imprimir_romaneio_expedicao(expedicao_id):
+        expedicao = buscar_expedicao_por_id(expedicao_id)
+        if not expedicao:
+            flash("Romaneio não encontrado.")
+            return redirect(url_for("expedicao"))
+        itens = buscar_itens_expedicao(expedicao_id)
+        return render_template(
+            "romaneio_impressao.html",
+            expedicao=expedicao,
+            itens=itens,
+            resumo=calcular_resumo_itens_expedicao(itens),
+            tipo_descricao=TIPOS_ROMANEIO.get(
+                expedicao["tipo_movimentacao"],
+                expedicao["tipo_movimentacao"],
+            ),
         )

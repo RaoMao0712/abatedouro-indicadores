@@ -7,6 +7,7 @@ from flask import flash, redirect, render_template, request, url_for
 from database import conectar, q
 from modules.auth.decorators import perfil_permitido
 from modules.auth.services import usuario_eh_admin
+from modules.expedicao.estoque_service import ativar_estoque_op_encerrada
 from modules.qualidade import services as qualidade_service
 from utils import normalizar_chave_setor, setores_padrao
 
@@ -61,7 +62,6 @@ def register_producao_routes(app, integracoes=None):
 
             conn = conectar()
             cursor = conn.cursor()
-
             cursor.execute(q("""
             INSERT INTO ordens_producao (
                 data, sku, fornecedor, gta, nota_fiscal, quantidade_aves,
@@ -859,6 +859,7 @@ def register_producao_routes(app, integracoes=None):
             SET status = ?
             WHERE id = ?
             """), ("Encerrada", op_id))
+            ativar_estoque_op_encerrada(cursor, op_id)
 
             conn.commit()
             conn.close()

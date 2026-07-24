@@ -331,6 +331,9 @@ def buscar_contexto_pesagem_op(op_id, caixa_etiqueta_id=None):
 
 def registrar_peso_caixa_op(op_id, peso_raw):
     criar_estrutura_pesagem_op()
+    from modules.expedicao.estoque_service import criar_tabelas_estoque_confiavel, marcar_pa_pendente
+
+    criar_tabelas_estoque_confiavel()
     validar_op_aberta(op_id)
 
     op = buscar_op_por_id(op_id)
@@ -339,6 +342,9 @@ def registrar_peso_caixa_op(op_id, peso_raw):
 
     peso = normalizar_peso(peso_raw)
     validar_peso(peso)
+    if peso <= 0.5:
+        raise ValueError("O peso bruto precisa ser maior que a tara de 0,5 kg.")
+    peso_liquido = round(peso - 0.5, 3)
 
     data_fabricacao = op["data"] or datetime.now().strftime("%Y-%m-%d")
     data_validade = calcular_validade_pesagem(data_fabricacao)
@@ -376,8 +382,8 @@ def registrar_peso_caixa_op(op_id, peso_raw):
                 data_fabricacao,
                 data_validade,
                 peso,
-                0,
-                peso,
+                0.5,
+                peso_liquido,
                 0,
                 "Em estoque",
                 "Pesagem OP",
@@ -402,8 +408,8 @@ def registrar_peso_caixa_op(op_id, peso_raw):
                 data_fabricacao,
                 data_validade,
                 peso,
-                0,
-                peso,
+                0.5,
+                peso_liquido,
                 0,
                 "Em estoque",
                 "Pesagem OP",
@@ -422,6 +428,7 @@ def registrar_peso_caixa_op(op_id, peso_raw):
             quantidade_bandejas
         ) VALUES (?, ?, ?)
         """), (caixa_id, op_id, 0))
+        marcar_pa_pendente(cursor, caixa_id)
 
         conn.commit()
     except Exception:
@@ -458,6 +465,8 @@ def cancelar_ultima_caixa_pesagem_op(op_id):
 
         if (caixa["status"] or "") not in ["Em estoque", "Pesada"]:
             raise ValueError("Nao e permitido cancelar caixa que ja saiu do estoque ou foi expedida.")
+        if int(caixa["estoque_operacional"] or 0) == 1:
+            raise ValueError("Não é permitido cancelar item já formado no estoque operacional.")
 
         cursor.execute(q("""
         UPDATE pa_caixas

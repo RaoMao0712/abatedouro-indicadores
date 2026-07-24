@@ -1,131 +1,63 @@
 {% extends "base.html" %}
-
 {% block conteudo %}
-
 <div class="expedicao-page">
-
-    <section class="hero-dashboard expedicao-hero">
+    <section class="card expedicao-cabecalho-compacto">
         <div>
             <span class="eyebrow">Expedição</span>
-            <h2>Romaneios de Expedição</h2>
-            <div class="hero-resumo-inline">
-                <span><strong>Etapa:</strong> Sprint 1.2 — itens do romaneio</span>
-                <span><strong>Escopo:</strong> Cabeçalho • Itens manuais • Totais por romaneio</span>
-            </div>
+            <h2>Romaneios</h2>
+            <small>Marco zero ativo desde {{ marco.ativado_em if marco else "-" }}</small>
         </div>
-
-        <form method="GET" action="{{ url_for('expedicao') }}" class="expedicao-filtro-form">
-            <div>
-                <label>Data inicial</label>
-                <input type="date" name="data_inicio" value="{{ data_inicio }}">
-            </div>
-
-            <div>
-                <label>Data final</label>
-                <input type="date" name="data_fim" value="{{ data_fim }}">
-            </div>
-
-            <div>
-                <label>Status</label>
-                <select name="status">
-                    {% for opcao in status_opcoes %}
-                        <option value="{{ opcao }}" {% if status == opcao %}selected{% endif %}>{{ opcao }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-
-            <button type="submit" class="botao-hero-filtro">Filtrar</button>
-        </form>
+        <nav class="expedicao-acoes-topo no-print">
+            <a href="{{ url_for('estoque_camara_expedicao') }}">Estoque da Câmara</a>
+            <a href="{{ url_for('nao_conformes_expedicao') }}">Produtos Não Conformes</a>
+            <a href="{{ url_for('historico_estoque_expedicao') }}">Histórico</a>
+            <a href="{{ url_for('novo_romaneio_expedicao') }}" class="botao-expedicao-novo">Novo romaneio</a>
+        </nav>
     </section>
 
+    <form method="GET" class="card expedicao-filtro-form">
+        <div><label>Data inicial</label><input type="date" name="data_inicio" value="{{ data_inicio }}"></div>
+        <div><label>Data final</label><input type="date" name="data_fim" value="{{ data_fim }}"></div>
+        <div>
+            <label>Status</label>
+            <select name="status">
+                {% for opcao in status_opcoes %}
+                <option value="{{ opcao }}" {% if status == opcao %}selected{% endif %}>{{ opcao }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <button type="submit">Filtrar</button>
+    </form>
+
     <section class="expedicao-kpis">
-        <div class="card expedicao-kpi azul">
-            <span>Romaneios</span>
-            <strong>{{ resumo.total_romaneios|br_numero(0) }}</strong>
-            <small>Total no período filtrado</small>
-        </div>
-
-        <div class="card expedicao-kpi">
-            <span>Abertos</span>
-            <strong>{{ resumo.abertos|br_numero(0) }}</strong>
-            <small>Aguardando composição</small>
-        </div>
-
-        <div class="card expedicao-kpi verde">
-            <span>Concluídos</span>
-            <strong>{{ resumo.concluidos|br_numero(0) }}</strong>
-            <small>Romaneios finalizados</small>
-        </div>
-
-        <div class="card expedicao-kpi vermelho">
-            <span>Cancelados</span>
-            <strong>{{ resumo.cancelados|br_numero(0) }}</strong>
-            <small>Registros cancelados</small>
-        </div>
+        <div class="card expedicao-kpi azul"><span>Romaneios</span><strong>{{ resumo.total_romaneios|br_numero(0) }}</strong></div>
+        <div class="card expedicao-kpi"><span>Abertos</span><strong>{{ resumo.abertos|br_numero(0) }}</strong></div>
+        <div class="card expedicao-kpi verde"><span>Concluídos</span><strong>{{ resumo.concluidos|br_numero(0) }}</strong></div>
+        <div class="card expedicao-kpi vermelho"><span>Cancelados</span><strong>{{ resumo.cancelados|br_numero(0) }}</strong></div>
     </section>
 
     <section class="card">
-        <div class="expedicao-toolbar">
-            <div>
-                <span class="eyebrow">Controle</span>
-                <h2>Romaneios</h2>
-            </div>
-
-            <a href="{{ url_for('novo_romaneio_expedicao') }}" class="botao-expedicao-novo">
-                Novo Romaneio
-            </a>
-        </div>
-
-        <div class="expedicao-tabela">
-            <div class="expedicao-tabela-header">
-                <span>Romaneio</span>
-                <span>Data</span>
-                <span>Tipo</span>
-                <span>Destino</span>
-                <span>Responsável</span>
-                <span>Itens</span>
-                <span>Status</span>
-            </div>
-
-            {% if expedicoes %}
+        <div class="tabela-responsiva tabela-executiva expedicao-tabela">
+            <table>
+                <thead><tr><th>Romaneio</th><th>Data</th><th>Tipo</th><th>Origem</th><th>Destino</th><th>Responsável</th><th>Itens</th><th>Status</th></tr></thead>
+                <tbody>
                 {% for item in expedicoes %}
-                <div class="expedicao-tabela-row">
-                    <strong>
-                        <a href="{{ url_for('detalhe_romaneio_expedicao', expedicao_id=item.id) }}">
-                            {{ item.numero_romaneio }}
-                        </a>
-                    </strong>
-                    <span>{{ item.data }}</span>
-                    <span>{{ item.tipo_movimentacao }}</span>
-                    <span>{{ item.destino }}</span>
-                    <span>{{ item.responsavel or '-' }}</span>
-                    <small>{{ item.total_itens|br_numero(0) }}</small>
-                    <span>
-                        {% set classe_status = 'aberto' %}
-                        {% if item.status == 'Concluído' %}
-                            {% set classe_status = 'concluido' %}
-                        {% elif item.status == 'Cancelado' %}
-                            {% set classe_status = 'cancelado' %}
-                        {% endif %}
-                        <b class="badge-expedicao {{ classe_status }}">{{ item.status }}</b>
-                    </span>
-                </div>
+                    <tr>
+                        <td class="numero-romaneio"><a href="{{ url_for('detalhe_romaneio_expedicao', expedicao_id=item.id) }}"><strong>{{ item.numero_romaneio }}</strong></a></td>
+                        <td>{{ item.data }}</td>
+                        <td>{{ item.tipo_movimentacao|replace('_', ' ')|title }}</td>
+                        <td>{{ item.origem or "Abatedouro" }}</td>
+                        <td>{{ item.destino }}</td>
+                        <td>{{ item.responsavel or item.criado_por or "-" }}</td>
+                        <td>{{ item.total_itens|br_numero(0) }}</td>
+                        <td><span class="badge-expedicao {{ item.status|lower }}">{{ item.status }}</span></td>
+                    </tr>
+                {% else %}
+                    <tr><td colspan="8">Nenhum romaneio encontrado para os filtros selecionados.</td></tr>
                 {% endfor %}
-            {% else %}
-                <div class="expedicao-vazio">
-                    <strong>Nenhum romaneio encontrado.</strong>
-                    Nenhum romaneio foi criado para o período filtrado.
-                </div>
-            {% endif %}
+                </tbody>
+            </table>
         </div>
     </section>
-
-    <div class="expedicao-aviso">
-        <strong>Nota da Sprint 1.1:</strong>
-        esta etapa permite cadastrar itens manuais no romaneio. Ainda não há baixa de estoque,
-        vínculo com vendas, movimentação financeira ou impacto na DRE.
-    </div>
-
 </div>
-
 {% endblock %}

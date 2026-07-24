@@ -1,165 +1,121 @@
 {% extends "base.html" %}
-
 {% block conteudo %}
-
 <div class="expedicao-page">
-
-    <section class="hero-dashboard expedicao-hero">
+    <section class="card expedicao-cabecalho-compacto">
         <div>
-            <span class="eyebrow">Expedicao</span>
-            <h2>{{ expedicao.numero_romaneio }}</h2>
-            <div class="hero-resumo-inline">
-                <span><strong>Data:</strong> {{ expedicao.data }}</span>
-                <span><strong>Origem:</strong> Abatedouro</span>
-                <span><strong>Destino:</strong> {{ expedicao.destino }}</span>
-                <span><strong>Status:</strong> {{ expedicao.status }}</span>
-            </div>
+            <span class="eyebrow">Romaneio</span>
+            <h2 class="numero-romaneio">{{ expedicao.numero_romaneio }}</h2>
+            <small>{{ expedicao.tipo_movimentacao|replace('_', ' ')|title }} · {{ expedicao.status }}</small>
         </div>
-
-        <div class="hero-meta-resumo">
-            <div>
-                <span><strong>Tipo:</strong> {{ expedicao.tipo_movimentacao }}</span>
-                <span><strong>Caixas:</strong> {{ resumo_itens.total_itens|br_numero(0) }}</span>
-                <span><strong>Peso liquido:</strong> {{ resumo_itens.total_kg|br_numero(2) }} kg</span>
-                <span><strong>Usuario:</strong> {{ expedicao.responsavel or '-' }}</span>
-            </div>
-        </div>
+        <nav class="expedicao-acoes-topo no-print">
+            <a href="{{ url_for('expedicao') }}">Voltar</a>
+            <a href="{{ url_for('imprimir_romaneio_expedicao', expedicao_id=expedicao.id) }}">Imprimir</a>
+        </nav>
     </section>
 
-    <section class="expedicao-kpis">
-        <div class="card expedicao-kpi azul">
-            <span>Caixas</span>
-            <strong>{{ resumo_itens.total_itens|br_numero(0) }}</strong>
-            <small>Total no romaneio</small>
-        </div>
-
-        <div class="card expedicao-kpi verde">
-            <span>Peso liquido</span>
-            <strong>{{ resumo_itens.total_kg|br_numero(2) }}</strong>
-            <small>Kg transferidos</small>
-        </div>
-
-        <div class="card expedicao-kpi">
-            <span>Origem</span>
-            <strong>Abatedouro</strong>
-            <small>Local atual antes da confirmacao</small>
-        </div>
-
-        <div class="card expedicao-kpi vermelho">
-            <span>Destino</span>
-            <strong>LSM</strong>
-            <small>Camara Fria LSM</small>
-        </div>
+    <section class="card expedicao-resumo-documento">
+        <span><strong>Data:</strong> {{ expedicao.data }}</span>
+        <span><strong>Origem:</strong> {{ expedicao.origem or "Abatedouro" }}</span>
+        <span><strong>Destino:</strong> {{ expedicao.destino }}</span>
+        <span><strong>Responsável:</strong> {{ expedicao.responsavel or expedicao.criado_por or "-" }}</span>
+        <span><strong>Itens:</strong> {{ resumo_itens.total_itens|br_numero(0) }}</span>
+        <span><strong>Peso:</strong> {{ resumo_itens.total_kg|br_numero(3) }} kg</span>
     </section>
 
     {% if expedicao.status == "Aberto" %}
+    <details class="card no-print">
+        <summary><strong>Editar cabeçalho</strong></summary>
+        <form method="POST" class="form-grid" style="margin-top:1rem">
+            <input type="hidden" name="acao" value="editar_cabecalho">
+            <div><label>Data</label><input type="date" name="data" value="{{ expedicao.data }}" required></div>
+            <div><label>Origem</label><input name="origem" value="{{ expedicao.origem or 'Abatedouro' }}" required></div>
+            <div><label>Destino</label><input name="destino" value="{{ expedicao.destino }}" required></div>
+            <div><label>Responsável</label><input name="responsavel" value="{{ expedicao.responsavel or '' }}"></div>
+            <div style="grid-column:1/-1"><label>Observações</label><textarea name="observacoes">{{ expedicao.observacoes or '' }}</textarea></div>
+            <button type="submit">Salvar alterações</button>
+        </form>
+    </details>
+    {% endif %}
+
+    {% if expedicao.status == "Aberto" and expedicao.tipo_movimentacao == "HISTORICO_MARCO_ZERO" %}
     <section class="card">
-        <div class="section-title-row">
-            <div>
-                <span class="eyebrow">Selecao</span>
-                <h2>Caixas disponiveis no Abatedouro</h2>
-            </div>
-
-            <a href="{{ url_for('expedicao') }}" class="botao-secundario">
-                Voltar para Expedicao
-            </a>
-        </div>
-
+        <h3>Totais da transferência histórica</h3>
+        <form method="POST" class="form-grid">
+            <input type="hidden" name="acao" value="salvar_historico">
+            <div><label>Galinha Inteira — quantidade</label><input type="number" step="0.001" min="0" name="inteira_quantidade"></div>
+            <div><label>Galinha Inteira — peso (kg)</label><input type="number" step="0.001" min="0" name="inteira_peso"></div>
+            <div><label>Galinha Cortada — quantidade</label><input type="number" step="0.001" min="0" name="cortada_quantidade"></div>
+            <div><label>Galinha Cortada — peso (kg)</label><input type="number" step="0.001" min="0" name="cortada_peso"></div>
+            <button type="submit">Salvar totais históricos</button>
+        </form>
+    </section>
+    {% elif expedicao.status == "Aberto" %}
+    <section class="card">
+        <h3>Itens elegíveis para reserva</h3>
         {% if caixas_disponiveis %}
         <form method="POST">
+            <input type="hidden" name="acao" value="reservar">
             <div class="tabela-responsiva tabela-executiva expedicao-tabela">
                 <table>
-                    <thead>
-                        <tr>
-                            <th>Selecionar</th>
-                            <th>Codigo</th>
-                            <th>OP</th>
-                            <th>Lote</th>
-                            <th>Validade</th>
-                            <th>Produto</th>
-                            <th>Peso liquido</th>
-                            <th>Local atual</th>
-                        </tr>
-                    </thead>
+                    <thead><tr><th></th><th>Identificação</th><th>SKU</th><th>OP</th><th>Produção</th><th>Validade</th><th>Quantidade</th><th>Peso líquido</th><th>Condição</th></tr></thead>
                     <tbody>
-                        {% for caixa in caixas_disponiveis %}
-                        <tr>
-                            <td>
-                                <input type="checkbox" name="caixa_ids" value="{{ caixa.id }}">
-                            </td>
-                            <td><strong>{{ caixa.codigo_caixa }}</strong></td>
-                            <td>{% if caixa.op_id %}#{{ caixa.op_id }}{% else %}-{% endif %}</td>
-                            <td>{% if caixa.op_id %}OP-{{ "%05d"|format(caixa.op_id) }}{% else %}-{% endif %}</td>
-                            <td>{{ caixa.data_validade or "-" }}</td>
-                            <td>{{ caixa.sku }}</td>
-                            <td>{{ caixa.peso_liquido|br_numero }}</td>
-                            <td>{{ caixa.local_estoque }}</td>
-                        </tr>
-                        {% endfor %}
+                    {% for caixa in caixas_disponiveis %}
+                    <tr>
+                        <td><input type="checkbox" name="caixa_ids" value="{{ caixa.id }}"></td>
+                        <td><strong>{{ caixa.codigo_caixa }}</strong></td>
+                        <td>{{ caixa.sku }}</td>
+                        <td>{{ caixa.op_id or "-" }}</td>
+                        <td>{{ caixa.data_fabricacao or "-" }}</td>
+                        <td>{{ caixa.data_validade or "-" }}</td>
+                        <td>{{ caixa.quantidade_bandejas|br_numero }}</td>
+                        <td>{{ caixa.peso_liquido|br_numero(3) }} kg</td>
+                        <td>{{ caixa.condicao|replace('_', ' ') }}</td>
+                    </tr>
+                    {% endfor %}
                     </tbody>
                 </table>
             </div>
-
-            <div style="margin-top: 1rem;">
-                <button type="submit">
-                    Confirmar Transferencia para Camara Fria LSM
-                </button>
-            </div>
+            <button type="submit">Reservar selecionados</button>
         </form>
-        {% else %}
-            <div class="expedicao-vazio">
-                <strong>Nenhuma caixa disponivel no Abatedouro.</strong>
-                Apenas caixas em estoque e no local Abatedouro podem ser transferidas nesta sprint.
-            </div>
-        {% endif %}
+        {% else %}<p>Nenhum item elegível para este tipo de romaneio.</p>{% endif %}
     </section>
     {% endif %}
 
     <section class="card">
-        <div class="section-title-row">
-            <div>
-                <span class="eyebrow">Relatorio</span>
-                <h2>Caixas do Romaneio</h2>
-            </div>
-        </div>
-
-        <div class="expedicao-tabela">
-            <div class="expedicao-tabela-header">
-                <span>Caixa</span>
-                <span>OP</span>
-                <span>Produto</span>
-                <span>Peso liquido</span>
-                <span>Peso bruto</span>
-                <span>Local atual</span>
-                <span>Transferencia</span>
-            </div>
-
-            {% if itens %}
+        <h3>Itens do romaneio</h3>
+        <div class="tabela-responsiva tabela-executiva expedicao-tabela">
+            <table>
+                <thead><tr><th>Identificação</th><th>SKU</th><th>OP</th><th>Quantidade</th><th>Peso</th><th>Situação</th>{% if expedicao.status == "Aberto" %}<th></th>{% endif %}</tr></thead>
+                <tbody>
                 {% for item in itens %}
-                <div class="expedicao-tabela-row">
-                    <strong>{{ item.codigo_caixa or '-' }}</strong>
-                    <span>{% if item.op_id %}#{{ item.op_id }}{% else %}-{% endif %}</span>
-                    <span>{{ item.sku }}</span>
-                    <span>{{ item.peso_liquido|br_numero }}</span>
-                    <span>{{ item.peso_bruto|br_numero }}</span>
-                    <span>{{ item.local_atual or '-' }}</span>
-                    <span>{{ item.data_transferencia or '-' }}</span>
-                </div>
-                {% endfor %}
-            {% else %}
-                <div class="expedicao-vazio">
-                    <strong>Nenhuma caixa transferida.</strong>
-                    Selecione caixas reais no Abatedouro e confirme o romaneio.
-                </div>
-            {% endif %}
+                <tr>
+                    <td>{{ item.codigo_caixa or "Total declarado" }}</td>
+                    <td>{{ item.sku }}</td>
+                    <td>{{ item.op_id or "-" }}</td>
+                    <td>{{ item.quantidade_unidades|br_numero }}</td>
+                    <td>{{ item.quantidade_kg|br_numero(3) }} kg</td>
+                    <td>{{ item.disponibilidade_caixa|replace('_', ' ') if item.disponibilidade_caixa else expedicao.status }}</td>
+                    {% if expedicao.status == "Aberto" %}
+                    <td>
+                        {% if item.caixa_id %}
+                        <form method="POST"><input type="hidden" name="acao" value="remover"><input type="hidden" name="caixa_id" value="{{ item.caixa_id }}"><button type="submit" class="botao-secundario">Remover</button></form>
+                        {% endif %}
+                    </td>
+                    {% endif %}
+                </tr>
+                {% else %}<tr><td colspan="7">Nenhum item registrado.</td></tr>{% endfor %}
+                </tbody>
+            </table>
         </div>
     </section>
 
-    <div class="expedicao-aviso">
-        <strong>Separacao SIG:</strong>
-        este romaneio e uma movimentacao logistica. Ele nao cria receita, financeiro, contas a receber, CMV, FIFO ou DRE.
-    </div>
-
+    <section class="card no-print expedicao-acoes-documento">
+        {% if expedicao.status == "Aberto" %}
+        <form method="POST"><input type="hidden" name="acao" value="concluir"><button type="submit">Concluir romaneio</button></form>
+        <form method="POST" class="form-inline"><input type="hidden" name="acao" value="cancelar"><input name="justificativa" required placeholder="Justificativa do cancelamento"><button type="submit" class="botao-perigo">Cancelar</button></form>
+        {% elif expedicao.status == "Concluído" and expedicao.tipo_movimentacao != "HISTORICO_MARCO_ZERO" %}
+        <form method="POST" class="form-inline"><input type="hidden" name="acao" value="estornar"><input name="justificativa" required placeholder="Justificativa do estorno"><button type="submit">Estornar movimentação</button></form>
+        {% endif %}
+    </section>
 </div>
-
 {% endblock %}

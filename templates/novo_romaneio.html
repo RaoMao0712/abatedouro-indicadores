@@ -1,93 +1,27 @@
 {% extends "base.html" %}
-
 {% block conteudo %}
-
 <div class="expedicao-page">
-
-    <section class="hero-dashboard expedicao-hero">
-        <div>
-            <span class="eyebrow">Expedicao</span>
-            <h2>Novo Romaneio</h2>
-            <div class="hero-resumo-inline">
-                <span><strong>Tipo:</strong> Transferencia de PA</span>
-                <span><strong>Fluxo:</strong> Abatedouro para Camara Fria LSM</span>
-            </div>
-        </div>
-
-        <div class="hero-meta-resumo">
-            <div>
-                <span><strong>Status:</strong> Aberto</span>
-                <span><strong>Origem:</strong> Abatedouro</span>
-                <span><strong>Destino:</strong> Camara Fria LSM</span>
-            </div>
-        </div>
+    <section class="card expedicao-cabecalho-compacto">
+        <div><span class="eyebrow">Expedição</span><h2>Novo romaneio</h2></div>
+        <a href="{{ url_for('expedicao') }}" class="botao-secundario">Voltar</a>
     </section>
-
     <section class="card">
-        <div class="section-title-row">
-            <div>
-                <span class="eyebrow">Cadastro</span>
-                <h2>Cabecalho do Romaneio</h2>
-            </div>
-
-            <a href="{{ url_for('expedicao') }}" class="botao-secundario">
-                Voltar
-            </a>
-        </div>
-
         <form method="POST" class="form-grid">
+            <div><label>Data</label><input type="date" name="data" value="{{ hoje }}" required></div>
             <div>
-                <label>Data do Romaneio</label>
-                <input type="date" name="data" value="{{ hoje }}" required>
+                <label>Tipo</label>
+                <select name="tipo_movimentacao" required>
+                    {% for codigo, descricao in tipos_romaneio.items() %}
+                    <option value="{{ codigo }}">{{ descricao }}</option>
+                    {% endfor %}
+                </select>
             </div>
-
-            <div>
-                <label>Tipo de Movimentacao</label>
-                <input type="text" value="TRANSFERENCIA" disabled>
-            </div>
-
-            <div>
-                <label>Origem</label>
-                <input type="text" value="Abatedouro" disabled>
-            </div>
-
-            <div>
-                <label>Destino</label>
-                <input type="text" value="Camara Fria LSM" disabled>
-                <input type="hidden" name="destino" value="Câmara Fria LSM">
-            </div>
-
-            <div>
-                <label>Responsavel</label>
-                <input
-                    type="text"
-                    name="responsavel"
-                    placeholder="Nome do responsavel"
-                >
-            </div>
-
-            <div style="grid-column: 1 / -1;">
-                <label>Observacoes</label>
-                <textarea
-                    name="observacoes"
-                    rows="4"
-                    placeholder="Observacoes operacionais do romaneio"
-                ></textarea>
-            </div>
-
-            <div style="grid-column: 1 / -1;">
-                <button type="submit">
-                    Criar Romaneio de Transferencia
-                </button>
-            </div>
+            <div><label>Origem</label><input name="origem" value="Abatedouro" required></div>
+            <div><label>Destino</label><input name="destino" value="Câmara Fria LSM" required></div>
+            <div><label>Responsável</label><input name="responsavel" placeholder="Nome do responsável"></div>
+            <div style="grid-column:1/-1"><label>Observações</label><textarea name="observacoes" rows="3"></textarea></div>
+            <div style="grid-column:1/-1"><button type="submit">Criar romaneio</button></div>
         </form>
     </section>
-
-    <div class="expedicao-aviso">
-        <strong>Regra operacional:</strong>
-        transferencia movimenta somente o local fisico das caixas. Nao gera financeiro, receita, CMV ou DRE.
-    </div>
-
 </div>
-
 {% endblock %}
