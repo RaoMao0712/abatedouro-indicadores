@@ -68,6 +68,7 @@ RELATORIOS_LEGADOS_PERMITIDOS = {
     "relatorio_rendimento",  # compatibilidade: redireciona para /relatorios/producao/rendimento
     "relatorio_custos",  # requisito gerencial legado fora dos 38, sem substituto 1:1
     "relatorio_viabilidade",  # ferramenta operacional da Qualidade fora dos 38
+    "imprimir_relatorio_ordens_manutencao",  # impressao operacional da OS, fora do catalogo gerencial
 }
 
 ROTAS_LEGADAS_CLASSIFICADAS = {
