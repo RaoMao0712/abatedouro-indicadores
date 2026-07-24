@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from repositories import manutencao_repository as repo
 
@@ -435,14 +436,18 @@ def preparar_objeto_ordem_manutencao(form, ordem_atual):
         raise ValueError("Tipo de objeto da OS invalido.")
 
     if tipo_objeto == "EQUIPAMENTO":
-        equipamento_id = int(form.get("equipamento_id") or ordem_atual["equipamento_id"] or 0)
+        equipamento_id = inteiro_obrigatorio(
+            form.get("equipamento_id") or ordem_atual["equipamento_id"],
+            "equipamento da OS")
         equipamento = repo.buscar_equipamento_por_id(equipamento_id)
         if not equipamento:
             raise ValueError("Selecione um equipamento cadastrado para a OS.")
         return tipo_objeto, equipamento_id, None, None, None, None
 
     if tipo_objeto == "VEICULO":
-        veiculo_id = int(form.get("veiculo_id") or ordem_atual["veiculo_id"] or 0)
+        veiculo_id = inteiro_obrigatorio(
+            form.get("veiculo_id") or ordem_atual["veiculo_id"],
+            "veiculo da OS")
         veiculo = repo.buscar_veiculo_por_id(veiculo_id)
         if not veiculo:
             raise ValueError("Selecione um veiculo cadastrado para a OS.")
@@ -468,7 +473,7 @@ def preparar_objeto_ordem_manutencao(form, ordem_atual):
 
 
 def preparar_solicitante_ordem_manutencao(form, ordem_atual):
-    solicitante_id = int(form.get("solicitante_id") or 0)
+    solicitante_id = inteiro_opcional(form.get("solicitante_id"), "solicitante")
     if not solicitante_id:
         return ordem_atual["solicitante"] or "", ordem_atual["solicitante_id"]
 
@@ -577,10 +582,128 @@ def buscar_ordens_manutencao(
         setor, responsavel, prioridade, pesquisa)
 
 
+def agora_operacional_manaus():
+    return datetime.now(ZoneInfo("America/Manaus"))
+
+
+def formatar_data_br(valor):
+    if not valor:
+        return "-"
+    data = _data(valor)
+    if not data:
+        return "-"
+    return data.strftime("%d/%m/%Y")
+
+
+def formatar_data_hora_br(valor):
+    if not valor:
+        return "-"
+    texto = str(valor).replace("T", " ")[:19]
+    for formato in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
+        try:
+            return datetime.strptime(texto, formato).strftime("%d/%m/%Y %H:%M")
+        except ValueError:
+            pass
+    data = _data(texto)
+    return data.strftime("%d/%m/%Y") if data else "-"
+
+
+def filtros_impressao_manutencao(args):
+    status_filtro = args.get("status") or "Todos"
+    equipamento_filtro = args.get("equipamento_id") or ""
+    tipo_objeto_filtro = args.get("tipo_objeto") or "Todos"
+    veiculo_filtro = args.get("veiculo_id") or ""
+    setor_filtro = (args.get("setor") or "").strip()
+    responsavel_filtro = (args.get("responsavel") or "").strip()
+    prioridade_filtro = args.get("prioridade") or "Todos"
+    pesquisa_filtro = (args.get("pesquisa") or "").strip()
+    return {
+        "status": status_filtro,
+        "equipamento_id": equipamento_filtro,
+        "tipo_objeto": tipo_objeto_filtro,
+        "veiculo_id": veiculo_filtro,
+        "setor": setor_filtro,
+        "responsavel": responsavel_filtro,
+        "prioridade": prioridade_filtro,
+        "pesquisa": pesquisa_filtro,
+    }
+
+
+def rotulo_tipo_objeto(tipo_objeto):
+    if tipo_objeto == "VEICULO":
+        return "Veiculo"
+    if tipo_objeto == "PREDIAL":
+        return "Predial"
+    return "Equipamento"
+
+
+def rotulo_origem_ordem(ordem):
+    if ordem["origem"]:
+        return ordem["origem"]
+    if ordem["sgi_nc_id"]:
+        return f"NC SGI #{ordem['sgi_nc_id']}"
+    if ordem["op_id"]:
+        return f"OP {ordem['op_id']}"
+    return ordem["solicitante_perfil"] or "-"
+
+
+def contexto_relatorio_ordens_impressao(args, usuario_nome="Sistema"):
+    filtros = filtros_impressao_manutencao(args)
+    ordens = buscar_ordens_manutencao(
+        filtros["status"], filtros["equipamento_id"], filtros["tipo_objeto"],
+        filtros["veiculo_id"], filtros["setor"], filtros["responsavel"],
+        filtros["prioridade"], filtros["pesquisa"])
+    emissao = agora_operacional_manaus()
+
+    filtros_legiveis = [
+        ("Status", filtros["status"] or "Todos"),
+        ("Objeto", rotulo_tipo_objeto(filtros["tipo_objeto"]) if filtros["tipo_objeto"] != "Todos" else "Todos"),
+        ("Equipamento", filtros["equipamento_id"] or "Todos"),
+        ("Veiculo", filtros["veiculo_id"] or "Todos"),
+        ("Setor ou local", filtros["setor"] or "Todos"),
+        ("Responsavel", filtros["responsavel"] or "Todos"),
+        ("Prioridade", filtros["prioridade"] or "Todas"),
+        ("Pesquisa", filtros["pesquisa"] or "Todos"),
+    ]
+
+    return {
+        "ordens": ordens,
+        "filtros": filtros,
+        "filtros_legiveis": filtros_legiveis,
+        "total_ordens": len(ordens),
+        "emitido_por": usuario_nome or "Sistema",
+        "emitido_em": emissao.strftime("%d/%m/%Y %H:%M"),
+        "formatar_data_br": formatar_data_br,
+        "rotulo_tipo_objeto": rotulo_tipo_objeto,
+        "rotulo_origem_ordem": rotulo_origem_ordem,
+    }
+
+
+def contexto_ordem_impressao(ordem_id, usuario_nome="Sistema"):
+    ordem = repo.buscar_ordem_por_id(ordem_id)
+    if not ordem:
+        return None
+    recursos = repo.listar_recursos_por_ordens([ordem_id]).get(str(ordem_id), [])
+    total_estimado = sum(float(item["valor_estimado"] or 0) for item in recursos)
+    emissao = agora_operacional_manaus()
+    return {
+        "ordem": ordem,
+        "recursos": recursos,
+        "total_recursos": len(recursos),
+        "total_estimado": total_estimado,
+        "emitido_por": usuario_nome or "Sistema",
+        "emitido_em": emissao.strftime("%d/%m/%Y %H:%M"),
+        "formatar_data_br": formatar_data_br,
+        "formatar_data_hora_br": formatar_data_hora_br,
+        "rotulo_tipo_objeto": rotulo_tipo_objeto,
+        "rotulo_origem_ordem": rotulo_origem_ordem,
+    }
+
+
 def salvar_recursos_ordem_manutencao(ordem_id, form, usuario_perfil="", usuario_id=0, usuario_nome="Sistema"):
     if usuario_perfil and usuario_perfil not in PERFIS_MATERIAIS_OS:
         raise PermissionError("Perfil sem permissao para lancar recursos da OS.")
-    ordem_id = int(ordem_id or 0)
+    ordem_id = inteiro_obrigatorio(ordem_id, "ordem de manutencao")
     ordem = repo.buscar_ordem_por_id(ordem_id)
     if not ordem_id or not ordem:
         raise ValueError("Ordem de manutencao nao encontrada.")
@@ -623,6 +746,8 @@ def coletar_linhas_recursos_ordem(form):
     linhas = []
     for indice in range(total_linhas):
         removida = _item_lista(remover, indice) == "Sim"
+        recurso_id = inteiro_opcional(_item_lista(recurso_ids, indice), f"ID da linha de material {indice + 1}")
+        insumo_id = inteiro_opcional(_item_lista(insumos, indice), f"insumo da linha {indice + 1}")
         tipo = _item_lista(tipos, indice) or "Material"
         if tipo not in TIPOS_RECURSO_ORDEM:
             raise ValueError("Tipo de recurso invalido.")
@@ -632,8 +757,8 @@ def coletar_linhas_recursos_ordem(form):
             raise ValueError("Status de recurso invalido.")
 
         descricao = _item_lista(descricoes, indice)
-        quantidade = float(_item_lista(quantidades, indice) or 0)
-        valor_estimado = float(_item_lista(valores, indice) or 0)
+        quantidade = numero_decimal(_item_lista(quantidades, indice), f"quantidade da linha {indice + 1}", 0)
+        valor_estimado = numero_decimal(_item_lista(valores, indice), f"valor estimado da linha {indice + 1}", 0)
         if quantidade < 0:
             raise ValueError("Quantidade do material nao pode ser negativa.")
         if valor_estimado < 0:
@@ -641,7 +766,7 @@ def coletar_linhas_recursos_ordem(form):
 
         tem_conteudo = any([
             descricao,
-            _item_lista(insumos, indice),
+            insumo_id,
             _item_lista(complementos, indice),
             quantidade,
             _item_lista(unidades, indice),
@@ -649,7 +774,7 @@ def coletar_linhas_recursos_ordem(form):
             valor_estimado,
             _item_lista(observacoes, indice),
         ])
-        if not tem_conteudo and not _item_lista(recurso_ids, indice):
+        if not tem_conteudo and not recurso_id:
             continue
         if not removida and not descricao:
             raise ValueError("Informe a descricao do material, servico ou aquisicao.")
@@ -657,15 +782,15 @@ def coletar_linhas_recursos_ordem(form):
             raise ValueError("Informe a quantidade do material ou servico.")
 
         linhas.append({
-            "id": _item_lista(recurso_ids, indice),
+            "id": recurso_id,
             "remover": "Sim" if removida else "Nao",
             "tipo": tipo,
             "descricao": descricao,
-            "insumo_id": _item_lista(insumos, indice),
-            "descricao_complementar": _item_lista(complementos, indice),
+            "insumo_id": insumo_id,
+            "descricao_complementar": texto_opcional_oculto(_item_lista(complementos, indice)),
             "quantidade": quantidade,
             "unidade": _item_lista(unidades, indice),
-            "fornecedor": _item_lista(fornecedores, indice),
+            "fornecedor": texto_opcional_oculto(_item_lista(fornecedores, indice)),
             "valor_estimado": valor_estimado,
             "status": status_linha,
             "observacoes": _item_lista(observacoes, indice),
@@ -687,6 +812,51 @@ def _getlist_form(form, chave):
     if valor in (None, ""):
         return []
     return [valor]
+
+
+VALORES_VAZIOS_NUMERICOS = {"", "none", "null", "undefined", "-"}
+
+
+def valor_vazio_numerico(valor):
+    if valor is None:
+        return True
+    return str(valor).strip().lower() in VALORES_VAZIOS_NUMERICOS
+
+
+def inteiro_opcional(valor, campo):
+    if valor_vazio_numerico(valor):
+        return None
+    texto = str(valor).strip()
+    try:
+        numero = int(texto)
+    except (TypeError, ValueError):
+        raise ValueError(f"Informe um numero valido para {campo}.")
+    if numero < 0:
+        raise ValueError(f"Informe um numero valido para {campo}.")
+    return numero or None
+
+
+def inteiro_obrigatorio(valor, campo):
+    numero = inteiro_opcional(valor, campo)
+    if not numero:
+        raise ValueError(f"Informe {campo}.")
+    return numero
+
+
+def numero_decimal(valor, campo, padrao=None):
+    if valor_vazio_numerico(valor):
+        return padrao
+    texto = str(valor).strip().replace(",", ".")
+    try:
+        return float(texto)
+    except (TypeError, ValueError):
+        raise ValueError(f"Informe um numero valido para {campo}.")
+
+
+def texto_opcional_oculto(valor):
+    if valor_vazio_numerico(valor):
+        return ""
+    return str(valor).strip()
 
 
 def cancelar_ordem_manutencao(ordem_id, motivo, usuario_id=0, usuario_nome="Sistema", usuario_perfil=""):
