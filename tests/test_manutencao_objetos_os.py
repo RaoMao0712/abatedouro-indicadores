@@ -215,10 +215,42 @@ def test_rotas_renderizam_campos_oficiais():
     manutencao = client.get("/manutencao")
     html = manutencao.get_data(as_text=True)
     assert manutencao.status_code == 200
-    assert 'name="tipo_objeto"' in html
-    assert "Manutencao Predial" in html
-    assert 'name="categoria_predial"' in html
-    assert 'name="veiculo_id"' in html
+    assert "hero-dashboard" not in html
+    assert "Visao Geral" in html and "Abrir OS" in html and "Buscar OS" in html and "Materiais" in html
+    assert "Situacao das OS" in html
+
+    abrir = client.get("/manutencao?aba=abrir")
+    html_abrir = abrir.get_data(as_text=True)
+    assert abrir.status_code == 200
+    assert 'name="tipo_objeto"' in html_abrir
+    assert "Manutencao Predial" in html_abrir
+    assert 'name="categoria_predial"' in html_abrir
+    assert 'name="veiculo_id"' in html_abrir
+
+    buscar = client.get("/manutencao?aba=buscar")
+    html_buscar = buscar.get_data(as_text=True)
+    assert buscar.status_code == 200
+    assert "Utilize os filtros para consultar as Ordens de Servico." in html_buscar
+    assert 'class="botao-tabela-almoxarifado manutencao-btn-tabela">Detalhes</a>' not in html_buscar
+
+    buscar_filtrado = client.get("/manutencao?aba=buscar&status=Aberta")
+    html_filtrado = buscar_filtrado.get_data(as_text=True)
+    assert buscar_filtrado.status_code == 200
+    assert 'class="botao-tabela-almoxarifado manutencao-btn-tabela">Detalhes</a>' in html_filtrado
+    assert "Atualizar</summary>" not in html_filtrado
+
+    materiais = client.get("/manutencao?aba=materiais&status=Aberta")
+    assert materiais.status_code == 200
+    assert "Materiais necessarios por OS" in materiais.get_data(as_text=True)
+
+    ordem_id = manutencao_service.buscar_ordens_manutencao("Aberta")[0]["id"]
+    detalhe = client.get(f"/manutencao/ordem/{ordem_id}")
+    html_detalhe = detalhe.get_data(as_text=True)
+    assert detalhe.status_code == 200
+    assert "Informacoes Gerais" in html_detalhe
+    assert "Materiais Necessarios" in html_detalhe
+    assert "Execucao, Horas e Custos" in html_detalhe
+    assert "Historico" in html_detalhe
 
     veiculos = client.get("/cadastros/veiculos")
     html_veiculos = veiculos.get_data(as_text=True)

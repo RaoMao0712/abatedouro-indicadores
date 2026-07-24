@@ -1,5 +1,161 @@
 {% extends "base.html" %}
+
 {% block conteudo %}
-<div class="sgi-page"><section class="sgi-header"><div><span class="eyebrow">Manutenção</span><h2>Ordem de Serviço #{{ ordem.id }}</h2><p>{% if ordem.tipo_objeto == "VEICULO" %}Veículo{% elif ordem.tipo_objeto == "PREDIAL" %}Predial{% else %}Equipamento{% endif %} · {{ ordem.objeto_nome }}</p></div>{% if verificacao_id %}<a href="{{ url_for('sgi_verificacao_detalhe',verificacao_id=verificacao_id) }}">Voltar à verificação SGI</a>{% endif %}</section>
-<section class="card sgi-form"><div class="sgi-grid-form"><p><strong>Status</strong><br>{{ ordem.status }}</p><p><strong>Prioridade</strong><br>{{ ordem.prioridade }}</p><p><strong>Abertura</strong><br>{{ ordem.data_abertura }} {{ ordem.hora_abertura or '' }}</p><p><strong>Responsável</strong><br>{{ ordem.responsavel or '-' }}</p><p><strong>Solicitante</strong><br>{{ ordem.solicitante or '-' }}{% if ordem.solicitante_perfil %}<br><small>{{ ordem.solicitante_perfil }}</small>{% endif %}</p></div><h3>Descrição</h3><p>{{ ordem.descricao }}</p>{% if ordem.local_predial_descricao %}<h3>Local complementar</h3><p>{{ ordem.local_predial_descricao }}</p>{% endif %}{% if ordem.cancelamento_motivo %}<h3>Cancelamento</h3><p>{{ ordem.cancelamento_motivo }}<br><small>{{ ordem.cancelado_por_nome or '-' }} · {{ ordem.cancelado_em or '-' }}</small></p>{% endif %}{% if ordem.diagnostico %}<h3>Diagnóstico</h3><p>{{ ordem.diagnostico }}</p>{% endif %}{% if ordem.solucao %}<h3>Solução</h3><p>{{ ordem.solucao }}</p>{% endif %}{% if ordem.sgi_nc_id %}<p><span class="sgi-badge nc">Origem: NC SGI #{{ ordem.sgi_nc_id }}</span></p>{% endif %}{% if eventos %}<h3>Auditoria da OS</h3><div class="tabela-responsiva tabela-executiva expedicao-tabela manutencao-tabela"><table><thead><tr><th>Evento</th><th>Descrição</th><th>Usuário</th><th>Data</th></tr></thead><tbody>{% for evento in eventos %}<tr><td>{{ evento.evento }}</td><td>{{ evento.descricao or '-' }}</td><td>{{ evento.usuario_nome or '-' }}</td><td>{{ evento.criado_em }}</td></tr>{% endfor %}</tbody></table></div>{% endif %}</section></div>
+
+{% set pode_editar_materiais = session.get("perfil") in perfis_materiais and ordem.status != "Cancelada" %}
+{% set pode_executar = session.get("perfil") in ["admin", "manutencao", "gerencia"] and ordem.status != "Cancelada" %}
+{% set pode_cancelar = session.get("perfil") in perfis_cancelamento and ordem.status == "Aberta" and not ordem.parada_id and not ordem.sgi_nc_id and not ordem.diagnostico and not ordem.solucao and not ordem.data_conclusao and not ordem.hora_conclusao and not ordem.pecas_utilizadas and not ordem.observacoes_finais and (ordem.horas_paradas|float) == 0 and (ordem.custo_real|float) == 0 %}
+
+<div class="manutencao-page manutencao-detalhe">
+    <header class="manutencao-cabecalho">
+        <div>
+            <span class="eyebrow">Manutencao</span>
+            <h2>Ordem de Servico #{{ ordem.id }}</h2>
+            <p>{% if ordem.tipo_objeto == "VEICULO" %}Veiculo{% elif ordem.tipo_objeto == "PREDIAL" %}Predial{% else %}Equipamento{% endif %} · {{ ordem.objeto_nome }}</p>
+        </div>
+        <a href="{{ url_for('manutencao', aba='buscar') }}" class="botao-dre-exportar manutencao-link-btn">Voltar</a>
+    </header>
+
+    <section class="card expedicao-card manutencao-card">
+        <div class="section-title-row"><div><span class="eyebrow">OS</span><h2>Informacoes Gerais</h2></div></div>
+        <div class="manutencao-info-grid">
+            <p><strong>Status</strong><br>{{ ordem.status }}</p>
+            <p><strong>Prioridade</strong><br>{{ ordem.prioridade }}</p>
+            <p><strong>Natureza</strong><br>{{ ordem.tipo }}</p>
+            <p><strong>Abertura</strong><br>{{ ordem.data_abertura }} {{ ordem.hora_abertura or '' }}</p>
+            <p><strong>Prazo</strong><br>{{ ordem.data_prevista or '-' }}</p>
+            <p><strong>Solicitante</strong><br>{{ ordem.solicitante or '-' }}{% if ordem.solicitante_perfil %}<br><small>{{ ordem.solicitante_perfil }}</small>{% endif %}</p>
+            <p><strong>Responsavel</strong><br>{{ ordem.responsavel or '-' }}</p>
+            <p><strong>Origem</strong><br>{% if ordem.sgi_nc_id %}NC SGI #{{ ordem.sgi_nc_id }}{% elif ordem.op_id %}OP {{ ordem.op_id }}{% else %}-{% endif %}</p>
+        </div>
+    </section>
+
+    <section class="card expedicao-card manutencao-card">
+        <div class="section-title-row"><div><span class="eyebrow">Ocorrencia</span><h2>Descricao</h2></div></div>
+        <p>{{ ordem.descricao }}</p>
+        {% if ordem.local_predial_descricao %}<p><strong>Local complementar</strong><br>{{ ordem.local_predial_descricao }}</p>{% endif %}
+        {% if ordem.cancelamento_motivo %}<p><strong>Cancelamento</strong><br>{{ ordem.cancelamento_motivo }}<br><small>{{ ordem.cancelado_por_nome or '-' }} · {{ ordem.cancelado_em or '-' }}</small></p>{% endif %}
+    </section>
+
+    <section class="card expedicao-card manutencao-card">
+        <div class="section-title-row"><div><span class="eyebrow">Materiais</span><h2>Materiais Necessarios</h2></div></div>
+        {% if pode_editar_materiais %}
+        <form method="POST" action="{{ url_for('salvar_recursos_ordem_manutencao_rota', ordem_id=ordem.id) }}" class="manutencao-recursos-form">
+            <div class="manutencao-recursos-lista" data-recursos-lista>
+                {% for recurso in recursos %}
+                <div class="manutencao-recurso-linha" data-recurso-linha>
+                    <input type="hidden" name="recurso_id[]" value="{{ recurso.id }}">
+                    <input type="hidden" name="remover[]" value="Nao" data-recurso-remover>
+                    <div><label>Tipo</label><select name="recurso_tipo[]">{% for tipo_recurso in tipos_recurso %}<option value="{{ tipo_recurso }}" {% if recurso.tipo == tipo_recurso %}selected{% endif %}>{{ tipo_recurso }}</option>{% endfor %}</select></div>
+                    <div><label>Insumo cadastrado</label><select name="recurso_insumo_id[]"><option value="">Texto livre</option>{% for insumo in insumos_manutencao %}<option value="{{ insumo.id }}" {% if recurso.insumo_id == insumo.id %}selected{% endif %}>{{ insumo.descricao }}</option>{% endfor %}</select></div>
+                    <div class="manutencao-recurso-descricao"><label>Material ou servico</label><input type="text" name="recurso_descricao[]" value="{{ recurso.descricao }}" placeholder="Material ou servico necessario"></div>
+                    <div class="manutencao-recurso-descricao"><label>Descricao complementar</label><input type="text" name="recurso_descricao_complementar[]" value="{{ recurso.descricao_complementar or '' }}"></div>
+                    <div><label>Qtd.</label><input type="number" step="0.01" min="0" name="recurso_quantidade[]" value="{{ recurso.quantidade or 0 }}"></div>
+                    <div><label>Un.</label><input type="text" name="recurso_unidade[]" value="{{ recurso.unidade or '' }}"></div>
+                    <div><label>Situacao</label><select name="recurso_status[]">{% for status_item in status_recurso %}<option value="{{ status_item }}" {% if recurso.status == status_item %}selected{% endif %}>{{ status_item }}</option>{% endfor %}</select></div>
+                    <div><label>Obs.</label><input type="text" name="recurso_observacoes[]" value="{{ recurso.observacoes or '' }}"></div>
+                    <input type="hidden" name="recurso_fornecedor[]" value="{{ recurso.fornecedor or '' }}">
+                    <input type="hidden" name="recurso_valor_estimado[]" value="{{ recurso.valor_estimado or 0 }}">
+                    <button type="button" class="botao-tabela-almoxarifado manutencao-btn-tabela manutencao-btn-remover" data-remover-recurso>Remover</button>
+                </div>
+                {% endfor %}
+            </div>
+            <div class="manutencao-recursos-toolbar">
+                <button type="button" class="botao-dre-exportar manutencao-btn secundario" data-adicionar-recurso>Adicionar linha</button>
+                <button type="submit" class="botao-principal manutencao-btn">Salvar materiais</button>
+            </div>
+        </form>
+        {% elif recursos %}
+        <div class="tabela-responsiva tabela-executiva expedicao-tabela manutencao-tabela">
+            <table><thead><tr><th>Material ou servico</th><th>Qtd.</th><th>Un.</th><th>Situacao</th><th>Usuario</th><th>Obs.</th></tr></thead><tbody>
+                {% for recurso in recursos %}
+                <tr><td>{{ recurso.descricao }}{% if recurso.descricao_complementar %}<br><small>{{ recurso.descricao_complementar }}</small>{% endif %}</td><td>{{ recurso.quantidade|br_numero }}</td><td>{{ recurso.unidade or "-" }}</td><td>{{ recurso.status or "-" }}</td><td>{{ recurso.usuario_nome or "-" }}</td><td>{{ recurso.observacoes or "-" }}</td></tr>
+                {% endfor %}
+            </tbody></table>
+        </div>
+        {% else %}
+            <p class="obs">Nenhum material necessario registrado para esta OS.</p>
+        {% endif %}
+    </section>
+
+    <section class="card expedicao-card manutencao-card">
+        <div class="section-title-row"><div><span class="eyebrow">Execucao</span><h2>Execucao, Horas e Custos</h2></div></div>
+        {% if pode_executar %}
+        <form method="POST" action="{{ url_for('atualizar_ordem_manutencao_rota', ordem_id=ordem.id) }}" class="form-grid manutencao-update-form">
+            <div><label>Status</label><select name="status">{% for status in status_opcoes|default(['Aberta','Em andamento','Aguardando peca','Aguardando material','Concluida','Cancelada']) %}<option value="{{ status }}" {% if ordem.status == status %}selected{% endif %}>{{ status }}</option>{% endfor %}</select></div>
+            <div><label>Conclusao</label><input type="date" name="data_conclusao" value="{{ ordem.data_conclusao or '' }}"></div>
+            <div><label>Hora conclusao</label><input type="time" name="hora_conclusao" value="{{ ordem.hora_conclusao or '' }}"></div>
+            <div><label>Responsavel</label><input type="text" name="responsavel" value="{{ ordem.responsavel or '' }}"></div>
+            <div><label>Horas paradas</label><input type="number" name="horas_paradas" step="0.01" min="0" value="{{ ordem.horas_paradas or 0 }}"></div>
+            <div><label>Custo real</label><input type="number" name="custo_real" step="0.01" min="0" value="{{ ordem.custo_real or 0 }}"></div>
+            <div class="form-span-2"><label>Diagnostico</label><textarea name="diagnostico" rows="2">{{ ordem.diagnostico or '' }}</textarea></div>
+            <div class="form-span-2"><label>Solucao aplicada</label><textarea name="solucao" rows="2">{{ ordem.solucao or '' }}</textarea></div>
+            <div class="form-span-2"><label>Pecas utilizadas</label><textarea name="pecas_utilizadas" rows="2">{{ ordem.pecas_utilizadas or '' }}</textarea></div>
+            <div class="form-span-2"><label>Observacoes finais</label><textarea name="observacoes_finais" rows="2">{{ ordem.observacoes_finais or '' }}</textarea></div>
+            <div class="form-span-2"><button type="submit" class="botao-principal manutencao-btn">Salvar execucao</button></div>
+        </form>
+        {% else %}
+        <div class="manutencao-info-grid">
+            <p><strong>Diagnostico</strong><br>{{ ordem.diagnostico or '-' }}</p>
+            <p><strong>Solucao</strong><br>{{ ordem.solucao or '-' }}</p>
+            <p><strong>Horas paradas</strong><br>{{ ordem.horas_paradas|br_numero }}</p>
+            <p><strong>Custo real</strong><br>{{ ordem.custo_real|br_moeda }}</p>
+        </div>
+        {% endif %}
+    </section>
+
+    <section class="card expedicao-card manutencao-card">
+        <div class="section-title-row"><div><span class="eyebrow">Acoes</span><h2>Acoes Administrativas</h2></div></div>
+        {% if pode_cancelar %}
+        <form method="POST" action="{{ url_for('cancelar_ordem_manutencao_rota', ordem_id=ordem.id) }}" class="form-grid manutencao-update-form">
+            <div class="form-span-2"><label>Motivo da exclusao/cancelamento</label><textarea name="motivo_cancelamento" rows="2" required></textarea></div>
+            <div class="form-span-2"><button type="submit" class="botao-tabela-almoxarifado manutencao-btn-tabela manutencao-btn-remover" onclick="return confirm('Esta acao cancelara a Ordem de Servico e ela nao podera mais ser executada. Deseja continuar?');">Excluir OS</button></div>
+        </form>
+        {% else %}
+            <p class="obs">Nenhuma acao administrativa disponivel para esta OS.</p>
+        {% endif %}
+    </section>
+
+    <section class="card expedicao-card manutencao-card">
+        <div class="section-title-row"><div><span class="eyebrow">Historico</span><h2>Historico</h2></div></div>
+        {% if eventos %}
+        <div class="tabela-responsiva tabela-executiva expedicao-tabela manutencao-tabela">
+            <table><thead><tr><th>Evento</th><th>Descricao</th><th>Usuario</th><th>Data</th></tr></thead><tbody>{% for evento in eventos %}<tr><td>{{ evento.evento }}</td><td>{{ evento.descricao or '-' }}</td><td>{{ evento.usuario_nome or '-' }}</td><td>{{ evento.criado_em }}</td></tr>{% endfor %}</tbody></table>
+        </div>
+        {% else %}
+            <p class="obs">Nenhum evento registrado para esta OS.</p>
+        {% endif %}
+    </section>
+</div>
+
+<script>
+const tiposRecursoOrdem = {{ tipos_recurso|tojson }};
+const statusRecursoOrdem = {{ status_recurso|tojson }};
+const insumosManutencao = {{ insumos_manutencao|map(attribute='id')|list|tojson }};
+const nomesInsumosManutencao = {{ insumos_manutencao|map(attribute='descricao')|list|tojson }};
+function opt(valor){return `<option value="${valor}">${valor}</option>`}
+function optInsumo(_valor, indice){return `<option value="${insumosManutencao[indice]}">${nomesInsumosManutencao[indice]}</option>`}
+function criarLinhaRecurso(){
+ const linha=document.createElement("div"); linha.className="manutencao-recurso-linha"; linha.setAttribute("data-recurso-linha","");
+ linha.innerHTML=`<input type="hidden" name="recurso_id[]" value=""><input type="hidden" name="remover[]" value="Nao" data-recurso-remover>
+ <div><label>Tipo</label><select name="recurso_tipo[]">${tiposRecursoOrdem.map(opt).join("")}</select></div>
+ <div><label>Insumo cadastrado</label><select name="recurso_insumo_id[]"><option value="">Texto livre</option>${insumosManutencao.map(optInsumo).join("")}</select></div>
+ <div class="manutencao-recurso-descricao"><label>Material ou servico</label><input type="text" name="recurso_descricao[]" placeholder="Material ou servico necessario"></div>
+ <div class="manutencao-recurso-descricao"><label>Descricao complementar</label><input type="text" name="recurso_descricao_complementar[]"></div>
+ <div><label>Qtd.</label><input type="number" step="0.01" min="0" name="recurso_quantidade[]" value="1"></div>
+ <div><label>Un.</label><input type="text" name="recurso_unidade[]" placeholder="un, h, kg"></div>
+ <div><label>Situacao</label><select name="recurso_status[]">${statusRecursoOrdem.map(opt).join("")}</select></div>
+ <div><label>Obs.</label><input type="text" name="recurso_observacoes[]"></div>
+ <input type="hidden" name="recurso_fornecedor[]" value=""><input type="hidden" name="recurso_valor_estimado[]" value="0">
+ <button type="button" class="botao-tabela-almoxarifado manutencao-btn-tabela manutencao-btn-remover" data-remover-recurso>Remover</button>`;
+ return linha;
+}
+document.addEventListener("click", function(evento){
+ const adicionar=evento.target.closest("[data-adicionar-recurso]");
+ if(adicionar){adicionar.closest("form").querySelector("[data-recursos-lista]").appendChild(criarLinhaRecurso()); return;}
+ const remover=evento.target.closest("[data-remover-recurso]");
+ if(remover){const linha=remover.closest("[data-recurso-linha]"); const id=linha.querySelector("input[name='recurso_id[]']").value; if(id){linha.querySelector("[data-recurso-remover]").value="Sim"; linha.classList.add("removida");}else{linha.remove();}}
+});
+</script>
+
 {% endblock %}

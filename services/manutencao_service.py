@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from repositories import manutencao_repository as repo
 
@@ -299,8 +299,19 @@ def buscar_veiculos_ativos_manutencao():
     return repo.listar_veiculos_ativos()
 
 
-def buscar_ordens_manutencao(status_filtro="Todos", equipamento_id="", tipo_objeto="Todos", veiculo_id=""):
-    return repo.listar_ordens(status_filtro, equipamento_id, tipo_objeto, veiculo_id)
+def buscar_ordens_manutencao(
+    status_filtro="Todos",
+    equipamento_id="",
+    tipo_objeto="Todos",
+    veiculo_id="",
+    setor="",
+    responsavel="",
+    prioridade="Todos",
+    pesquisa="",
+):
+    return repo.listar_ordens(
+        status_filtro, equipamento_id, tipo_objeto, veiculo_id,
+        setor, responsavel, prioridade, pesquisa)
 
 
 def salvar_recursos_ordem_manutencao(ordem_id, form, usuario_perfil="", usuario_id=0, usuario_nome="Sistema"):
@@ -449,6 +460,63 @@ def preparar_contexto_cadastro_equipamentos(args=None):
     }
 
 
+def filtros_busca_aplicados(args):
+    campos = ["status", "equipamento_id", "tipo_objeto", "veiculo_id", "setor", "responsavel", "prioridade", "pesquisa"]
+    for campo in campos:
+        valor = (args.get(campo) or "").strip()
+        if valor and valor != "Todos":
+            return True
+    return False
+
+
+def _data(valor):
+    if not valor:
+        return None
+    try:
+        return datetime.strptime(str(valor)[:10], "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+def calcular_graficos_manutencao(ordens):
+    hoje = datetime.now().date()
+    limite_proximo = hoje + timedelta(days=3)
+
+    situacao = {
+        "Aberta": 0,
+        "Em andamento": 0,
+        "Aguardando material": 0,
+        "Concluida": 0,
+    }
+    prioridade = {"Baixa": 0, "Media": 0, "Alta": 0, "Critica": 0}
+    prazo = {"No prazo": 0, "Proximas do vencimento": 0, "Atrasadas": 0}
+
+    for ordem in ordens:
+        status = ordem["status"]
+        if status in situacao:
+            situacao[status] += 1
+
+        if status not in ("Concluida", "Cancelada"):
+            prio = ordem["prioridade"] or "Media"
+            if prio in prioridade:
+                prioridade[prio] += 1
+
+            data_prevista = _data(ordem["data_prevista"])
+            if data_prevista:
+                if data_prevista < hoje:
+                    prazo["Atrasadas"] += 1
+                elif data_prevista <= limite_proximo:
+                    prazo["Proximas do vencimento"] += 1
+                else:
+                    prazo["No prazo"] += 1
+
+    return {
+        "situacao": situacao,
+        "prioridade": prioridade,
+        "prazo": prazo,
+    }
+
+
 def preparar_contexto_cadastro_veiculos(args=None):
     args = args or {}
     busca = (args.get("busca") or "").strip()
@@ -460,15 +528,30 @@ def preparar_contexto_cadastro_veiculos(args=None):
 
 
 def preparar_contexto_manutencao(args):
+    aba = args.get("aba") or "visao"
+    abas_validas = {"visao", "abrir", "buscar", "materiais"}
+    if aba not in abas_validas:
+        aba = "visao"
+
     status_filtro = args.get("status") or "Todos"
     equipamento_filtro = args.get("equipamento_id") or ""
     tipo_objeto_filtro = args.get("tipo_objeto") or "Todos"
     veiculo_filtro = args.get("veiculo_id") or ""
+    setor_filtro = (args.get("setor") or "").strip()
+    responsavel_filtro = (args.get("responsavel") or "").strip()
+    prioridade_filtro = args.get("prioridade") or "Todos"
+    pesquisa_filtro = (args.get("pesquisa") or "").strip()
     equipamentos = buscar_equipamentos_manutencao()
     equipamentos_ativos = buscar_equipamentos_ativos_manutencao()
     veiculos = buscar_veiculos_manutencao()
     veiculos_ativos = buscar_veiculos_ativos_manutencao()
-    ordens = buscar_ordens_manutencao(status_filtro, equipamento_filtro, tipo_objeto_filtro, veiculo_filtro)
+    ordens_painel = buscar_ordens_manutencao()
+    tem_busca = filtros_busca_aplicados(args)
+    ordens = []
+    if aba in ("buscar", "materiais") and tem_busca:
+        ordens = buscar_ordens_manutencao(
+            status_filtro, equipamento_filtro, tipo_objeto_filtro, veiculo_filtro,
+            setor_filtro, responsavel_filtro, prioridade_filtro, pesquisa_filtro)
     recursos_por_ordem = repo.listar_recursos_por_ordens([item["id"] for item in ordens])
     try:
         from modules.almoxarifado.services import buscar_insumos_almoxarifado
@@ -476,13 +559,17 @@ def preparar_contexto_manutencao(args):
     except Exception:
         insumos_manutencao = []
     return {
+        "aba": aba,
         "equipamentos": equipamentos,
         "equipamentos_ativos": equipamentos_ativos,
         "veiculos": veiculos,
         "veiculos_ativos": veiculos_ativos,
         "ordens": ordens,
+        "ordens_painel": ordens_painel,
         "recursos_por_ordem": recursos_por_ordem,
-        "resumo": calcular_resumo_manutencao(equipamentos_ativos, ordens, veiculos_ativos),
+        "resumo": calcular_resumo_manutencao(equipamentos_ativos, ordens_painel, veiculos_ativos),
+        "graficos": calcular_graficos_manutencao(ordens_painel),
+        "tem_busca": tem_busca,
         "tipos": TIPOS_MANUTENCAO,
         "tipos_objeto": TIPOS_OBJETO_MANUTENCAO,
         "categorias_prediais": CATEGORIAS_PREDIAIS,
@@ -498,6 +585,10 @@ def preparar_contexto_manutencao(args):
         "equipamento_filtro": equipamento_filtro,
         "tipo_objeto_filtro": tipo_objeto_filtro,
         "veiculo_filtro": veiculo_filtro,
+        "setor_filtro": setor_filtro,
+        "responsavel_filtro": responsavel_filtro,
+        "prioridade_filtro": prioridade_filtro,
+        "pesquisa_filtro": pesquisa_filtro,
         "hoje": datetime.now().strftime("%Y-%m-%d"),
     }
 

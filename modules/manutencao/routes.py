@@ -102,7 +102,7 @@ def register_manutencao_routes(app):
             except Exception as erro:
                 flash(str(erro))
 
-            return redirect(url_for("manutencao"))
+            return redirect(url_for("manutencao", aba="abrir"))
 
         return render_template(
             "manutencao.html",
@@ -124,7 +124,7 @@ def register_manutencao_routes(app):
         except Exception as erro:
             flash(str(erro))
 
-        return redirect(url_for("manutencao"))
+        return redirect(url_for("visualizar_ordem_manutencao", ordem_id=ordem_id))
 
     @app.route("/manutencao/ordem/<int:ordem_id>/recursos", methods=["POST"])
     @perfil_permitido("qualidade", "pcp", "manutencao", "gerencia")
@@ -141,13 +141,7 @@ def register_manutencao_routes(app):
         except Exception as erro:
             flash(str(erro))
 
-        return redirect(url_for(
-            "manutencao",
-            status=request.form.get("status_filtro", "Todos"),
-            equipamento_id=request.form.get("equipamento_filtro", ""),
-            tipo_objeto=request.form.get("tipo_objeto_filtro", "Todos"),
-            veiculo_id=request.form.get("veiculo_filtro", ""),
-        ))
+        return redirect(url_for("visualizar_ordem_manutencao", ordem_id=ordem_id))
 
     @app.route("/manutencao/ordem/<int:ordem_id>/cancelar", methods=["POST"])
     @perfil_permitido("manutencao", "gerencia")
@@ -164,7 +158,35 @@ def register_manutencao_routes(app):
         except Exception as erro:
             flash(str(erro))
 
-        return redirect(url_for("manutencao"))
+        return redirect(url_for("visualizar_ordem_manutencao", ordem_id=ordem_id))
+
+    @app.route("/manutencao/ordem/<int:ordem_id>/recursos/painel", methods=["POST"])
+    @perfil_permitido("qualidade", "pcp", "manutencao", "gerencia")
+    def salvar_recursos_ordem_manutencao_painel(ordem_id):
+        try:
+            manutencao_service.salvar_recursos_ordem_manutencao(
+                ordem_id,
+                request.form,
+                session.get("perfil", ""),
+                session.get("usuario_id", 0),
+                session.get("nome", "Sistema"),
+            )
+            flash("Lista de materiais e terceiros atualizada com sucesso.")
+        except Exception as erro:
+            flash(str(erro))
+
+        return redirect(url_for(
+            "manutencao",
+            aba="materiais",
+            status=request.form.get("status_filtro", "Todos"),
+            equipamento_id=request.form.get("equipamento_filtro", ""),
+            tipo_objeto=request.form.get("tipo_objeto_filtro", "Todos"),
+            veiculo_id=request.form.get("veiculo_filtro", ""),
+            setor=request.form.get("setor_filtro", ""),
+            responsavel=request.form.get("responsavel_filtro", ""),
+            prioridade=request.form.get("prioridade_filtro", "Todos"),
+            pesquisa=request.form.get("pesquisa_filtro", ""),
+        ))
 
     @app.route("/manutencao/ordem/sgi/<int:nc_id>", methods=["GET", "POST"])
     @perfil_permitido("qualidade", "pcp", "gerencia")
@@ -193,7 +215,7 @@ def register_manutencao_routes(app):
         )
 
     @app.route("/manutencao/ordem/<int:ordem_id>")
-    @perfil_permitido("qualidade", "pcp", "producao", "gerencia")
+    @perfil_permitido("qualidade", "pcp", "producao", "manutencao", "gerencia")
     def visualizar_ordem_manutencao(ordem_id):
         ordem = manutencao_repo.buscar_ordem_por_id(ordem_id)
         if not ordem:
@@ -204,6 +226,21 @@ def register_manutencao_routes(app):
             from modules.qualidade import repositories as qualidade_repo
             nc = qualidade_repo.buscar_nc(ordem["sgi_nc_id"])
             verificacao_id = nc["verificacao_id"] if nc else None
-        return render_template("manutencao_ordem_detalhe.html", ordem=ordem,
-                               eventos=manutencao_repo.listar_eventos_ordem(ordem_id),
-                               verificacao_id=verificacao_id)
+        recursos_por_ordem = manutencao_repo.listar_recursos_por_ordens([ordem_id])
+        try:
+            from modules.almoxarifado.services import buscar_insumos_almoxarifado
+            insumos_manutencao = buscar_insumos_almoxarifado("Todas", "Sim", "")
+        except Exception:
+            insumos_manutencao = []
+        return render_template(
+            "manutencao_ordem_detalhe.html",
+            ordem=ordem,
+            recursos=recursos_por_ordem.get(str(ordem_id), []),
+            eventos=manutencao_repo.listar_eventos_ordem(ordem_id),
+            verificacao_id=verificacao_id,
+            tipos_recurso=manutencao_service.TIPOS_RECURSO_ORDEM,
+            status_recurso=manutencao_service.STATUS_RECURSO_ORDEM,
+            insumos_manutencao=insumos_manutencao,
+            perfis_materiais=manutencao_service.PERFIS_MATERIAIS_OS,
+            perfis_cancelamento=manutencao_service.PERFIS_CANCELAMENTO_OS,
+        )

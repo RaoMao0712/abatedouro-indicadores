@@ -842,7 +842,16 @@ def inativar_veiculo(veiculo_id):
     conn.close()
 
 
-def listar_ordens(status_filtro="Todos", equipamento_id="", tipo_objeto="Todos", veiculo_id=""):
+def listar_ordens(
+    status_filtro="Todos",
+    equipamento_id="",
+    tipo_objeto="Todos",
+    veiculo_id="",
+    setor="",
+    responsavel="",
+    prioridade="Todos",
+    pesquisa="",
+):
     criar_tabelas_manutencao()
     filtros = []
     parametros = []
@@ -864,6 +873,33 @@ def listar_ordens(status_filtro="Todos", equipamento_id="", tipo_objeto="Todos",
         filtros.append("COALESCE(o.tipo_objeto, 'EQUIPAMENTO') = ? AND o.veiculo_id = ?")
         parametros.append("VEICULO")
         parametros.append(int(veiculo_id))
+
+    if setor:
+        filtros.append("(LOWER(COALESCE(e.setor, '')) LIKE ? OR LOWER(COALESCE(o.local_predial, '')) LIKE ?)")
+        like = f"%{setor.lower()}%"
+        parametros.extend([like, like])
+
+    if responsavel:
+        filtros.append("LOWER(COALESCE(o.responsavel, '')) LIKE ?")
+        parametros.append(f"%{responsavel.lower()}%")
+
+    if prioridade and prioridade != "Todos":
+        filtros.append("o.prioridade = ?")
+        parametros.append(prioridade)
+
+    if pesquisa:
+        like = f"%{pesquisa.lower()}%"
+        filtros.append("""(
+            LOWER(COALESCE(o.descricao, '')) LIKE ?
+            OR LOWER(COALESCE(o.solicitante, '')) LIKE ?
+            OR LOWER(COALESCE(o.responsavel, '')) LIKE ?
+            OR LOWER(COALESCE(e.codigo, '')) LIKE ?
+            OR LOWER(COALESCE(e.nome, '')) LIKE ?
+            OR LOWER(COALESCE(v.codigo, '')) LIKE ?
+            OR LOWER(COALESCE(v.identificacao, '')) LIKE ?
+            OR LOWER(COALESCE(v.placa, '')) LIKE ?
+        )""")
+        parametros.extend([like] * 8)
 
     where = ""
     if filtros:
@@ -899,7 +935,12 @@ def listar_ordens(status_filtro="Todos", equipamento_id="", tipo_objeto="Todos",
         o.hora_conclusao,
         o.pecas_utilizadas,
         o.observacoes_finais,
-        o.sgi_nc_id
+        o.sgi_nc_id,
+        (
+            SELECT COUNT(*)
+            FROM manutencao_ordem_recursos r
+            WHERE r.ordem_id = o.id AND COALESCE(r.status, '') <> 'Cancelado'
+        ) AS total_materiais
     FROM manutencao_ordens o
     LEFT JOIN manutencao_equipamentos e ON e.id = o.equipamento_id
     LEFT JOIN manutencao_veiculos v ON v.id = o.veiculo_id
