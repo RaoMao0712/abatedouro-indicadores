@@ -114,6 +114,40 @@ def form_materiais_variados(equipamento_id):
     return MultiDict(dados)
 
 
+def form_ficha_dados_gerais(**extras):
+    dados = {
+        "tipo_objeto": "EQUIPAMENTO",
+        "equipamento_id": "",
+        "veiculo_id": "",
+        "categoria_predial": "CIVIL",
+        "local_predial": "Area Externa",
+        "tipo": "Preventiva",
+        "prioridade": "Alta",
+        "status": "Em andamento",
+        "data_abertura": "2026-07-24",
+        "data_prevista": "2026-08-02",
+        "solicitante_id": "",
+        "origem": "Qualidade",
+        "responsavel": "Responsavel Geral",
+        "descricao": "Descricao editada",
+        "custo_estimado": "0",
+        "recurso_id[]": [""],
+        "remover[]": ["Nao"],
+        "recurso_tipo[]": ["Material"],
+        "recurso_descricao[]": ["Filtro"],
+        "recurso_insumo_id[]": [""],
+        "recurso_descricao_complementar[]": [""],
+        "recurso_quantidade[]": ["2"],
+        "recurso_unidade[]": ["Un"],
+        "recurso_fornecedor[]": [""],
+        "recurso_valor_estimado[]": ["45"],
+        "recurso_status[]": ["Necessario"],
+        "recurso_observacoes[]": ["Observacao material"],
+    }
+    dados.update(extras)
+    return MultiDict(dados)
+
+
 def test_abertura_por_equipamento_preserva_fluxo_antigo():
     equipamento = criar_equipamento("EQ-A")
     dados = form_base()
@@ -353,10 +387,13 @@ def test_lista_materiais_permissoes_auditoria_e_validacao():
 
 
 def test_ficha_unica_edita_material_e_execucao_com_bloqueios():
-    ordem_id, _equipamento = abrir_os("EQ-FICHA")
+    ordem_id, equipamento = abrir_os("EQ-FICHA")
     client = app.test_client()
     sessao(client, "pcp", 81)
-    resposta = client.post(f"/manutencao/ordem/{ordem_id}/salvar", data=form_material("Filtro", "2"))
+    resposta = client.post(f"/manutencao/ordem/{ordem_id}/salvar", data=form_ficha_dados_gerais(
+        equipamento_id=str(equipamento["id"]),
+        descricao="Solicitacao de manutencao",
+    ))
     assert resposta.status_code == 302
     recursos = manutencao_service.repo.listar_recursos_por_ordens([ordem_id])[str(ordem_id)]
     assert len(recursos) == 1
@@ -574,6 +611,131 @@ def test_ficha_gerencia_edita_dados_gerais_descricao_e_registra_historico():
     })
     assert resposta.status_code == 302
     assert manutencao_service.repo.buscar_ordem_por_id(ordem_id)["status"] == "Em andamento"
+
+
+def test_qualidade_e_pcp_editam_dados_ocorrencia_materiais_sem_execucao_tecnica():
+    cenarios = (
+        ("qualidade", "VEICULO", "Qualidade"),
+        ("pcp", "PREDIAL", "PCP"),
+    )
+    for indice, (perfil, tipo_objeto, origem) in enumerate(cenarios, start=101):
+        ordem_id, _equipamento = abrir_os(f"EQ-{perfil.upper()}")
+        veiculo = criar_veiculo(f"VEI-{perfil.upper()}")
+        solicitante = criar_usuario_solicitante(f"Solicitante {perfil}", perfil)
+        manutencao_service.repo.atualizar_ordem(ordem_id, (
+            "Aberta", "", "Tecnico original", "Diagnostico preservado",
+            "Solucao preservada", 3.5, 222.75, "", "Peca preservada",
+            "Observacao tecnica preservada",
+        ))
+
+        client = app.test_client()
+        sessao(client, perfil, indice)
+        html = client.get(f"/manutencao/ordem/{ordem_id}").get_data(as_text=True)
+        assert 'name="tipo_objeto"' in html
+        assert 'name="descricao"' in html
+        assert 'name="recurso_descricao[]"' in html
+        assert 'name="diagnostico"' not in html
+        assert 'name="solucao"' not in html
+        assert 'name="horas_paradas"' not in html
+        assert 'value="Concluida"' not in html
+
+        if tipo_objeto == "VEICULO":
+            payload = form_ficha_dados_gerais(
+                tipo_objeto="VEICULO",
+                veiculo_id=str(veiculo["id"]),
+                tipo="Melhoria",
+                prioridade="Critica",
+                origem=origem,
+                solicitante_id=str(solicitante["id"]),
+                responsavel=f"Responsavel {perfil}",
+                descricao=f"Ocorrencia editada {perfil}",
+            )
+        else:
+            payload = form_ficha_dados_gerais(
+                tipo_objeto="PREDIAL",
+                categoria_predial="HIDRAULICA",
+                local_predial="Barreira Sanitaria",
+                tipo="Preventiva",
+                prioridade="Alta",
+                origem=origem,
+                solicitante_id=str(solicitante["id"]),
+                responsavel=f"Responsavel {perfil}",
+                descricao=f"Ocorrencia editada {perfil}",
+            )
+
+        resposta = client.post(f"/manutencao/ordem/{ordem_id}/salvar", data=payload)
+        assert resposta.status_code == 302
+        ordem = manutencao_service.repo.buscar_ordem_por_id(ordem_id)
+        assert ordem["tipo_objeto"] == tipo_objeto
+        assert ordem["tipo"] == payload["tipo"]
+        assert ordem["prioridade"] == payload["prioridade"]
+        assert ordem["status"] == "Em andamento"
+        assert ordem["data_abertura"] == "2026-07-24"
+        assert ordem["data_prevista"] == "2026-08-02"
+        assert ordem["solicitante"] == solicitante["nome"]
+        assert ordem["responsavel"] == f"Responsavel {perfil}"
+        assert ordem["origem"] == origem
+        assert ordem["descricao"] == f"Ocorrencia editada {perfil}"
+        assert ordem["diagnostico"] == "Diagnostico preservado"
+        assert ordem["solucao"] == "Solucao preservada"
+        assert float(ordem["horas_paradas"]) == 3.5
+        assert float(ordem["custo_real"]) == 222.75
+        if tipo_objeto == "VEICULO":
+            assert ordem["equipamento_id"] == 0
+            assert ordem["veiculo_id"] == veiculo["id"]
+        else:
+            assert ordem["equipamento_id"] == 0
+            assert not ordem["veiculo_id"]
+            assert ordem["categoria_predial"] == "HIDRAULICA"
+
+        recursos = manutencao_service.repo.listar_recursos_por_ordens([ordem_id])[str(ordem_id)]
+        assert len(recursos) == 1
+        recurso_id = recursos[0]["id"]
+        assert recursos[0]["descricao"] == "Filtro"
+        assert recursos[0]["quantidade"] == 2
+
+        payload.setlist("recurso_id[]", [str(recurso_id), ""])
+        payload.setlist("remover[]", ["Nao", "Nao"])
+        payload.setlist("recurso_tipo[]", ["Servico", "Outra aquisicao"])
+        payload.setlist("recurso_descricao[]", ["Servico atualizado", "Compra adicional"])
+        payload.setlist("recurso_insumo_id[]", ["", ""])
+        payload.setlist("recurso_descricao_complementar[]", ["", ""])
+        payload.setlist("recurso_quantidade[]", ["4", "1"])
+        payload.setlist("recurso_unidade[]", ["h", "Un"])
+        payload.setlist("recurso_fornecedor[]", ["", ""])
+        payload.setlist("recurso_valor_estimado[]", ["100", "250"])
+        payload.setlist("recurso_status[]", ["Disponivel", "Aguardando aquisicao"])
+        payload.setlist("recurso_observacoes[]", ["Alterado", "Novo"])
+        assert client.post(f"/manutencao/ordem/{ordem_id}/salvar", data=payload).status_code == 302
+        recursos = manutencao_service.repo.listar_recursos_por_ordens([ordem_id])[str(ordem_id)]
+        assert {item["descricao"] for item in recursos} >= {"Servico atualizado", "Compra adicional"}
+
+        payload.setlist("recurso_id[]", [str(recurso_id)])
+        payload.setlist("remover[]", ["Sim"])
+        payload.setlist("recurso_tipo[]", ["Servico"])
+        payload.setlist("recurso_descricao[]", ["Servico atualizado"])
+        payload.setlist("recurso_insumo_id[]", [""])
+        payload.setlist("recurso_descricao_complementar[]", [""])
+        payload.setlist("recurso_quantidade[]", ["4"])
+        payload.setlist("recurso_unidade[]", ["h"])
+        payload.setlist("recurso_fornecedor[]", [""])
+        payload.setlist("recurso_valor_estimado[]", ["100"])
+        payload.setlist("recurso_status[]", ["Disponivel"])
+        payload.setlist("recurso_observacoes[]", ["Alterado"])
+        assert client.post(f"/manutencao/ordem/{ordem_id}/salvar", data=payload).status_code == 302
+        recursos = manutencao_service.repo.listar_recursos_por_ordens([ordem_id])[str(ordem_id)]
+        assert any(item["id"] == recurso_id and item["status"] == "Cancelado" for item in recursos)
+
+        payload["status"] = "Concluida"
+        assert client.post(f"/manutencao/ordem/{ordem_id}/salvar", data=payload).status_code == 302
+        assert manutencao_service.repo.buscar_ordem_por_id(ordem_id)["status"] == "Em andamento"
+
+        html_recarregado = client.get(f"/manutencao/ordem/{ordem_id}").get_data(as_text=True)
+        assert f"Ocorrencia editada {perfil}" in html_recarregado
+        eventos = manutencao_service.repo.listar_eventos_ordem(ordem_id)
+        assert any(evento["evento"] == "OS atualizada" and f"perfil: {perfil}" in (evento["descricao"] or "") for evento in eventos)
+        assert any(evento["evento"] == "Material alterado" and evento["usuario_nome"] == f"Usuario {perfil}" for evento in eventos)
+        assert any(evento["evento"] == "Material cancelado" and evento["usuario_nome"] == f"Usuario {perfil}" for evento in eventos)
 
 
 def test_manutencao_nao_altera_descricao_ou_dados_gerais():

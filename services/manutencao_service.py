@@ -35,7 +35,7 @@ PERFIS_ABERTURA_OS = ("qualidade", "producao", "pcp", "manutencao", "gerencia")
 PERFIS_TECNICOS_OS = ("manutencao", "gerencia", "admin")
 PERFIS_MATERIAIS_OS = ("qualidade", "pcp", "manutencao", "gerencia", "admin")
 PERFIS_CANCELAMENTO_OS = ("manutencao", "gerencia", "admin")
-PERFIS_DADOS_GERAIS_OS = ("gerencia", "admin")
+PERFIS_DADOS_GERAIS_OS = ("qualidade", "pcp", "gerencia", "admin")
 
 
 def criar_tabelas_manutencao():
@@ -316,13 +316,17 @@ def salvar_ficha_ordem_manutencao(ordem_id, form, usuario_id=0, usuario_nome="Si
 
     perfil = usuario_perfil or ""
     if perfil in PERFIS_DADOS_GERAIS_OS:
+        pode_executar_tecnico = perfil in PERFIS_TECNICOS_OS
         dados, ordem_atual, status, data_conclusao, hora_conclusao, horas_paradas = preparar_atualizacao_ficha_ordem_manutencao(
-            ordem_id, form)
+            ordem_id, form, pode_executar_tecnico)
         linhas = coletar_linhas_recursos_ordem(form) if perfil in PERFIS_MATERIAIS_OS else []
         evento = montar_evento_atualizacao_os(ordem_atual, dados)
+        if evento:
+            evento["descricao"] = f"{evento['descricao']} | perfil: {perfil or 'nao informado'}"
         repo.atualizar_ficha_ordem_com_recursos(ordem_id, dados, linhas, usuario_id, usuario_nome, evento)
-        aplicar_pos_atualizacao_ordem(
-            ordem_id, ordem_atual, status, data_conclusao, hora_conclusao, horas_paradas, usuario_id, usuario_nome)
+        if pode_executar_tecnico:
+            aplicar_pos_atualizacao_ordem(
+                ordem_id, ordem_atual, status, data_conclusao, hora_conclusao, horas_paradas, usuario_id, usuario_nome)
     elif perfil in PERFIS_TECNICOS_OS:
         dados, ordem_atual, status, data_conclusao, hora_conclusao, horas_paradas = preparar_atualizacao_ordem_manutencao(
             ordem_id, form)
@@ -337,9 +341,30 @@ def salvar_ficha_ordem_manutencao(ordem_id, form, usuario_id=0, usuario_nome="Si
         salvar_recursos_ordem_manutencao(ordem_id, form, perfil, usuario_id, usuario_nome)
 
 
-def preparar_atualizacao_ficha_ordem_manutencao(ordem_id, form):
-    dados_execucao, ordem_atual, status, data_conclusao, hora_conclusao, horas_paradas = preparar_atualizacao_ordem_manutencao(
-        ordem_id, form)
+def preparar_atualizacao_ficha_ordem_manutencao(ordem_id, form, pode_executar_tecnico=True):
+    if pode_executar_tecnico:
+        dados_execucao, ordem_atual, status, data_conclusao, hora_conclusao, horas_paradas = preparar_atualizacao_ordem_manutencao(
+            ordem_id, form)
+    else:
+        ordem_atual = repo.buscar_ordem_por_id(ordem_id)
+        if ordem_atual and ordem_atual["status"] == "Cancelada":
+            raise ValueError("OS cancelada nao pode ser editada.")
+        status = preparar_status_dados_gerais_ordem(form, ordem_atual)
+        data_conclusao = ordem_atual["data_conclusao"] or ""
+        hora_conclusao = ordem_atual["hora_conclusao"] or ""
+        horas_paradas = float(ordem_atual["horas_paradas"] or 0)
+        dados_execucao = (
+            status,
+            data_conclusao,
+            (form.get("responsavel") or ordem_atual["responsavel"] or "").strip(),
+            ordem_atual["diagnostico"] or "",
+            ordem_atual["solucao"] or "",
+            horas_paradas,
+            float(ordem_atual["custo_real"] or 0),
+            hora_conclusao,
+            ordem_atual["pecas_utilizadas"] or "",
+            ordem_atual["observacoes_finais"] or "",
+        )
     tipo_objeto, equipamento_id, veiculo_id, categoria_predial, local_predial, local_predial_descricao = (
         preparar_objeto_ordem_manutencao(form, ordem_atual)
     )
@@ -389,6 +414,19 @@ def preparar_atualizacao_ficha_ordem_manutencao(ordem_id, form):
         *dados_execucao[3:],
     )
     return dados, ordem_atual, status, data_conclusao, hora_conclusao, horas_paradas
+
+
+def preparar_status_dados_gerais_ordem(form, ordem_atual):
+    status = form.get("status") or ordem_atual["status"] or "Aberta"
+    if status not in STATUS_MANUTENCAO:
+        raise ValueError("Status de manutencao invalido.")
+    if status == "Cancelada":
+        raise ValueError("Para cancelar a OS, use a acao de cancelamento e informe o motivo no bloco correto.")
+    if status == "Concluida":
+        raise ValueError("Para concluir a OS, preencha os campos tecnicos no bloco de execucao.")
+    if status not in status_opcoes_edicao_manutencao(ordem_atual["status"]):
+        raise ValueError("Transicao de status nao permitida para esta OS.")
+    return status
 
 
 def preparar_objeto_ordem_manutencao(form, ordem_atual):

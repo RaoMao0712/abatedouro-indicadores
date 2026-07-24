@@ -113,7 +113,7 @@
             {{ campo_leitura("Prioridade", ordem.prioridade) }}
             {% endif %}
             {% if pode_editar_dados_gerais %}
-            <label>Status<select name="status">{% for status in status_opcoes|default(['Aberta','Em andamento','Aguardando peca','Aguardando material','Concluida','Cancelada']) %}{% if status != "Cancelada" %}<option value="{{ status }}" {% if ordem.status == status %}selected{% endif %}>{{ status }}</option>{% endif %}{% endfor %}</select></label>
+            <label>Status<select name="status">{% for status in status_opcoes|default(['Aberta','Em andamento','Aguardando peca','Aguardando material','Concluida','Cancelada']) %}{% if status != "Cancelada" and (pode_executar or status != "Concluida") %}<option value="{{ status }}" {% if ordem.status == status %}selected{% endif %}>{{ status }}</option>{% endif %}{% endfor %}</select></label>
             {% else %}
             {{ campo_leitura("Status", ordem.status) }}
             {% endif %}
