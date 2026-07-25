@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% from "_navigation_icons.html" import nav_icon %}
+
+{% block conteudo %}
+<section class="inicio-page" data-testid="inicio-page">
+    <header class="inicio-hero">
+        <div>
+            <span class="inicio-eyebrow">FrigoDatta</span>
+            <h1>Início</h1>
+            <p>Olá, {{ primeiro_nome }}. Escolha uma área para começar.</p>
+        </div>
+        <div class="inicio-profile" aria-label="Perfil atual">
+            <span>Perfil</span>
+            <strong>{{ perfil_nome }}</strong>
+        </div>
+    </header>
+
+    <section class="inicio-section" aria-labelledby="areas-title">
+        <div class="inicio-section-heading">
+            <div>
+                <span class="inicio-eyebrow">Navegação por domínio</span>
+                <h2 id="areas-title">Áreas de trabalho</h2>
+            </div>
+            <p>Acesse somente os ambientes disponíveis para o seu perfil.</p>
+        </div>
+
+        <div class="inicio-area-grid">
+            {% for area in areas %}
+            <a class="inicio-area-card" href="{{ area.url }}" data-domain="{{ area.id }}">
+                <span class="inicio-card-icon">{{ nav_icon(area.icone) }}</span>
+                <span class="inicio-card-copy">
+                    <strong>{{ area.titulo }}</strong>
+                    <small>{{ area.descricao }}</small>
+                </span>
+                <span class="inicio-card-arrow" aria-hidden="true">→</span>
+            </a>
+            {% endfor %}
+        </div>
+    </section>
+
+    <section class="inicio-section" aria-labelledby="acessos-title">
+        <div class="inicio-section-heading">
+            <div>
+                <span class="inicio-eyebrow">Atalhos</span>
+                <h2 id="acessos-title">Acessos principais</h2>
+            </div>
+        </div>
+
+        <div class="inicio-shortcuts">
+            {% for acesso in acessos %}
+            <a href="{{ acesso.url }}" class="inicio-shortcut">
+                <span class="inicio-shortcut-icon">{{ nav_icon(acesso.icone) }}</span>
+                <span><strong>{{ acesso.titulo }}</strong><small>{{ acesso.dominio }}</small></span>
+            </a>
+            {% endfor %}
+        </div>
+    </section>
+</section>
+{% endblock %}

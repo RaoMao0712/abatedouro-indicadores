@@ -7,20 +7,8 @@ from .repositories import buscar_usuario_por_email, inserir_usuario
 
 
 def destino_por_perfil(perfil):
-    if perfil == "admin" or perfil == "pcp":
-        return "dashboard"
-
-    if perfil == "gerencia":
-        return "sgi_qualidade"
-
-    if perfil == "qualidade":
-        return "apontamento_descartes"
-
-    if perfil == "producao":
-        return "consultar_op"
-
-    if perfil == "manutencao":
-        return "manutencao"
+    if perfil in {"admin", "pcp", "producao", "qualidade", "manutencao", "gerencia"}:
+        return "inicio"
 
     return "login"
 

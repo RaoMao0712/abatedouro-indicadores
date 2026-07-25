@@ -25,6 +25,7 @@ from modules.producao.routes import register_producao_routes
 from modules.qualidade.routes import register_qualidade_routes
 from modules.qualidade.services import criar_tabelas_sgi
 from modules.almoxarifado.routes import register_almoxarifado_routes
+from modules.navegacao import register_navegacao_routes
 from modules.expedicao.services import (
     criar_tabelas_expedicao,
     criar_tabelas_estoque_pi_pa,
@@ -475,6 +476,7 @@ def criar_banco():
 
 
 register_auth_routes(app, criar_banco)
+register_navegacao_routes(app)
 register_usuarios_routes(app, criar_banco)
 register_cadastros_routes(app)
 register_dashboard_routes(app)

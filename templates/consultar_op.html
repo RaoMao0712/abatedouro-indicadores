@@ -62,12 +62,14 @@
 
         {% if op.status != "Encerrada" %}
 
-            <a
-                href="{{ url_for('editar_op', op_id=op.id) }}"
-                class="botao-editar"
-            >
-                Editar OP
-            </a>
+            {% if session.get("perfil") == "admin" or session.get("perfil") == "pcp" %}
+                <a
+                    href="{{ url_for('editar_op', op_id=op.id) }}"
+                    class="botao-editar"
+                >
+                    Editar OP
+                </a>
+            {% endif %}
 
             {% if session.get("perfil") == "admin" or session.get("perfil") == "pcp" %}
 

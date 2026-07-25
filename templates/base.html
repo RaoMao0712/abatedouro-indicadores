@@ -3,153 +3,112 @@
 <head>
     <meta charset="UTF-8">
     <title>FRIGODATTA | Gestão Industrial para Frigoríficos</title>
-
-    <meta
-        name="viewport"
-        content="width=device-width, initial-scale=1.0"
-    >
-
-    <link
-        rel="stylesheet"
-        href="{{ url_for('static', filename='style.css', v='romaneios-seguranca-20260724') }}"
-    >
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='romaneios-seguranca-20260724') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='navigation.css', v='navegacao-inicio-20260725b') }}">
 </head>
 
 <body>
+{% from "_navigation_icons.html" import nav_icon %}
 
-<div class="app-shell layout-sidebar">
+<div class="app-shell{% if session.get('usuario_id') %} fd-app-shell{% endif %}">
+    {% if session.get("usuario_id") %}
+    <button
+        type="button"
+        class="fd-nav-toggle"
+        aria-controls="fd-sidebar"
+        aria-expanded="false"
+        aria-label="Abrir menu de navegação"
+        data-nav-open
+    >
+        <span></span><span></span><span></span>
+    </button>
 
-    <header class="topo topo-compacto prumo-topbar">
+    <div class="fd-nav-overlay" data-nav-overlay hidden></div>
 
-        <div class="brand">
-
-            <h1>
-
+    <aside class="fd-sidebar" id="fd-sidebar" aria-label="Navegação principal" data-nav-drawer>
+        <div class="fd-sidebar-brand">
+            <a href="{{ url_for('inicio') }}" aria-label="FrigoDatta — Início">
                 <img
                     src="{{ url_for('static', filename='imagens/logo.png') }}"
-                    class="logo-topo"
+                    class="fd-sidebar-logo"
                     alt="São Pedro"
                 >
-
-                FRIGO<span>DATTA</span>
-
-            </h1>
-
+                <span>FRIGO<strong>DATTA</strong></span>
+            </a>
+            <button type="button" class="fd-nav-close" aria-label="Fechar menu" data-nav-close>×</button>
         </div>
 
-        {% if session.get("usuario_id") %}
-        <div class="topbar-user">
-            <span>{{ session.get("nome", "Usuario") }}</span>
-            <a href="{{ url_for('sair') }}">Sair</a>
-        </div>
-        {% endif %}
+        <nav class="fd-nav-tree">
+            {% for dominio in navegacao_sidebar %}
+                {% if dominio.endpoint is defined %}
+                <a
+                    href="{{ dominio.url }}"
+                    class="fd-nav-home{% if dominio.ativo %} is-active{% endif %}"
+                    {% if dominio.ativo %}aria-current="page"{% endif %}
+                >
+                    {{ nav_icon(dominio.icone) }}
+                    <span>{{ dominio.titulo }}</span>
+                </a>
+                {% else %}
+                <details class="fd-nav-domain{% if dominio.ativo %} is-current{% endif %}"{% if dominio.ativo %} open{% endif %}>
+                    <summary>
+                        <span class="fd-nav-domain-label">
+                            {{ nav_icon(dominio.icone) }}
+                            <span>{{ dominio.titulo }}</span>
+                        </span>
+                        <span class="fd-nav-chevron" aria-hidden="true">⌄</span>
+                    </summary>
+                    <div class="fd-nav-submenu">
+                        {% set grupo = namespace(atual="") %}
+                        {% for item in dominio.itens %}
+                            {% if item.grupo is defined and item.grupo != grupo.atual %}
+                                {% set grupo.atual = item.grupo %}
+                                <span class="fd-nav-group">{{ item.grupo }}</span>
+                            {% endif %}
+                            <a
+                                href="{{ item.url }}"
+                                class="fd-nav-item{% if item.ativo %} is-active{% endif %}"
+                                {% if item.ativo %}aria-current="page"{% endif %}
+                            >{{ item.titulo }}</a>
+                        {% endfor %}
+                    </div>
+                </details>
+                {% endif %}
+            {% endfor %}
+        </nav>
 
-    </header>
-
-    {% if session.get("usuario_id") %}
-
-    {% set perfil = session.get("perfil", "admin") %}
-
-    <aside class="sidebar-menu">
-
-        <div class="sidebar-section">
-            <span class="sidebar-title">Gestão</span>
-
-            {% if perfil == "admin" or perfil == "pcp" or perfil == "producao" or perfil == "qualidade" %}
-                <a href="{{ url_for('dashboard') }}">Dashboard</a>
-            {% endif %}
-
-            {% if perfil == "admin" or perfil == "pcp" %}
-                <a href="{{ url_for('custos') }}">Custos</a>
-                <a href="{{ url_for('vendas') }}">Vendas</a>
-                <a href="{{ url_for('biblioteca_relatorios') }}">Biblioteca de Relatórios</a>
-                <a href="{{ url_for('movimentacoes_entradas') }}">Movimenta&ccedil;&otilde;es</a>
-                <a href="{{ url_for('almoxarifado') }}">Almoxarifado</a>
-                <a href="{{ url_for('estoque_produtos') }}">Estoque PI/PA</a>
-                <a href="{{ url_for('embalagem_primaria') }}">Embalagem Primária</a>
-                <a href="{{ url_for('embalagem_secundaria') }}">Embalagem Secundária</a>
-                <a href="{{ url_for('expedicao') }}">Expedição</a>
-            {% endif %}
-        </div>
-
-        {% if perfil == "admin" or perfil == "pcp" or perfil == "qualidade" or perfil == "gerencia" %}
-        <div class="sidebar-section">
-            <span class="sidebar-title">SGI</span>
-            <a href="{{ url_for('sgi_qualidade') }}">Central de Verificações</a>
-            <a href="{{ url_for('sgi_consolidado_mensal') }}">Consolidado mensal</a>
-        </div>
-        {% endif %}
-
-        <div class="sidebar-section">
-            <span class="sidebar-title">Produção</span>
-
-            {% if perfil == "admin" or perfil == "pcp" %}
-                <a href="{{ url_for('ordem_producao') }}">OP</a>
-            {% endif %}
-
-            {% if perfil == "admin" or perfil == "producao" %}
-                <a href="{{ url_for('apontamento_mao_obra') }}">Mão de Obra</a>
-                <a href="{{ url_for('apontamento_paradas') }}">Paradas</a>
-                <a href="{{ url_for('tempos_setor') }}">Tempos</a>
-            {% endif %}
-
-            {% if perfil == "admin" or perfil == "pcp" or perfil == "producao" or perfil == "qualidade" or perfil == "gerencia" or perfil == "manutencao" %}
-                <a href="{{ url_for('manutencao') }}">Manutencao</a>
-            {% endif %}
-
-            {% if perfil == "admin" or perfil == "qualidade" %}
-                <a href="{{ url_for('apontamento_descartes') }}">Descartes</a>
-            {% endif %}
-
-            {% if perfil == "admin" or perfil == "pcp" or perfil == "producao" or perfil == "qualidade" %}
-                <a href="{{ url_for('consultar_op') }}">Consultar OP</a>
-            {% endif %}
-        </div>
-
-        <div class="sidebar-section">
-            <span class="sidebar-title">Administração</span>
-
-            {% if perfil == "admin" or perfil == "pcp" %}
-                <a href="{{ url_for('fornecedores') }}">Fornecedores</a>
-                <a href="{{ url_for('plano_contas_gerencial') }}">Plano de Contas</a>
-                <a href="{{ url_for('cadastro_equipamentos_manutencao') }}">Equipamentos</a>
-                <a href="{{ url_for('cadastro_veiculos_manutencao') }}">Veiculos</a>
-            {% endif %}
-
-            {% if perfil == "admin" %}
-                <a href="{{ url_for('cadastrar_usuario') }}">Usuários</a>
-            {% endif %}
-
-            <a href="{{ url_for('sair') }}" class="sidebar-sair">Sair</a>
-        </div>
-
+        <footer class="fd-sidebar-footer">
+            <div class="fd-user-summary">
+                <span class="fd-user-avatar" aria-hidden="true">{{ session.get("nome", "U")[:1]|upper }}</span>
+                <span>
+                    <strong>{{ session.get("nome", "Usuário") }}</strong>
+                    <small>{{ perfil_nome }}</small>
+                </span>
+            </div>
+            <a href="{{ url_for('sair') }}" class="fd-logout">
+                <span aria-hidden="true">↪</span>
+                <span>Sair</span>
+            </a>
+        </footer>
     </aside>
-
     {% endif %}
 
-    <main class="container container-com-sidebar">
-
+    <main class="container{% if session.get('usuario_id') %} container-com-sidebar fd-main{% endif %}" id="conteudo-principal">
         {% with mensagens = get_flashed_messages() %}
-
             {% if mensagens %}
-
                 {% for msg in mensagens %}
-
-                    <div class="alerta">
-                        {{ msg }}
-                    </div>
-
+                    <div class="alerta">{{ msg }}</div>
                 {% endfor %}
-
             {% endif %}
-
         {% endwith %}
 
         {% block conteudo %}{% endblock %}
-
     </main>
-
 </div>
 
+{% if session.get("usuario_id") %}
+<script src="{{ url_for('static', filename='navigation.js', v='navegacao-inicio-20260725b') }}" defer></script>
+{% endif %}
 </body>
 </html>

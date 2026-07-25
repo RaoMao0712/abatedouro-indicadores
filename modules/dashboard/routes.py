@@ -9,7 +9,7 @@ from .services import montar_contexto_dashboard
 
 def register_dashboard_routes(app):
     @app.route("/dashboard")
-    @perfil_permitido("pcp", "producao", "qualidade")
+    @perfil_permitido("pcp", "producao", "qualidade", "manutencao", "gerencia")
     def dashboard():
         return render_template(
             "dashboard.html",
