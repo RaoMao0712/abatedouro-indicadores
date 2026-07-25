@@ -8,7 +8,10 @@ from datetime import datetime
 
 from database import conectar, q
 from modules.financeiro.services import listar_plano_contas
-from modules.movimentacoes.services import criar_tabela_movimentacoes_financeiras
+from modules.movimentacoes.services import (
+    criar_tabela_movimentacoes_financeiras,
+    valor_realizado_movimentacao,
+)
 
 
 STATUS_FLUXO_CAIXA = ["Todos", "Pendente", "Recebido", "Pago", "Cancelado"]
@@ -265,12 +268,13 @@ def buscar_movimentacoes_realizadas_fluxo_caixa(data_inicio, data_fim, tipo_filt
     ]
 
 
-def _somar_impacto(movimentacoes):
+def _somar_impacto(movimentacoes, realizado=False):
     saldo = 0
     for item in movimentacoes:
         if item["status_fluxo"] == "Cancelado":
             continue
-        saldo += float(item["valor"] or 0) * item["sinal"]
+        campo_valor = "valor_realizado" if realizado else "valor"
+        saldo += float(item[campo_valor] or 0) * item["sinal"]
 
     return round(saldo, 2)
 
@@ -324,7 +328,10 @@ def buscar_saldos_iniciais(data_inicio, tipo_filtro="Todos", categoria_filtro="T
 
     return {
         "saldo_inicial_previsto": _somar_impacto(movimentacoes_previstas),
-        "saldo_inicial_realizado": _somar_impacto(movimentacoes_realizadas),
+        "saldo_inicial_realizado": _somar_impacto(
+            movimentacoes_realizadas,
+            realizado=True,
+        ),
         "memoria_previsto": movimentacoes_previstas,
         "memoria_realizado": movimentacoes_realizadas,
     }
@@ -339,9 +346,11 @@ def preparar_movimentacao_fluxo(item):
     tipo = _tipo_fluxo(item_dict)
     status_fluxo = _status_fluxo(item_dict)
     valor = float(item_dict.get("valor") or 0)
+    valor_realizado = valor_realizado_movimentacao(item_dict)
 
     item_dict["tipo"] = tipo
     item_dict["valor"] = valor
+    item_dict["valor_realizado"] = valor_realizado
     item_dict["status_fluxo"] = status_fluxo
     item_dict["status_classe"] = _classe_status(status_fluxo)
     item_dict["realizado"] = _status_realizado_fluxo(item_dict)
@@ -391,7 +400,7 @@ def calcular_resumo_fluxo_caixa(movimentacoes_previstas, movimentacoes_realizada
         if item["status_fluxo"] == "Cancelado":
             continue
 
-        valor = float(item["valor"] or 0)
+        valor = float(item["valor_realizado"] or 0)
 
         if item["tipo"] == "Entrada":
             entradas_realizadas += valor
@@ -436,8 +445,16 @@ def montar_resumo_gerencial_fluxo_caixa(args):
     cursor = conn.cursor()
     cursor.execute(q(f"""
     SELECT
-        COALESCE(SUM(CASE WHEN tipo = 'Entrada' THEN valor ELSE 0 END), 0) AS entradas_realizadas,
-        COALESCE(SUM(CASE WHEN tipo <> 'Entrada' THEN valor ELSE 0 END), 0) AS saidas_realizadas,
+        COALESCE(SUM(
+            CASE WHEN tipo = 'Entrada'
+            THEN CASE WHEN COALESCE(valor_pago, 0) > 0 THEN valor_pago ELSE valor END
+            ELSE 0 END
+        ), 0) AS entradas_realizadas,
+        COALESCE(SUM(
+            CASE WHEN tipo <> 'Entrada'
+            THEN CASE WHEN COALESCE(valor_pago, 0) > 0 THEN valor_pago ELSE valor END
+            ELSE 0 END
+        ), 0) AS saidas_realizadas,
         COUNT(*) AS quantidade
     FROM movimentacoes_financeiras
     WHERE {" AND ".join(condicoes_base)}
@@ -447,7 +464,10 @@ def montar_resumo_gerencial_fluxo_caixa(args):
 
     cursor.execute(q(f"""
     SELECT
-        COALESCE(SUM(CASE WHEN tipo = 'Entrada' THEN valor ELSE -valor END), 0) AS saldo_inicial_realizado
+        COALESCE(SUM(
+            (CASE WHEN tipo = 'Entrada' THEN 1 ELSE -1 END)
+            * (CASE WHEN COALESCE(valor_pago, 0) > 0 THEN valor_pago ELSE valor END)
+        ), 0) AS saldo_inicial_realizado
     FROM movimentacoes_financeiras
     WHERE {" AND ".join(condicoes_base)}
       AND data_realizacao < ?
@@ -513,7 +533,7 @@ def montar_linha_tempo(movimentacoes_previstas, movimentacoes_realizadas, saldos
                 "saldo_realizado": 0,
             }
 
-        valor = float(item["valor"] or 0)
+        valor = float(item["valor_realizado"] or 0)
         if item["tipo"] == "Entrada":
             por_data[data]["entradas_realizadas"] += valor
         elif item["tipo"] == "Saida":

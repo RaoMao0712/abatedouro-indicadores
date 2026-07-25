@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from flask import flash, redirect, render_template, request, send_file, url_for
+from flask import flash, redirect, render_template, request, send_file, session, url_for
 
 from modules.auth.decorators import perfil_permitido
 
@@ -16,6 +16,7 @@ from .services import (
     STATUS_FINANCEIRO_FILTRO,
     agrupar_fluxo_por_dia,
     atualizar_movimentacao_financeira,
+    buscar_historico_movimentacao_financeira,
     buscar_movimentacao_financeira_por_id,
     buscar_movimentacoes_financeiras,
     buscar_pendencias_classificacao,
@@ -81,7 +82,12 @@ def register_movimentacoes_routes(app):
         form["tipo"] = tipo_movimentacao
 
         try:
-            salvar_movimentacao_financeira(form)
+            salvar_movimentacao_financeira(
+                form,
+                usuario_id=session.get("usuario_id"),
+                usuario_nome=session.get("nome") or "Usuário",
+                perfil=session.get("perfil") or "pcp",
+            )
             flash("Movimentacao lancada com sucesso.")
         except Exception as erro:
             flash(f"Erro ao salvar movimentacao: {erro}")
@@ -243,7 +249,11 @@ def register_movimentacoes_routes(app):
             try:
                 atualizadas = reclassificar_movimentacoes(
                     request.form.getlist("movimentacao_id"),
-                    request.form.get("plano_conta_id", "")
+                    request.form.get("plano_conta_id", ""),
+                    justificativa=request.form.get("justificativa", ""),
+                    usuario_id=session.get("usuario_id"),
+                    usuario_nome=session.get("nome") or "Usuário",
+                    perfil=session.get("perfil") or "pcp",
                 )
                 flash(f"{atualizadas} movimentacao(oes) reclassificada(s) com sucesso.")
             except Exception as erro:
@@ -282,7 +292,13 @@ def register_movimentacoes_routes(app):
 
         if request.method == "POST":
             try:
-                atualizar_movimentacao_financeira(movimentacao_id, request.form)
+                atualizar_movimentacao_financeira(
+                    movimentacao_id,
+                    request.form,
+                    usuario_id=session.get("usuario_id"),
+                    usuario_nome=session.get("nome") or "Usuário",
+                    perfil=session.get("perfil") or "pcp",
+                )
                 flash("Movimentacao atualizada com sucesso.")
                 return redirect(url_for(destino_movimentacao_por_tipo(request.form.get("tipo", movimentacao["tipo"]))))
             except Exception as erro:
@@ -295,7 +311,8 @@ def register_movimentacoes_routes(app):
             categorias_saida=CATEGORIAS_FINANCEIRAS_SAIDA,
             formas_pagamento=FORMAS_PAGAMENTO_FINANCEIRO,
             status_opcoes=STATUS_FINANCEIRO,
-            voltar_endpoint=destino_movimentacao_por_tipo(movimentacao["tipo"])
+            voltar_endpoint=destino_movimentacao_por_tipo(movimentacao["tipo"]),
+            historico=buscar_historico_movimentacao_financeira(movimentacao_id),
         )
 
 
@@ -304,6 +321,15 @@ def register_movimentacoes_routes(app):
     @perfil_permitido("pcp")
     def excluir_movimentacao_financeira_rota(movimentacao_id):
         movimentacao = buscar_movimentacao_financeira_por_id(movimentacao_id)
-        excluir_movimentacao_financeira(movimentacao_id)
-        flash("Movimentacao excluida com sucesso.")
+        try:
+            excluir_movimentacao_financeira(
+                movimentacao_id,
+                justificativa=request.form.get("justificativa", ""),
+                usuario_id=session.get("usuario_id"),
+                usuario_nome=session.get("nome") or "Usuário",
+                perfil=session.get("perfil") or "pcp",
+            )
+            flash("Movimentação cancelada e preservada no histórico.")
+        except Exception as erro:
+            flash(f"Erro ao cancelar movimentação: {erro}")
         return redirect(url_for(destino_movimentacao_por_tipo(movimentacao["tipo"] if movimentacao else "Entrada")))

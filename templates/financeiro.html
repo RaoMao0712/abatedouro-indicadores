@@ -247,7 +247,8 @@
                             <div class="financeiro-acoes">
                                 <a href="{{ url_for('editar_movimentacao_financeira', movimentacao_id=item.id) }}">Editar</a>
                                 <form method="POST" action="{{ url_for('excluir_movimentacao_financeira_rota', movimentacao_id=item.id) }}">
-                                    <button type="submit" onclick="return confirm('Excluir esta movimentacao?')">Excluir</button>
+                                    <input type="text" name="justificativa" placeholder="Justificativa do cancelamento" required>
+                                    <button type="submit" onclick="return confirm('Cancelar e preservar esta movimentacao?')">Cancelar</button>
                                 </form>
                             </div>
                         </td>

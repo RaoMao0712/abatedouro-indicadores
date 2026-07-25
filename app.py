@@ -21,6 +21,7 @@ from modules.financeiro.routes import register_financeiro_routes
 from modules.relatorios.routes import register_relatorios_routes
 from modules.expedicao.routes import register_expedicao_routes
 from modules.movimentacoes.routes import register_movimentacoes_routes
+from modules.movimentacoes.commands import register_movimentacoes_commands
 from modules.producao.routes import register_producao_routes
 from modules.qualidade.routes import register_qualidade_routes
 from modules.qualidade.services import criar_tabelas_sgi
@@ -545,6 +546,7 @@ register_expedicao_routes(app, {
 })
 
 register_movimentacoes_routes(app)
+register_movimentacoes_commands(app)
 register_manutencao_routes(app)
 register_importacao_routes(app, {
     "criar_banco": criar_banco,

@@ -47,6 +47,15 @@ _SCHEMA_MOVIMENTACOES_FINANCEIRAS_INICIALIZADO = False
 TAMANHO_LOTE_GRAVACAO_IMPORTACAO = 500
 HOTFIX_APORTES_NATUREZA_CHAVE = "20260714_aportes_entrada_fluxo"
 TABELA_BACKUP_APORTES_NATUREZA = "movimentacoes_financeiras_backup_aportes_natureza_20260714"
+ACOES_AUDITORIA_FINANCEIRA = {
+    "CRIACAO_MANUAL",
+    "EDICAO",
+    "CANCELAMENTO",
+    "REABERTURA",
+    "RECLASSIFICACAO",
+    "CONFLITO_IMPORTACAO",
+    "HOTFIX_APORTES",
+}
 
 TABELAS_RESET_FINANCEIRO = [
     "movimentacoes_financeiras",
@@ -383,16 +392,137 @@ def criar_tabela_movimentacoes_financeiras():
             "CREATE INDEX IF NOT EXISTS idx_mov_fin_impacta_fluxo "
             "ON movimentacoes_financeiras (impacta_fluxo_caixa, data_vencimento, data_realizacao)"
         )
+        criar_tabela_auditoria_movimentacoes_financeiras(cursor)
 
         conn.commit()
-        sincronizar_movimentacoes_plano_contas()
-        corrigir_natureza_aportes_fluxo_caixa()
         _SCHEMA_MOVIMENTACOES_FINANCEIRAS_INICIALIZADO = True
     except Exception:
         conn.rollback()
         raise
     finally:
         conn.close()
+
+
+def criar_tabela_auditoria_movimentacoes_financeiras(cursor=None):
+    """Cria somente a estrutura aditiva da trilha; nunca altera movimentos."""
+    conexao_propria = cursor is None
+    conn = conectar() if conexao_propria else None
+    cursor = cursor or conn.cursor()
+    id_pk = "SERIAL PRIMARY KEY" if DATABASE_URL else "INTEGER PRIMARY KEY AUTOINCREMENT"
+    timestamp_type = "TIMESTAMP" if DATABASE_URL else "TEXT"
+    cursor.execute(f"""
+    CREATE TABLE IF NOT EXISTS movimentacoes_financeiras_auditoria (
+        id {id_pk},
+        movimentacao_id INTEGER NOT NULL,
+        acao TEXT NOT NULL,
+        estado_anterior TEXT,
+        estado_posterior TEXT,
+        usuario_id INTEGER,
+        usuario_nome TEXT NOT NULL,
+        perfil TEXT NOT NULL,
+        data_hora {timestamp_type} NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        justificativa TEXT,
+        origem_acao TEXT NOT NULL,
+        referencia_importacao TEXT
+    )
+    """)
+    cursor.execute("""
+    CREATE INDEX IF NOT EXISTS idx_mov_fin_auditoria_movimentacao_data
+    ON movimentacoes_financeiras_auditoria (movimentacao_id, data_hora, id)
+    """)
+    if conexao_propria:
+        conn.commit()
+        conn.close()
+
+
+def _estado_json(estado):
+    if estado is None:
+        return None
+    if not isinstance(estado, dict):
+        estado = dict(estado)
+    return json.dumps(estado, ensure_ascii=False, sort_keys=True, default=str)
+
+
+def _registrar_auditoria_cursor(
+    cursor,
+    movimentacao_id,
+    acao,
+    estado_anterior,
+    estado_posterior,
+    usuario_id=None,
+    usuario_nome="Sistema",
+    perfil="sistema",
+    justificativa="",
+    origem_acao="sistema",
+    referencia_importacao=None,
+):
+    if acao not in ACOES_AUDITORIA_FINANCEIRA:
+        raise ValueError("Acao de auditoria financeira invalida.")
+    cursor.execute(q("""
+    INSERT INTO movimentacoes_financeiras_auditoria (
+        movimentacao_id, acao, estado_anterior, estado_posterior,
+        usuario_id, usuario_nome, perfil, justificativa,
+        origem_acao, referencia_importacao
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """), (
+        movimentacao_id,
+        acao,
+        _estado_json(estado_anterior),
+        _estado_json(estado_posterior),
+        usuario_id,
+        usuario_nome or "Sistema",
+        perfil or "sistema",
+        (justificativa or "").strip(),
+        origem_acao or "sistema",
+        referencia_importacao,
+    ))
+
+
+def buscar_historico_movimentacao_financeira(movimentacao_id):
+    criar_tabela_movimentacoes_financeiras()
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute(q("""
+    SELECT *
+    FROM movimentacoes_financeiras_auditoria
+    WHERE movimentacao_id = ?
+    ORDER BY data_hora ASC, id ASC
+    """), (movimentacao_id,))
+    eventos = [dict(item) for item in cursor.fetchall()]
+    conn.close()
+    for evento in eventos:
+        anterior = json.loads(evento["estado_anterior"]) if evento.get("estado_anterior") else {}
+        posterior = json.loads(evento["estado_posterior"]) if evento.get("estado_posterior") else {}
+        campos = sorted({
+            campo
+            for campo in set(anterior) | set(posterior)
+            if anterior.get(campo) != posterior.get(campo)
+        })
+        evento["campos_alterados"] = campos
+        evento["resumo_alteracoes"] = ", ".join(campos) if campos else "Sem alteração de campos"
+    return eventos
+
+
+def valor_realizado_movimentacao(movimentacao):
+    """Valor de caixa efetivo, com fallback integral restrito ao legado quitado."""
+    item = movimentacao if hasattr(movimentacao, "get") else dict(movimentacao)
+    if (item.get("status") or "Pendente") == "Cancelado":
+        return 0.0
+    if not str(item.get("data_realizacao") or "").strip():
+        return 0.0
+    if (item.get("status") or "") not in ("Pago", "Recebido", "Realizado"):
+        return 0.0
+    try:
+        valor_pago = float(item.get("valor_pago") or 0)
+    except (TypeError, ValueError):
+        valor_pago = 0.0
+    if valor_pago > 0:
+        return round(valor_pago, 2)
+    try:
+        valor_legado = float(item.get("valor") or item.get("valor_documento") or 0)
+    except (TypeError, ValueError):
+        valor_legado = 0.0
+    return round(max(valor_legado, 0), 2)
 
 
 def listar_tabelas_banco(cursor):
@@ -513,14 +643,23 @@ def executar_reset_financeiro_controlado(pasta_backup=None, confirmar=False):
         conn.close()
 
 
-def sincronizar_movimentacoes_plano_contas():
+def sincronizar_movimentacoes_plano_contas(
+    justificativa="",
+    usuario_nome="CLI administrativo",
+    perfil="admin",
+):
     global _PLANO_CONTAS_SYNC_EXECUTADO
+    justificativa = (justificativa or "").strip()
+    if not justificativa:
+        raise ValueError("A sincronizacao exige justificativa explicita.")
     if _PLANO_CONTAS_SYNC_EXECUTADO:
-        return
+        return {"executado": False, "motivo": "sincronizacao_ja_executada_no_processo"}
 
     conn = conectar()
     cursor = conn.cursor()
     try:
+        cursor.execute("SELECT * FROM movimentacoes_financeiras")
+        anteriores = {item["id"]: dict(item) for item in cursor.fetchall()}
         for conta in listar_plano_contas():
             campos = campos_derivados_conta(conta)
             chaves = [conta["nome"], conta["categoria"]]
@@ -559,8 +698,30 @@ def sincronizar_movimentacoes_plano_contas():
                     campos["tipo_conta"],
                     categoria,
                 ))
+        atualizadas = 0
+        for movimentacao_id, anterior in anteriores.items():
+            cursor.execute(
+                q("SELECT * FROM movimentacoes_financeiras WHERE id = ?"),
+                (movimentacao_id,),
+            )
+            posterior = cursor.fetchone()
+            if posterior and _estado_json(anterior) != _estado_json(posterior):
+                atualizadas += 1
+                _registrar_auditoria_cursor(
+                    cursor,
+                    movimentacao_id,
+                    "RECLASSIFICACAO",
+                    anterior,
+                    posterior,
+                    usuario_nome=usuario_nome,
+                    perfil=perfil,
+                    justificativa=justificativa,
+                    origem_acao="cli_sincronizacao_plano",
+                    referencia_importacao=anterior.get("import_key"),
+                )
         conn.commit()
         _PLANO_CONTAS_SYNC_EXECUTADO = True
+        return {"executado": True, "quantidade_atualizada": atualizadas}
     except Exception:
         conn.rollback()
         raise
@@ -594,7 +755,14 @@ def hotfix_aportes_ja_executado(cursor):
     return cursor.fetchone() is not None
 
 
-def corrigir_natureza_aportes_fluxo_caixa():
+def corrigir_natureza_aportes_fluxo_caixa(
+    justificativa="",
+    usuario_nome="CLI administrativo",
+    perfil="admin",
+):
+    justificativa = (justificativa or "").strip()
+    if not justificativa:
+        raise ValueError("O hotfix exige justificativa explicita.")
     conn = conectar()
     cursor = conn.cursor()
     try:
@@ -613,6 +781,13 @@ def corrigir_natureza_aportes_fluxo_caixa():
         alvo = cursor.fetchone()
         quantidade = int(alvo["quantidade"] or 0)
         valor_total = round(float(alvo["valor_total"] or 0), 2)
+        cursor.execute(q("""
+        SELECT *
+        FROM movimentacoes_financeiras
+        WHERE categoria = ?
+          AND COALESCE(tipo, '') <> ?
+        """), ("Aportes", "Entrada"))
+        anteriores = [dict(item) for item in cursor.fetchall()]
 
         cursor.execute(q(f"""
         INSERT INTO {TABELA_BACKUP_APORTES_NATUREZA}
@@ -647,6 +822,24 @@ def corrigir_natureza_aportes_fluxo_caixa():
             quantidade,
             valor_total,
         ))
+        for anterior in anteriores:
+            cursor.execute(
+                q("SELECT * FROM movimentacoes_financeiras WHERE id = ?"),
+                (anterior["id"],),
+            )
+            posterior = cursor.fetchone()
+            _registrar_auditoria_cursor(
+                cursor,
+                anterior["id"],
+                "HOTFIX_APORTES",
+                anterior,
+                posterior,
+                usuario_nome=usuario_nome,
+                perfil=perfil,
+                justificativa=justificativa,
+                origem_acao="cli_hotfix_aportes",
+                referencia_importacao=anterior.get("import_key"),
+            )
         conn.commit()
         return {
             "executado": True,
@@ -679,7 +872,13 @@ def adicionar_meses(data_base, meses):
     return data_base.replace(year=ano, month=mes, day=dia)
 
 
-def salvar_movimentacao_financeira(form):
+def salvar_movimentacao_financeira(
+    form,
+    usuario_id=None,
+    usuario_nome="Sistema",
+    perfil="sistema",
+    origem_acao="interface_manual",
+):
     criar_tabela_movimentacoes_financeiras()
 
     tipo = form.get("tipo", "").strip()
@@ -746,68 +945,91 @@ def salvar_movimentacao_financeira(form):
     conn = conectar()
     cursor = conn.cursor()
 
-    for indice, parcela in enumerate(parcelas_validas, start=1):
-        descricao_parcela = descricao
+    try:
+        for indice, parcela in enumerate(parcelas_validas, start=1):
+            descricao_parcela = descricao
 
-        if total_parcelas > 1:
-            descricao_parcela = f"{descricao} ({indice}/{total_parcelas})"
+            if total_parcelas > 1:
+                descricao_parcela = f"{descricao} ({indice}/{total_parcelas})"
 
-        cursor.execute(q("""
-        INSERT INTO movimentacoes_financeiras (
-            data_vencimento,
-            data_realizacao,
-            tipo,
-            categoria,
-            descricao,
-            valor,
-            forma_pagamento,
-            status,
-            parcelas,
-            parcela_atual,
-            intervalo_dias,
-            documento_id,
-            data_documento,
-            valor_documento,
-            prazo_medio_dias,
-            observacoes,
-            plano_conta_id,
-            grupo_gerencial,
-            categoria_plano,
-            subcategoria,
-            centro_analise,
-            linha_dre,
-            tipo_conta,
-            impacta_fluxo_caixa
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """), (
-            parcela["vencimento"],
-            data_realizacao if status == "Realizado" else "",
-            tipo,
-            categoria,
-            descricao_parcela,
-            parcela["valor"],
-            forma_pagamento,
-            status,
-            total_parcelas,
-            indice,
-            0,
-            documento_id,
-            data_documento,
-            valor_documento,
-            round(prazo_medio_dias, 2),
-            observacoes,
-            plano["plano_conta_id"],
-            plano["grupo_gerencial"],
-            plano["categoria_plano"],
-            plano["subcategoria"],
-            plano["centro_analise"],
-            plano["linha_dre"],
-            plano["tipo_conta"],
-            int(plano["impacta_fluxo_caixa"]),
-        ))
-
-    conn.commit()
-    conn.close()
+            cursor.execute(q("""
+            INSERT INTO movimentacoes_financeiras (
+                data_vencimento,
+                data_realizacao,
+                tipo,
+                categoria,
+                descricao,
+                valor,
+                forma_pagamento,
+                status,
+                parcelas,
+                parcela_atual,
+                intervalo_dias,
+                documento_id,
+                data_documento,
+                valor_documento,
+                prazo_medio_dias,
+                observacoes,
+                plano_conta_id,
+                grupo_gerencial,
+                categoria_plano,
+                subcategoria,
+                centro_analise,
+                linha_dre,
+                tipo_conta,
+                impacta_fluxo_caixa
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """), (
+                parcela["vencimento"],
+                data_realizacao if status == "Realizado" else "",
+                tipo,
+                categoria,
+                descricao_parcela,
+                parcela["valor"],
+                forma_pagamento,
+                status,
+                total_parcelas,
+                indice,
+                0,
+                documento_id,
+                data_documento,
+                valor_documento,
+                round(prazo_medio_dias, 2),
+                observacoes,
+                plano["plano_conta_id"],
+                plano["grupo_gerencial"],
+                plano["categoria_plano"],
+                plano["subcategoria"],
+                plano["centro_analise"],
+                plano["linha_dre"],
+                plano["tipo_conta"],
+                int(plano["impacta_fluxo_caixa"]),
+            ))
+            if DATABASE_URL:
+                cursor.execute("SELECT LASTVAL() AS id")
+                movimentacao_id = cursor.fetchone()["id"]
+            else:
+                movimentacao_id = cursor.lastrowid
+            cursor.execute(q("SELECT * FROM movimentacoes_financeiras WHERE id = ?"), (movimentacao_id,))
+            posterior = cursor.fetchone()
+            _registrar_auditoria_cursor(
+                cursor,
+                movimentacao_id,
+                "CRIACAO_MANUAL",
+                None,
+                posterior,
+                usuario_id=usuario_id,
+                usuario_nome=usuario_nome,
+                perfil=perfil,
+                justificativa=form.get("justificativa", ""),
+                origem_acao=origem_acao,
+            )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def buscar_movimentacao_financeira_por_id(movimentacao_id):
@@ -828,73 +1050,145 @@ def buscar_movimentacao_financeira_por_id(movimentacao_id):
     return movimentacao
 
 
-def atualizar_movimentacao_financeira(movimentacao_id, form):
+def atualizar_movimentacao_financeira(
+    movimentacao_id,
+    form,
+    usuario_id=None,
+    usuario_nome="Sistema",
+    perfil="sistema",
+    origem_acao="interface_edicao",
+):
     criar_tabela_movimentacoes_financeiras()
+    justificativa = (form.get("justificativa") or "").strip()
+    if not justificativa:
+        raise ValueError("Informe a justificativa da alteração.")
     plano = derivar_plano_movimentacao(form.get("categoria", ""), form.get("plano_conta_id"))
 
     conn = conectar()
     cursor = conn.cursor()
+    try:
+        cursor.execute(q("SELECT * FROM movimentacoes_financeiras WHERE id = ?"), (movimentacao_id,))
+        anterior = cursor.fetchone()
+        if not anterior:
+            raise ValueError("Movimentação financeira não encontrada.")
+        cursor.execute(q("""
+        UPDATE movimentacoes_financeiras
+        SET data_vencimento = ?,
+            data_realizacao = ?,
+            tipo = ?,
+            categoria = ?,
+            descricao = ?,
+            valor = ?,
+            forma_pagamento = ?,
+            status = ?,
+            intervalo_dias = ?,
+            observacoes = ?,
+            plano_conta_id = ?,
+            grupo_gerencial = ?,
+            categoria_plano = ?,
+            subcategoria = ?,
+            centro_analise = ?,
+            linha_dre = ?,
+            tipo_conta = ?,
+            impacta_fluxo_caixa = ?
+        WHERE id = ?
+        """), (
+            form.get("data_vencimento", ""),
+            form.get("data_realizacao", ""),
+            form.get("tipo", ""),
+            plano["categoria_movimentacao"],
+            form.get("descricao", ""),
+            float(form.get("valor") or 0),
+            form.get("forma_pagamento", ""),
+            form.get("status", ""),
+            int(form.get("intervalo_dias") or 30),
+            form.get("observacoes", ""),
+            plano["plano_conta_id"],
+            plano["grupo_gerencial"],
+            plano["categoria_plano"],
+            plano["subcategoria"],
+            plano["centro_analise"],
+            plano["linha_dre"],
+            plano["tipo_conta"],
+            int(plano["impacta_fluxo_caixa"]),
+            movimentacao_id
+        ))
+        cursor.execute(q("SELECT * FROM movimentacoes_financeiras WHERE id = ?"), (movimentacao_id,))
+        posterior = cursor.fetchone()
+        _registrar_auditoria_cursor(
+            cursor,
+            movimentacao_id,
+            (
+                "REABERTURA"
+                if anterior["status"] == "Cancelado" and posterior["status"] != "Cancelado"
+                else "EDICAO"
+            ),
+            anterior,
+            posterior,
+            usuario_id=usuario_id,
+            usuario_nome=usuario_nome,
+            perfil=perfil,
+            justificativa=justificativa,
+            origem_acao=origem_acao,
+            referencia_importacao=anterior["import_key"],
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
-    cursor.execute(q("""
-    UPDATE movimentacoes_financeiras
-    SET data_vencimento = ?,
-        data_realizacao = ?,
-        tipo = ?,
-        categoria = ?,
-        descricao = ?,
-        valor = ?,
-        forma_pagamento = ?,
-        status = ?,
-        intervalo_dias = ?,
-        observacoes = ?,
-        plano_conta_id = ?,
-        grupo_gerencial = ?,
-        categoria_plano = ?,
-        subcategoria = ?,
-        centro_analise = ?,
-        linha_dre = ?,
-        tipo_conta = ?,
-        impacta_fluxo_caixa = ?
-    WHERE id = ?
-    """), (
-        form.get("data_vencimento", ""),
-        form.get("data_realizacao", ""),
-        form.get("tipo", ""),
-        plano["categoria_movimentacao"],
-        form.get("descricao", ""),
-        float(form.get("valor") or 0),
-        form.get("forma_pagamento", ""),
-        form.get("status", ""),
-        int(form.get("intervalo_dias") or 30),
-        form.get("observacoes", ""),
-        plano["plano_conta_id"],
-        plano["grupo_gerencial"],
-        plano["categoria_plano"],
-        plano["subcategoria"],
-        plano["centro_analise"],
-        plano["linha_dre"],
-        plano["tipo_conta"],
-        int(plano["impacta_fluxo_caixa"]),
-        movimentacao_id
-    ))
 
-    conn.commit()
-    conn.close()
-
-
-def excluir_movimentacao_financeira(movimentacao_id):
+def excluir_movimentacao_financeira(
+    movimentacao_id,
+    justificativa="",
+    usuario_id=None,
+    usuario_nome="Sistema",
+    perfil="sistema",
+    origem_acao="alias_exclusao",
+):
+    """Compatibilidade do alias antigo: cancela e audita, sem exclusão física."""
     criar_tabela_movimentacoes_financeiras()
+    justificativa = (justificativa or "").strip()
+    if not justificativa:
+        raise ValueError("Informe a justificativa do cancelamento.")
 
     conn = conectar()
     cursor = conn.cursor()
-
-    cursor.execute(q("""
-    DELETE FROM movimentacoes_financeiras
-    WHERE id = ?
-    """), (movimentacao_id,))
-
-    conn.commit()
-    conn.close()
+    try:
+        cursor.execute(q("SELECT * FROM movimentacoes_financeiras WHERE id = ?"), (movimentacao_id,))
+        anterior = cursor.fetchone()
+        if not anterior:
+            raise ValueError("Movimentação financeira não encontrada.")
+        if anterior["status"] == "Cancelado":
+            raise ValueError("A movimentação já está cancelada.")
+        cursor.execute(q("""
+        UPDATE movimentacoes_financeiras
+        SET status = ?
+        WHERE id = ?
+        """), ("Cancelado", movimentacao_id))
+        cursor.execute(q("SELECT * FROM movimentacoes_financeiras WHERE id = ?"), (movimentacao_id,))
+        posterior = cursor.fetchone()
+        _registrar_auditoria_cursor(
+            cursor,
+            movimentacao_id,
+            "CANCELAMENTO",
+            anterior,
+            posterior,
+            usuario_id=usuario_id,
+            usuario_nome=usuario_nome,
+            perfil=perfil,
+            justificativa=justificativa,
+            origem_acao=origem_acao,
+            referencia_importacao=anterior["import_key"],
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def buscar_movimentacoes_financeiras(data_inicio, data_fim, tipo_filtro, status_filtro):
@@ -940,6 +1234,7 @@ def calcular_resumo_financeiro(movimentacoes):
 
     for item in movimentacoes:
         valor = float(item["valor"] or 0)
+        valor_realizado = valor_realizado_movimentacao(item)
         tipo = item["tipo"]
         status = item.get("status_original", item.get("status", "Pendente")) if hasattr(item, "get") else item["status"]
 
@@ -951,13 +1246,13 @@ def calcular_resumo_financeiro(movimentacoes):
             entradas_previstas += valor
 
             if status == "Realizado":
-                entradas_realizadas += valor
+                entradas_realizadas += valor_realizado
 
         elif tipo == "Saída":
             saidas_previstas += valor
 
             if status == "Realizado":
-                saidas_realizadas += valor
+                saidas_realizadas += valor_realizado
 
     saldo_previsto = entradas_previstas - saidas_previstas
     saldo_realizado = entradas_realizadas - saidas_realizadas
@@ -1466,28 +1761,45 @@ def buscar_import_keys_existentes(cursor, import_keys):
     for lote in separar_em_lotes(list(import_keys)):
         placeholders = ", ".join(["?"] * len(lote))
         cursor.execute(q(f"""
-        SELECT id, import_key
+        SELECT *
         FROM movimentacoes_financeiras
         WHERE import_key IN ({placeholders})
         """), tuple(lote))
         for item in cursor.fetchall():
-            existentes[item["import_key"]] = item["id"]
+            existentes[item["import_key"]] = dict(item)
     return existentes
 
 
-def valores_update_importacao(dados, movimentacao_id):
-    return (
-        dados["data_vencimento"], dados["data_realizacao"], dados["tipo"],
-        dados["categoria"], dados["descricao"], dados["valor"], dados["forma_pagamento"],
-        dados["status"], dados["parcelas"], dados["parcela_atual"], dados["intervalo_dias"],
-        dados["documento_id"], dados["data_documento"], dados["valor_documento"],
-        dados["prazo_medio_dias"], dados["observacoes"], dados["cnpj_cpf"],
-        dados["numero_documento"], dados["favorecido"], dados["parceiro"], dados["historico"],
-        dados["valor_pago"], dados["valor_liquido"], dados["origem_importacao"],
-        dados["plano_conta_id"], dados["grupo_gerencial"], dados["categoria_plano"],
-        dados["subcategoria"], dados["centro_analise"], dados["linha_dre"], dados["tipo_conta"],
-        dados["impacta_fluxo_caixa"],
-        movimentacao_id,
+CAMPOS_COMPARACAO_IMPORTACAO = [
+    "data_vencimento", "data_realizacao", "tipo", "categoria", "descricao", "valor",
+    "forma_pagamento", "status", "parcelas", "parcela_atual", "intervalo_dias",
+    "documento_id", "data_documento", "valor_documento", "prazo_medio_dias",
+    "observacoes", "cnpj_cpf", "numero_documento", "favorecido", "parceiro",
+    "historico", "valor_pago", "valor_liquido", "origem_importacao",
+    "plano_conta_id", "grupo_gerencial", "categoria_plano", "subcategoria",
+    "centro_analise", "linha_dre", "tipo_conta", "impacta_fluxo_caixa",
+]
+CAMPOS_NUMERICOS_IMPORTACAO = {
+    "valor", "parcelas", "parcela_atual", "intervalo_dias", "valor_documento",
+    "prazo_medio_dias", "valor_pago", "valor_liquido", "plano_conta_id",
+    "impacta_fluxo_caixa",
+}
+
+
+def _valor_comparavel_importacao(campo, valor):
+    if campo in CAMPOS_NUMERICOS_IMPORTACAO:
+        try:
+            return round(float(valor or 0), 4)
+        except (TypeError, ValueError):
+            return 0.0
+    return str(valor or "").strip()
+
+
+def importacao_identica(existente, dados):
+    return all(
+        _valor_comparavel_importacao(campo, existente.get(campo))
+        == _valor_comparavel_importacao(campo, dados.get(campo))
+        for campo in CAMPOS_COMPARACAO_IMPORTACAO
     )
 
 
@@ -1504,44 +1816,6 @@ def valores_insert_importacao(dados):
         dados["subcategoria"], dados["centro_analise"], dados["linha_dre"], dados["tipo_conta"],
         dados["impacta_fluxo_caixa"],
     )
-
-
-SQL_UPDATE_IMPORTACAO = """
-UPDATE movimentacoes_financeiras
-SET data_vencimento = ?,
-    data_realizacao = ?,
-    tipo = ?,
-    categoria = ?,
-    descricao = ?,
-    valor = ?,
-    forma_pagamento = ?,
-    status = ?,
-    parcelas = ?,
-    parcela_atual = ?,
-    intervalo_dias = ?,
-    documento_id = ?,
-    data_documento = ?,
-    valor_documento = ?,
-    prazo_medio_dias = ?,
-    observacoes = ?,
-    cnpj_cpf = ?,
-    numero_documento = ?,
-    favorecido = ?,
-    parceiro = ?,
-    historico = ?,
-    valor_pago = ?,
-    valor_liquido = ?,
-    origem_importacao = ?,
-    plano_conta_id = ?,
-    grupo_gerencial = ?,
-    categoria_plano = ?,
-    subcategoria = ?,
-    centro_analise = ?,
-    linha_dre = ?,
-    tipo_conta = ?,
-    impacta_fluxo_caixa = ?
-WHERE id = ?
-"""
 
 
 SQL_INSERT_IMPORTACAO_SQLITE = """
@@ -1568,16 +1842,6 @@ INSERT INTO movimentacoes_financeiras (
     impacta_fluxo_caixa
 ) VALUES %s
 """
-
-
-def executar_updates_importacao(cursor, atualizacoes, tamanho_lote=TAMANHO_LOTE_GRAVACAO_IMPORTACAO):
-    for lote in separar_em_lotes(atualizacoes, tamanho_lote):
-        if DATABASE_URL:
-            from psycopg2.extras import execute_batch
-
-            execute_batch(cursor, q(SQL_UPDATE_IMPORTACAO), lote, page_size=len(lote))
-        else:
-            cursor.executemany(q(SQL_UPDATE_IMPORTACAO), lote)
 
 
 def executar_inserts_importacao(cursor, novos, tamanho_lote=TAMANHO_LOTE_GRAVACAO_IMPORTACAO):
@@ -1611,11 +1875,13 @@ def importar_movimentacoes_financeiras_excel(
         "linhas_lidas": 0,
         "importadas": 0,
         "atualizadas": 0,
+        "conflitos": 0,
         "ignoradas": 0,
         "erros": 0,
         "classificadas": 0,
         "nao_classificadas": 0,
         "detalhes_erros": [],
+        "detalhes_conflitos": [],
         "tempo_processamento_segundos": 0,
         "tempos_etapas": {
             "leitura_excel": 0,
@@ -1707,25 +1973,37 @@ def importar_movimentacoes_financeiras_excel(
         existentes = buscar_import_keys_existentes(cursor, registros_por_import_key.keys())
         somar_tempo_importacao(resultado, "consulta_existentes", time.perf_counter() - inicio_consulta)
         novos = []
-        atualizacoes = []
+        conflitos = []
 
         for import_key, dados in registros_por_import_key.items():
-            movimentacao_id = existentes.get(import_key)
-            if movimentacao_id:
-                inicio_preparacao_update = time.perf_counter()
-                atualizacoes.append(valores_update_importacao(dados, movimentacao_id))
-                somar_tempo_importacao(resultado, "preparacao_atualizados", time.perf_counter() - inicio_preparacao_update)
+            existente = existentes.get(import_key)
+            if existente:
+                if importacao_identica(existente, dados):
+                    resultado["ignoradas"] += 1
+                else:
+                    conflitos.append((existente, dados))
             else:
                 inicio_preparacao_insert = time.perf_counter()
                 novos.append(valores_insert_importacao(dados))
                 somar_tempo_importacao(resultado, "preparacao_novos", time.perf_counter() - inicio_preparacao_insert)
 
-        if atualizacoes:
-            inicio_update = time.perf_counter()
-            executar_updates_importacao(cursor, atualizacoes)
-            somar_tempo_importacao(resultado, "update", time.perf_counter() - inicio_update)
-            resultado["atualizadas"] = len(atualizacoes)
-            resultado["lotes_update"] = len(list(separar_em_lotes(atualizacoes, TAMANHO_LOTE_GRAVACAO_IMPORTACAO)))
+        for existente, dados in conflitos:
+            _registrar_auditoria_cursor(
+                cursor,
+                existente["id"],
+                "CONFLITO_IMPORTACAO",
+                existente,
+                dados,
+                usuario_nome="Importação financeira",
+                perfil="sistema",
+                justificativa="Mesma chave de importação recebida com conteúdo divergente; registro preservado.",
+                origem_acao="importacao_excel",
+                referencia_importacao=dados["import_key"],
+            )
+            resultado["detalhes_conflitos"].append(
+                f"Chave {dados['import_key']}: divergência registrada sem sobrescrita."
+            )
+        resultado["conflitos"] = len(conflitos)
 
         if novos:
             inicio_insert = time.perf_counter()
@@ -2511,8 +2789,18 @@ def gerar_excel_liquidacao_financeira(contexto):
     return buffer
 
 
-def reclassificar_movimentacoes(ids, plano_conta_id):
+def reclassificar_movimentacoes(
+    ids,
+    plano_conta_id,
+    justificativa="",
+    usuario_id=None,
+    usuario_nome="Sistema",
+    perfil="sistema",
+):
     criar_tabela_movimentacoes_financeiras()
+    justificativa = (justificativa or "").strip()
+    if not justificativa:
+        raise ValueError("Informe a justificativa da reclassificação.")
 
     ids_validos = []
     for item in ids:
@@ -2531,35 +2819,59 @@ def reclassificar_movimentacoes(ids, plano_conta_id):
     conn = conectar()
     cursor = conn.cursor()
     atualizadas = 0
-    for movimentacao_id in ids_validos:
-        cursor.execute(q("""
-        UPDATE movimentacoes_financeiras
-        SET categoria = ?,
-            plano_conta_id = ?,
-            grupo_gerencial = ?,
-            categoria_plano = ?,
-            subcategoria = ?,
-            centro_analise = ?,
-            linha_dre = ?,
-            tipo_conta = ?,
-            impacta_fluxo_caixa = ?
-        WHERE id = ?
-        """), (
-            plano["categoria_movimentacao"],
-            plano["plano_conta_id"],
-            plano["grupo_gerencial"],
-            plano["categoria_plano"],
-            plano["subcategoria"],
-            plano["centro_analise"],
-            plano["linha_dre"],
-            plano["tipo_conta"],
-            int(plano["impacta_fluxo_caixa"]),
-            movimentacao_id,
-        ))
-        atualizadas += cursor.rowcount
-    conn.commit()
-    conn.close()
-    return atualizadas
+    try:
+        for movimentacao_id in ids_validos:
+            cursor.execute(q("SELECT * FROM movimentacoes_financeiras WHERE id = ?"), (movimentacao_id,))
+            anterior = cursor.fetchone()
+            if not anterior:
+                continue
+            cursor.execute(q("""
+            UPDATE movimentacoes_financeiras
+            SET categoria = ?,
+                plano_conta_id = ?,
+                grupo_gerencial = ?,
+                categoria_plano = ?,
+                subcategoria = ?,
+                centro_analise = ?,
+                linha_dre = ?,
+                tipo_conta = ?,
+                impacta_fluxo_caixa = ?
+            WHERE id = ?
+            """), (
+                plano["categoria_movimentacao"],
+                plano["plano_conta_id"],
+                plano["grupo_gerencial"],
+                plano["categoria_plano"],
+                plano["subcategoria"],
+                plano["centro_analise"],
+                plano["linha_dre"],
+                plano["tipo_conta"],
+                int(plano["impacta_fluxo_caixa"]),
+                movimentacao_id,
+            ))
+            atualizadas += cursor.rowcount
+            cursor.execute(q("SELECT * FROM movimentacoes_financeiras WHERE id = ?"), (movimentacao_id,))
+            posterior = cursor.fetchone()
+            _registrar_auditoria_cursor(
+                cursor,
+                movimentacao_id,
+                "RECLASSIFICACAO",
+                anterior,
+                posterior,
+                usuario_id=usuario_id,
+                usuario_nome=usuario_nome,
+                perfil=perfil,
+                justificativa=justificativa,
+                origem_acao="auditoria_financeira",
+                referencia_importacao=anterior["import_key"],
+            )
+        conn.commit()
+        return atualizadas
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def gerar_excel_auditoria_financeira(contexto):

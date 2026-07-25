@@ -98,8 +98,49 @@
         <label>Observações</label>
         <textarea name="observacoes" rows="3">{{ movimentacao.observacoes }}</textarea>
 
+        <label>Justificativa da alteração</label>
+        <textarea name="justificativa" rows="3" required></textarea>
+        <small class="campo-ajuda">Obrigatória e registrada na trilha financeira.</small>
+
         <button type="submit">Salvar alterações</button>
     </form>
+</div>
+
+<div class="card">
+    <div class="section-title-row">
+        <div>
+            <span class="eyebrow">Integridade</span>
+            <h2>Histórico da movimentação</h2>
+        </div>
+    </div>
+    {% if historico %}
+    <div class="tabela-responsiva tabela-executiva financeiro-tabela">
+        <table>
+            <thead>
+                <tr>
+                    <th>Data</th>
+                    <th>Ação</th>
+                    <th>Usuário</th>
+                    <th>Justificativa</th>
+                    <th>Alterações</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for evento in historico %}
+                <tr>
+                    <td>{{ evento.data_hora }}</td>
+                    <td>{{ evento.acao }}</td>
+                    <td>{{ evento.usuario_nome }} ({{ evento.perfil }})</td>
+                    <td>{{ evento.justificativa or "-" }}</td>
+                    <td>{{ evento.resumo_alteracoes }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="obs">Nenhum evento auditado registrado para esta movimentação.</p>
+    {% endif %}
 </div>
 
 {% endblock %}

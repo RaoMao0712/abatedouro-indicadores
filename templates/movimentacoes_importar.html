@@ -33,7 +33,8 @@
     </form>
 
     <p class="obs">
-        A nova base oficial exige Tipo/Natureza, Categoria, Data do Documento e Valor do Documento. Reimportar a mesma planilha atualiza os registros existentes sem duplicar.
+        A nova base oficial exige Tipo/Natureza, Categoria, Data do Documento e Valor do Documento.
+        Reimportacoes identicas sao ignoradas; divergencias sob a mesma chave sao registradas sem sobrescrever a Central.
     </p>
 </div>
 
@@ -50,6 +51,7 @@
         <div><strong>Linhas lidas</strong><span>{{ resultado.linhas_lidas }}</span></div>
         <div><strong>Importadas</strong><span>{{ resultado.importadas }}</span></div>
         <div><strong>Atualizadas</strong><span>{{ resultado.atualizadas }}</span></div>
+        <div><strong>Conflitos</strong><span>{{ resultado.conflitos or 0 }}</span></div>
         <div><strong>Ignoradas</strong><span>{{ resultado.ignoradas or 0 }}</span></div>
         <div><strong>Com erro</strong><span>{{ resultado.erros }}</span></div>
         <div><strong>Classificadas</strong><span>{{ resultado.classificadas }}</span></div>
@@ -77,6 +79,16 @@
             <strong>Erros encontrados</strong>
             {% for erro in resultado.detalhes_erros %}
             <span>{{ erro }}</span>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+    {% if resultado.detalhes_conflitos %}
+    <div class="plano-diagnostico-grid">
+        <div>
+            <strong>Conflitos preservados</strong>
+            {% for conflito in resultado.detalhes_conflitos %}
+            <span>{{ conflito }}</span>
             {% endfor %}
         </div>
     </div>

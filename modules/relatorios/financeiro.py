@@ -11,6 +11,7 @@ from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 from database import conectar, q
+from modules.movimentacoes.services import valor_realizado_movimentacao
 
 
 LINHA_RECEITA_BRUTA = "Receita Bruta"
@@ -284,12 +285,7 @@ def valor_evento(item):
 
 
 def valor_baixado(item):
-    pago = valor_float(item.get("valor_pago"))
-    if pago > 0:
-        return pago
-    if item.get("data_realizacao") and item.get("status") in ["Pago", "Recebido", "Realizado"]:
-        return valor_evento(item)
-    return 0
+    return valor_realizado_movimentacao(item)
 
 
 def status_realizado(item):
@@ -596,7 +592,9 @@ def montar_resumo_caixa(config, filtros):
         WHERE {" AND ".join(cond_prev)}
     """, par_prev)
     realizado = executar_um(f"""
-        SELECT COUNT(*) as quantidade, COALESCE(SUM(valor), 0) as total
+        SELECT COUNT(*) as quantidade, COALESCE(SUM(
+            CASE WHEN COALESCE(valor_pago, 0) > 0 THEN valor_pago ELSE valor END
+        ), 0) as total
         FROM movimentacoes_financeiras
         WHERE {" AND ".join(cond_real)}
     """, par_real)
@@ -709,12 +707,17 @@ def montar_evolucao(config, filtros):
         {"familia": "caixa", "tipo": "Todos"},
         filtros,
     )
+    valor_realizado_sql = (
+        "CASE WHEN COALESCE(valor_pago, 0) > 0 THEN valor_pago ELSE valor END"
+        if campo_data == "data_realizacao"
+        else "valor"
+    )
     linhas = executar_lista(f"""
         SELECT
             SUBSTR({campo_data}, 1, 7) as mes,
-            COALESCE(SUM(CASE WHEN tipo = 'Entrada' THEN valor ELSE 0 END), 0) as entradas,
-            COALESCE(SUM(CASE WHEN tipo <> 'Entrada' THEN valor ELSE 0 END), 0) as saidas,
-            COALESCE(SUM(CASE WHEN {eh_aporte_sql()} THEN valor ELSE 0 END), 0) as aportes
+            COALESCE(SUM(CASE WHEN tipo = 'Entrada' THEN {valor_realizado_sql} ELSE 0 END), 0) as entradas,
+            COALESCE(SUM(CASE WHEN tipo <> 'Entrada' THEN {valor_realizado_sql} ELSE 0 END), 0) as saidas,
+            COALESCE(SUM(CASE WHEN {eh_aporte_sql()} THEN {valor_realizado_sql} ELSE 0 END), 0) as aportes
         FROM movimentacoes_financeiras
         WHERE {" AND ".join(condicoes_fluxo)}
         GROUP BY SUBSTR({campo_data}, 1, 7)
