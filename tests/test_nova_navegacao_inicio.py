@@ -120,6 +120,42 @@ def test_embalagens_aparecem_para_producao():
     assert 'href="/embalagem-secundaria"' in html
 
 
+def test_tempos_dos_setores_fica_fora_da_navegacao_visivel():
+    producao = next(dominio for dominio in NAVEGACAO if dominio["id"] == "producao")
+    apontamentos = [
+        item["titulo"]
+        for item in producao["itens"]
+        if item.get("grupo") == "Apontamentos"
+    ]
+    assert apontamentos == ["Mão de Obra", "Paradas"]
+    assert all(item["endpoint"] != "tempos_setor" for item in producao["itens"])
+
+    for perfil in PERFIS_CONHECIDOS:
+        html = html_inicio(perfil)
+        assert 'href="/tempos-setor"' not in html
+        assert ">Tempos<" not in html
+
+
+def test_tempos_dos_setores_preserva_historico_sem_atalho_operacional():
+    template = (ROOT / "templates" / "consultar_op.html").read_text(encoding="utf-8")
+    assert "<h2>Tempos dos Setores</h2>" in template
+    assert "tempos_setor" in template
+    assert "url_for('tempos_setor'" not in template
+    assert "Lançar / Editar Tempos" not in template
+
+
+def test_tempos_setor_permanece_protegido_e_funcional_por_url():
+    client = app.test_client()
+    resposta = client.get("/tempos-setor")
+    assert resposta.status_code == 302
+    assert urlsplit(resposta.location).path == "/"
+
+    sessao(client, "producao")
+    resposta = client.get("/tempos-setor")
+    assert resposta.status_code == 200
+    assert "Tempos dos Setores" in resposta.get_data(as_text=True)
+
+
 def test_editar_op_nao_aparece_para_perfis_sem_permissao():
     template = (ROOT / "templates" / "consultar_op.html").read_text(encoding="utf-8")
     marcador = "href=\"{{ url_for('editar_op'"

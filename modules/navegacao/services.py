@@ -9,6 +9,9 @@ PERFIS_CONHECIDOS = ("admin", "pcp", "producao", "qualidade", "manutencao", "ger
 TODOS_PERFIS = PERFIS_CONHECIDOS
 ADMIN_PCP = ("admin", "pcp")
 
+# Tempos dos Setores: funcionalidade operacional descontinuada — preservada
+# para compatibilidade e eventual uso futuro em estudos específicos de tempos
+# e gargalos. A rota tempos_setor permanece ativa, mas fora da navegação visível.
 
 NAVEGACAO = [
     {
@@ -60,7 +63,6 @@ NAVEGACAO = [
             },
             {"titulo": "Mão de Obra", "grupo": "Apontamentos", "endpoint": "apontamento_mao_obra", "perfis": ("admin", "producao")},
             {"titulo": "Paradas", "grupo": "Apontamentos", "endpoint": "apontamento_paradas", "perfis": ("admin", "producao")},
-            {"titulo": "Tempos", "grupo": "Apontamentos", "endpoint": "tempos_setor", "perfis": ("admin", "producao")},
             {"titulo": "Embalagem Primária", "endpoint": "embalagem_primaria", "perfis": ("admin", "pcp", "producao"), "principal": True},
             {
                 "titulo": "Embalagem Secundária",

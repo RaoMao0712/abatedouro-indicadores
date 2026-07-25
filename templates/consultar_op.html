@@ -496,17 +496,6 @@
 
     {% endif %}
 
-    {% if op.status != "Encerrada" or session.get("perfil") == "admin" %}
-        {% if session.get("perfil") == "admin" or session.get("perfil") == "producao" %}
-            <a
-                href="{{ url_for('tempos_setor', op_id=op.id) }}"
-                class="botao-editar"
-            >
-                Lançar / Editar Tempos
-            </a>
-        {% endif %}
-    {% endif %}
-
 </div>
 
 
