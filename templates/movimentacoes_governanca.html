@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+<section class="hero-dashboard dre-hero dre-hero-executiva">
+    <div>
+        <span class="eyebrow">Movimenta&ccedil;&otilde;es financeiras</span>
+        <h2>Governan&ccedil;a de origens</h2>
+        <p>Rastreabilidade de lotes, conflitos, rejei&ccedil;&otilde;es e lan&ccedil;amentos manuais controlados.</p>
+    </div>
+    <div class="dre-acoes-topo dre-acoes-compactas">
+        <a href="{{ url_for('movimentacoes_entradas') }}" class="botao-dre-imprimir">Voltar &agrave; Central</a>
+    </div>
+</section>
+
+<div class="cards-executivos financeiro-kpis">
+    {% for item in totais_modo %}
+    <div class="card kpi-card">
+        <span class="kpi-label">{{ item.rotulo }}</span>
+        <strong>{{ item.quantidade }}</strong>
+        <small>movimenta&ccedil;&otilde;es</small>
+    </div>
+    {% endfor %}
+</div>
+
+<div class="card">
+    <div class="section-title-row">
+        <div><span class="eyebrow">Corte futuro</span><h2>Configura&ccedil;&atilde;o</h2></div>
+    </div>
+    <p><strong>{{ configuracao_corte.situacao }}</strong></p>
+    <p class="obs">Nenhuma data de corte ou bloqueio foi ativada nesta onda.</p>
+</div>
+
+<div class="card financeiro-extrato-card">
+    <div class="section-title-row">
+        <div><span class="eyebrow">Importa&ccedil;&otilde;es</span><h2>Lotes recentes</h2></div>
+    </div>
+    <div class="tabela-responsiva tabela-executiva financeiro-tabela">
+        <table>
+            <thead><tr><th>Lote</th><th>Arquivo</th><th>SHA-256</th><th>Status</th><th>Total</th><th>Importadas</th><th>Id&ecirc;nticas</th><th>Conflitos</th><th>Rejeitadas</th><th>Usu&aacute;rio</th></tr></thead>
+            <tbody>
+            {% for lote in lotes %}
+                <tr>
+                    <td>#{{ lote.id }}</td><td>{{ lote.arquivo_nome }}</td><td><small>{{ lote.arquivo_hash }}</small></td>
+                    <td>{{ lote.status }}</td><td>{{ lote.quantidade_total }}</td><td>{{ lote.importadas }}</td>
+                    <td>{{ lote.identicas }}</td><td>{{ lote.conflitantes }}</td><td>{{ lote.rejeitadas }}</td><td>{{ lote.usuario_nome }}</td>
+                </tr>
+            {% else %}
+                <tr><td colspan="10">Nenhum lote processado.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card financeiro-extrato-card">
+    <div class="section-title-row">
+        <div><span class="eyebrow">Aten&ccedil;&atilde;o</span><h2>Conflitos e rejei&ccedil;&otilde;es</h2></div>
+    </div>
+    <div class="tabela-responsiva tabela-executiva financeiro-tabela">
+        <table>
+            <thead><tr><th>Lote</th><th>Linha</th><th>Status</th><th>Chave</th><th>Mensagem</th></tr></thead>
+            <tbody>
+            {% for linha in linhas_atencao %}
+                <tr><td>#{{ linha.lote_id }}</td><td>{{ linha.numero_linha }}</td><td>{{ linha.status }}</td><td>{{ linha.chave_encontrada or "-" }}</td><td>{{ linha.mensagem }}</td></tr>
+            {% else %}
+                <tr><td colspan="5">Nenhum conflito ou rejei&ccedil;&atilde;o.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card financeiro-extrato-card">
+    <div class="section-title-row">
+        <div><span class="eyebrow">Controle manual</span><h2>Lan&ccedil;amentos recentes</h2></div>
+    </div>
+    <div class="tabela-responsiva tabela-executiva financeiro-tabela">
+        <table>
+            <thead><tr><th>ID</th><th>Data</th><th>Descri&ccedil;&atilde;o</th><th>Valor</th><th>Usu&aacute;rio</th><th>Justificativa</th><th>Evid&ecirc;ncia</th></tr></thead>
+            <tbody>
+            {% for item in manuais %}
+                <tr><td>{{ item.id }}</td><td>{{ item.data_documento }}</td><td>{{ item.descricao }}</td><td>R$ {{ "%.2f"|format(item.valor or 0) }}</td><td>{{ item.usuario_nome }}</td><td>{{ item.justificativa_origem }}</td><td>{{ item.referencia_evidencia }}</td></tr>
+            {% else %}
+                <tr><td colspan="7">Nenhum lan&ccedil;amento manual controlado.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

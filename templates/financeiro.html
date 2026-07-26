@@ -41,6 +41,18 @@
                 </select>
             </div>
 
+            <div>
+                <label>Origem</label>
+                <select name="origem">
+                    <option value="Todos">Todas</option>
+                    {% for origem_opcao in modos_origem %}
+                    <option value="{{ origem_opcao.valor }}" {% if modo_origem_filtro == origem_opcao.valor %}selected{% endif %}>
+                        {{ origem_opcao.rotulo }} ({{ origem_opcao.quantidade }})
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
             <button type="submit" class="botao-hero-filtro">Filtrar</button>
         </form>
         {% endif %}
@@ -54,6 +66,7 @@
         <a href="{{ url_for('importar_movimentacoes_financeiras') }}" class="movimentacoes-ficha">Importar Excel</a>
         <a href="{{ url_for('importar_vendas_financeiras') }}" class="movimentacoes-ficha">Importar Vendas</a>
         <a href="{{ url_for('movimentacoes_auditoria') }}" class="movimentacoes-ficha">Auditoria</a>
+        <a href="{{ url_for('movimentacoes_governanca') }}" class="movimentacoes-ficha">Governan&ccedil;a</a>
         <a href="{{ url_for('movimentacoes_pendencias') }}" class="movimentacoes-ficha">Pendencias</a>
     </nav>
 
@@ -101,6 +114,7 @@
             <div>
                 <span class="eyebrow">Lancamento</span>
                 <h2>Novo lancamento - {{ titulo_visao }}</h2>
+                <p class="obs">Uso manual reservado a fatos sem origem operacional ou importa&ccedil;&atilde;o dispon&iacute;vel.</p>
             </div>
         </div>
 
@@ -196,6 +210,19 @@
                 </div>
             </div>
 
+            <div class="financeiro-lancamento-descricao">
+                <div>
+                    <label>Justificativa do lan&ccedil;amento manual</label>
+                    <textarea name="justificativa" rows="3" minlength="5" required></textarea>
+                    <small>Obrigat&oacute;ria e preservada na trilha de auditoria.</small>
+                </div>
+                <div>
+                    <label>Refer&ecirc;ncia da evid&ecirc;ncia</label>
+                    <input type="text" name="referencia_evidencia" minlength="3" placeholder="Ex.: NF 1234, contrato ou chamado" required>
+                    <small>Informe uma refer&ecirc;ncia verific&aacute;vel; n&atilde;o anexe dados sens&iacute;veis.</small>
+                </div>
+            </div>
+
             <button type="submit">Salvar movimenta&ccedil;&atilde;o</button>
         </form>
     </div>
@@ -218,6 +245,7 @@
                         <th>Descricao</th>
                         <th>Valor</th>
                         <th>Status</th>
+                        <th>Origem</th>
                         <th>Forma</th>
                         <th>Parcela</th>
                         <th>Prazo medio</th>
@@ -240,6 +268,12 @@
                         </td>
                         <td class="financeiro-valor">R$ {{ "%.2f"|format(item.valor or 0) }}</td>
                         <td><span class="badge-status-financeiro {{ status_classe }}">{{ status_tela }}</span></td>
+                        <td>
+                            <span class="badge-status-financeiro {{ item.origem_classe }}">{{ item.origem_rotulo }}</span>
+                            {% if item.lote_importacao_id %}
+                            <small>Lote #{{ item.lote_importacao_id }}{% if item.origem_linha_arquivo %}, linha {{ item.origem_linha_arquivo }}{% endif %}</small>
+                            {% endif %}
+                        </td>
                         <td>{{ item.forma_pagamento }}</td>
                         <td>{{ item.parcela_atual }}/{{ item.parcelas }}</td>
                         <td>{{ item.prazo_medio_dias or 0 }} dias</td>

@@ -6,6 +6,11 @@ from flask import flash, redirect, render_template, request, send_file, session,
 
 from modules.auth.decorators import perfil_permitido
 
+from .origens import (
+    buscar_origem_principal_movimentacao,
+    listar_modos_origem_usados,
+    montar_contexto_governanca_financeira,
+)
 from .services import (
     CATEGORIAS_FINANCEIRAS_ENTRADA,
     CATEGORIAS_FINANCEIRAS_SAIDA,
@@ -50,12 +55,14 @@ def register_movimentacoes_routes(app):
         data_fim = request.args.get("data_fim") or hoje
         status_filtro = request.args.get("status") or "Todos"
         tipo_filtro = tipo_movimentacao or request.args.get("tipo") or "Todos"
+        modo_origem_filtro = request.args.get("origem") or "Todos"
 
         movimentacoes = buscar_movimentacoes_financeiras(
             data_inicio,
             data_fim,
             tipo_filtro,
-            status_filtro
+            status_filtro,
+            modo_origem_filtro,
         )
 
         return {
@@ -66,6 +73,8 @@ def register_movimentacoes_routes(app):
             "tipo_filtro": tipo_filtro,
             "tipo_padrao": tipo_movimentacao or "Entrada",
             "status_filtro": status_filtro,
+            "modo_origem_filtro": modo_origem_filtro,
+            "modos_origem": listar_modos_origem_usados(),
             "movimentacoes": movimentacoes,
             "resumo": calcular_resumo_financeiro(movimentacoes),
             "fluxo_diario": agrupar_fluxo_por_dia(movimentacoes),
@@ -175,7 +184,13 @@ def register_movimentacoes_routes(app):
                 flash("Selecione uma planilha para importar.")
             else:
                 try:
-                    resultado = importar_movimentacoes_financeiras_excel(arquivo, natureza_padrao="DESPESA")
+                    resultado = importar_movimentacoes_financeiras_excel(
+                        arquivo,
+                        natureza_padrao="DESPESA",
+                        usuario_id=session.get("usuario_id"),
+                        usuario_nome=session.get("nome") or "Usuário",
+                        perfil=session.get("perfil") or "pcp",
+                    )
                     flash("Importacao de movimentacoes concluida.")
                 except Exception as erro:
                     flash(f"Erro ao importar movimentacoes: {erro}")
@@ -219,6 +234,9 @@ def register_movimentacoes_routes(app):
                         categoria_padrao=CATEGORIA_RECEITA_BRUTA,
                         origem_importacao=ORIGEM_IMPORTACAO_VENDAS,
                         incluir_origem_import_key=True,
+                        usuario_id=session.get("usuario_id"),
+                        usuario_nome=session.get("nome") or "Usuário",
+                        perfil=session.get("perfil") or "pcp",
                     )
                     flash("Importacao de vendas concluida.")
                 except Exception as erro:
@@ -239,6 +257,14 @@ def register_movimentacoes_routes(app):
         return render_template(
             "movimentacoes_pendencias.html",
             pendencias=buscar_pendencias_classificacao(),
+        )
+
+    @app.route("/movimentacoes/governanca")
+    @perfil_permitido("pcp")
+    def movimentacoes_governanca():
+        return render_template(
+            "movimentacoes_governanca.html",
+            **montar_contexto_governanca_financeira(),
         )
 
 
@@ -313,6 +339,7 @@ def register_movimentacoes_routes(app):
             status_opcoes=STATUS_FINANCEIRO,
             voltar_endpoint=destino_movimentacao_por_tipo(movimentacao["tipo"]),
             historico=buscar_historico_movimentacao_financeira(movimentacao_id),
+            origem=buscar_origem_principal_movimentacao(movimentacao_id),
         )
 
 

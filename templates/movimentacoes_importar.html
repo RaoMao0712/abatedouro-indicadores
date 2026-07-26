@@ -50,6 +50,8 @@
     <div class="resumo-parcelas">
         <div><strong>Linhas lidas</strong><span>{{ resultado.linhas_lidas }}</span></div>
         <div><strong>Importadas</strong><span>{{ resultado.importadas }}</span></div>
+        <div><strong>Id&ecirc;nticas</strong><span>{{ resultado.identicas or 0 }}</span></div>
+        <div><strong>Rejeitadas</strong><span>{{ resultado.rejeitadas or 0 }}</span></div>
         <div><strong>Atualizadas</strong><span>{{ resultado.atualizadas }}</span></div>
         <div><strong>Conflitos</strong><span>{{ resultado.conflitos or 0 }}</span></div>
         <div><strong>Ignoradas</strong><span>{{ resultado.ignoradas or 0 }}</span></div>
@@ -60,6 +62,9 @@
         <div><strong>Lotes insert</strong><span>{{ resultado.lotes_insert or 0 }}</span></div>
         <div><strong>Lotes update</strong><span>{{ resultado.lotes_update or 0 }}</span></div>
         <div><strong>Transacao</strong><span>{{ resultado.transacao or "-" }}</span></div>
+        <div><strong>Lote de governan&ccedil;a</strong><span>#{{ resultado.lote_id or "-" }}</span></div>
+        <div><strong>Arquivo</strong><span>{{ resultado.arquivo_nome or "-" }}</span></div>
+        <div><strong>SHA-256</strong><span>{{ resultado.arquivo_hash or "-" }}</span></div>
     </div>
 
     {% if resultado.tempos_etapas %}

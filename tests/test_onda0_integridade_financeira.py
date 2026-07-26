@@ -351,6 +351,8 @@ def test_criacao_manual_registra_estado_posterior_e_ator():
             ("status", "Pendente"),
             ("parcela_vencimento[]", "2026-07-15"),
             ("parcela_valor[]", "750"),
+            ("justificativa", "Lançamento controlado para teste."),
+            ("referencia_evidencia", "NF TESTE 001"),
         ]
     )
     salvar_movimentacao_financeira(
@@ -508,11 +510,15 @@ def test_21_reimportacao_identica_e_idempotente_divergencia_nao_sobrescreve():
     wb_modelo.save(modelo)
     wb_modelo.close()
     modelo.seek(0)
-    primeiro = importar_movimentacoes_financeiras_excel(modelo)
+    primeiro = importar_movimentacoes_financeiras_excel(
+        modelo, usuario_id=11, usuario_nome="Tesouraria", perfil="pcp"
+    )
     assert primeiro["importadas"] == 1
 
     modelo.seek(0)
-    segundo = importar_movimentacoes_financeiras_excel(modelo)
+    segundo = importar_movimentacoes_financeiras_excel(
+        modelo, usuario_id=11, usuario_nome="Tesouraria", perfil="pcp"
+    )
     assert segundo["importadas"] == 0
     assert segundo["ignoradas"] == 1
 
@@ -527,7 +533,9 @@ def test_21_reimportacao_identica_e_idempotente_divergencia_nao_sobrescreve():
     wb.save(divergente.name)
     wb.close()
 
-    resultado = importar_movimentacoes_financeiras_excel(divergente.name)
+    resultado = importar_movimentacoes_financeiras_excel(
+        divergente.name, usuario_id=11, usuario_nome="Tesouraria", perfil="pcp"
+    )
     assert resultado["conflitos"] == 1
     assert resultado["atualizadas"] == 0
     linha = consultar_um("SELECT observacoes FROM movimentacoes_financeiras LIMIT 1")

@@ -19,6 +19,26 @@
 </section>
 
 <div class="card">
+    <div class="section-title-row">
+        <div>
+            <span class="eyebrow">Rastreabilidade</span>
+            <h2>Origem principal</h2>
+        </div>
+    </div>
+    <p>
+        <span class="badge-status-financeiro {{ origem.origem_classe }}">{{ origem.origem_rotulo }}</span>
+        &mdash; {{ origem.sistema_origem }} / {{ origem.tipo_evento }}
+    </p>
+    {% if origem.referencia_evidencia %}
+    <p><strong>Evid&ecirc;ncia:</strong> {{ origem.referencia_evidencia }}</p>
+    {% endif %}
+    {% if origem.lote_importacao_id %}
+    <p><strong>Lote:</strong> #{{ origem.lote_importacao_id }} &middot; {{ origem.lote_arquivo_nome }} &middot; linha {{ origem.linha_arquivo }}</p>
+    {% endif %}
+    <p class="obs">A origem &eacute; somente leitura nesta tela e integra a trilha de auditoria.</p>
+</div>
+
+<div class="card">
     <form method="POST">
         <div class="form-grid">
             <div>

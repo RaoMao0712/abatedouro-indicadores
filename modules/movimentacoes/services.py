@@ -30,6 +30,27 @@ from modules.financeiro.services import (
     opcoes_reclassificacao_plano,
     resolver_conta_plano,
 )
+from modules.movimentacoes.origens import (
+    IMPORTACAO_FINANCEIRA,
+    LEGADO_IMPORTADO,
+    MANUAL_CONTROLADO,
+    MODOS_ORIGEM,
+    STATUS_LINHA_CONFLITANTE,
+    STATUS_LINHA_IDENTICA,
+    STATUS_LINHA_IMPORTADA,
+    STATUS_LINHA_REJEITADA,
+    aplicar_origem_leitura,
+    criar_lote_importacao_cursor,
+    criar_tabelas_governanca_financeira,
+    falhar_lote_importacao_cursor,
+    finalizar_lote_importacao_cursor,
+    hash_normalizado,
+    hash_sha256,
+    registrar_linha_importacao_cursor,
+    registrar_origem_principal_cursor,
+    sanitizar_nome_arquivo,
+    vincular_auditoria_origem_cursor,
+)
 
 
 def tentar_alter_table(cursor, conn, comando):
@@ -49,11 +70,13 @@ HOTFIX_APORTES_NATUREZA_CHAVE = "20260714_aportes_entrada_fluxo"
 TABELA_BACKUP_APORTES_NATUREZA = "movimentacoes_financeiras_backup_aportes_natureza_20260714"
 ACOES_AUDITORIA_FINANCEIRA = {
     "CRIACAO_MANUAL",
+    "CRIACAO_IMPORTACAO",
     "EDICAO",
     "CANCELAMENTO",
     "REABERTURA",
     "RECLASSIFICACAO",
     "CONFLITO_IMPORTACAO",
+    "ALTERACAO_ORIGEM",
     "HOTFIX_APORTES",
 }
 
@@ -239,7 +262,7 @@ def preparar_movimentacoes_financeiras_para_tela(movimentacoes, status_filtro="T
     resultado = []
 
     for item in movimentacoes:
-        item_dict = dict(item)
+        item_dict = aplicar_origem_leitura(dict(item))
         status_visual = calcular_status_financeiro_visual(item_dict, hoje_data)
         item_dict["status_original"] = item_dict.get("status", "Pendente")
         item_dict["status_visual"] = status_visual
@@ -476,6 +499,10 @@ def _registrar_auditoria_cursor(
         origem_acao or "sistema",
         referencia_importacao,
     ))
+    if DATABASE_URL:
+        cursor.execute("SELECT LASTVAL() AS id")
+        return cursor.fetchone()["id"]
+    return cursor.lastrowid
 
 
 def buscar_historico_movimentacao_financeira(movimentacao_id):
@@ -880,6 +907,7 @@ def salvar_movimentacao_financeira(
     origem_acao="interface_manual",
 ):
     criar_tabela_movimentacoes_financeiras()
+    criar_tabelas_governanca_financeira()
 
     tipo = form.get("tipo", "").strip()
     categoria = form.get("categoria", "").strip()
@@ -890,9 +918,18 @@ def salvar_movimentacao_financeira(
     status = form.get("status", "Pendente")
     observacoes = form.get("observacoes", "")
     valor_documento = float(form.get("valor") or 0)
+    justificativa_manual = (form.get("justificativa") or "").strip()
+    referencia_evidencia = (form.get("referencia_evidencia") or "").strip()
 
     vencimentos = form.getlist("parcela_vencimento[]")
     valores = form.getlist("parcela_valor[]")
+
+    if not usuario_id or not str(usuario_nome or "").strip():
+        raise ValueError("Usuário autenticado é obrigatório para lançamento manual.")
+    if len(justificativa_manual) < 5:
+        raise ValueError("Informe uma justificativa objetiva para o lançamento manual.")
+    if len(referencia_evidencia) < 3:
+        raise ValueError("Informe a referência documental ou evidência do lançamento.")
 
     if tipo not in ["Entrada", "Saída"]:
         raise ValueError("Tipo de movimentação inválido.")
@@ -1010,9 +1047,28 @@ def salvar_movimentacao_financeira(
                 movimentacao_id = cursor.fetchone()["id"]
             else:
                 movimentacao_id = cursor.lastrowid
+            origem_id = registrar_origem_principal_cursor(
+                cursor,
+                movimentacao_id,
+                MANUAL_CONTROLADO,
+                sistema_origem="FrigoDatta",
+                modulo_origem="Central de Movimentações",
+                tipo_evento="LANCAMENTO_MANUAL",
+                evento_id_interno=documento_id,
+                chave_externa=referencia_evidencia,
+                chave_idempotente=f"manual:{documento_id}:{indice}",
+                usuario_id=usuario_id,
+                usuario_nome=usuario_nome,
+                metadados={
+                    "justificativa": justificativa_manual,
+                    "referencia_evidencia": referencia_evidencia,
+                    "parcela": indice,
+                    "total_parcelas": total_parcelas,
+                },
+            )
             cursor.execute(q("SELECT * FROM movimentacoes_financeiras WHERE id = ?"), (movimentacao_id,))
             posterior = cursor.fetchone()
-            _registrar_auditoria_cursor(
+            auditoria_id = _registrar_auditoria_cursor(
                 cursor,
                 movimentacao_id,
                 "CRIACAO_MANUAL",
@@ -1021,9 +1077,10 @@ def salvar_movimentacao_financeira(
                 usuario_id=usuario_id,
                 usuario_nome=usuario_nome,
                 perfil=perfil,
-                justificativa=form.get("justificativa", ""),
+                justificativa=justificativa_manual,
                 origem_acao=origem_acao,
             )
+            vincular_auditoria_origem_cursor(cursor, origem_id, auditoria_id)
         conn.commit()
     except Exception:
         conn.rollback()
@@ -1034,20 +1091,39 @@ def salvar_movimentacao_financeira(
 
 def buscar_movimentacao_financeira_por_id(movimentacao_id):
     criar_tabela_movimentacoes_financeiras()
+    criar_tabelas_governanca_financeira()
 
     conn = conectar()
     cursor = conn.cursor()
 
     cursor.execute(q("""
-    SELECT *
-    FROM movimentacoes_financeiras
-    WHERE id = ?
+    SELECT
+        m.*,
+        o.id AS origem_id,
+        o.modo AS modo_origem,
+        o.sistema_origem,
+        o.modulo_origem,
+        o.tipo_evento AS origem_tipo_evento,
+        o.chave_externa AS origem_chave_externa,
+        o.chave_idempotente AS origem_chave_idempotente,
+        o.lote_importacao_id,
+        o.linha_arquivo AS origem_linha_arquivo,
+        o.metadados AS origem_metadados,
+        l.arquivo_nome AS lote_arquivo_nome
+    FROM movimentacoes_financeiras m
+    LEFT JOIN movimentacoes_financeiras_origens o
+      ON o.movimentacao_id = m.id
+     AND o.papel = 'PRINCIPAL'
+     AND o.status = 'ATIVA'
+    LEFT JOIN movimentacoes_financeiras_importacao_lotes l
+      ON l.id = o.lote_importacao_id
+    WHERE m.id = ?
     """), (movimentacao_id,))
 
     movimentacao = cursor.fetchone()
     conn.close()
 
-    return movimentacao
+    return aplicar_origem_leitura(dict(movimentacao)) if movimentacao else None
 
 
 def atualizar_movimentacao_financeira(
@@ -1191,22 +1267,104 @@ def excluir_movimentacao_financeira(
         conn.close()
 
 
-def buscar_movimentacoes_financeiras(data_inicio, data_fim, tipo_filtro, status_filtro):
-    condicoes = ["data_vencimento BETWEEN ? AND ?"]
+def alterar_origem_principal_movimentacao(
+    movimentacao_id,
+    novo_modo,
+    justificativa,
+    usuario_id,
+    usuario_nome,
+    perfil="pcp",
+):
+    """Altera uma origem já persistida com justificativa e trilha da Onda 0."""
+    criar_tabela_movimentacoes_financeiras()
+    criar_tabelas_governanca_financeira()
+    justificativa = (justificativa or "").strip()
+    if not justificativa:
+        raise ValueError("A alteração de origem exige justificativa.")
+    if novo_modo not in {MANUAL_CONTROLADO, IMPORTACAO_FINANCEIRA}:
+        raise ValueError("Modo de origem não permitido para alteração nesta etapa.")
+    if not usuario_id or not str(usuario_nome or "").strip():
+        raise ValueError("Usuário autenticado é obrigatório.")
+
+    conn = conectar()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(q("""
+        SELECT *
+        FROM movimentacoes_financeiras_origens
+        WHERE movimentacao_id = ?
+          AND papel = 'PRINCIPAL'
+          AND status = 'ATIVA'
+        """), (movimentacao_id,))
+        anterior = cursor.fetchone()
+        if not anterior:
+            raise ValueError("Origem persistida não encontrada; legado não é materializado em edição.")
+        if anterior["modo"] == novo_modo:
+            raise ValueError("A origem informada já é a origem atual.")
+
+        cursor.execute(q("""
+        UPDATE movimentacoes_financeiras_origens
+        SET modo = ?
+        WHERE id = ?
+        """), (novo_modo, anterior["id"]))
+        cursor.execute(q("""
+        SELECT *
+        FROM movimentacoes_financeiras_origens
+        WHERE id = ?
+        """), (anterior["id"],))
+        posterior = cursor.fetchone()
+        auditoria_id = _registrar_auditoria_cursor(
+            cursor,
+            movimentacao_id,
+            "ALTERACAO_ORIGEM",
+            anterior,
+            posterior,
+            usuario_id=usuario_id,
+            usuario_nome=usuario_nome,
+            perfil=perfil,
+            justificativa=justificativa,
+            origem_acao="governanca_origem",
+            referencia_importacao=posterior["chave_idempotente"],
+        )
+        vincular_auditoria_origem_cursor(cursor, anterior["id"], auditoria_id)
+        conn.commit()
+        return dict(posterior)
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def buscar_movimentacoes_financeiras(
+    data_inicio,
+    data_fim,
+    tipo_filtro,
+    status_filtro,
+    modo_origem_filtro="Todos",
+):
+    criar_tabelas_governanca_financeira()
+    condicoes = ["m.data_vencimento BETWEEN ? AND ?"]
     parametros = [data_inicio, data_fim]
 
     if tipo_filtro in ["Entrada", "Saída"]:
-        condicoes.append("tipo = ?")
+        condicoes.append("m.tipo = ?")
         parametros.append(tipo_filtro)
 
     # O filtro por status visual é aplicado depois da consulta, porque "A vencer" e
     # "Em atraso" são calculados pela data de vencimento, não gravados no banco.
     if status_filtro == "Realizado":
-        condicoes.append("status = ?")
+        condicoes.append("m.status = ?")
         parametros.append("Realizado")
     elif status_filtro == "Cancelado":
-        condicoes.append("status = ?")
+        condicoes.append("m.status = ?")
         parametros.append("Cancelado")
+
+    if modo_origem_filtro == LEGADO_IMPORTADO:
+        condicoes.append("o.id IS NULL")
+    elif modo_origem_filtro in MODOS_ORIGEM and modo_origem_filtro != LEGADO_IMPORTADO:
+        condicoes.append("o.modo = ?")
+        parametros.append(modo_origem_filtro)
 
     where_sql = " AND ".join(condicoes)
 
@@ -1214,10 +1372,27 @@ def buscar_movimentacoes_financeiras(data_inicio, data_fim, tipo_filtro, status_
     cursor = conn.cursor()
 
     cursor.execute(q(f"""
-    SELECT *
-    FROM movimentacoes_financeiras
+    SELECT
+        m.*,
+        o.id AS origem_id,
+        o.modo AS modo_origem,
+        o.sistema_origem,
+        o.modulo_origem,
+        o.tipo_evento AS origem_tipo_evento,
+        o.chave_externa AS origem_chave_externa,
+        o.chave_idempotente AS origem_chave_idempotente,
+        o.lote_importacao_id,
+        o.linha_arquivo AS origem_linha_arquivo,
+        l.arquivo_nome AS lote_arquivo_nome
+    FROM movimentacoes_financeiras m
+    LEFT JOIN movimentacoes_financeiras_origens o
+      ON o.movimentacao_id = m.id
+     AND o.papel = 'PRINCIPAL'
+     AND o.status = 'ATIVA'
+    LEFT JOIN movimentacoes_financeiras_importacao_lotes l
+      ON l.id = o.lote_importacao_id
     WHERE {where_sql}
-    ORDER BY data_vencimento ASC, id ASC
+    ORDER BY m.data_vencimento ASC, m.id ASC
     """), tuple(parametros))
 
     movimentacoes = cursor.fetchall()
@@ -1860,12 +2035,32 @@ def importar_movimentacoes_financeiras_excel(
     categoria_padrao=CATEGORIA_NAO_CLASSIFICADO,
     origem_importacao=ORIGEM_IMPORTACAO_DESPESAS,
     incluir_origem_import_key=False,
+    usuario_id=None,
+    usuario_nome="",
+    perfil="pcp",
 ):
     inicio_processamento = time.perf_counter()
     criar_tabela_movimentacoes_financeiras()
+    criar_tabelas_governanca_financeira()
+    if not usuario_id or not str(usuario_nome or "").strip():
+        raise ValueError("Usuário autenticado é obrigatório para importar.")
 
     inicio_leitura = time.perf_counter()
-    wb = load_workbook(arquivo_excel, data_only=True)
+    if hasattr(arquivo_excel, "read"):
+        nome_arquivo = sanitizar_nome_arquivo(getattr(arquivo_excel, "filename", None))
+        if hasattr(arquivo_excel, "seek"):
+            arquivo_excel.seek(0)
+        conteudo_arquivo = arquivo_excel.read()
+        if hasattr(arquivo_excel, "seek"):
+            arquivo_excel.seek(0)
+    else:
+        caminho_arquivo = Path(arquivo_excel)
+        nome_arquivo = sanitizar_nome_arquivo(caminho_arquivo.name)
+        conteudo_arquivo = caminho_arquivo.read_bytes()
+    if not conteudo_arquivo:
+        raise ValueError("Arquivo de importação vazio.")
+    hash_arquivo = hash_sha256(conteudo_arquivo)
+    wb = load_workbook(BytesIO(conteudo_arquivo), data_only=True)
     ws = wb.active
     colunas, ausentes = mapear_cabecalhos_importacao(ws)
     if ausentes:
@@ -1876,6 +2071,8 @@ def importar_movimentacoes_financeiras_excel(
         "importadas": 0,
         "atualizadas": 0,
         "conflitos": 0,
+        "identicas": 0,
+        "rejeitadas": 0,
         "ignoradas": 0,
         "erros": 0,
         "classificadas": 0,
@@ -1898,17 +2095,39 @@ def importar_movimentacoes_financeiras_excel(
         "lotes_update": 0,
         "tamanho_lote_gravacao": TAMANHO_LOTE_GRAVACAO_IMPORTACAO,
         "transacao": "rollback_integral_antes_do_commit",
+        "lote_id": None,
+        "arquivo_nome": nome_arquivo,
+        "arquivo_hash": hash_arquivo,
     }
     somar_tempo_importacao(resultado, "leitura_excel", time.perf_counter() - inicio_leitura)
 
     registros_por_import_key = {}
     ocorrencias_por_import_key_base = {}
+    linhas_governanca = []
 
     for linha in range(2, ws.max_row + 1):
         resultado["linhas_lidas"] += 1
+        campos_brutos = {
+            campo: valor_celula(ws, linha, colunas, campo)
+            for campo in sorted(colunas)
+        }
+        registro_linha = {
+            "numero_linha": linha,
+            "hash_normalizado": hash_normalizado(campos_brutos),
+            "status": None,
+            "movimentacao_id": None,
+            "chave_encontrada": None,
+            "mensagem": "",
+            "campos_normalizados": campos_brutos,
+            "auditoria_id": None,
+        }
         try:
             if linha_planilha_importacao_vazia(ws, linha, colunas):
                 resultado["ignoradas"] += 1
+                resultado["rejeitadas"] += 1
+                registro_linha["status"] = STATUS_LINHA_REJEITADA
+                registro_linha["mensagem"] = "Linha vazia."
+                linhas_governanca.append(registro_linha)
                 continue
 
             inicio_normalizacao = time.perf_counter()
@@ -1931,6 +2150,10 @@ def importar_movimentacoes_financeiras_excel(
             )
             if linha_importacao_vazia(dados):
                 resultado["ignoradas"] += 1
+                resultado["rejeitadas"] += 1
+                registro_linha["status"] = STATUS_LINHA_REJEITADA
+                registro_linha["mensagem"] = "Linha sem conteúdo financeiro."
+                linhas_governanca.append(registro_linha)
                 continue
             if not dados["data_documento"]:
                 raise ValueError("linha sem data do documento")
@@ -1948,6 +2171,12 @@ def importar_movimentacoes_financeiras_excel(
 
             if dados["import_key"] in registros_por_import_key:
                 resultado["ignoradas"] += 1
+                resultado["identicas"] += 1
+                registro_linha["status"] = STATUS_LINHA_IDENTICA
+                registro_linha["chave_encontrada"] = dados["import_key"]
+                registro_linha["mensagem"] = "Linha duplicada no mesmo arquivo; nenhum novo registro criado."
+                registro_linha["campos_normalizados"] = dados
+                linhas_governanca.append(registro_linha)
                 continue
 
             if dados["categoria"] == CATEGORIA_NAO_CLASSIFICADO:
@@ -1956,69 +2185,193 @@ def importar_movimentacoes_financeiras_excel(
                 resultado["classificadas"] += 1
 
             registros_por_import_key[dados["import_key"]] = dados
+            registro_linha["chave_encontrada"] = dados["import_key"]
+            registro_linha["campos_normalizados"] = dados
+            linhas_governanca.append(registro_linha)
         except Exception as erro:
             resultado["erros"] += 1
+            resultado["rejeitadas"] += 1
             resultado["detalhes_erros"].append(f"Linha {linha}: {erro}")
+            registro_linha["status"] = STATUS_LINHA_REJEITADA
+            registro_linha["mensagem"] = str(erro)
+            linhas_governanca.append(registro_linha)
 
     wb.close()
-
-    if not registros_por_import_key:
-        resultado["tempo_processamento_segundos"] = time.perf_counter() - inicio_processamento
-        return finalizar_tempos_importacao(resultado)
 
     conn = conectar()
     cursor = conn.cursor()
     try:
+        tipo_importador = "VENDAS" if incluir_origem_import_key else "MOVIMENTACOES"
+        lote_id = criar_lote_importacao_cursor(
+            cursor,
+            nome_arquivo,
+            hash_arquivo,
+            tipo_importador,
+            usuario_id,
+            usuario_nome,
+            metadados_tecnicos={
+                "natureza_padrao": natureza_padrao,
+                "categoria_padrao": categoria_padrao,
+                "origem_importacao": origem_importacao,
+            },
+        )
+        resultado["lote_id"] = lote_id
+        linhas_principais = {
+            item["chave_encontrada"]: item
+            for item in linhas_governanca
+            if item["chave_encontrada"] and item["status"] is None
+        }
         inicio_consulta = time.perf_counter()
         existentes = buscar_import_keys_existentes(cursor, registros_por_import_key.keys())
         somar_tempo_importacao(resultado, "consulta_existentes", time.perf_counter() - inicio_consulta)
-        novos = []
+        novos_dados = []
         conflitos = []
+        movimentacoes_por_chave = {}
 
         for import_key, dados in registros_por_import_key.items():
+            linha_resultado = linhas_principais[import_key]
             existente = existentes.get(import_key)
             if existente:
+                movimentacoes_por_chave[import_key] = existente["id"]
                 if importacao_identica(existente, dados):
                     resultado["ignoradas"] += 1
+                    resultado["identicas"] += 1
+                    linha_resultado["status"] = STATUS_LINHA_IDENTICA
+                    linha_resultado["movimentacao_id"] = existente["id"]
+                    linha_resultado["mensagem"] = "Registro idêntico já existente; nenhum novo registro criado."
                 else:
-                    conflitos.append((existente, dados))
+                    conflitos.append((existente, dados, linha_resultado))
             else:
                 inicio_preparacao_insert = time.perf_counter()
-                novos.append(valores_insert_importacao(dados))
+                novos_dados.append(dados)
                 somar_tempo_importacao(resultado, "preparacao_novos", time.perf_counter() - inicio_preparacao_insert)
 
-        for existente, dados in conflitos:
-            _registrar_auditoria_cursor(
+        for existente, dados, linha_resultado in conflitos:
+            auditoria_id = _registrar_auditoria_cursor(
                 cursor,
                 existente["id"],
                 "CONFLITO_IMPORTACAO",
                 existente,
                 dados,
-                usuario_nome="Importação financeira",
-                perfil="sistema",
+                usuario_id=usuario_id,
+                usuario_nome=usuario_nome,
+                perfil=perfil,
                 justificativa="Mesma chave de importação recebida com conteúdo divergente; registro preservado.",
                 origem_acao="importacao_excel",
                 referencia_importacao=dados["import_key"],
             )
+            linha_resultado["status"] = STATUS_LINHA_CONFLITANTE
+            linha_resultado["movimentacao_id"] = existente["id"]
+            linha_resultado["auditoria_id"] = auditoria_id
+            linha_resultado["mensagem"] = "Conteúdo divergente; registro existente preservado."
             resultado["detalhes_conflitos"].append(
                 f"Chave {dados['import_key']}: divergência registrada sem sobrescrita."
             )
         resultado["conflitos"] = len(conflitos)
 
-        if novos:
+        if novos_dados:
             inicio_insert = time.perf_counter()
+            novos = [valores_insert_importacao(dados) for dados in novos_dados]
             executar_inserts_importacao(cursor, novos)
             somar_tempo_importacao(resultado, "insert", time.perf_counter() - inicio_insert)
             resultado["importadas"] = len(novos)
             resultado["lotes_insert"] = len(list(separar_em_lotes(novos, TAMANHO_LOTE_GRAVACAO_IMPORTACAO)))
 
+            inseridos = buscar_import_keys_existentes(
+                cursor,
+                [dados["import_key"] for dados in novos_dados],
+            )
+            for dados in novos_dados:
+                movimentacao = inseridos[dados["import_key"]]
+                linha_resultado = linhas_principais[dados["import_key"]]
+                linha_resultado["status"] = STATUS_LINHA_IMPORTADA
+                linha_resultado["movimentacao_id"] = movimentacao["id"]
+                linha_resultado["mensagem"] = "Movimentação importada."
+                origem_id = registrar_origem_principal_cursor(
+                    cursor,
+                    movimentacao["id"],
+                    IMPORTACAO_FINANCEIRA,
+                    "FRIGODATTA",
+                    "IMPORTACAO_EXCEL",
+                    usuario_id,
+                    usuario_nome,
+                    modulo_origem="MOVIMENTACOES_FINANCEIRAS",
+                    chave_externa=dados["import_key"],
+                    chave_idempotente=dados["import_key"],
+                    lote_importacao_id=lote_id,
+                    linha_arquivo=linha_resultado["numero_linha"],
+                    metadados={"arquivo_hash": hash_arquivo},
+                )
+                auditoria_id = _registrar_auditoria_cursor(
+                    cursor,
+                    movimentacao["id"],
+                    "CRIACAO_IMPORTACAO",
+                    None,
+                    movimentacao,
+                    usuario_id=usuario_id,
+                    usuario_nome=usuario_nome,
+                    perfil=perfil,
+                    justificativa="Criação por importação financeira rastreada.",
+                    origem_acao="importacao_excel",
+                    referencia_importacao=dados["import_key"],
+                )
+                vincular_auditoria_origem_cursor(cursor, origem_id, auditoria_id)
+                linha_resultado["auditoria_id"] = auditoria_id
+
+        for linha_resultado in linhas_governanca:
+            registrar_linha_importacao_cursor(
+                cursor,
+                lote_id,
+                linha_resultado["numero_linha"],
+                linha_resultado["hash_normalizado"],
+                linha_resultado["status"] or STATUS_LINHA_REJEITADA,
+                movimentacao_id=linha_resultado["movimentacao_id"],
+                chave_encontrada=linha_resultado["chave_encontrada"],
+                mensagem=linha_resultado["mensagem"],
+                campos_normalizados=linha_resultado["campos_normalizados"],
+                auditoria_id=linha_resultado["auditoria_id"],
+            )
+
+        resultado["rejeitadas"] = sum(
+            item["status"] == STATUS_LINHA_REJEITADA for item in linhas_governanca
+        )
+        finalizar_lote_importacao_cursor(
+            cursor,
+            lote_id,
+            len(linhas_governanca),
+            resultado["importadas"],
+            resultado["identicas"],
+            resultado["conflitos"],
+            resultado["rejeitadas"],
+            "Importação concluída com rastreabilidade por lote e linha.",
+        )
+
         inicio_commit = time.perf_counter()
         conn.commit()
         somar_tempo_importacao(resultado, "commit", time.perf_counter() - inicio_commit)
         resultado["transacao"] = "commit_unico_concluido"
-    except Exception:
+    except Exception as erro:
         conn.rollback()
         resultado["transacao"] = "rollback_integral_executado"
+        try:
+            lote_falho_id = criar_lote_importacao_cursor(
+                cursor,
+                nome_arquivo,
+                hash_arquivo,
+                tipo_importador,
+                usuario_id,
+                usuario_nome,
+                metadados_tecnicos={"falha_integral": True},
+            )
+            falhar_lote_importacao_cursor(
+                cursor,
+                lote_falho_id,
+                len(linhas_governanca),
+                f"Falha integral: {type(erro).__name__}",
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
         raise
     finally:
         conn.close()
