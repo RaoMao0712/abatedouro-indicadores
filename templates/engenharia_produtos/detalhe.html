@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block conteudo %}
+<div class="ep-page">
+    <header class="ep-header">
+        <div>
+            <span class="eyebrow">Engenharia de Produtos · {{ produto.codigo }}</span>
+            <h1>{{ produto.nome }}</h1>
+            <p>Dados gerais, estrutura de consumo e histórico de alterações.</p>
+        </div>
+        <div class="ep-actions">
+            <a class="ep-btn ep-btn-secondary" href="{{ url_for('engenharia_produtos') }}">Voltar ao catálogo</a>
+            {% if pode_editar %}
+            <a class="ep-btn ep-btn-primary" href="{{ url_for('editar_produto', produto_id=produto.id) }}">Editar</a>
+            {% endif %}
+        </div>
+    </header>
+
+    <section class="card ep-section">
+        <div class="ep-section-title">
+            <div><span class="eyebrow">Bloco 1</span><h2>Dados gerais</h2></div>
+            {% if pode_editar %}
+            <form method="post" action="{{ url_for('status_produto', produto_id=produto.id) }}">
+                <button class="ep-btn ep-btn-subtle" type="submit">{{ 'Inativar' if produto.ativo == 'Sim' else 'Ativar' }}</button>
+            </form>
+            {% endif %}
+        </div>
+        <dl class="ep-data-grid">
+            <div><dt>Código</dt><dd>{{ produto.codigo }}</dd></div>
+            <div><dt>Nome</dt><dd>{{ produto.nome }}</dd></div>
+            <div><dt>Tipo</dt><dd>{{ tipos_produto.get(produto.tipo_produto, produto.tipo_produto) }}</dd></div>
+            <div><dt>Unidade</dt><dd>{{ produto.unidade_venda }}</dd></div>
+            <div><dt>Status</dt><dd><span class="ep-badge {{ 'active' if produto.ativo == 'Sim' else 'inactive' }}">{{ 'Ativo' if produto.ativo == 'Sim' else 'Inativo' }}</span></dd></div>
+            <div><dt>Criação</dt><dd>{{ produto.criado_em or '-' }}</dd></div>
+            <div><dt>Última atualização</dt><dd>{{ produto.atualizado_em or produto.criado_em or '-' }}</dd></div>
+            <div class="ep-span-all"><dt>Observações</dt><dd>{{ produto.observacoes or '-' }}</dd></div>
+        </dl>
+    </section>
+
+    <section class="card ep-table-card">
+        <div class="ep-section-title">
+            <div><span class="eyebrow">Bloco 2</span><h2>Estrutura do produto</h2></div>
+            {% if pode_editar and produto.ativo == 'Sim' %}
+            <a class="ep-btn ep-btn-primary" href="{{ url_for('novo_item_estrutura', produto_id=produto.id) }}">Adicionar item</a>
+            {% endif %}
+        </div>
+        <div class="tabela-responsiva ep-table">
+            <table>
+                <thead><tr>
+                    <th>Insumo</th><th>Tipo de consumo</th><th>Quantidade</th><th>Unidade</th>
+                    <th>Fator / proporção</th><th>Perda prevista</th><th>Observação</th><th>Status</th><th>Ações</th>
+                </tr></thead>
+                <tbody>
+                {% for item in itens %}
+                <tr>
+                    <td><strong>{{ item.insumo_nome }}</strong></td>
+                    <td>{{ tipos_consumo.get(item.tipo_consumo, item.tipo_consumo) }}</td>
+                    <td>{{ item.quantidade_por_unidade }}</td>
+                    <td>{{ item.unidade }}</td>
+                    <td>{{ item.fator_proporcao if item.fator_proporcao is not none else '-' }}</td>
+                    <td>{{ (item.percentual_perda|string + '%') if item.percentual_perda is not none else '-' }}</td>
+                    <td>{{ item.observacoes or '-' }}</td>
+                    <td><span class="ep-badge {{ 'active' if item.status == 'Ativo' else 'inactive' }}">{{ item.status }}</span></td>
+                    <td>
+                        {% if pode_editar %}
+                        <div class="ep-row-actions">
+                            <a class="ep-link" href="{{ url_for('editar_item_estrutura', produto_id=produto.id, item_id=item.id) }}">Editar</a>
+                            <form method="post" action="{{ url_for('status_item_estrutura', produto_id=produto.id, item_id=item.id) }}">
+                                <button class="ep-link ep-link-muted" type="submit">{{ 'Inativar' if item.status == 'Ativo' else 'Ativar' }}</button>
+                            </form>
+                        </div>
+                        {% else %}—{% endif %}
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="9" class="ep-empty">Produto sem estrutura cadastrada.</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <details class="card ep-history">
+        <summary>Histórico de alterações <span>{{ historico|length }} evento(s)</span></summary>
+        <div class="ep-history-list">
+            {% for evento in historico %}
+            <article>
+                <div><strong>{{ evento.acao|replace('_', ' ')|title }}</strong><span>{{ evento.entidade|replace('_', ' ') }}</span></div>
+                <small>{{ evento.criado_em }} · {{ evento.usuario_nome or 'Sistema' }}</small>
+                <details><summary>Ver valores</summary>
+                    <pre>Antes: {{ evento.valores_anteriores or '-' }}
+Depois: {{ evento.valores_novos or '-' }}</pre>
+                </details>
+            </article>
+            {% else %}
+            <p class="ep-empty">Nenhuma alteração registrada após a migração.</p>
+            {% endfor %}
+        </div>
+    </details>
+</div>
+{% endblock %}

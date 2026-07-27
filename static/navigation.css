@@ -278,6 +278,10 @@ body {
     display: none;
 }
 
+.fd-nav-overlay[hidden] {
+    display: none !important;
+}
+
 .inicio-page {
     display: grid;
     max-width: 1460px;

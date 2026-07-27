@@ -188,11 +188,20 @@ NAVEGACAO = [
         "titulo": "Cadastros",
         "descricao": "Estruturas de apoio aos fluxos operacionais.",
         "icone": "database",
-        "perfis": ("admin", "pcp", "producao"),
+        "perfis": ("admin", "pcp", "producao", "qualidade", "gerencia"),
         "card": True,
         "itens": [
             {"titulo": "Fornecedores", "endpoint": "fornecedores", "perfis": ADMIN_PCP},
-            {"titulo": "Receitas por SKU", "endpoint": "receitas_sku", "perfis": ADMIN_PCP},
+            {
+                "titulo": "Engenharia de Produtos",
+                "endpoint": "engenharia_produtos",
+                "perfis": ("admin", "pcp", "producao", "qualidade", "gerencia"),
+                "active_endpoints": (
+                    "engenharia_produtos", "receitas_sku", "novo_produto", "detalhe_produto",
+                    "editar_produto", "processos_produtivos", "novo_item_estrutura",
+                    "editar_item_estrutura",
+                ),
+            },
             {"titulo": "Plano de Contas", "endpoint": "plano_contas_gerencial", "perfis": ADMIN_PCP},
             {"titulo": "Equipamentos", "endpoint": "cadastro_equipamentos_manutencao", "perfis": ("admin", "pcp", "producao"), "active_endpoints": ("cadastro_equipamentos_manutencao", "editar_equipamento_manutencao")},
             {"titulo": "Veículos", "endpoint": "cadastro_veiculos_manutencao", "perfis": ADMIN_PCP},

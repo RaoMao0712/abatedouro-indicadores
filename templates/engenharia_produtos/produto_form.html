@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block conteudo %}
+<div class="ep-page ep-form-page">
+    <header class="ep-header">
+        <div>
+            <span class="eyebrow">Engenharia de Produtos</span>
+            <h1>{{ 'Editar Produto' if produto else 'Novo Produto' }}</h1>
+            <p>Dados comerciais e classificação do item produzido.</p>
+        </div>
+        <a class="ep-btn ep-btn-secondary" href="{{ url_for('detalhe_produto', produto_id=produto.id) if produto else url_for('engenharia_produtos') }}">Voltar</a>
+    </header>
+    <form method="post" class="card ep-form">
+        <div class="ep-form-grid">
+            <label>Código interno *
+                <input name="codigo" required maxlength="60" value="{{ request.form.get('codigo', produto.codigo if produto else '') }}">
+            </label>
+            <label class="ep-span-2">Nome *
+                <input name="nome" required maxlength="180" value="{{ request.form.get('nome', produto.nome if produto else '') }}">
+            </label>
+            <label>Tipo *
+                {% set tipo_atual = request.form.get('tipo_produto', produto.tipo_produto if produto else 'PRODUTO_ACABADO') %}
+                <select name="tipo_produto" required>
+                    {% for valor, rotulo in tipos_produto.items() %}
+                    <option value="{{ valor }}" {% if tipo_atual == valor %}selected{% endif %}>{{ rotulo }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <label>Unidade de venda *
+                {% set unidade_atual = request.form.get('unidade_venda', produto.unidade_venda if produto else 'Kg') %}
+                <select name="unidade_venda" required>
+                    {% for unidade in unidades %}
+                    <option value="{{ unidade }}" {% if unidade_atual == unidade %}selected{% endif %}>{{ unidade }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <label>Status *
+                {% set ativo_atual = request.form.get('ativo', produto.ativo if produto else 'Sim') %}
+                <select name="ativo" required>
+                    <option value="Sim" {% if ativo_atual == 'Sim' %}selected{% endif %}>Ativo</option>
+                    <option value="Não" {% if ativo_atual == 'Não' %}selected{% endif %}>Inativo</option>
+                </select>
+            </label>
+            <label class="ep-span-all">Observações
+                <textarea name="observacoes" rows="4">{{ request.form.get('observacoes', produto.observacoes if produto else '') }}</textarea>
+            </label>
+        </div>
+        <div class="ep-form-actions">
+            <a class="ep-btn ep-btn-secondary" href="{{ url_for('detalhe_produto', produto_id=produto.id) if produto else url_for('engenharia_produtos') }}">Cancelar</a>
+            <button class="ep-btn ep-btn-primary" type="submit">Salvar Produto</button>
+        </div>
+    </form>
+</div>
+{% endblock %}

@@ -82,9 +82,9 @@ def test_cards_e_dominios_respeitam_perfis():
         "admin": {"gestao", "producao", "qualidade", "manutencao", "almoxarifado", "expedicao", "financeiro", "cadastros"},
         "pcp": {"gestao", "producao", "qualidade", "manutencao", "almoxarifado", "expedicao", "financeiro", "cadastros"},
         "producao": {"producao", "manutencao", "cadastros"},
-        "qualidade": {"producao", "qualidade", "manutencao", "expedicao"},
+        "qualidade": {"producao", "qualidade", "manutencao", "expedicao", "cadastros"},
         "manutencao": {"producao", "manutencao"},
-        "gerencia": {"producao", "qualidade", "manutencao"},
+        "gerencia": {"producao", "qualidade", "manutencao", "cadastros"},
     }
     for perfil, dominios in esperados.items():
         html = html_inicio(perfil)
@@ -189,7 +189,9 @@ def test_estado_ativo_abre_dominio_e_destaca_item():
 def test_dominios_sem_item_autorizado_nao_renderizam():
     html = html_inicio("gerencia")
     assert ">Financeiro<" not in html
-    assert ">Cadastros<" not in html
+    assert ">Cadastros<" in html
+    assert "Engenharia de Produtos" in html
+    assert "Fornecedores" not in html
     assert ">Administração<" not in html
 
 

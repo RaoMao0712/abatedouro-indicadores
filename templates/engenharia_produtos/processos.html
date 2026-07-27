@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block conteudo %}
+<div class="ep-page">
+    <header class="ep-header">
+        <div>
+            <span class="eyebrow">Engenharia de Produtos</span>
+            <h1>Processos</h1>
+            <p>Cadastro básico dos processos produtivos, separado dos produtos.</p>
+        </div>
+        <a class="ep-btn ep-btn-secondary" href="{{ url_for('engenharia_produtos') }}">Voltar ao catálogo</a>
+    </header>
+    <section class="ep-split">
+        <form method="post" class="card ep-form">
+            <div class="ep-section-title"><div><span class="eyebrow">Cadastro</span><h2>Novo processo</h2></div></div>
+            <div class="ep-form-grid ep-form-grid-2">
+                <label>Código *<input name="codigo" required maxlength="60" value="{{ request.form.get('codigo', '') }}"></label>
+                <label>Nome *<input name="nome" required maxlength="180" value="{{ request.form.get('nome', '') }}"></label>
+                <label class="ep-span-all">Descrição<textarea name="descricao" rows="2">{{ request.form.get('descricao', '') }}</textarea></label>
+                <label>Setor<input name="setor" maxlength="120" value="{{ request.form.get('setor', '') }}"></label>
+                <label>Status<select name="status"><option>Ativo</option><option>Inativo</option></select></label>
+                <label class="ep-span-all">Observações<textarea name="observacoes" rows="2">{{ request.form.get('observacoes', '') }}</textarea></label>
+            </div>
+            <div class="ep-form-actions"><button class="ep-btn ep-btn-primary" type="submit">Cadastrar processo</button></div>
+        </form>
+        <section class="card ep-table-card">
+            <div class="ep-section-title"><div><span class="eyebrow">Consulta</span><h2>Processos cadastrados</h2></div></div>
+            <div class="tabela-responsiva ep-table">
+                <table><thead><tr><th>Código</th><th>Nome</th><th>Setor</th><th>Status</th></tr></thead>
+                    <tbody>{% for processo in processos %}
+                    <tr><td><strong>{{ processo.codigo }}</strong></td><td>{{ processo.nome }}</td><td>{{ processo.setor or '-' }}</td><td><span class="ep-badge {{ 'active' if processo.status == 'Ativo' else 'inactive' }}">{{ processo.status }}</span></td></tr>
+                    {% else %}<tr><td colspan="4" class="ep-empty">Nenhum processo cadastrado.</td></tr>{% endfor %}</tbody>
+                </table>
+            </div>
+        </section>
+    </section>
+</div>
+{% endblock %}

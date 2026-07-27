@@ -12,6 +12,7 @@ from modules.usuarios import register_usuarios_routes
 from modules.manutencao import register_manutencao_routes
 from modules.cadastros import register_cadastros_routes
 from modules.cadastros.services import criar_tabela_vendas, criar_tabelas_receitas_sku, criar_tabela_fornecedores
+from modules.engenharia_produtos import criar_tabelas_engenharia_produtos, register_engenharia_produtos_routes
 from modules.importacao_oficial import register_importacao_routes
 from modules.dashboard.routes import register_dashboard_routes
 from modules.custos.routes import register_custos_routes
@@ -480,6 +481,7 @@ register_auth_routes(app, criar_banco)
 register_navegacao_routes(app)
 register_usuarios_routes(app, criar_banco)
 register_cadastros_routes(app)
+register_engenharia_produtos_routes(app)
 register_dashboard_routes(app)
 register_custos_routes(app)
 register_dre_routes(app, {
@@ -565,6 +567,7 @@ def inicializar_schema_aplicacao():
         criar_tabelas_almoxarifado,
         criar_tabelas_estoque_almoxarifado,
         criar_tabelas_receitas_sku,
+        criar_tabelas_engenharia_produtos,
         criar_tabela_plano_contas_mestre,
         criar_tabela_movimentacoes_financeiras,
         criar_tabela_fornecedores,

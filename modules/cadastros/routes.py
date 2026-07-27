@@ -713,53 +713,6 @@ def register_cadastros_routes(app):
         flash("Venda diária excluída com sucesso.")
         return redirect(url_for("vendas"))
 
-    @app.route("/receitas-sku", methods=["GET", "POST"])
-    @perfil_permitido("pcp")
-    def receitas_sku():
-        if request.method == "POST":
-            acao = request.form.get("acao")
-
-            try:
-                if acao == "salvar_sku":
-                    salvar_sku(request.form)
-                    flash("SKU cadastrado com sucesso.")
-
-                elif acao == "salvar_item_receita":
-                    salvar_item_receita_sku(request.form)
-                    flash("Item adicionado à receita com sucesso.")
-
-                else:
-                    flash("Ação inválida.")
-
-            except Exception as erro:
-                flash(f"Erro ao salvar receita/SKU: {erro}")
-
-            return redirect(url_for("receitas_sku"))
-
-        skus = buscar_skus()
-        skus_ativos = buscar_skus("Sim")
-        insumos = buscar_insumos_almoxarifado("Todas", "Sim", "")
-        receitas = buscar_receitas_sku()
-        resumo = calcular_resumo_receitas_sku(skus, receitas)
-
-        return render_template(
-            "receitas_sku.html",
-            skus=skus,
-            skus_ativos=skus_ativos,
-            insumos=insumos,
-            receitas=receitas,
-            resumo=resumo,
-            unidades_venda=UNIDADES_VENDA_SKU,
-            tipos_consumo=TIPOS_CONSUMO_RECEITA
-        )
-
-    @app.route("/receitas-sku/item/<int:item_id>/excluir", methods=["POST"])
-    @perfil_permitido("pcp")
-    def excluir_item_receita_sku_rota(item_id):
-        excluir_item_receita_sku(item_id)
-        flash("Item removido da receita com sucesso.")
-        return redirect(url_for("receitas_sku"))
-
     @app.route("/fornecedores", methods=["GET", "POST"])
     @perfil_permitido("pcp")
     def fornecedores():

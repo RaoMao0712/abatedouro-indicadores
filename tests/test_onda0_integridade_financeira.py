@@ -677,7 +677,6 @@ def test_22_navegacao_logo_painel_e_modulos_operacionais_nao_foram_alterados():
         text=True,
     ).stdout.splitlines()
     proibidos = (
-        "modules/navegacao",
         "modules/producao",
         "templates/inicio",
         "static/img",

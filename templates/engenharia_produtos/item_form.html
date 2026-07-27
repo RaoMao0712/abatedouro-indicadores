@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block conteudo %}
+<div class="ep-page ep-form-page">
+    <header class="ep-header">
+        <div>
+            <span class="eyebrow">{{ produto.codigo }} · {{ produto.nome }}</span>
+            <h1>{{ 'Editar item da estrutura' if item else 'Adicionar item à estrutura' }}</h1>
+            <p>Defina o insumo e a regra técnica de consumo.</p>
+        </div>
+        <a class="ep-btn ep-btn-secondary" href="{{ url_for('detalhe_produto', produto_id=produto.id) }}">Voltar</a>
+    </header>
+    <form method="post" class="card ep-form">
+        <div class="ep-form-grid">
+            <label class="ep-span-2">Insumo ativo *
+                {% set insumo_atual = request.form.get('insumo_id', item.insumo_id if item else '') %}
+                <select name="insumo_id" required>
+                    <option value="">Selecione</option>
+                    {% for insumo in insumos %}
+                    <option value="{{ insumo.id }}" {% if insumo_atual|string == insumo.id|string %}selected{% endif %}>{{ insumo.descricao }} · {{ insumo.unidade }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <label>Quantidade *
+                <input name="quantidade" type="number" min="0.000001" step="0.000001" required value="{{ request.form.get('quantidade', item.quantidade_por_unidade if item else '') }}">
+            </label>
+            <label>Unidade *
+                {% set unidade_atual = request.form.get('unidade', item.unidade if item else '') %}
+                <select name="unidade" required>
+                    <option value="">Selecione</option>
+                    {% for unidade in unidades %}
+                    <option value="{{ unidade }}" {% if unidade_atual == unidade %}selected{% endif %}>{{ unidade }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <label class="ep-span-2">Tipo de consumo *
+                {% set tipo_atual = request.form.get('tipo_consumo', item.tipo_consumo if item else 'FIXO_UNIDADE') %}
+                <select name="tipo_consumo" required data-consumo-tipo>
+                    {% for valor, rotulo in tipos_consumo.items() %}
+                    <option value="{{ valor }}" {% if tipo_atual == valor %}selected{% endif %}>{{ rotulo }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <label data-fator>Fator ou proporção
+                <input name="fator_proporcao" type="number" min="0" step="0.000001" value="{{ request.form.get('fator_proporcao', item.fator_proporcao if item and item.fator_proporcao is not none else '') }}">
+            </label>
+            <label data-perda>Perda esperada (%)
+                <input name="percentual_perda" type="number" min="0" max="100" step="0.01" value="{{ request.form.get('percentual_perda', item.percentual_perda if item and item.percentual_perda is not none else '') }}">
+            </label>
+            <label>Data de vigência
+                <input name="data_vigencia" type="date" value="{{ request.form.get('data_vigencia', item.data_vigencia if item else '') }}">
+            </label>
+            <label>Status
+                {% set status_atual = request.form.get('status', item.status if item else 'Ativo') %}
+                <select name="status">
+                    <option value="Ativo" {% if status_atual == 'Ativo' %}selected{% endif %}>Ativo</option>
+                    <option value="Inativo" {% if status_atual == 'Inativo' %}selected{% endif %}>Inativo</option>
+                </select>
+            </label>
+            <label class="ep-span-all">Observações
+                <textarea name="observacoes" rows="3">{{ request.form.get('observacoes', item.observacoes if item else '') }}</textarea>
+            </label>
+        </div>
+        <div class="ep-form-actions">
+            <a class="ep-btn ep-btn-secondary" href="{{ url_for('detalhe_produto', produto_id=produto.id) }}">Cancelar</a>
+            <button class="ep-btn ep-btn-primary" type="submit">Salvar item</button>
+        </div>
+    </form>
+</div>
+<script>
+(() => {
+    const tipo = document.querySelector("[data-consumo-tipo]");
+    const fator = document.querySelector("[data-fator]");
+    const perda = document.querySelector("[data-perda]");
+    function atualizar() {
+        fator.hidden = !["PROPORCIONAL", "PERCENTUAL"].includes(tipo.value);
+        perda.hidden = tipo.value !== "PERDA_ESPERADA";
+    }
+    tipo.addEventListener("change", atualizar);
+    atualizar();
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block conteudo %}
+<div class="ep-page">
+    <header class="ep-header">
+        <div>
+            <span class="eyebrow">Cadastro técnico</span>
+            <h1>Engenharia de Produtos</h1>
+            <p>Catálogo de produtos e suas estruturas de consumo.</p>
+        </div>
+        {% if pode_editar %}
+        <div class="ep-actions">
+            <a class="ep-btn ep-btn-secondary" href="{{ url_for('processos_produtivos') }}">Processos</a>
+            <a class="ep-btn ep-btn-primary" href="{{ url_for('novo_produto') }}">Novo Produto</a>
+        </div>
+        {% endif %}
+    </header>
+
+    <section class="ep-kpis" aria-label="Indicadores do catálogo">
+        <div><span>Produtos ativos</span><strong>{{ resumo.produtos_ativos or 0 }}</strong></div>
+        <div><span>Produtos sem estrutura</span><strong>{{ resumo.produtos_sem_estrutura or 0 }}</strong></div>
+        <div><span>Produtos inativos</span><strong>{{ resumo.produtos_inativos or 0 }}</strong></div>
+        <div><span>Estruturas ativas</span><strong>{{ resumo.estruturas_ativas or 0 }}</strong></div>
+    </section>
+
+    <form class="ep-filters card" method="get" action="{{ url_for('engenharia_produtos') }}">
+        <label>Status
+            <select name="status">
+                <option value="">Todos</option>
+                <option value="Sim" {% if filtros.status == 'Sim' %}selected{% endif %}>Ativos</option>
+                <option value="Não" {% if filtros.status == 'Não' %}selected{% endif %}>Inativos</option>
+            </select>
+        </label>
+        <label>Tipo
+            <select name="tipo">
+                <option value="">Todos</option>
+                {% for valor, rotulo in tipos_produto.items() %}
+                <option value="{{ valor }}" {% if filtros.tipo == valor %}selected{% endif %}>{{ rotulo }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>Unidade
+            <select name="unidade">
+                <option value="">Todas</option>
+                {% for unidade in unidades %}
+                <option value="{{ unidade }}" {% if filtros.unidade == unidade %}selected{% endif %}>{{ unidade }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>Estrutura
+            <select name="estrutura">
+                <option value="">Todas</option>
+                <option value="com" {% if filtros.estrutura == 'com' %}selected{% endif %}>Com estrutura</option>
+                <option value="sem" {% if filtros.estrutura == 'sem' %}selected{% endif %}>Sem estrutura</option>
+            </select>
+        </label>
+        <label class="ep-search">Pesquisa
+            <input type="search" name="pesquisa" value="{{ filtros.pesquisa }}" placeholder="Código ou produto">
+        </label>
+        <button class="ep-btn ep-btn-filter" type="submit">Filtrar</button>
+    </form>
+
+    <section class="card ep-table-card">
+        <div class="ep-section-title">
+            <div><span class="eyebrow">Catálogo</span><h2>Produtos cadastrados</h2></div>
+            <small>{{ produtos|length }} registro(s)</small>
+        </div>
+        <div class="tabela-responsiva ep-table">
+            <table>
+                <thead><tr>
+                    <th>Código</th><th>Produto</th><th>Tipo</th><th>Unidade</th>
+                    <th>Status</th><th>Estrutura cadastrada</th><th>Última atualização</th><th>Ação</th>
+                </tr></thead>
+                <tbody>
+                {% for produto in produtos %}
+                <tr>
+                    <td><strong>{{ produto.codigo }}</strong></td>
+                    <td>{{ produto.nome }}</td>
+                    <td>{{ tipos_produto.get(produto.tipo_produto, produto.tipo_produto) }}</td>
+                    <td>{{ produto.unidade_venda }}</td>
+                    <td><span class="ep-badge {{ 'active' if produto.ativo == 'Sim' else 'inactive' }}">{{ 'Ativo' if produto.ativo == 'Sim' else 'Inativo' }}</span></td>
+                    <td>{{ produto.total_itens_ativos }} item(ns)</td>
+                    <td>{{ produto.atualizado_em or produto.criado_em or '-' }}</td>
+                    <td><a class="ep-link" href="{{ url_for('detalhe_produto', produto_id=produto.id) }}">Detalhes</a></td>
+                </tr>
+                {% else %}
+                <tr><td colspan="8" class="ep-empty">Nenhum produto encontrado para os filtros selecionados.</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+</div>
+{% endblock %}
