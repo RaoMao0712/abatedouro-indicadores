@@ -116,7 +116,7 @@
                 <button
                     type="button"
                     class="botao-editar"
-                    onclick="document.getElementById('modal-correcao-op').showModal()"
+                    onclick="abrirModalCorrecaoOp()"
                 >
                     Corrigir OP
                 </button>
@@ -204,12 +204,24 @@
                 <input value="{{ '%.2f'|format(op.peso_vivo) }} kg" readonly>
             </div>
             <div>
-                <label for="peso-entrada-corrigido">Peso de Entrada Corrigido</label>
-                <input id="peso-entrada-corrigido" type="number" min="0.01" step="0.01"
-                       name="peso_entrada_corrigido" required>
+                <label for="peso-entrada-corrigido">
+                    Peso de Entrada Corrigido
+                    <span class="campo-obrigatorio" aria-hidden="true">*</span>
+                </label>
+                <input id="peso-entrada-corrigido"
+                       class="campo-peso-corrigido"
+                       type="text"
+                       inputmode="decimal"
+                       autocomplete="off"
+                       name="peso_entrada_corrigido"
+                       aria-required="true"
+                       required>
             </div>
             <div class="form-span-2">
-                <label for="motivo-correcao">Motivo da Correção</label>
+                <label for="motivo-correcao">
+                    Motivo da Correção
+                    <span class="campo-obrigatorio" aria-hidden="true">*</span>
+                </label>
                 <textarea id="motivo-correcao" name="motivo" required maxlength="1000"></textarea>
             </div>
             <div class="form-span-2">
@@ -223,12 +235,20 @@
             serão registradas permanentemente em auditoria.
         </p>
 
-        <div class="acoes-lote">
-            <button type="button" class="botao-impressao" onclick="this.closest('dialog').close()">Cancelar</button>
-            <button type="submit" class="botao-editar">Salvar correção</button>
+        <div class="acoes-correcao">
+            <button type="button" class="botao-correcao-secundario" onclick="this.closest('dialog').close()">Cancelar</button>
+            <button type="submit" class="botao-correcao-principal">Salvar correção</button>
         </div>
     </form>
 </dialog>
+<script>
+function abrirModalCorrecaoOp() {
+    const modal = document.getElementById("modal-correcao-op");
+    const campoPeso = document.getElementById("peso-entrada-corrigido");
+    modal.showModal();
+    window.setTimeout(() => campoPeso.focus(), 0);
+}
+</script>
 {% endif %}
 
 <div class="card">

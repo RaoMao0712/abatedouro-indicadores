@@ -1,6 +1,7 @@
 """Correções administrativas auditáveis de ordens de produção encerradas."""
 
 from datetime import datetime
+import math
 
 from database import DATABASE_URL, conectar, q
 from database.migrations import executar_alteracao_segura
@@ -8,6 +9,28 @@ from database.migrations import executar_alteracao_segura
 
 PERFIS_AUTORIZADOS = {"admin", "gerencia"}
 CAMPO_PESO_ENTRADA = "peso_vivo"
+
+
+def _parse_peso_decimal(valor):
+    """Aceita decimal com vírgula pt-BR ou ponto, sem aceitar texto não numérico."""
+    if valor is None:
+        return None
+
+    texto = str(valor).strip().replace(" ", "")
+    if not texto:
+        return None
+
+    if "," in texto and "." in texto:
+        texto = texto.replace(".", "").replace(",", ".")
+    else:
+        texto = texto.replace(",", ".")
+
+    try:
+        numero = float(texto)
+    except (TypeError, ValueError):
+        return None
+
+    return numero if math.isfinite(numero) else None
 
 
 def criar_tabelas_correcoes_administrativas_op():
@@ -172,10 +195,7 @@ def corrigir_peso_entrada_op(
     origem,
 ):
     """Altera somente peso_vivo e grava auditoria na mesma transação."""
-    try:
-        peso_corrigido = float(novo_valor)
-    except (TypeError, ValueError):
-        peso_corrigido = None
+    peso_corrigido = _parse_peso_decimal(novo_valor)
 
     motivo = str(motivo or "").strip()
     observacoes = str(observacoes or "").strip()
