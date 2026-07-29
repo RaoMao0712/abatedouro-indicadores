@@ -9160,3 +9160,42 @@ small {
 .ep-history-list pre{max-height:180px;overflow:auto;padding:8px;border-radius:6px;background:#f5f7f6;color:#41534d;font-size:.62rem;white-space:pre-wrap}
 @media(max-width:1050px){.ep-filters{grid-template-columns:repeat(3,minmax(120px,1fr))}.ep-kpis,.ep-data-grid{grid-template-columns:repeat(2,1fr)}.ep-split{grid-template-columns:1fr}}
 @media(max-width:680px){.ep-header{display:grid;align-items:start}.ep-actions{display:grid}.ep-actions .ep-btn{width:100%!important}.ep-kpis,.ep-filters,.ep-data-grid,.ep-form-grid{grid-template-columns:1fr}.ep-span-2,.ep-span-all{grid-column:auto}.ep-form-actions{display:grid}.ep-form-actions .ep-btn{width:100%!important}}
+dialog.modal-correcao-op {
+    width: min(760px, calc(100vw - 32px));
+    max-height: calc(100vh - 32px);
+    overflow: auto;
+    border: 0;
+    border-radius: 14px;
+    padding: 24px;
+    box-shadow: 0 24px 80px rgba(15, 23, 42, 0.35);
+}
+
+dialog.modal-correcao-op::backdrop {
+    background: rgba(15, 23, 42, 0.62);
+}
+
+.modal-correcao-cabecalho {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.modal-fechar {
+    width: auto;
+    padding: 4px 12px;
+    border: 0;
+    background: transparent;
+    color: #475569;
+    font-size: 30px;
+}
+
+.alerta-correcao {
+    margin-top: 20px;
+    padding: 14px 16px;
+    border-left: 4px solid #d97706;
+    border-radius: 8px;
+    background: #fffbeb;
+    color: #92400e;
+    font-weight: 600;
+}

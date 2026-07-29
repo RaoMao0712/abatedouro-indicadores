@@ -112,6 +112,16 @@
 
         {% else %}
 
+            {% if session.get("perfil") in ["admin", "gerencia"] and not op.bloqueada_administrativamente %}
+                <button
+                    type="button"
+                    class="botao-editar"
+                    onclick="document.getElementById('modal-correcao-op').showModal()"
+                >
+                    Corrigir OP
+                </button>
+            {% endif %}
+
             {% if session.get("perfil") == "admin" %}
 
                 <form
@@ -163,6 +173,63 @@
     </div>
 
 </div>
+
+{% if op.status == "Encerrada" and session.get("perfil") in ["admin", "gerencia"] %}
+<dialog id="modal-correcao-op" class="modal-correcao-op">
+    <form method="POST" action="{{ url_for('corrigir_peso_entrada', op_id=op.id) }}">
+        <div class="modal-correcao-cabecalho">
+            <h2>Corrigir OP</h2>
+            <button type="button" class="modal-fechar" onclick="this.closest('dialog').close()" aria-label="Fechar">&times;</button>
+        </div>
+
+        <div class="form-grid">
+            <div>
+                <label>Número da OP</label>
+                <input value="{{ op.id }}" readonly>
+            </div>
+            <div>
+                <label>Produto</label>
+                <input value="{{ op.sku }}" readonly>
+            </div>
+            <div>
+                <label>Data</label>
+                <input value="{{ op.data }}" readonly>
+            </div>
+            <div>
+                <label>Status</label>
+                <input value="{{ op.status }}" readonly>
+            </div>
+            <div>
+                <label>Peso de Entrada Atual</label>
+                <input value="{{ '%.2f'|format(op.peso_vivo) }} kg" readonly>
+            </div>
+            <div>
+                <label for="peso-entrada-corrigido">Peso de Entrada Corrigido</label>
+                <input id="peso-entrada-corrigido" type="number" min="0.01" step="0.01"
+                       name="peso_entrada_corrigido" required>
+            </div>
+            <div class="form-span-2">
+                <label for="motivo-correcao">Motivo da Correção</label>
+                <textarea id="motivo-correcao" name="motivo" required maxlength="1000"></textarea>
+            </div>
+            <div class="form-span-2">
+                <label for="observacoes-correcao">Observações</label>
+                <textarea id="observacoes-correcao" name="observacoes" maxlength="2000"></textarea>
+            </div>
+        </div>
+
+        <p class="alerta-correcao">
+            Esta alteração modifica dados históricos da Ordem de Produção. Todas as alterações
+            serão registradas permanentemente em auditoria.
+        </p>
+
+        <div class="acoes-lote">
+            <button type="button" class="botao-impressao" onclick="this.closest('dialog').close()">Cancelar</button>
+            <button type="submit" class="botao-editar">Salvar correção</button>
+        </div>
+    </form>
+</dialog>
+{% endif %}
 
 <div class="card">
 
@@ -229,6 +296,46 @@
 
 </div>
 
+<div class="card">
+    <h2>Correções Administrativas</h2>
+
+    {% if correcoes_administrativas %}
+        <div class="table-responsive">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Data</th>
+                        <th>Hora</th>
+                        <th>Usuário</th>
+                        <th>Campo alterado</th>
+                        <th>Valor anterior</th>
+                        <th>Novo valor</th>
+                        <th>Motivo</th>
+                        <th>Observações</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for correcao in correcoes_administrativas %}
+                        {% set criado_em = correcao.criado_em|string %}
+                        <tr>
+                            <td>{{ criado_em[:10] }}</td>
+                            <td>{{ criado_em[11:19] }}</td>
+                            <td>{{ correcao.usuario_nome }}</td>
+                            <td>Peso de Entrada</td>
+                            <td>{{ "%.2f"|format(correcao.valor_anterior) }} kg</td>
+                            <td>{{ "%.2f"|format(correcao.novo_valor) }} kg</td>
+                            <td>{{ correcao.motivo }}</td>
+                            <td>{{ correcao.observacoes or "—" }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% else %}
+        <p class="obs">Nenhuma correção administrativa registrada.</p>
+    {% endif %}
+</div>
+
 {% if resumo %}
 
 <div class="card">
@@ -256,6 +363,12 @@
         <div class="card resumo">
             <h3>Rendimento</h3>
             <p>{{ "%.2f"|format(resumo.rendimento) }}%</p>
+        </div>
+
+        <div class="card resumo">
+            <h3>Perdas</h3>
+            <p>{{ "%.2f"|format(resumo.perdas_percentual) }}%</p>
+            <span>sobre o Peso de Entrada</span>
         </div>
 
         <div class="card resumo">

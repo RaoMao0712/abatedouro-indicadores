@@ -2,10 +2,10 @@
 
 from datetime import datetime
 
-from flask import flash, redirect, render_template, request, url_for
+from flask import flash, redirect, render_template, request, session, url_for
 
 from database import conectar, q
-from modules.auth.decorators import perfil_permitido
+from modules.auth.decorators import login_obrigatorio, perfil_permitido
 from modules.auth.services import usuario_eh_admin
 from modules.qualidade import services as qualidade_service
 from utils import normalizar_chave_setor, setores_padrao
@@ -26,6 +26,10 @@ from .services import (
     salvar_apontamento_parada,
     salvar_tempos_setor,
     setores_por_sku,
+)
+from .correcoes_administrativas import (
+    buscar_correcoes_op,
+    corrigir_peso_entrada_op,
 )
 
 _INTEGRACOES = {}
@@ -866,7 +870,7 @@ def register_producao_routes(app, integracoes=None):
 
 
     @app.route("/consultar-op")
-    @perfil_permitido("pcp", "qualidade", "producao")
+    @perfil_permitido("pcp", "qualidade", "producao", "gerencia", "manutencao")
     def consultar_op():
         op_id = request.args.get("op_id")
         ordens = buscar_ordens()
@@ -878,6 +882,7 @@ def register_producao_routes(app, integracoes=None):
         descartes = []
         tempos_setor = []
         resumo = None
+        correcoes_administrativas = []
 
         if op_id:
             conn = conectar()
@@ -903,6 +908,7 @@ def register_producao_routes(app, integracoes=None):
 
             if op:
                 resumo = calcular_resumo_op(op, producoes, descartes)
+                correcoes_administrativas = buscar_correcoes_op(op_id)
 
             conn.close()
 
@@ -915,8 +921,32 @@ def register_producao_routes(app, integracoes=None):
             paradas=paradas,
             descartes=descartes,
             tempos_setor=tempos_setor,
-            resumo=resumo
+            resumo=resumo,
+            correcoes_administrativas=correcoes_administrativas,
         )
+
+    @app.route("/op/<int:op_id>/corrigir-peso-entrada", methods=["POST"])
+    @login_obrigatorio
+    def corrigir_peso_entrada(op_id):
+        usuario = {
+            "id": session.get("usuario_id"),
+            "nome": session.get("nome") or session.get("usuario_nome"),
+        }
+        try:
+            corrigir_peso_entrada_op(
+                op_id,
+                request.form.get("peso_entrada_corrigido"),
+                request.form.get("motivo"),
+                request.form.get("observacoes"),
+                usuario=usuario,
+                perfil=session.get("perfil"),
+                origem=request.access_route[0] if request.access_route else request.remote_addr,
+            )
+            flash("Peso de Entrada corrigido. A OP permaneceu encerrada e a auditoria foi registrada.")
+        except ValueError as erro:
+            flash(str(erro))
+
+        return redirect(url_for("consultar_op", op_id=op_id))
 
 
     @app.route("/op/<int:op_id>/imprimir")
