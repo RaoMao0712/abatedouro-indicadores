@@ -596,6 +596,10 @@ def calcular_resumo_op(op, producoes, descartes):
     if op["peso_vivo"] > 0:
         rendimento = (kg_produzidos / op["peso_vivo"]) * 100
 
+    perdas_percentual = 0
+    if op["peso_vivo"] > 0:
+        perdas_percentual = (total_descartes_kg / op["peso_vivo"]) * 100
+
     return {
         "aves_abatidas": aves_abatidas,
         "descartes_aves": total_descartes_aves,
@@ -604,7 +608,8 @@ def calcular_resumo_op(op, producoes, descartes):
         "kg_produzidos": kg_produzidos,
         "viabilidade": viabilidade,
         "viabilidade_percentual": round(viabilidade_percentual, 2),
-        "rendimento": round(rendimento, 2)
+        "rendimento": round(rendimento, 2),
+        "perdas_percentual": round(perdas_percentual, 2),
     }
 
 

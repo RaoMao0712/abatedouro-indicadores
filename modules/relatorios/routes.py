@@ -195,7 +195,9 @@ def register_relatorios_routes(app):
         agora = datetime.now()
         competencia_fim = request.args.get("competencia_fim") or agora.strftime("%Y-%m")
 
-        seis_meses_atras = agora
+        # A competência usa apenas ano/mês. Fixar o dia em 1 evita datas
+        # inválidas ao retroceder de dias 29–31 para fevereiro ou meses curtos.
+        seis_meses_atras = agora.replace(day=1)
 
         for _ in range(5):
             if seis_meses_atras.month == 1:
