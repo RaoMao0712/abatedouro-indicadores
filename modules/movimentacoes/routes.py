@@ -301,7 +301,7 @@ def register_movimentacoes_routes(app):
         return send_file(
             arquivo,
             as_attachment=True,
-            download_name="auditoria_financeira.xlsx",
+            download_name=f"auditoria_financeira_{datetime.now():%Y%m%d_%H%M%S}.xlsx",
             mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
 

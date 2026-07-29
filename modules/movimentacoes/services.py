@@ -15,6 +15,7 @@ from urllib.parse import urlencode
 
 from openpyxl import load_workbook
 from openpyxl import Workbook
+from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 from openpyxl.utils.datetime import from_excel
 from openpyxl.worksheet.datavalidation import DataValidation
@@ -2615,6 +2616,98 @@ def buscar_movimentacoes_auditoria(filtros, somente_pendencias=False, limite=Non
     return movimentacoes
 
 
+def buscar_movimentacoes_exportacao_auditoria(filtros):
+    """Retorna a população completa da Auditoria com governança, sem paginação."""
+    where_sql, parametros = montar_where_auditoria(filtros)
+
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute(q(f"""
+    WITH auditoria_ordenada AS (
+        SELECT
+            a.*,
+            ROW_NUMBER() OVER (
+                PARTITION BY a.movimentacao_id
+                ORDER BY a.data_hora ASC, a.id ASC
+            ) AS ordem_primeira,
+            ROW_NUMBER() OVER (
+                PARTITION BY a.movimentacao_id
+                ORDER BY a.data_hora DESC, a.id DESC
+            ) AS ordem_ultima
+        FROM movimentacoes_financeiras_auditoria a
+    ),
+    cancelamentos_ordenados AS (
+        SELECT
+            a.*,
+            ROW_NUMBER() OVER (
+                PARTITION BY a.movimentacao_id
+                ORDER BY a.data_hora DESC, a.id DESC
+            ) AS ordem_cancelamento
+        FROM movimentacoes_financeiras_auditoria a
+        WHERE a.acao = 'CANCELAMENTO'
+    )
+    SELECT
+        m.*,
+        p.grupo_gerencial AS plano_grupo_gerencial,
+        p.categoria AS plano_categoria,
+        p.subcategoria AS plano_subcategoria,
+        o.id AS origem_id,
+        o.modo AS modo_origem,
+        o.sistema_origem,
+        o.modulo_origem,
+        o.tipo_evento AS origem_tipo_evento,
+        o.chave_externa AS origem_chave_externa,
+        o.chave_idempotente AS origem_chave_idempotente,
+        o.lote_importacao_id,
+        o.linha_arquivo AS origem_linha_arquivo,
+        o.usuario_id AS origem_usuario_id,
+        o.usuario_nome AS origem_usuario_nome,
+        o.criado_em AS origem_criado_em,
+        l.arquivo_nome AS lote_arquivo_nome,
+        l.arquivo_hash AS lote_arquivo_hash,
+        primeira.usuario_id AS primeiro_usuario_id,
+        primeira.usuario_nome AS primeiro_usuario_nome,
+        ultima.usuario_id AS ultimo_usuario_id,
+        ultima.usuario_nome AS ultimo_usuario_nome,
+        ultima.data_hora AS ultima_alteracao_em,
+        cancelamento.data_hora AS cancelado_em,
+        cancelamento.justificativa AS cancelamento_justificativa
+    FROM (
+        SELECT
+            id, data_vencimento, data_realizacao, tipo, categoria,
+            descricao, valor, status, parcelas, parcela_atual,
+            documento_id, data_documento, valor_documento, observacoes,
+            criado_em, import_key, cnpj_cpf, numero_documento, favorecido,
+            parceiro, historico, valor_pago, valor_liquido,
+            origem_importacao, plano_conta_id, grupo_gerencial,
+            categoria_plano, subcategoria, centro_analise, linha_dre
+        FROM movimentacoes_financeiras
+        WHERE {where_sql}
+    ) m
+    LEFT JOIN plano_contas_mestre p
+      ON p.id = m.plano_conta_id
+    LEFT JOIN movimentacoes_financeiras_origens o
+      ON o.movimentacao_id = m.id
+     AND o.papel = 'PRINCIPAL'
+     AND o.status = 'ATIVA'
+    LEFT JOIN movimentacoes_financeiras_importacao_lotes l
+      ON l.id = o.lote_importacao_id
+    LEFT JOIN auditoria_ordenada primeira
+      ON primeira.movimentacao_id = m.id
+     AND primeira.ordem_primeira = 1
+    LEFT JOIN auditoria_ordenada ultima
+      ON ultima.movimentacao_id = m.id
+     AND ultima.ordem_ultima = 1
+    LEFT JOIN cancelamentos_ordenados cancelamento
+      ON cancelamento.movimentacao_id = m.id
+     AND cancelamento.ordem_cancelamento = 1
+    ORDER BY COALESCE(m.data_documento, m.data_vencimento) ASC, m.id ASC
+    """), tuple(parametros))
+    movimentacoes = [aplicar_origem_leitura(dict(item)) for item in cursor.fetchall()]
+    conn.close()
+    return movimentacoes
+
+
 def buscar_indicadores_auditoria(filtros):
     where_sql, parametros = montar_where_auditoria(filtros)
 
@@ -2767,6 +2860,11 @@ def montar_contexto_auditoria_financeira(args, exportar=False):
         "totais_categoria": buscar_totais_categoria_auditoria(filtros),
         "totais_mes": buscar_totais_mes_auditoria(filtros),
         "pendencias": pendencias,
+        "movimentacoes": (
+            buscar_movimentacoes_exportacao_auditoria(filtros)
+            if exportar
+            else []
+        ),
         "paginacao": {
             "pagina": filtros["pagina"],
             "por_pagina": filtros["por_pagina"],
@@ -3243,12 +3341,23 @@ def gerar_excel_auditoria_financeira(contexto):
     ws_cat = wb.create_sheet("Por categoria")
     ws_cat.append(["Categoria", "Quantidade", "Valor total", "Percentual"])
     for item in contexto["totais_categoria"]:
-        ws_cat.append([item["categoria"], item["quantidade"], item["valor_total"], item["percentual"]])
+        ws_cat.append([
+            texto_excel_seguro(item["categoria"]),
+            item["quantidade"],
+            item["valor_total"],
+            item["percentual"],
+        ])
 
     ws_mes = wb.create_sheet("Por mes")
     ws_mes.append(["Mes", "Receitas", "Despesas", "Saldo", "Quantidade"])
     for item in contexto["totais_mes"]:
-        ws_mes.append([item["mes"], item["total_receitas"], item["total_despesas"], item["saldo"], item["quantidade"]])
+        ws_mes.append([
+            texto_excel_seguro(item["mes"]),
+            item["total_receitas"],
+            item["total_despesas"],
+            item["saldo"],
+            item["quantidade"],
+        ])
 
     ws_pend = wb.create_sheet("Pendencias")
     ws_pend.append([
@@ -3257,19 +3366,190 @@ def gerar_excel_auditoria_financeira(contexto):
     ])
     for item in contexto["pendencias"]:
         ws_pend.append([
-            item.get("data_documento", ""),
-            item.get("data_vencimento", ""),
-            item.get("favorecido") or item.get("parceiro") or "",
-            item.get("descricao", ""),
-            item.get("historico", ""),
-            item.get("numero_documento") or item.get("documento_id") or "",
+            data_excel(item.get("data_documento")),
+            data_excel(item.get("data_vencimento")),
+            texto_excel_seguro(item.get("favorecido") or item.get("parceiro") or ""),
+            texto_excel_seguro(item.get("descricao", "")),
+            texto_excel_seguro(item.get("historico", "")),
+            texto_excel_seguro(item.get("numero_documento") or item.get("documento_id") or ""),
             float(item.get("valor_documento") or item.get("valor") or 0),
             float(item.get("valor_pago") or 0),
-            item.get("categoria", ""),
+            texto_excel_seguro(item.get("categoria", "")),
         ])
 
-    from io import BytesIO
+    ws_mov = wb.create_sheet("Movimentações")
+    cabecalhos = [
+        "ID movimentacao", "Natureza", "Situacao", "Cancelada",
+        "Data cancelamento", "Justificativa cancelamento",
+        "Data documento", "Data vencimento", "Data pagamento/realizacao",
+        "Numero documento", "Parcela", "Total parcelas", "CNPJ/CPF",
+        "Favorecido/Cliente", "Descricao", "Historico", "Observacoes",
+        "Grupo gerencial", "Categoria", "Subcategoria", "Centro de analise",
+        "ID conta Plano de Contas", "Conta Plano de Contas", "Classificacao DRE",
+        "Valor documental", "Valor pago", "Valor liquido",
+        "Valor regra financeira", "Saldo aberto",
+        "Import key", "Origem de importacao", "Modo de origem resolvido",
+        "Origem persistida", "Resolucao da origem", "Sistema de origem",
+        "Modulo de origem", "Tipo de evento", "Chave externa",
+        "Chave idempotente", "ID lote", "Arquivo do lote", "SHA-256 do lote",
+        "Linha do arquivo", "Usuario de criacao", "Data/hora de criacao",
+        "Usuario da ultima alteracao", "Data/hora da ultima alteracao",
+    ]
+    ws_mov.append(cabecalhos)
+
+    for item in contexto.get("movimentacoes", []):
+        cancelada = (item.get("status") or "") == "Cancelado"
+        conta_partes = [
+            item.get("plano_grupo_gerencial") or item.get("grupo_gerencial"),
+            item.get("plano_categoria") or item.get("categoria_plano"),
+            item.get("plano_subcategoria") or item.get("subcategoria"),
+        ]
+        conta_rotulo = " / ".join(str(parte) for parte in conta_partes if parte)
+        liquidacao = calcular_status_liquidacao(item)
+        saldo_aberto = "" if cancelada else liquidacao["saldo_em_aberto"]
+        usuario_criacao = (
+            item.get("origem_usuario_nome")
+            or item.get("primeiro_usuario_nome")
+            or ""
+        )
+        criado_em = item.get("criado_em") or item.get("origem_criado_em")
+        ws_mov.append([
+            int(item["id"]),
+            texto_excel_seguro(item.get("tipo")),
+            texto_excel_seguro(item.get("status")),
+            "Sim" if cancelada else "Nao",
+            data_excel(item.get("cancelado_em"), incluir_hora=True) if cancelada else "",
+            texto_excel_seguro(item.get("cancelamento_justificativa")) if cancelada else "",
+            data_excel(item.get("data_documento")),
+            data_excel(item.get("data_vencimento")),
+            data_excel(item.get("data_realizacao")),
+            texto_excel_seguro(item.get("numero_documento") or item.get("documento_id")),
+            int(item.get("parcela_atual") or 1),
+            int(item.get("parcelas") or 1),
+            texto_excel_seguro(item.get("cnpj_cpf")),
+            texto_excel_seguro(item.get("favorecido") or item.get("parceiro")),
+            texto_excel_seguro(item.get("descricao")),
+            texto_excel_seguro(item.get("historico")),
+            texto_excel_seguro(item.get("observacoes")),
+            texto_excel_seguro(item.get("grupo_gerencial")),
+            texto_excel_seguro(item.get("categoria_plano") or item.get("categoria")),
+            texto_excel_seguro(item.get("subcategoria")),
+            texto_excel_seguro(item.get("centro_analise")),
+            item.get("plano_conta_id") or "",
+            texto_excel_seguro(conta_rotulo),
+            texto_excel_seguro(item.get("linha_dre")),
+            float(item.get("valor_documento") or item.get("valor") or 0),
+            float(item.get("valor_pago") or 0),
+            float(item.get("valor_liquido") or 0),
+            float(item.get("valor") or 0),
+            saldo_aberto,
+            texto_excel_seguro(item.get("import_key")),
+            texto_excel_seguro(item.get("origem_importacao")),
+            texto_excel_seguro(item.get("modo_origem")),
+            "Sim" if item.get("origem_persistida") else "Nao",
+            "Persistida" if item.get("origem_persistida") else "Fallback legado",
+            texto_excel_seguro(
+                item.get("sistema_origem")
+                or ("FrigoDatta legado" if not item.get("origem_persistida") else "")
+            ),
+            texto_excel_seguro(item.get("modulo_origem")),
+            texto_excel_seguro(item.get("origem_tipo_evento")),
+            texto_excel_seguro(item.get("origem_chave_externa")),
+            texto_excel_seguro(item.get("origem_chave_idempotente")),
+            item.get("lote_importacao_id") or "",
+            texto_excel_seguro(item.get("lote_arquivo_nome")),
+            texto_excel_seguro(item.get("lote_arquivo_hash")),
+            item.get("origem_linha_arquivo") or "",
+            texto_excel_seguro(usuario_criacao),
+            data_excel(criado_em, incluir_hora=True),
+            texto_excel_seguro(item.get("ultimo_usuario_nome")),
+            data_excel(item.get("ultima_alteracao_em"), incluir_hora=True),
+        ])
+
+    formatar_aba_movimentacoes_auditoria(ws_mov)
+
     arquivo = BytesIO()
     wb.save(arquivo)
     arquivo.seek(0)
     return arquivo
+
+
+def texto_excel_seguro(valor):
+    """Neutraliza formula injection somente em campos textuais."""
+    if valor is None:
+        return ""
+    texto = str(valor)
+    if texto.startswith(("=", "+", "-", "@")):
+        return f"'{texto}"
+    return texto
+
+
+def data_excel(valor, incluir_hora=False):
+    """Converte datas ISO/SQL em tipos nativos do Excel quando reconhecíveis."""
+    if valor in (None, ""):
+        return ""
+    if isinstance(valor, datetime):
+        return valor if incluir_hora else valor.date()
+    if isinstance(valor, date):
+        return valor
+
+    texto = str(valor).strip()
+    formatos = (
+        ("%Y-%m-%d %H:%M:%S.%f", True),
+        ("%Y-%m-%d %H:%M:%S", True),
+        ("%Y-%m-%dT%H:%M:%S", True),
+        ("%Y-%m-%d", False),
+    )
+    for formato, tem_hora in formatos:
+        try:
+            convertido = datetime.strptime(texto[:26], formato)
+            return convertido if incluir_hora and tem_hora else convertido.date()
+        except ValueError:
+            continue
+    return texto_excel_seguro(texto)
+
+
+def formatar_aba_movimentacoes_auditoria(ws):
+    """Aplica formatação limitada, tipada e adequada a grandes populações."""
+    ultima_coluna = get_column_letter(ws.max_column)
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = f"A1:{ultima_coluna}{max(ws.max_row, 1)}"
+    ws.sheet_view.showGridLines = False
+
+    preenchimento = PatternFill("solid", fgColor="1F4E78")
+    for celula in ws[1]:
+        celula.fill = preenchimento
+        celula.font = Font(color="FFFFFF", bold=True)
+        celula.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+    colunas_data = {5, 7, 8, 9}
+    colunas_data_hora = {45, 47}
+    colunas_monetarias = {25, 26, 27, 28, 29}
+    colunas_texto_forcado = {10, 13, 30, 38, 39, 42}
+
+    if ws.max_row >= 2:
+        for coluna in colunas_data:
+            for celula in ws.iter_cols(min_col=coluna, max_col=coluna, min_row=2):
+                celula[0].number_format = "dd/mm/yyyy"
+        for coluna in colunas_data_hora:
+            for celula in ws.iter_cols(min_col=coluna, max_col=coluna, min_row=2):
+                celula[0].number_format = "dd/mm/yyyy hh:mm:ss"
+        for coluna in colunas_monetarias:
+            for celula in ws.iter_cols(min_col=coluna, max_col=coluna, min_row=2):
+                celula[0].number_format = '"R$" #,##0.00'
+        for coluna in colunas_texto_forcado:
+            for celula in ws.iter_cols(min_col=coluna, max_col=coluna, min_row=2):
+                celula[0].number_format = "@"
+
+    larguras = {
+        1: 14, 2: 12, 3: 18, 4: 11, 5: 19, 6: 34,
+        7: 15, 8: 15, 9: 22, 10: 20, 11: 10, 12: 12,
+        13: 20, 14: 30, 15: 34, 16: 34, 17: 34, 18: 24,
+        19: 24, 20: 24, 21: 22, 22: 20, 23: 38, 24: 28,
+        25: 18, 26: 18, 27: 18, 28: 20, 29: 18, 30: 44,
+        31: 22, 32: 25, 33: 18, 34: 20, 35: 24, 36: 22,
+        37: 22, 38: 30, 39: 36, 40: 14, 41: 28, 42: 66,
+        43: 16, 44: 24, 45: 22, 46: 28, 47: 24,
+    }
+    for indice, largura in larguras.items():
+        ws.column_dimensions[get_column_letter(indice)].width = min(largura, 66)
