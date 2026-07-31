@@ -490,9 +490,9 @@ def ativar_estoque_op_encerrada(cursor, op_id):
         UPDATE pa_caixas
         SET estoque_operacional = 1,
             status = 'Em estoque',
-            condicao = 'CONFORME',
-            disponibilidade = 'DISPONIVEL',
-            zona_estoque = 'Conforme',
+            condicao = CASE WHEN condicao = 'NAO_CONFORME' THEN 'NAO_CONFORME' ELSE 'CONFORME' END,
+            disponibilidade = CASE WHEN condicao = 'NAO_CONFORME' THEN 'BLOQUEADO' ELSE 'DISPONIVEL' END,
+            zona_estoque = CASE WHEN condicao = 'NAO_CONFORME' THEN 'Produto Não Conforme' ELSE 'Conforme' END,
             reservado_expedicao_id = NULL,
             formado_por = ?,
             formado_em = ?
@@ -504,9 +504,9 @@ def ativar_estoque_op_encerrada(cursor, op_id):
                 caixa_id=caixa["id"],
                 acao="FORMACAO_ESTOQUE",
                 situacao_anterior=caixa["disponibilidade"] or STATUS_PENDENTE,
-                situacao_nova=STATUS_DISPONIVEL,
+                situacao_nova=STATUS_BLOQUEADO if caixa["condicao"] == "NAO_CONFORME" else STATUS_DISPONIVEL,
                 condicao_anterior=caixa["condicao"] or "CONFORME",
-                condicao_nova="CONFORME",
+                condicao_nova="NAO_CONFORME" if caixa["condicao"] == "NAO_CONFORME" else "CONFORME",
                 quantidade=caixa["quantidade_pacotes"] if caixa["unidade_estoque"] == "PACOTE" else caixa["quantidade_bandejas"],
                 peso=None if caixa["unidade_estoque"] == "PACOTE" else caixa["peso_liquido"],
                 idempotency_key=f"FORMACAO-PA-{caixa['id']}",
@@ -633,6 +633,9 @@ def reservar_itens(expedicao_id, caixa_ids, quantidades_pacotes=None):
     """Reserva caixas inteiras ou uma quantidade inteira de pacotes de GI."""
     criar_tabelas_estoque_confiavel()
     ids = [int(item) for item in caixa_ids]
+    from modules.qualidade.produtos_nao_conformes import impedir_fluxo_legado
+    if impedir_fluxo_legado(ids, "reserva em romaneio", somente_pendentes=True):
+        raise ValueError("Produto Não Conforme oficial aguarda destinação da Qualidade.")
     quantidades_pacotes = quantidades_pacotes or {}
     if not ids or len(ids) != len(set(ids)):
         raise ValueError("Selecione itens distintos para reservar.")
@@ -1149,6 +1152,9 @@ def bloquear_produto(caixa_id, motivo, observacao=""):
     if not (motivo or "").strip():
         raise ValueError("Informe o motivo da não conformidade.")
     criar_tabelas_estoque_confiavel()
+    from modules.qualidade.produtos_nao_conformes import impedir_fluxo_legado
+    if impedir_fluxo_legado([caixa_id], "reclassificação pelo estoque"):
+        raise ValueError("Use o fluxo oficial da Qualidade para este Produto Não Conforme.")
     with transaction() as conn:
         cursor = conn.cursor()
         cursor.execute(q("SELECT * FROM pa_caixas WHERE id = ?"), (caixa_id,))
@@ -1192,6 +1198,9 @@ def destinar_produto(caixa_id, destino, justificativa):
     if not (justificativa or "").strip():
         raise ValueError("Informe a justificativa da destinação.")
     criar_tabelas_estoque_confiavel()
+    from modules.qualidade.produtos_nao_conformes import impedir_fluxo_legado
+    if impedir_fluxo_legado([caixa_id], "destinação pela Expedição"):
+        raise ValueError("Use o fluxo oficial da Qualidade para destinar este produto.")
     with transaction() as conn:
         cursor = conn.cursor()
         cursor.execute(q("SELECT * FROM pa_caixas WHERE id = ?"), (caixa_id,))

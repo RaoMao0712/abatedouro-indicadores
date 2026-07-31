@@ -33,13 +33,13 @@
     </div>
 
     <div class="card kpi-card">
-        <span class="kpi-label">PA em lotes/caixas</span>
+        <span class="kpi-label">PA disponível em lotes/caixas</span>
         <strong>{{ resumo.saldo_pa_caixas }}</strong>
         <small>Lotes ou caixas ja formados</small>
     </div>
 
     <div class="card kpi-card">
-        <span class="kpi-label">PA em kg</span>
+        <span class="kpi-label">PA disponível em kg</span>
         <strong>{{ resumo.saldo_pa_kg|br_numero }}</strong>
         <small>Peso líquido já validado</small>
     </div>
@@ -86,6 +86,20 @@
             <label>Observações</label>
             <textarea name="observacoes" rows="2" placeholder="Ex.: produção do dia enviada para congelamento">{{ apontamento_edicao.observacoes if apontamento_edicao else '' }}</textarea>
         </div>
+
+        <section class="form-span-2 campo-galinha-inteira pa-nc-encerramento">
+            <span class="eyebrow">Segregação controlada</span><h3>Produtos Acabados Não Conformes</h3>
+            <p class="obs">Opcional para Galinha Inteira. Marque V1 e/ou V2; a posição será criada bloqueada no encerramento.</p>
+            {% for variacao in ['V1', 'V2'] %}<div class="card pa-nc-item" style="margin-top:.75rem">
+                <label><input type="checkbox" name="nc_{{ variacao }}_ativo" value="1" data-pa-nc-toggle> {{ variacao }} — registrar como não conforme</label>
+                <div class="form-grid" style="margin-top:.5rem">
+                    <div><label>Motivo</label><select name="nc_{{ variacao }}_motivo" disabled data-pa-nc-field data-pa-nc-required><option value="">Selecione</option>{% for motivo in motivos_nc %}<option>{{ motivo }}</option>{% endfor %}</select></div>
+                    <div><label>Local de segregação</label><select name="nc_{{ variacao }}_local" disabled data-pa-nc-field data-pa-nc-required><option value="">Selecione</option>{% for local in locais_segregacao %}<option value="{{ local.id }}">{{ local.nome }}</option>{% endfor %}</select></div>
+                    <div><label>Descrição</label><textarea name="nc_{{ variacao }}_descricao" disabled data-pa-nc-field></textarea></div>
+                    <div><label>Observações</label><textarea name="nc_{{ variacao }}_observacoes" disabled data-pa-nc-field></textarea></div>
+                </div>
+            </div>{% endfor %}
+        </section>
 
         <div class="form-span-2">
             <button type="submit" class="botao-principal" id="botao-embalagem-primaria">{% if modo_edicao and apontamento_edicao %}Atualizar PI{% else %}Registrar PI{% endif %}</button>
@@ -200,6 +214,16 @@ document.addEventListener("DOMContentLoaded", function () {
     const ajudaQuantidade = document.getElementById("ajuda-quantidade-primaria");
     const camposInteira = document.querySelectorAll(".campo-galinha-inteira");
     const botao = document.getElementById("botao-embalagem-primaria");
+
+    document.querySelectorAll("[data-pa-nc-toggle]").forEach(function (toggle) {
+        toggle.addEventListener("change", function () {
+            const item = toggle.closest(".pa-nc-item");
+            item.querySelectorAll("[data-pa-nc-field]").forEach(function (campo) {
+                campo.disabled = !toggle.checked;
+                if (campo.hasAttribute("data-pa-nc-required")) campo.required = toggle.checked;
+            });
+        });
+    });
 
     function skuSelecionado() {
         if (!selectOp || !selectOp.selectedOptions || !selectOp.selectedOptions.length) {

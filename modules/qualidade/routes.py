@@ -1,8 +1,10 @@
 """Rotas do modulo de Qualidade."""
 
 from datetime import datetime
+import csv
+import io
 
-from flask import flash, redirect, render_template, request, session, url_for
+from flask import Response, flash, redirect, render_template, request, session, url_for
 
 from database import conectar, q
 from modules.auth.decorators import perfil_permitido
@@ -10,6 +12,11 @@ from modules.auth.services import usuario_eh_admin
 from modules.producao.services import buscar_fornecedores, contexto_apontamento
 from .services import salvar_apontamento_descarte, salvar_apontamentos_descartes_lote
 from . import services as qualidade_service
+from .produtos_nao_conformes import (
+    MOTIVOS, STATUS, STATUS_LABELS, consultar as consultar_pa_nc, decidir as decidir_pa_nc,
+    indicadores as indicadores_pa_nc, iniciar_avaliacao, listar_locais_segregacao,
+    obter_detalhe as obter_detalhe_pa_nc,
+)
 
 _CRIAR_BANCO = None
 
@@ -18,6 +25,73 @@ def register_qualidade_routes(app, integracoes=None):
     global _CRIAR_BANCO
     integracoes = integracoes or {}
     _CRIAR_BANCO = integracoes.get("criar_banco")
+
+    @app.get("/qualidade/produtos-nao-conformes")
+    @perfil_permitido("pcp", "producao", "qualidade", "gerencia")
+    def produtos_nao_conformes():
+        filtros = {nome: request.args.get(nome, "") for nome in (
+            "inicio", "fim", "op", "lote", "produto", "motivo", "status",
+            "local", "responsavel", "destinacao",
+        )}
+        registros = consultar_pa_nc(filtros)
+        return render_template(
+            "produtos_nao_conformes.html", registros=registros,
+            indicadores=indicadores_pa_nc(registros), filtros=filtros,
+            motivos=MOTIVOS, status_opcoes=sorted(STATUS),
+            status_labels=STATUS_LABELS,
+            locais=listar_locais_segregacao(),
+        )
+
+    @app.get("/qualidade/produtos-nao-conformes/exportar.csv")
+    @perfil_permitido("pcp", "producao", "qualidade", "gerencia")
+    def exportar_produtos_nao_conformes():
+        filtros = {nome: request.args.get(nome, "") for nome in (
+            "inicio", "fim", "op", "lote", "produto", "motivo", "status",
+            "local", "responsavel", "destinacao",
+        )}
+        saida = io.StringIO()
+        escritor = csv.writer(saida, delimiter=";")
+        escritor.writerow(("Número", "Data", "OP", "Lote", "Produto", "Apresentação",
+                           "Quantidade", "Peso", "Unidade", "Motivo", "Status", "Local",
+                           "Responsável", "Destinação", "Data da decisão"))
+        for item in consultar_pa_nc(filtros):
+            escritor.writerow((item["numero"], item["registrado_em"], item["op_id"], item["lote"],
+                               item["produto"], item["apresentacao"], item["quantidade"], item["peso"],
+                               item["unidade"], item["motivo"], item["status"], item["local_nome"],
+                               item["registrado_por"], item["decisao"], item["decidido_em"]))
+        return Response("\ufeff" + saida.getvalue(), mimetype="text/csv",
+                        headers={"Content-Disposition": "attachment; filename=produtos-nao-conformes.csv"})
+
+    @app.get("/qualidade/produtos-nao-conformes/<int:pa_nc_id>")
+    @perfil_permitido("pcp", "producao", "qualidade", "gerencia")
+    def detalhe_produto_nao_conforme(pa_nc_id):
+        registro, eventos = obter_detalhe_pa_nc(pa_nc_id)
+        if not registro:
+            flash("Produto Não Conforme não encontrado.")
+            return redirect(url_for("produtos_nao_conformes"))
+        return render_template("produto_nao_conforme_detalhe.html", registro=registro,
+                               eventos=eventos, status_labels=STATUS_LABELS)
+
+    @app.post("/qualidade/produtos-nao-conformes/<int:pa_nc_id>/avaliar")
+    @perfil_permitido("pcp", "producao", "qualidade", "gerencia")
+    def avaliar_produto_nao_conforme(pa_nc_id):
+        try:
+            iniciar_avaliacao(pa_nc_id)
+            flash("Avaliação iniciada; o produto permanece bloqueado.")
+        except (ValueError, PermissionError) as erro:
+            flash(str(erro))
+        return redirect(url_for("detalhe_produto_nao_conforme", pa_nc_id=pa_nc_id))
+
+    @app.post("/qualidade/produtos-nao-conformes/<int:pa_nc_id>/decidir")
+    @perfil_permitido("pcp", "producao", "qualidade", "gerencia")
+    def decidir_produto_nao_conforme(pa_nc_id):
+        try:
+            decidir_pa_nc(pa_nc_id, request.form.get("destino"),
+                          request.form.get("justificativa"), request.form.get("observacoes"))
+            flash("Destinação registrada com rastreabilidade preservada.")
+        except (ValueError, PermissionError) as erro:
+            flash(str(erro))
+        return redirect(url_for("detalhe_produto_nao_conforme", pa_nc_id=pa_nc_id))
 
 
     def garantir_schema_producao():

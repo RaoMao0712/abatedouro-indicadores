@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block conteudo %}
+<section class="hero-dashboard expedicao-hero">
+  <div><span class="eyebrow">Qualidade · Estoque bloqueado</span><h2>Produtos Não Conformes</h2>
+    <p class="obs">Produto efetivamente produzido, segregado e indisponível até decisão autorizada.</p></div>
+  <a class="botao-dre-exportar" href="{{ url_for('exportar_produtos_nao_conformes', **filtros) }}">Exportar CSV</a>
+</section>
+
+<div class="expedicao-kpis">
+  <div class="card kpi-card"><span class="kpi-label">Bloqueados</span><strong>{{ indicadores.registros_bloqueados }}</strong><small>registros sob bloqueio</small></div>
+  <div class="card kpi-card"><span class="kpi-label">Peso bloqueado</span><strong>{{ indicadores.peso_bloqueado|br_numero(3) }} kg</strong><small>fora do estoque disponível</small></div>
+  <div class="card kpi-card"><span class="kpi-label">Quantidade bloqueada</span><strong>{{ indicadores.quantidade_bloqueada|br_numero }}</strong><small>nas unidades registradas</small></div>
+  <div class="card kpi-card"><span class="kpi-label">Aguardando avaliação</span><strong>{{ indicadores.aguardando_avaliacao }}</strong><small>ainda no estado inicial</small></div>
+  <div class="card kpi-card"><span class="kpi-label">Liberados</span><strong>{{ indicadores.liberados }}</strong><small>no período filtrado</small></div>
+  <div class="card kpi-card"><span class="kpi-label">Retrabalho / reprocesso</span><strong>{{ indicadores.retrabalho }} / {{ indicadores.reprocesso }}</strong><small>destinações registradas</small></div>
+  <div class="card kpi-card"><span class="kpi-label">Descarte</span><strong>{{ indicadores.descarte }}</strong><small>registros preservados</small></div>
+  <div class="card kpi-card"><span class="kpi-label">Tempo médio</span><strong>{{ indicadores.tempo_medio_horas|br_numero }} h</strong><small>entre bloqueio e decisão</small></div>
+</div>
+
+<section class="card expedicao-card">
+  <form method="get" class="form-grid">
+    <div><label>Período inicial</label><input type="date" name="inicio" value="{{ filtros.inicio }}"></div>
+    <div><label>Período final</label><input type="date" name="fim" value="{{ filtros.fim }}"></div>
+    <div><label>OP</label><input name="op" value="{{ filtros.op }}"></div>
+    <div><label>Lote</label><input name="lote" value="{{ filtros.lote }}"></div>
+    <div><label>Produto</label><input name="produto" value="{{ filtros.produto }}"></div>
+    <div><label>Motivo</label><select name="motivo"><option value="">Todos</option>{% for item in motivos %}<option value="{{ item }}" {% if filtros.motivo == item %}selected{% endif %}>{{ item }}</option>{% endfor %}</select></div>
+    <div><label>Status</label><select name="status"><option value="">Todos</option>{% for item in status_opcoes %}<option value="{{ item }}" {% if filtros.status == item %}selected{% endif %}>{{ status_labels[item] }}</option>{% endfor %}</select></div>
+    <div><label>Local</label><select name="local"><option value="">Todos</option>{% for item in locais %}<option value="{{ item.id }}" {% if filtros.local == item.id|string %}selected{% endif %}>{{ item.nome }}</option>{% endfor %}</select></div>
+    <div><label>Responsável</label><input name="responsavel" value="{{ filtros.responsavel }}"></div>
+    <div><label>Destinação</label><input name="destinacao" value="{{ filtros.destinacao }}"></div>
+    <div><button class="botao-principal" type="submit">Filtrar</button></div>
+  </form>
+</section>
+
+<section class="card">
+  <div class="tabela-responsiva tabela-executiva expedicao-tabela"><table>
+    <thead><tr><th>Número</th><th>Data</th><th>OP</th><th>Lote</th><th>Produto</th><th>Quantidade</th><th>Peso</th><th>Motivo</th><th>Status</th><th>Local</th><th>Responsável</th><th>Ação</th></tr></thead>
+    <tbody>{% for item in registros %}<tr>
+      <td><strong>{{ item.numero }}</strong></td><td>{{ item.registrado_em }}</td><td>#{{ item.op_id }}</td><td>{{ item.lote }}</td><td>{{ item.produto }}</td>
+      <td>{{ item.quantidade|br_numero }} {{ item.unidade }}</td><td>{{ item.peso|br_numero(3) ~ ' kg' if item.peso is not none else '-' }}</td><td>{{ item.motivo }}</td>
+      <td><span class="badge-expedicao {% if item.status == 'LIBERADO' %}entrada{% else %}neutro{% endif %}">{{ status_labels[item.status] }}</span></td>
+      <td>{{ item.local_nome }}</td><td>{{ item.registrado_por }}</td><td><a class="botao-dre-exportar" href="{{ url_for('detalhe_produto_nao_conforme', pa_nc_id=item.id) }}">Detalhes</a></td>
+    </tr>{% else %}<tr><td colspan="12">Nenhum Produto Não Conforme encontrado.</td></tr>{% endfor %}</tbody>
+  </table></div>
+</section>
+{% endblock %}

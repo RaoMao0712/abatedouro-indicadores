@@ -26,13 +26,13 @@
     </div>
 
     <div class="card kpi-card destaque">
-        <span class="kpi-label">PA em caixas</span>
+        <span class="kpi-label">PA disponível em caixas</span>
         <strong>{{ resumo.saldo_pa_caixas }}</strong>
         <small>Caixas já formadas</small>
     </div>
 
     <div class="card kpi-card">
-        <span class="kpi-label">PA em kg</span>
+        <span class="kpi-label">PA disponível em kg</span>
         <strong>{{ resumo.saldo_pa_kg|br_numero }}</strong>
         <small>Peso líquido em estoque</small>
     </div>
@@ -185,6 +185,19 @@
         onsubmit="return confirm('Confirmar encerramento industrial desta OP?')"
         style="margin-top: 1rem;"
     >
+        <section class="pa-nc-encerramento">
+            <div class="section-title-row"><div><span class="eyebrow">Segregação controlada</span><h3>Produtos Acabados Não Conformes</h3><p class="obs">Opcional. Marque zero ou várias caixas. Cada item marcado nascerá bloqueado e fora do estoque comercial.</p></div></div>
+            <div class="tabela-responsiva tabela-executiva"><table>
+                <thead><tr><th>Não conforme</th><th>Caixa / lote</th><th>Quantidade / peso</th><th>Motivo e descrição</th><th>Local e observações</th></tr></thead>
+                <tbody>{% for caixa in caixas_op if caixa.status != 'Cancelada' %}<tr class="pa-nc-item">
+                    <td><label><input type="checkbox" name="nc_caixa_id" value="{{ caixa.id }}" data-pa-nc-toggle> Bloquear</label></td>
+                    <td><strong>{{ caixa.codigo_caixa }}</strong><input type="hidden" name="nc_{{ caixa.id }}_lote" value="{{ caixa.codigo_caixa }}" disabled data-pa-nc-field><input type="hidden" name="nc_{{ caixa.id }}_apresentacao" value="Caixa de {{ op_selecionada.sku }}" disabled data-pa-nc-field></td>
+                    <td>{{ caixa.quantidade_bandejas|br_numero }} bandejas · {{ caixa.peso_liquido|br_numero(3) }} kg<input type="hidden" name="nc_{{ caixa.id }}_quantidade" value="{{ caixa.quantidade_bandejas }}" disabled data-pa-nc-field><input type="hidden" name="nc_{{ caixa.id }}_peso" value="{{ caixa.peso_liquido }}" disabled data-pa-nc-field><input type="hidden" name="nc_{{ caixa.id }}_unidade" value="BANDEJA" disabled data-pa-nc-field></td>
+                    <td><select name="nc_{{ caixa.id }}_motivo" disabled data-pa-nc-field data-pa-nc-required><option value="">Motivo</option>{% for motivo in motivos_nc %}<option>{{ motivo }}</option>{% endfor %}</select><textarea name="nc_{{ caixa.id }}_descricao" rows="2" placeholder="Descrição complementar" disabled data-pa-nc-field></textarea></td>
+                    <td><select name="nc_{{ caixa.id }}_local" disabled data-pa-nc-field data-pa-nc-required><option value="">Local de segregação</option>{% for local in locais_segregacao %}<option value="{{ local.id }}">{{ local.nome }}</option>{% endfor %}</select><textarea name="nc_{{ caixa.id }}_observacoes" rows="2" placeholder="Observações" disabled data-pa-nc-field></textarea></td>
+                </tr>{% else %}<tr><td colspan="5">Nenhuma caixa ativa vinculada.</td></tr>{% endfor %}</tbody>
+            </table></div>
+        </section>
         <button type="submit" class="botao-principal" {% if not fechamento_op.pode_encerrar %}disabled{% endif %}>
             Finalizar Embalagem Secundária e Encerrar OP
         </button>
@@ -218,6 +231,20 @@
     {% endif %}
 </div>
 {% endif %}
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  document.querySelectorAll("[data-pa-nc-toggle]").forEach(function (toggle) {
+    toggle.addEventListener("change", function () {
+      const linha = toggle.closest(".pa-nc-item");
+      linha.querySelectorAll("[data-pa-nc-field]").forEach(function (campo) {
+        campo.disabled = !toggle.checked;
+        if (campo.hasAttribute("data-pa-nc-required")) campo.required = toggle.checked;
+      });
+    });
+  });
+});
+</script>
 
 {% if op_selecionada %}
 <div class="card expedicao-card">

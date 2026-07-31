@@ -71,6 +71,7 @@ NAVEGACAO = [
                 "active_endpoints": ("embalagem_secundaria", "finalizar_embalagem_secundaria", "resetar_embalagem_secundaria_op"),
             },
             {"titulo": "Estoque PI/PA", "endpoint": "estoque_produtos", "perfis": ("admin", "pcp", "qualidade"), "principal": True},
+            {"titulo": "Produtos Não Conformes", "endpoint": "produtos_nao_conformes", "perfis": ("admin", "pcp", "producao", "qualidade")},
         ],
     },
     {
@@ -95,6 +96,13 @@ NAVEGACAO = [
                 ),
             },
             {"titulo": "Consolidado Mensal", "endpoint": "sgi_consolidado_mensal", "perfis": ("admin", "pcp", "qualidade", "gerencia")},
+            {
+                "titulo": "Produtos Não Conformes",
+                "endpoint": "produtos_nao_conformes",
+                "perfis": ("admin", "pcp", "producao", "qualidade", "gerencia"),
+                "principal": True,
+                "active_endpoints": ("produtos_nao_conformes", "detalhe_produto_nao_conforme"),
+            },
             {
                 "titulo": "Descartes e Condenações",
                 "endpoint": "apontamento_descartes",
@@ -151,7 +159,7 @@ NAVEGACAO = [
             {"titulo": "Central de Romaneios", "endpoint": "expedicao", "perfis": ("admin", "pcp", "qualidade"), "principal": True, "active_endpoints": ("expedicao", "detalhe_romaneio_expedicao", "imprimir_romaneio_expedicao")},
             {"titulo": "Novo Romaneio", "endpoint": "novo_romaneio_expedicao", "perfis": ("admin", "pcp", "qualidade")},
             {"titulo": "Estoque Operacional", "endpoint": "estoque_camara_expedicao", "perfis": ("admin", "pcp", "qualidade")},
-            {"titulo": "Não Conformes", "endpoint": "nao_conformes_expedicao", "perfis": ("admin", "pcp", "qualidade")},
+            {"titulo": "Não Conformes", "endpoint": "produtos_nao_conformes", "perfis": ("admin", "pcp", "qualidade")},
             {"titulo": "Histórico", "endpoint": "historico_estoque_expedicao", "perfis": ("admin", "pcp", "qualidade")},
         ],
     },

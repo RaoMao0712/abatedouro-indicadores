@@ -33,13 +33,13 @@
     </div>
 
     <div class="card kpi-card destaque">
-        <span class="kpi-label">PA em lotes/caixas</span>
+        <span class="kpi-label">PA disponível em lotes/caixas</span>
         <strong>{{ resumo.saldo_pa_caixas }}</strong>
         <small>Lotes ou caixas disponiveis para expedicao</small>
     </div>
 
     <div class="card kpi-card">
-        <span class="kpi-label">PA em kg</span>
+        <span class="kpi-label">PA disponível em kg</span>
         <strong>{{ resumo.saldo_pa_kg|br_numero }}</strong>
         <small>Peso líquido disponível em PA</small>
     </div>
@@ -63,6 +63,8 @@
                     <th>Caixas</th>
                     <th>Peso liquido</th>
                     <th>Peso bruto</th>
+                    <th>Condição</th>
+                    <th>Disponibilidade</th>
                 </tr>
             </thead>
             <tbody>
@@ -73,6 +75,8 @@
                     <td>{{ item.quantidade_caixas }}</td>
                     <td>{{ item.peso_liquido_total|br_numero }}</td>
                     <td>{{ item.peso_bruto_total|br_numero }}</td>
+                    <td>{{ item.condicao|replace('_', ' ')|title }}</td>
+                    <td>{{ item.disponibilidade|replace('_', ' ')|title }}</td>
                 </tr>
                 {% endfor %}
             </tbody>

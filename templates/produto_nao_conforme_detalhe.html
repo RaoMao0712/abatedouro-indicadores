@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block conteudo %}
+<section class="hero-dashboard expedicao-hero"><div><span class="eyebrow">Qualidade · Rastreabilidade</span><h2>{{ registro.numero }}</h2><p class="obs">Status: <strong>{{ status_labels[registro.status] }}</strong></p></div><a class="botao-dre-exportar" href="{{ url_for('produtos_nao_conformes') }}">Voltar</a></section>
+<div class="form-grid">
+  <section class="card"><h3>1 — Identificação</h3><p><strong>OP:</strong> #{{ registro.op_id }}</p><p><strong>Lote:</strong> {{ registro.lote }}</p><p><strong>Caixa/posição:</strong> {{ registro.codigo_caixa }}</p><p><strong>Produto:</strong> {{ registro.produto }}</p><p><strong>Apresentação:</strong> {{ registro.apresentacao }}</p><p><strong>Quantidade:</strong> {{ registro.quantidade|br_numero }} {{ registro.unidade }}</p><p><strong>Peso:</strong> {{ registro.peso|br_numero(3) ~ ' kg' if registro.peso is not none else 'Não aplicável' }}</p></section>
+  <section class="card"><h3>2 — Não conformidade</h3><p><strong>Motivo:</strong> {{ registro.motivo }}</p><p><strong>Descrição:</strong> {{ registro.descricao or '-' }}</p><p><strong>Registrado por:</strong> {{ registro.registrado_por }} ({{ registro.perfil_registro }})</p><p><strong>Data:</strong> {{ registro.registrado_em }}</p></section>
+  <section class="card"><h3>3 — Bloqueio</h3><p><strong>Status:</strong> {{ status_labels[registro.status] }}</p><p><strong>Local:</strong> {{ registro.local_nome }}</p><p><strong>Disponibilidade física:</strong> {{ registro.disponibilidade|replace('_', ' ')|title }}</p><p><strong>Responsável:</strong> {{ registro.registrado_por }}</p></section>
+  <section class="card"><h3>4 — Destinação</h3><p><strong>Decisão:</strong> {{ registro.decisao or 'Pendente' }}</p><p><strong>Justificativa:</strong> {{ registro.justificativa_destinacao or '-' }}</p><p><strong>Responsável:</strong> {{ registro.decidido_por or '-' }}</p><p><strong>Data:</strong> {{ registro.decidido_em or '-' }}</p><p><strong>Observações:</strong> {{ registro.observacoes or '-' }}</p></section>
+</div>
+{% if session.get('perfil') in ['qualidade', 'gerencia', 'admin'] and registro.status in ['BLOQUEADO', 'MANTIDO_BLOQUEADO'] %}
+<section class="card"><form method="post" action="{{ url_for('avaliar_produto_nao_conforme', pa_nc_id=registro.id) }}"><button class="botao-dre-exportar">Iniciar avaliação</button></form></section>
+{% endif %}
+{% if session.get('perfil') in ['qualidade', 'gerencia', 'admin'] and registro.status in ['BLOQUEADO', 'EM_AVALIACAO', 'MANTIDO_BLOQUEADO'] %}
+<section class="card"><h3>Decisão da Qualidade</h3><form method="post" action="{{ url_for('decidir_produto_nao_conforme', pa_nc_id=registro.id) }}" class="form-grid" onsubmit="return confirm('Confirmar esta destinação? O histórico será preservado.')">
+  <div><label>Destinação</label><select name="destino" required><option value="">Selecione</option><option value="LIBERAR">Liberar</option><option value="RETRABALHO">Retrabalho</option><option value="REPROCESSO">Reprocesso</option><option value="DESCARTE">Descarte</option><option value="MANTER_BLOQUEADO">Manter bloqueado</option></select></div>
+  <div class="form-span-2"><label>Justificativa</label><textarea name="justificativa" required></textarea></div><div class="form-span-2"><label>Observações</label><textarea name="observacoes"></textarea></div><div><button class="botao-principal">Registrar decisão</button></div>
+</form></section>
+{% endif %}
+<section class="card"><h3>5 — Histórico</h3><div class="tabela-responsiva tabela-executiva"><table><thead><tr><th>Data</th><th>Ação</th><th>Estado anterior</th><th>Novo estado</th><th>Usuário</th><th>Justificativa/detalhes</th></tr></thead><tbody>{% for item in eventos %}<tr><td>{{ item.criado_em }}</td><td>{{ item.acao|replace('_',' ')|title }}</td><td>{{ item.status_anterior or '-' }}</td><td>{{ item.status_novo or '-' }}</td><td>{{ item.usuario }} ({{ item.perfil }})</td><td>{{ item.justificativa or item.detalhes or '-' }}</td></tr>{% endfor %}</tbody></table></div></section>
+{% endblock %}

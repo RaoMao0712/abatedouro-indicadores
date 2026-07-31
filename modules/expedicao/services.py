@@ -594,7 +594,7 @@ def registrar_posicoes_pa_galinha_inteira(cursor, op, pacotes_v1, pacotes_v2, ob
             caixa_id, op_id, quantidade_bandejas
         ) VALUES (?, ?, ?)
         """), (posicao_id, op["id"], quantidade_galinhas))
-        posicoes.append({"id": posicao_id, "codigo": codigo_lote})
+        posicoes.append({"id": posicao_id, "codigo": codigo_lote, "variacao": variacao})
     return posicoes
 
 
@@ -606,6 +606,7 @@ def registrar_apontamento_embalagem_primaria(
     pacotes_1_ave=0,
     pacotes_2_aves=0,
     checkpoint=None,
+    nao_conformes=None,
 ):
     criar_tabelas_estoque_pi_pa()
     from .estoque_service import (
@@ -672,6 +673,23 @@ def registrar_apontamento_embalagem_primaria(
                 marcar_pa_pendente(cursor, posicao["id"])
             if checkpoint:
                 checkpoint("durante_formacao_estoque")
+            if nao_conformes:
+                from modules.qualidade.produtos_nao_conformes import registrar_itens_encerramento
+                por_apresentacao = {item.get("apresentacao"): item for item in nao_conformes}
+                itens_nc = []
+                for posicao in posicoes:
+                    cursor.execute(q("SELECT * FROM pa_caixas WHERE id=?"), (posicao["id"],))
+                    caixa_posicao = cursor.fetchone()
+                    base = por_apresentacao.get(posicao["variacao"])
+                    if base:
+                        item = dict(base)
+                        item.update(
+                            caixa_id=posicao["id"], lote=posicao["codigo"],
+                            quantidade=caixa_posicao["quantidade_pacotes"], peso=None,
+                            unidade="PACOTE", apresentacao=caixa_posicao["apresentacao"],
+                        )
+                        itens_nc.append(item)
+                registrar_itens_encerramento(cursor, op["id"], itens_nc, checkpoint=checkpoint)
             gerar_producao_automatica_setores(
                 op=op,
                 data_lancamento=op["data"],
@@ -1375,7 +1393,7 @@ def calcular_fechamento_industrial_op(op_id, conn=None):
     }
 
 
-def finalizar_embalagem_secundaria_op(op_id, checkpoint=None):
+def finalizar_embalagem_secundaria_op(op_id, checkpoint=None, nao_conformes=None):
     """Valida, gera producao, encerra a OP e forma estoque em uma transacao."""
     from .estoque_service import ativar_estoque_op_encerrada, criar_tabelas_estoque_confiavel
 
@@ -1409,6 +1427,11 @@ def finalizar_embalagem_secundaria_op(op_id, checkpoint=None):
             raise ValueError("A OP foi encerrada por outra solicitacao.")
         if checkpoint:
             checkpoint("durante_formacao_estoque")
+        if nao_conformes:
+            from modules.qualidade.produtos_nao_conformes import registrar_itens_encerramento
+            registrar_itens_encerramento(
+                cursor, op_id, nao_conformes, checkpoint=checkpoint
+            )
         ativar_estoque_op_encerrada(cursor, op_id)
         if checkpoint:
             checkpoint("apos_formacao_estoque")
@@ -1540,9 +1563,11 @@ def buscar_resumo_pa_completo():
 
     cursor.execute(q("""
     SELECT
-        COALESCE(COUNT(CASE WHEN status = ? THEN 1 END), 0) AS saldo_pa_caixas,
-        COALESCE(SUM(CASE WHEN status = ? THEN quantidade_bandejas ELSE 0 END), 0) AS saldo_pa_bandejas,
-        COALESCE(SUM(CASE WHEN status = ? THEN peso_liquido ELSE 0 END), 0) AS saldo_pa_kg
+        COALESCE(COUNT(CASE WHEN status = ? AND condicao='CONFORME' AND disponibilidade='DISPONIVEL' THEN 1 END), 0) AS saldo_pa_caixas,
+        COALESCE(SUM(CASE WHEN status = ? AND condicao='CONFORME' AND disponibilidade='DISPONIVEL' THEN quantidade_bandejas ELSE 0 END), 0) AS saldo_pa_bandejas,
+        COALESCE(SUM(CASE WHEN status = ? AND condicao='CONFORME' AND disponibilidade='DISPONIVEL' THEN peso_liquido ELSE 0 END), 0) AS saldo_pa_kg,
+        COALESCE(COUNT(CASE WHEN condicao='NAO_CONFORME' AND disponibilidade IN ('BLOQUEADO','REPROCESSAMENTO') THEN 1 END), 0) AS pa_bloqueado_caixas,
+        COALESCE(SUM(CASE WHEN condicao='NAO_CONFORME' AND disponibilidade IN ('BLOQUEADO','REPROCESSAMENTO') THEN peso_liquido ELSE 0 END), 0) AS pa_bloqueado_kg
     FROM pa_caixas
     WHERE COALESCE(estoque_operacional, 0) = 1
     """), ("Em estoque", "Em estoque", "Em estoque"))
@@ -1554,6 +1579,8 @@ def buscar_resumo_pa_completo():
         "saldo_pa_caixas": int(resumo["saldo_pa_caixas"] or 0),
         "saldo_pa_bandejas": float(resumo["saldo_pa_bandejas"] or 0),
         "saldo_pa_kg": float(resumo["saldo_pa_kg"] or 0),
+        "pa_bloqueado_caixas": int(resumo["pa_bloqueado_caixas"] or 0),
+        "pa_bloqueado_kg": float(resumo["pa_bloqueado_kg"] or 0),
     }
 
 
@@ -1573,13 +1600,15 @@ def buscar_saldo_pa_por_local():
     SELECT
         COALESCE(le.nome, ?) AS local_estoque,
         cx.sku,
+        cx.condicao,
+        cx.disponibilidade,
         COALESCE(COUNT(CASE WHEN cx.status = ? THEN 1 END), 0) AS quantidade_caixas,
         COALESCE(SUM(CASE WHEN cx.status = ? THEN cx.peso_liquido ELSE 0 END), 0) AS peso_liquido_total,
         COALESCE(SUM(CASE WHEN cx.status = ? THEN cx.peso_bruto ELSE 0 END), 0) AS peso_bruto_total
     FROM pa_caixas cx
     LEFT JOIN locais_estoque le ON le.id = cx.local_estoque_id
     WHERE COALESCE(cx.estoque_operacional, 0) = 1
-    GROUP BY COALESCE(le.nome, ?), cx.sku
+    GROUP BY COALESCE(le.nome, ?), cx.sku, cx.condicao, cx.disponibilidade
     ORDER BY local_estoque ASC, cx.sku ASC
     """), (
         LOCAL_ESTOQUE_ABATEDOURO,
@@ -1604,6 +1633,8 @@ def calcular_resumo_estoques_pi_pa(saldos_pi, caixas_pa=None):
         "saldo_pa_caixas": resumo_pa["saldo_pa_caixas"],
         "saldo_pa_bandejas": resumo_pa["saldo_pa_bandejas"],
         "saldo_pa_kg": resumo_pa["saldo_pa_kg"],
+        "pa_bloqueado_caixas": resumo_pa["pa_bloqueado_caixas"],
+        "pa_bloqueado_kg": resumo_pa["pa_bloqueado_kg"],
     }
 
 
@@ -2105,13 +2136,15 @@ def montar_contexto_estoque_produtos():
         SELECT
             COALESCE(le.nome, ?) AS local_estoque,
             cx.sku,
+            cx.condicao,
+            cx.disponibilidade,
             COALESCE(COUNT(CASE WHEN cx.status = ? THEN 1 END), 0) AS quantidade_caixas,
             COALESCE(SUM(CASE WHEN cx.status = ? THEN cx.peso_liquido ELSE 0 END), 0) AS peso_liquido_total,
             COALESCE(SUM(CASE WHEN cx.status = ? THEN cx.peso_bruto ELSE 0 END), 0) AS peso_bruto_total
         FROM pa_caixas cx
         LEFT JOIN locais_estoque le ON le.id = cx.local_estoque_id
         WHERE COALESCE(cx.estoque_operacional, 0) = 1
-        GROUP BY COALESCE(le.nome, ?), cx.sku
+        GROUP BY COALESCE(le.nome, ?), cx.sku, cx.condicao, cx.disponibilidade
         ORDER BY local_estoque ASC, cx.sku ASC
         """), (
             LOCAL_ESTOQUE_ABATEDOURO,
@@ -2124,9 +2157,11 @@ def montar_contexto_estoque_produtos():
 
         cursor.execute(q("""
         SELECT
-            COALESCE(COUNT(CASE WHEN status = ? THEN 1 END), 0) AS saldo_pa_caixas,
-            COALESCE(SUM(CASE WHEN status = ? THEN quantidade_bandejas ELSE 0 END), 0) AS saldo_pa_bandejas,
-            COALESCE(SUM(CASE WHEN status = ? THEN peso_liquido ELSE 0 END), 0) AS saldo_pa_kg
+            COALESCE(COUNT(CASE WHEN status = ? AND condicao='CONFORME' AND disponibilidade='DISPONIVEL' THEN 1 END), 0) AS saldo_pa_caixas,
+            COALESCE(SUM(CASE WHEN status = ? AND condicao='CONFORME' AND disponibilidade='DISPONIVEL' THEN quantidade_bandejas ELSE 0 END), 0) AS saldo_pa_bandejas,
+            COALESCE(SUM(CASE WHEN status = ? AND condicao='CONFORME' AND disponibilidade='DISPONIVEL' THEN peso_liquido ELSE 0 END), 0) AS saldo_pa_kg,
+            COALESCE(COUNT(CASE WHEN condicao='NAO_CONFORME' AND disponibilidade IN ('BLOQUEADO','REPROCESSAMENTO') THEN 1 END), 0) AS pa_bloqueado_caixas,
+            COALESCE(SUM(CASE WHEN condicao='NAO_CONFORME' AND disponibilidade IN ('BLOQUEADO','REPROCESSAMENTO') THEN peso_liquido ELSE 0 END), 0) AS pa_bloqueado_kg
         FROM pa_caixas
         WHERE COALESCE(estoque_operacional, 0) = 1
         """), ("Em estoque", "Em estoque", "Em estoque"))
@@ -2140,6 +2175,8 @@ def montar_contexto_estoque_produtos():
         "saldo_pa_caixas": int(resumo_pa["saldo_pa_caixas"] or 0),
         "saldo_pa_bandejas": float(resumo_pa["saldo_pa_bandejas"] or 0),
         "saldo_pa_kg": float(resumo_pa["saldo_pa_kg"] or 0),
+        "pa_bloqueado_caixas": int(resumo_pa["pa_bloqueado_caixas"] or 0),
+        "pa_bloqueado_kg": float(resumo_pa["pa_bloqueado_kg"] or 0),
     }
 
     return {

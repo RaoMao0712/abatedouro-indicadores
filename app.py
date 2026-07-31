@@ -27,6 +27,7 @@ from modules.producao.routes import register_producao_routes
 from modules.producao.correcoes_administrativas import criar_tabelas_correcoes_administrativas_op
 from modules.qualidade.routes import register_qualidade_routes
 from modules.qualidade.services import criar_tabelas_sgi
+from modules.qualidade.produtos_nao_conformes import criar_tabelas_pa_nao_conforme
 from modules.almoxarifado.routes import register_almoxarifado_routes
 from modules.navegacao import register_navegacao_routes
 from modules.expedicao.services import (
@@ -575,6 +576,7 @@ def inicializar_schema_aplicacao():
         manutencao_service.criar_tabelas_manutencao,
         remover_residuos_validacao_codex_manutencao,
         criar_tabelas_sgi,
+        criar_tabelas_pa_nao_conforme,
         criar_tabelas_correcoes_administrativas_op,
     ])
 

@@ -56,6 +56,41 @@ from .estoque_service import (
     remover_item_reservado,
     reservar_itens,
 )
+from modules.qualidade.produtos_nao_conformes import listar_locais_segregacao, MOTIVOS
+
+
+def _itens_nc_caixas(form):
+    itens = []
+    for caixa_id in form.getlist("nc_caixa_id"):
+        prefixo = f"nc_{caixa_id}_"
+        itens.append({
+            "caixa_id": caixa_id,
+            "lote": form.get(prefixo + "lote"),
+            "apresentacao": form.get(prefixo + "apresentacao"),
+            "quantidade": form.get(prefixo + "quantidade"),
+            "peso": form.get(prefixo + "peso"),
+            "unidade": form.get(prefixo + "unidade"),
+            "motivo": form.get(prefixo + "motivo"),
+            "descricao": form.get(prefixo + "descricao"),
+            "local_estoque_id": form.get(prefixo + "local"),
+            "observacoes": form.get(prefixo + "observacoes"),
+        })
+    return itens
+
+
+def _itens_nc_galinha_inteira(form):
+    itens = []
+    for apresentacao in ("V1", "V2"):
+        if form.get(f"nc_{apresentacao}_ativo"):
+            prefixo = f"nc_{apresentacao}_"
+            itens.append({
+                "apresentacao": apresentacao,
+                "motivo": form.get(prefixo + "motivo"),
+                "descricao": form.get(prefixo + "descricao"),
+                "local_estoque_id": form.get(prefixo + "local"),
+                "observacoes": form.get(prefixo + "observacoes"),
+            })
+    return itens
 
 
 def register_expedicao_routes(app, integracoes=None):
@@ -75,7 +110,8 @@ def register_expedicao_routes(app, integracoes=None):
                     observacoes=request.form.get("observacoes") or "",
                     kg_produzidos=request.form.get("kg_produzidos"),
                     pacotes_1_ave=request.form.get("pacotes_1_ave"),
-                    pacotes_2_aves=request.form.get("pacotes_2_aves")
+                    pacotes_2_aves=request.form.get("pacotes_2_aves"),
+                    nao_conformes=_itens_nc_galinha_inteira(request.form),
                 )
                 if resultado.get("tipo") == "encerramento_primaria":
                     flash(
@@ -115,7 +151,9 @@ def register_expedicao_routes(app, integracoes=None):
             resumo=resumo,
             op_id_selecionada=str(op_id_selecionada),
             apontamento_edicao=apontamento_edicao,
-            modo_edicao=modo_edicao
+            modo_edicao=modo_edicao,
+            locais_segregacao=listar_locais_segregacao(),
+            motivos_nc=MOTIVOS,
         )
 
 
@@ -134,7 +172,9 @@ def register_expedicao_routes(app, integracoes=None):
     @perfil_permitido("pcp", "producao")
     def finalizar_embalagem_secundaria(op_id):
         try:
-            fechamento = finalizar_embalagem_secundaria_op(op_id)
+            fechamento = finalizar_embalagem_secundaria_op(
+                op_id, nao_conformes=_itens_nc_caixas(request.form)
+            )
             flash(
                 "OP encerrada com sucesso. "
                 f"Peso oficial: {fechamento['peso_liquido_total']:.3f} kg | "
@@ -241,7 +281,9 @@ def register_expedicao_routes(app, integracoes=None):
             op_id_selecionada=str(op_id_selecionada),
             op_selecionada=op_selecionada,
             caixas_op=caixas_op,
-            fechamento_op=fechamento_op
+            fechamento_op=fechamento_op,
+            locais_segregacao=listar_locais_segregacao(),
+            motivos_nc=MOTIVOS,
         )
 
     @app.route("/expedicao")
