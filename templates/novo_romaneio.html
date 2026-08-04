@@ -1,39 +1,21 @@
 {% extends "base.html" %}
 {% block conteudo %}
 <div class="expedicao-page">
-    <section class="card expedicao-cabecalho-compacto">
-        <div><span class="eyebrow">Expedição</span><h2>Novo romaneio</h2></div>
-        <a href="{{ url_for('expedicao') }}" class="romaneio-btn romaneio-btn-secondary">← Voltar</a>
-    </section>
-    <section class="card">
-        <form method="POST" class="form-grid">
-            <div><label>Data</label><input type="date" name="data" value="{{ hoje }}" required></div>
-            <div>
-                <label>Tipo</label>
-                <select name="tipo_movimentacao" required>
-                    {% for codigo, descricao in tipos_romaneio.items() %}
-                    <option value="{{ codigo }}">{{ descricao }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-            <div><label>Origem</label><input name="origem" value="Abatedouro" required></div>
-            <div><label>Destino operacional</label><input name="destino" value="{{ destinos_controlados.TRANSFERENCIA }}" readonly required><small class="obs">Destino controlado conforme o tipo de movimentação.</small></div>
-            <div><label>Responsável</label><input name="responsavel" value="{{ session.get('nome', '') }}" placeholder="Nome do responsável" required></div>
-            <div style="grid-column:1/-1"><label>Observações</label><textarea name="observacoes" rows="3"></textarea></div>
-            <div style="grid-column:1/-1"><button type="submit" class="romaneio-btn romaneio-btn-primary">Criar romaneio</button></div>
-        </form>
-    </section>
+  <section class="card expedicao-cabecalho-compacto"><div><span class="eyebrow">Expedição</span><h2>Novo romaneio</h2></div><a href="{{ url_for('expedicao') }}" class="romaneio-btn romaneio-btn-secondary">← Voltar</a></section>
+  <section class="card"><form method="POST" class="form-grid">
+    <div><label>Tipo de saída</label><select name="tipo_saida" required>{% for codigo,descricao in tipos_saida.items() %}<option value="{{ codigo }}">{{ descricao }}</option>{% endfor %}</select></div>
+    <div><label>Data</label><input type="date" name="data" value="{{ hoje }}" required></div>
+    <div id="campo-cliente" hidden><label>Cliente ativo</label><select name="cliente_id"><option value="">Selecione</option>{% for cliente in clientes %}<option value="{{ cliente.id }}">{{ cliente.razao_social }}{% if cliente.nome_fantasia %} — {{ cliente.nome_fantasia }}{% endif %}{% if cliente.documento %} · {{ cliente.documento }}{% endif %}</option>{% endfor %}</select><small class="obs">Obrigatório para Venda Direta.</small></div>
+    <div><label>Origem</label><input name="origem" value="Abatedouro" required></div>
+    <div><label>Destino operacional</label><input name="destino" value="{{ destinos_controlados.TRANSFERENCIA }}" readonly required><small class="obs">Controlado pelo tipo de saída.</small></div>
+    <div><label>Veículo (opcional)</label><input name="veiculo"></div>
+    <div><label>Motorista (opcional)</label><input name="motorista"></div>
+    <div><label>Responsável</label><input name="responsavel" value="{{ session.get('nome','') }}" required></div>
+    <div class="form-span-2"><label>Observações</label><textarea name="observacoes" rows="3"></textarea></div>
+    <div class="form-span-2"><button class="romaneio-btn romaneio-btn-primary">Criar romaneio</button></div>
+  </form></section>
 </div>
 <script>
-document.addEventListener("DOMContentLoaded", function () {
-    const destinos = {{ destinos_controlados|tojson }};
-    const tipo = document.querySelector('select[name="tipo_movimentacao"]');
-    const destino = document.querySelector('input[name="destino"]');
-    function atualizarDestino() {
-        destino.value = destinos[tipo.value] || "";
-    }
-    tipo.addEventListener("change", atualizarDestino);
-    atualizarDestino();
-});
+document.addEventListener("DOMContentLoaded",()=>{const destinos={{ destinos_controlados|tojson }};const tipo=document.querySelector('[name="tipo_saida"]');const destino=document.querySelector('[name="destino"]');const campo=document.getElementById('campo-cliente');const cliente=document.querySelector('[name="cliente_id"]');function atualizar(){const venda=tipo.value==='VENDA_DIRETA';destino.value=venda?destinos.VENDA_DIRETA:destinos.TRANSFERENCIA;campo.hidden=!venda;cliente.required=venda;cliente.disabled=!venda;if(!venda)cliente.value='';}tipo.addEventListener('change',atualizar);atualizar();});
 </script>
 {% endblock %}

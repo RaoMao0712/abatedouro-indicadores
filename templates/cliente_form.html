@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block conteudo %}
+<div class="expedicao-page">
+  <header class="romaneios-header"><div><span class="eyebrow">Cadastros · Clientes</span><h2>{{ 'Editar cliente' if cliente else 'Novo cliente' }}</h2></div><a class="romaneio-btn romaneio-btn-secondary" href="{{ url_for('clientes') }}">← Voltar</a></header>
+  <section class="card"><form method="POST" class="form-grid">
+    <div><label>Nome / razão social</label><input name="razao_social" value="{{ cliente.razao_social if cliente else '' }}" required {% if somente_leitura %}readonly{% endif %}></div>
+    <div><label>Nome fantasia</label><input name="nome_fantasia" value="{{ cliente.nome_fantasia if cliente else '' }}" {% if somente_leitura %}readonly{% endif %}></div>
+    <div><label>Tipo de pessoa</label><select name="tipo_pessoa" required {% if somente_leitura %}disabled{% endif %}><option value="PF" {% if cliente and cliente.tipo_pessoa=='PF' %}selected{% endif %}>Física</option><option value="PJ" {% if cliente and cliente.tipo_pessoa=='PJ' %}selected{% endif %}>Jurídica</option></select></div>
+    <div><label>CPF/CNPJ</label><input name="documento" value="{{ cliente.documento if cliente else '' }}" inputmode="numeric" {% if somente_leitura %}readonly{% endif %}></div>
+    <div><label>Telefone</label><input name="telefone" value="{{ cliente.telefone if cliente else '' }}" {% if somente_leitura %}readonly{% endif %}></div>
+    <div><label>CEP</label><input name="cep" value="{{ cliente.cep if cliente else '' }}" {% if somente_leitura %}readonly{% endif %}></div>
+    <div class="form-span-2"><label>Endereço</label><input name="endereco" value="{{ cliente.endereco if cliente else '' }}" {% if somente_leitura %}readonly{% endif %}></div>
+    <div><label>Complemento</label><input name="complemento" value="{{ cliente.complemento if cliente else '' }}" {% if somente_leitura %}readonly{% endif %}></div>
+    <div><label>Bairro</label><input name="bairro" value="{{ cliente.bairro if cliente else '' }}" {% if somente_leitura %}readonly{% endif %}></div>
+    <div><label>Cidade</label><input name="cidade" value="{{ cliente.cidade if cliente else '' }}" {% if somente_leitura %}readonly{% endif %}></div>
+    <div><label>UF</label><input name="uf" maxlength="2" value="{{ cliente.uf if cliente else '' }}" {% if somente_leitura %}readonly{% endif %}></div>
+    <div class="form-span-2"><label>Observações</label><textarea name="observacoes" {% if somente_leitura %}readonly{% endif %}>{{ cliente.observacoes if cliente else '' }}</textarea></div>
+    {% if not somente_leitura %}<div class="form-span-2"><button class="romaneio-btn romaneio-btn-primary">Salvar cliente</button></div>{% endif %}
+  </form></section>
+  {% if cliente %}<section class="card"><h3>Histórico de alterações</h3><div class="tabela-responsiva"><table><thead><tr><th>Data</th><th>Ação</th><th>Usuário</th><th>Perfil</th></tr></thead><tbody>{% for evento in eventos %}<tr><td>{{ evento.criado_em }}</td><td>{{ evento.acao|replace('_',' ') }}</td><td>{{ evento.usuario }}</td><td>{{ evento.perfil }}</td></tr>{% else %}<tr><td colspan="4">Sem eventos.</td></tr>{% endfor %}</tbody></table></div></section>{% endif %}
+</div>
+{% endblock %}

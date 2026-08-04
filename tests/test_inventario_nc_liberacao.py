@@ -387,3 +387,37 @@ def test_romaneio_consume_saldo_legado_por_kg_com_auxiliares(banco):
         liberacoes.estornar_baixas_cursor(conn.cursor(), 1, "Correcao", "PCP", "pcp", "teste")
     estornado = _registro(banco)
     assert (estornado["saldo_operacional_g"], estornado["saldo_destinado_g"]) == (200000, 0)
+
+
+def test_venda_direta_reserva_cancela_e_baixa_saldo_legado_exato(banco):
+    _carga(banco)
+    registro = _registro(banco)
+    solicitacao = liberacoes.solicitar(registro["id"], "200", 16, 192, "Liberar",
+        usuario="Qualidade", usuario_id=1, perfil="qualidade", origem="teste")
+    liberacoes.validar(solicitacao, "APROVAR", "Aprovado",
+        usuario="Gerente", usuario_id=2, perfil="gerencia", origem="teste")
+    conn = banco[0]()
+    conn.execute("INSERT INTO expedicoes VALUES (2,'Aberto','VENDA_DIRETA')")
+    conn.commit(); conn.close()
+    liberacoes.reservar_operacional(2, registro["id"], "50", 4, 48,
+                                    usuario="PCP", perfil="pcp", origem="teste")
+    with banco[1]() as conn:
+        liberacoes.cancelar_reservas_cursor(conn.cursor(), 2, "Cancelar teste",
+                                             "PCP", "pcp", "teste")
+    restaurado = _registro(banco)
+    assert (restaurado["saldo_operacional_g"], restaurado["saldo_reservado_operacional_g"]) == (200000, 0)
+    conn = banco[0]()
+    conn.execute("INSERT INTO expedicoes VALUES (3,'Aberto','VENDA_DIRETA')")
+    conn.commit(); conn.close()
+    liberacoes.reservar_operacional(3, registro["id"], "50", 4, 48,
+                                    usuario="PCP", perfil="pcp", origem="teste")
+    with banco[1]() as conn:
+        liberacoes.concluir_reservas_cursor(conn.cursor(), 3, "PCP", "pcp", "teste")
+    concluido = _registro(banco)
+    assert (concluido["saldo_operacional_g"], concluido["saldo_reservado_operacional_g"],
+            concluido["saldo_destinado_g"]) == (150000, 0, 50000)
+    conn = banco[0]()
+    evento = conn.execute("""SELECT acao,status_novo FROM pa_nao_conforme_eventos
+        WHERE pa_nao_conforme_id=? ORDER BY id DESC LIMIT 1""", (registro["id"],)).fetchone()
+    conn.close()
+    assert evento[:] == ("VENDA_DIRETA", "EXPEDIDO")

@@ -206,6 +206,7 @@ NAVEGACAO = [
         "card": True,
         "itens": [
             {"titulo": "Fornecedores", "endpoint": "fornecedores", "perfis": ADMIN_PCP},
+            {"titulo": "Clientes", "endpoint": "clientes", "perfis": ("admin", "gerencia", "pcp")},
             {
                 "titulo": "Engenharia de Produtos",
                 "endpoint": "engenharia_produtos",

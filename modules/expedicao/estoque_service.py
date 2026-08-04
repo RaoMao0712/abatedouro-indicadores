@@ -20,14 +20,21 @@ LOCAL_LSM = "Câmara Fria LSM"
 
 TIPOS_ROMANEIO = {
     "TRANSFERENCIA": "Transferência",
+    "VENDA_DIRETA": "Venda Direta",
     "DESCARTE": "Descarte",
     "DEVOLUCAO": "Devolução",
     "TRANSFERENCIA_AUTORIZADA": "Transferência autorizada",
     "HISTORICO_MARCO_ZERO": "Transferência histórica — marco zero",
 }
 
+TIPOS_SAIDA = {
+    "TRANSFERENCIA_LSM": "Transferência para LSM",
+    "VENDA_DIRETA": "Venda Direta",
+}
+
 DESTINOS_CONTROLADOS = {
     "TRANSFERENCIA": LOCAL_LSM,
+    "VENDA_DIRETA": "Venda direta",
     "TRANSFERENCIA_AUTORIZADA": LOCAL_LSM,
     "HISTORICO_MARCO_ZERO": LOCAL_LSM,
     "DESCARTE": "Descarte autorizado",
@@ -339,6 +346,11 @@ def criar_tabelas_estoque_confiavel():
             "emitido_por TEXT",
             "emitido_em TEXT",
             "justificativa TEXT",
+            "tipo_saida TEXT",
+            "cliente_id INTEGER",
+            "cliente_snapshot TEXT",
+            "veiculo TEXT",
+            "motorista TEXT",
         ]
         for coluna in colunas_expedicao:
             _alterar_coluna(
@@ -390,6 +402,10 @@ def criar_tabelas_estoque_confiavel():
         CREATE INDEX IF NOT EXISTS idx_estoque_eventos_caixa
         ON estoque_eventos (caixa_id, criado_em)
         """)
+        cursor.execute("""UPDATE expedicoes SET tipo_saida='TRANSFERENCIA_LSM'
+            WHERE tipo_saida IS NULL AND tipo_movimentacao='TRANSFERENCIA'""")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_expedicoes_tipo_saida ON expedicoes(tipo_saida,status,data)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_expedicoes_cliente ON expedicoes(cliente_id,data)")
 
         cursor.execute("SELECT * FROM estoque_marcos WHERE tipo = 'MARCO_ZERO' LIMIT 1")
         marco = cursor.fetchone()
@@ -668,7 +684,7 @@ def reservar_itens(expedicao_id, caixa_ids, quantidades_pacotes=None):
             if int(cursor.fetchone()["total"] or 0):
                 raise ValueError("O item ja esta incluido neste romaneio.")
             situacao_origem = caixa["disponibilidade"]
-            if tipo == "TRANSFERENCIA" and caixa["condicao"] != "CONFORME":
+            if tipo in {"TRANSFERENCIA", "VENDA_DIRETA"} and caixa["condicao"] != "CONFORME":
                 raise ValueError("Produto nao conforme nao pode entrar em romaneio normal.")
             if tipo in {"DESCARTE", "DEVOLUCAO", "TRANSFERENCIA_AUTORIZADA"} and caixa["condicao"] != "NAO_CONFORME":
                 raise ValueError("Este tipo de romaneio e destinado a Produto Nao Conforme.")
@@ -826,6 +842,8 @@ def resolver_destino_romaneio(cursor, tipo, destino):
         if not local:
             raise ValueError("O destino selecionado nao corresponde a um local de estoque ativo.")
         return local["id"]
+    if tipo == "VENDA_DIRETA":
+        return None
     return None
 
 
@@ -838,6 +856,14 @@ def concluir_romaneio(expedicao_id):
         if not romaneio or romaneio["status"] != "Aberto":
             raise ValueError("Somente romaneios abertos podem ser concluidos.")
         tipo = romaneio["tipo_movimentacao"]
+        cliente_snapshot = romaneio["cliente_snapshot"]
+        if tipo == "VENDA_DIRETA":
+            from modules.clientes.services import snapshot_cliente
+            cursor.execute(q("SELECT * FROM clientes WHERE id=?"), (romaneio["cliente_id"],))
+            cliente = cursor.fetchone()
+            if not cliente or cliente["status"] != "Ativo":
+                raise ValueError("Venda Direta exige cliente ativo no momento da conclusão.")
+            cliente_snapshot = snapshot_cliente(cliente)
         destino_id = resolver_destino_romaneio(cursor, tipo, romaneio["destino"])
         cursor.execute(q("""
         SELECT i.*, cx.disponibilidade, cx.condicao,
@@ -876,6 +902,7 @@ def concluir_romaneio(expedicao_id):
 
         situacao_final = {
             "TRANSFERENCIA": STATUS_TRANSFERIDO,
+            "VENDA_DIRETA": STATUS_EXPEDIDO,
             "TRANSFERENCIA_AUTORIZADA": STATUS_TRANSFERIDO,
             "DESCARTE": STATUS_DESCARTADO,
             "DEVOLUCAO": STATUS_DEVOLVIDO,
@@ -961,7 +988,7 @@ def concluir_romaneio(expedicao_id):
                 cursor,
                 caixa_id=item["caixa_id"],
                 expedicao_id=expedicao_id,
-                acao="CONFIRMACAO_ROMANEIO",
+                acao="VENDA_DIRETA" if tipo == "VENDA_DIRETA" else "CONFIRMACAO_ROMANEIO",
                 situacao_anterior=STATUS_RESERVADO,
                 situacao_nova=situacao_final,
                 condicao_anterior=item["condicao"],
@@ -977,17 +1004,18 @@ def concluir_romaneio(expedicao_id):
         cursor.execute(q("""
         UPDATE expedicoes
         SET status = 'Concluído', concluido_em = ?, atualizado_em = ?,
-            destino_local_id = ?,
+            destino_local_id = ?, cliente_snapshot = ?,
             responsavel = COALESCE(NULLIF(responsavel, ''), ?)
         WHERE id = ? AND status = 'Aberto'
-        """), (momento, momento, destino_id, _usuario(), expedicao_id))
+        """), (momento, momento, destino_id, cliente_snapshot, _usuario(), expedicao_id))
         registrar_evento_romaneio(
             cursor,
             expedicao_id,
             "CONCLUSAO_ROMANEIO",
             estado_anterior="Aberto",
             estado_novo="Concluído",
-            dados_alterados={"destino": romaneio["destino"], "destino_local_id": destino_id},
+            dados_alterados={"destino": romaneio["destino"], "destino_local_id": destino_id,
+                             "tipo_saida": romaneio["tipo_saida"], "cliente_id": romaneio["cliente_id"]},
             idempotency_key=f"CONCLUSAO-ROMANEIO-{expedicao_id}",
         )
 
@@ -1429,12 +1457,24 @@ def editar_romaneio_aberto(expedicao_id, form):
             or _usuario()
         )
         observacoes = (form.get("observacoes") or "").strip()
+        veiculo = (
+            (form.get("veiculo") or "").strip()
+            if "veiculo" in form
+            else (romaneio["veiculo"] or "").strip()
+        )
+        motorista = (
+            (form.get("motorista") or "").strip()
+            if "motorista" in form
+            else (romaneio["motorista"] or "").strip()
+        )
         antes = {
             "data": romaneio["data"],
             "origem": romaneio["origem"],
             "destino": romaneio["destino"],
             "responsavel": romaneio["responsavel"],
             "observacoes": romaneio["observacoes"],
+            "veiculo": (romaneio["veiculo"] or "").strip(),
+            "motorista": (romaneio["motorista"] or "").strip(),
         }
         depois = {
             "data": data,
@@ -1442,13 +1482,15 @@ def editar_romaneio_aberto(expedicao_id, form):
             "destino": destino,
             "responsavel": responsavel,
             "observacoes": observacoes,
+            "veiculo": veiculo,
+            "motorista": motorista,
         }
         if antes == depois:
             return False
         cursor.execute(q("""
         UPDATE expedicoes
         SET data = ?, origem = ?, destino = ?, responsavel = ?,
-            observacoes = ?, atualizado_em = ?
+            observacoes = ?, veiculo = ?, motorista = ?, atualizado_em = ?
         WHERE id = ? AND status = 'Aberto'
         """), (
             data,
@@ -1456,6 +1498,8 @@ def editar_romaneio_aberto(expedicao_id, form):
             destino,
             responsavel,
             observacoes,
+            veiculo,
+            motorista,
             _agora(),
             expedicao_id,
         ))

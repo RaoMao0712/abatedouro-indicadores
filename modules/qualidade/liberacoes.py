@@ -601,8 +601,9 @@ def reservar_operacional(expedicao_id, registro_id, peso, caixas, bandejas, *,
         cursor = conn.cursor()
         cursor.execute(q("SELECT * FROM expedicoes WHERE id=?"), (expedicao_id,))
         romaneio = cursor.fetchone()
-        if not romaneio or romaneio["status"] != "Aberto" or romaneio["tipo_movimentacao"] != "TRANSFERENCIA":
-            raise ValueError("Saldo legado liberado so pode entrar em romaneio normal aberto.")
+        if (not romaneio or romaneio["status"] != "Aberto"
+                or romaneio["tipo_movimentacao"] not in {"TRANSFERENCIA", "VENDA_DIRETA"}):
+            raise ValueError("Saldo legado liberado so pode entrar em romaneio operacional aberto.")
         cursor.execute(q("SELECT * FROM pa_nao_conformes WHERE id=? AND tipo_registro=?"), (registro_id, TIPO_LEGADO))
         registro = cursor.fetchone()
         if not registro or int(registro["saldo_operacional_g"] or 0) < peso_g:
@@ -647,7 +648,9 @@ def remover_reserva_operacional(expedicao_id, item_id, *, usuario=None, perfil=N
 
 
 def concluir_reservas_cursor(cursor, expedicao_id, usuario="Sistema", perfil="sistema", origem="romaneio"):
-    cursor.execute(q("SELECT * FROM expedicao_itens WHERE expedicao_id=? AND origem_tipo=?"), (expedicao_id,TIPO_LEGADO))
+    cursor.execute(q("""SELECT i.*,e.tipo_movimentacao FROM expedicao_itens i
+        JOIN expedicoes e ON e.id=i.expedicao_id
+        WHERE i.expedicao_id=? AND i.origem_tipo=?"""), (expedicao_id,TIPO_LEGADO))
     itens = cursor.fetchall()
     for item in itens:
         peso_g = gramas(item["quantidade_kg"], "Peso reservado")
@@ -656,7 +659,9 @@ def concluir_reservas_cursor(cursor, expedicao_id, usuario="Sistema", perfil="si
             (peso_g,peso_g,_agora(),item["pa_nao_conforme_id"],peso_g))
         if cursor.rowcount != 1:
             raise ValueError("A reserva agregada do romaneio nao esta integra.")
-        _evento(cursor,item["pa_nao_conforme_id"],"BAIXA_ROMANEIO","RESERVADO","TRANSFERIDO",
+        venda_direta = item["tipo_movimentacao"] == "VENDA_DIRETA"
+        _evento(cursor,item["pa_nao_conforme_id"],"VENDA_DIRETA" if venda_direta else "BAIXA_ROMANEIO",
+                "RESERVADO","EXPEDIDO" if venda_direta else "TRANSFERIDO",
                 usuario,perfil,origem,f"Romaneio #{expedicao_id}",
                 json.dumps({"peso_g":peso_g,"caixas":item["quantidade_caixas"],"bandejas":item["quantidade_bandejas"]}, sort_keys=True))
     return len(itens)
@@ -676,7 +681,9 @@ def cancelar_reservas_cursor(cursor, expedicao_id, justificativa, usuario="Siste
 
 
 def estornar_baixas_cursor(cursor, expedicao_id, justificativa, usuario="Sistema", perfil="sistema", origem="romaneio"):
-    cursor.execute(q("SELECT * FROM expedicao_itens WHERE expedicao_id=? AND origem_tipo=?"), (expedicao_id,TIPO_LEGADO))
+    cursor.execute(q("""SELECT i.*,e.tipo_movimentacao FROM expedicao_itens i
+        JOIN expedicoes e ON e.id=i.expedicao_id
+        WHERE i.expedicao_id=? AND i.origem_tipo=?"""), (expedicao_id,TIPO_LEGADO))
     for item in cursor.fetchall():
         peso_g = gramas(item["quantidade_kg"], "Peso movimentado")
         cursor.execute(q("""UPDATE pa_nao_conformes SET saldo_destinado_g=saldo_destinado_g-?,
@@ -685,6 +692,7 @@ def estornar_baixas_cursor(cursor, expedicao_id, justificativa, usuario="Sistema
             (peso_g,peso_g,_agora(),item["pa_nao_conforme_id"],peso_g))
         if cursor.rowcount != 1:
             raise ValueError("A baixa agregada nao pode ser estornada sem saldo destinado integro.")
-        _evento(cursor,item["pa_nao_conforme_id"],"ESTORNO_ROMANEIO","TRANSFERIDO","DISPONIVEL",
+        anterior = "EXPEDIDO" if item["tipo_movimentacao"] == "VENDA_DIRETA" else "TRANSFERIDO"
+        _evento(cursor,item["pa_nao_conforme_id"],"ESTORNO_ROMANEIO",anterior,"DISPONIVEL",
                 usuario,perfil,origem,justificativa,
                 json.dumps({"peso_g":peso_g,"caixas":item["quantidade_caixas"],"bandejas":item["quantidade_bandejas"]}, sort_keys=True))

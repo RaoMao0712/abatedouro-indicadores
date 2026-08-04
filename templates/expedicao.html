@@ -18,6 +18,7 @@
     </nav>
 
     <form method="GET" class="card expedicao-filtro-form romaneio-filtros">
+        <label>Número<input name="numero" value="{{ numero }}"></label>
         <label>Data inicial<input type="date" name="data_inicio" value="{{ data_inicio }}"></label>
         <label>Data final<input type="date" name="data_fim" value="{{ data_fim }}"></label>
         <label>Status
@@ -30,11 +31,14 @@
         <label>Tipo
             <select name="tipo">
                 <option value="Todos" {% if tipo_movimentacao == "Todos" %}selected{% endif %}>Todos</option>
-                {% for codigo, descricao in tipos_romaneio.items() %}
+                {% for codigo, descricao in tipos_saida.items() %}
                 <option value="{{ codigo }}" {% if tipo_movimentacao == codigo %}selected{% endif %}>{{ descricao }}</option>
                 {% endfor %}
             </select>
         </label>
+        <label>Cliente<select name="cliente_id"><option value="">Todos</option>{% for cliente in clientes %}<option value="{{ cliente.id }}" {% if cliente_id|string == cliente.id|string %}selected{% endif %}>{{ cliente.razao_social }}</option>{% endfor %}</select></label>
+        <label>Produto<input name="produto" value="{{ produto }}"></label>
+        <label>Destino<input name="destino" value="{{ destino }}"></label>
         <button type="submit" class="romaneio-btn romaneio-btn-filter">Aplicar filtros</button>
     </form>
 
@@ -50,7 +54,7 @@
         <div class="tabela-responsiva tabela-executiva expedicao-tabela">
             <table>
                 <thead>
-                    <tr><th>Número</th><th>Data</th><th>Tipo</th><th>Origem</th><th>Destino</th><th>Responsável</th><th>Resumo</th><th>Status</th></tr>
+                    <tr><th>Número</th><th>Data</th><th>Tipo</th><th>Cliente ou destino</th><th>Quantidade/peso</th><th>Responsável</th><th>Status</th><th>Ação</th></tr>
                 </thead>
                 <tbody>
                 {% for item in expedicoes %}
@@ -61,18 +65,18 @@
                             {% if item.tipo_movimentacao == "HISTORICO_MARCO_ZERO" %}<span class="romaneio-chip mz">Marco Zero</span>{% endif %}
                         </td>
                         <td>{{ item.data[8:10] }}/{{ item.data[5:7] }}/{{ item.data[0:4] }}</td>
-                        <td>{{ tipos_romaneio.get(item.tipo_movimentacao, item.tipo_movimentacao|replace('_', ' ')|title) }}</td>
-                        <td>{{ item.origem or "Abatedouro" }}</td>
-                        <td>{{ item.destino }}</td>
-                        <td>{{ item.responsavel or item.criado_por or "-" }}</td>
+                        <td>{{ tipos_saida.get(item.tipo_saida, tipos_romaneio.get(item.tipo_movimentacao, item.tipo_movimentacao|replace('_', ' ')|title)) }}</td>
+                        <td>{% if item.tipo_saida == 'VENDA_DIRETA' %}<strong>{{ item.cliente_nome }}</strong>{% if item.cliente_fantasia %}<small>{{ item.cliente_fantasia }}</small>{% endif %}{% else %}{{ item.destino }}{% endif %}</td>
                         <td>
                             {% if item.tipo_movimentacao == "HISTORICO_MARCO_ZERO" and not item.total_itens %}
                             <span class="romaneio-pendente">Totais pendentes</span>
                             {% else %}
-                            {{ item.total_itens|br_numero(0) }} registro(s)
+                            {{ item.total_unidades|br_numero }} un. · {{ item.total_kg|br_numero(3) }} kg
                             {% endif %}
                         </td>
+                        <td>{{ item.responsavel or item.criado_por or "-" }}</td>
                         <td><span class="badge-expedicao {{ status_classe }}">{{ item.status }}</span></td>
+                        <td><a href="{{ url_for('detalhe_romaneio_expedicao',expedicao_id=item.id) }}">Detalhes</a></td>
                     </tr>
                 {% else %}
                     <tr><td colspan="8" class="romaneio-vazio">Nenhum romaneio encontrado para os filtros selecionados.</td></tr>

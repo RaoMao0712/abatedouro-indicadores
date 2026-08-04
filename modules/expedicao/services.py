@@ -1,6 +1,7 @@
 """Servicos de Expedicao, Embalagem e estoques PI/PA."""
 
 from datetime import datetime, timedelta
+import json
 import unicodedata
 
 from database import DATABASE_URL, conectar, q, transaction
@@ -1664,28 +1665,43 @@ def calcular_resumo_estoque_pa(saldos):
     return calcular_resumo_estoques_pi_pa(saldos, caixas)
 
 
-def buscar_expedicoes(data_inicio=None, data_fim=None, status=None, tipo_movimentacao=None):
+def buscar_expedicoes(data_inicio=None, data_fim=None, status=None, tipo_movimentacao=None,
+                      numero=None, cliente_id=None, produto=None, destino=None):
     from .estoque_service import criar_tabelas_estoque_confiavel
+    from modules.clientes.services import criar_tabelas_clientes
 
     criar_tabelas_estoque_confiavel()
+    criar_tabelas_clientes()
     filtros = []
     parametros = []
 
     if data_inicio:
-        filtros.append("data >= ?")
+        filtros.append("e.data >= ?")
         parametros.append(data_inicio)
 
     if data_fim:
-        filtros.append("data <= ?")
+        filtros.append("e.data <= ?")
         parametros.append(data_fim)
 
     if status and status != "Todos":
-        filtros.append("status = ?")
+        filtros.append("e.status = ?")
         parametros.append(status)
 
     if tipo_movimentacao and tipo_movimentacao != "Todos":
-        filtros.append("tipo_movimentacao = ?")
+        filtros.append("COALESCE(e.tipo_saida,e.tipo_movimentacao) = ?")
         parametros.append(tipo_movimentacao)
+    if numero:
+        filtros.append("e.numero_romaneio LIKE ?")
+        parametros.append(f"%{numero.strip()}%")
+    if cliente_id:
+        filtros.append("e.cliente_id = ?")
+        parametros.append(int(cliente_id))
+    if destino:
+        filtros.append("e.destino LIKE ?")
+        parametros.append(f"%{destino.strip()}%")
+    if produto:
+        filtros.append("EXISTS (SELECT 1 FROM expedicao_itens ip WHERE ip.expedicao_id=e.id AND ip.sku LIKE ?)")
+        parametros.append(f"%{produto.strip()}%")
 
     where = ""
     if filtros:
@@ -1694,16 +1710,26 @@ def buscar_expedicoes(data_inicio=None, data_fim=None, status=None, tipo_movimen
     conn = conectar()
     cursor = conn.cursor()
     cursor.execute(q(f"""
-    SELECT e.*,
+    SELECT e.*,c.razao_social AS cliente_nome,c.nome_fantasia AS cliente_fantasia,
+        c.documento AS cliente_documento,
         (SELECT COUNT(*) FROM expedicao_itens i WHERE i.expedicao_id = e.id) AS total_itens,
         (SELECT COALESCE(SUM(i.quantidade_unidades), 0) FROM expedicao_itens i WHERE i.expedicao_id = e.id) AS total_unidades,
         (SELECT COALESCE(SUM(i.quantidade_kg), 0) FROM expedicao_itens i WHERE i.expedicao_id = e.id) AS total_kg
     FROM expedicoes e
+    LEFT JOIN clientes c ON c.id=e.cliente_id
     {where}
     ORDER BY e.data DESC, e.id DESC
     """), tuple(parametros))
 
-    expedicoes = cursor.fetchall()
+    expedicoes = []
+    for linha in cursor.fetchall():
+        item = dict(linha)
+        if item.get("cliente_snapshot"):
+            snapshot = json.loads(item["cliente_snapshot"])
+            item["cliente_nome"] = snapshot.get("razao_social")
+            item["cliente_fantasia"] = snapshot.get("nome_fantasia")
+            item["cliente_documento"] = snapshot.get("documento")
+        expedicoes.append(item)
     conn.close()
     return expedicoes
 
@@ -1775,6 +1801,7 @@ def salvar_romaneio_expedicao(form):
     """
     from .estoque_service import (
         TIPOS_ROMANEIO,
+        TIPOS_SAIDA,
         DESTINOS_CONTROLADOS,
         criar_tabelas_estoque_confiavel,
         registrar_evento_romaneio,
@@ -1782,15 +1809,37 @@ def salvar_romaneio_expedicao(form):
 
     criar_tabelas_expedicao()
     criar_tabelas_estoque_confiavel()
+    from modules.clientes.services import buscar_cliente, criar_tabelas_clientes
+    criar_tabelas_clientes()
 
     data_romaneio = (form.get("data") or "").strip()
-    tipo_movimentacao = (form.get("tipo_movimentacao") or "TRANSFERENCIA").strip()
+    tipo_saida = (form.get("tipo_saida") or "").strip()
+    tipo_legado = (form.get("tipo_movimentacao") or "").strip()
+    if not tipo_saida and not tipo_legado:
+        raise ValueError("Tipo de saída é obrigatório.")
+    if not tipo_saida and tipo_legado:
+        tipo_saida = "TRANSFERENCIA_LSM" if tipo_legado == "TRANSFERENCIA" else None
+    if tipo_saida and tipo_saida not in TIPOS_SAIDA:
+        raise ValueError("Tipo de saída inválido.")
+    tipo_movimentacao = "VENDA_DIRETA" if tipo_saida == "VENDA_DIRETA" else (tipo_legado or "TRANSFERENCIA")
     if tipo_movimentacao not in TIPOS_ROMANEIO:
         raise ValueError("Tipo de romaneio inválido.")
     origem = (form.get("origem") or LOCAL_ESTOQUE_ABATEDOURO).strip()
     destino = DESTINOS_CONTROLADOS[tipo_movimentacao]
+    cliente_id = form.get("cliente_id") or None
+    cliente = None
+    if tipo_saida == "VENDA_DIRETA":
+        if not cliente_id:
+            raise ValueError("Venda Direta exige cliente ativo.")
+        cliente = buscar_cliente(int(cliente_id))
+        if not cliente or cliente["status"] != "Ativo":
+            raise ValueError("Venda Direta exige cliente ativo.")
+    elif cliente_id:
+        raise ValueError("Transferência para LSM não deve possuir cliente.")
     responsavel = (form.get("responsavel") or "").strip()
     observacoes = (form.get("observacoes") or "").strip()
+    veiculo = (form.get("veiculo") or "").strip()
+    motorista = (form.get("motorista") or "").strip()
 
     if not data_romaneio:
         raise ValueError("Informe a data do romaneio.")
@@ -1826,7 +1875,8 @@ def salvar_romaneio_expedicao(form):
             criado_por,
             perfil_criacao,
             atualizado_em
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ,tipo_saida,cliente_id,veiculo,motorista
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """), (
             numero_romaneio,
             data_romaneio,
@@ -1839,6 +1889,10 @@ def salvar_romaneio_expedicao(form):
             nome_usuario_atual() or "Sistema",
             perfil_atual() or "sistema",
             datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            tipo_saida,
+            int(cliente_id) if cliente_id else None,
+            veiculo,
+            motorista,
         ))
         cursor.execute(q("SELECT id FROM expedicoes WHERE numero_romaneio = ?"), (numero_romaneio,))
         expedicao_id = cursor.fetchone()["id"]
@@ -1856,6 +1910,11 @@ def salvar_romaneio_expedicao(form):
                 "destino": destino,
                 "responsavel": responsavel,
                 "observacoes": observacoes,
+                "tipo_saida": tipo_saida,
+                "cliente_id": int(cliente_id) if cliente_id else None,
+                "cliente": cliente["razao_social"] if cliente else None,
+                "veiculo": veiculo,
+                "motorista": motorista,
             },
             idempotency_key=f"CRIACAO-ROMANEIO-{expedicao_id}",
         )
@@ -1864,19 +1923,38 @@ def salvar_romaneio_expedicao(form):
 
 def buscar_expedicao_por_id(expedicao_id):
     criar_tabelas_expedicao()
+    from modules.clientes.services import criar_tabelas_clientes
+    criar_tabelas_clientes()
 
     conn = conectar()
     cursor = conn.cursor()
 
     cursor.execute(q("""
-    SELECT *
-    FROM expedicoes
-    WHERE id = ?
+    SELECT e.*,c.razao_social AS cliente_nome,c.nome_fantasia AS cliente_fantasia,
+        c.documento AS cliente_documento,c.endereco AS cliente_endereco,
+        c.complemento AS cliente_complemento,c.bairro AS cliente_bairro,
+        c.cidade AS cliente_cidade,c.uf AS cliente_uf,c.status AS cliente_status
+    FROM expedicoes e LEFT JOIN clientes c ON c.id=e.cliente_id
+    WHERE e.id = ?
     """), (expedicao_id,))
 
     expedicao = cursor.fetchone()
     conn.close()
-
+    if not expedicao:
+        return None
+    expedicao = dict(expedicao)
+    if expedicao.get("cliente_snapshot"):
+        snapshot = json.loads(expedicao["cliente_snapshot"])
+        expedicao.update({
+            "cliente_nome": snapshot.get("razao_social"),
+            "cliente_fantasia": snapshot.get("nome_fantasia"),
+            "cliente_documento": snapshot.get("documento"),
+            "cliente_endereco": snapshot.get("endereco"),
+            "cliente_complemento": snapshot.get("complemento"),
+            "cliente_bairro": snapshot.get("bairro"),
+            "cliente_cidade": snapshot.get("cidade"),
+            "cliente_uf": snapshot.get("uf"),
+        })
     return expedicao
 
 

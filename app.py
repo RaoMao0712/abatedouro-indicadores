@@ -11,6 +11,7 @@ from modules.auth import register_auth_routes
 from modules.usuarios import register_usuarios_routes
 from modules.manutencao import register_manutencao_routes
 from modules.cadastros import register_cadastros_routes
+from modules.clientes import criar_tabelas_clientes, register_clientes_routes
 from modules.cadastros.services import criar_tabela_vendas, criar_tabelas_receitas_sku, criar_tabela_fornecedores
 from modules.engenharia_produtos import criar_tabelas_engenharia_produtos, register_engenharia_produtos_routes
 from modules.importacao_oficial import register_importacao_routes
@@ -544,6 +545,7 @@ register_qualidade_routes(app, {
 })
 
 register_almoxarifado_routes(app)
+register_clientes_routes(app)
 
 register_expedicao_routes(app, {
     "criar_banco": criar_banco,
@@ -577,6 +579,7 @@ def inicializar_schema_aplicacao():
         remover_residuos_validacao_codex_manutencao,
         criar_tabelas_sgi,
         criar_tabelas_pa_nao_conforme,
+        criar_tabelas_clientes,
         criar_tabelas_correcoes_administrativas_op,
     ])
 

@@ -41,6 +41,7 @@ from .services import (
 from .estoque_service import (
     DESTINOS_CONTROLADOS,
     TIPOS_ROMANEIO,
+    TIPOS_SAIDA,
     bloquear_produto,
     buscar_estoque_operacional,
     buscar_historico_estoque,
@@ -62,6 +63,7 @@ from modules.qualidade.liberacoes import (
     remover_reserva_operacional, reservar_operacional,
     saldos_legados_operacionais,
 )
+from modules.clientes.services import listar_clientes
 
 
 def _itens_nc_caixas(form):
@@ -315,8 +317,13 @@ def register_expedicao_routes(app, integracoes=None):
         data_fim = request.args.get("data_fim") or hoje.strftime("%Y-%m-%d")
         status = request.args.get("status") or "Todos"
         tipo_movimentacao = request.args.get("tipo") or "Todos"
+        cliente_id = request.args.get("cliente_id") or None
+        numero = request.args.get("numero") or ""
+        produto = request.args.get("produto") or ""
+        destino = request.args.get("destino") or ""
 
-        expedicoes = buscar_expedicoes(data_inicio, data_fim, status, tipo_movimentacao)
+        expedicoes = buscar_expedicoes(data_inicio, data_fim, status, tipo_movimentacao,
+                                       numero, cliente_id, produto, destino)
         resumo = calcular_resumo_expedicao(expedicoes)
 
         return render_template(
@@ -329,6 +336,9 @@ def register_expedicao_routes(app, integracoes=None):
             tipo_movimentacao=tipo_movimentacao,
             marco=obter_marco_zero(),
             tipos_romaneio=TIPOS_ROMANEIO,
+            tipos_saida=TIPOS_SAIDA,
+            clientes=listar_clientes(somente_ativos=True), cliente_id=cliente_id,
+            numero=numero, produto=produto, destino=destino,
             status_opcoes=["Todos", "Aberto", "Concluído", "Cancelado", "Estornado"]
         )
 
@@ -349,7 +359,9 @@ def register_expedicao_routes(app, integracoes=None):
             "novo_romaneio.html",
             hoje=hoje,
             tipos_romaneio=TIPOS_ROMANEIO,
+            tipos_saida=TIPOS_SAIDA,
             destinos_controlados=DESTINOS_CONTROLADOS,
+            clientes=listar_clientes(somente_ativos=True),
         )
 
     @app.route("/expedicao/<int:expedicao_id>", methods=["GET", "POST"])
@@ -439,7 +451,7 @@ def register_expedicao_routes(app, integracoes=None):
         caixas_disponiveis = []
         if expedicao["status"] == "Aberto":
             estoque, _ = buscar_estoque_operacional()
-            if expedicao["tipo_movimentacao"] == "TRANSFERENCIA":
+            if expedicao["tipo_movimentacao"] in {"TRANSFERENCIA", "VENDA_DIRETA"}:
                 caixas_disponiveis = [
                     item for item in estoque
                     if item["condicao"] == "CONFORME" and item["disponibilidade"] == "DISPONIVEL"
@@ -457,11 +469,9 @@ def register_expedicao_routes(app, integracoes=None):
             resumo_itens=resumo_itens,
             resumo_mz=resumo_mz,
             caixas_disponiveis=caixas_disponiveis,
-            saldos_legados=saldos_legados_operacionais() if expedicao["tipo_movimentacao"] == "TRANSFERENCIA" else [],
-            tipo_descricao=TIPOS_ROMANEIO.get(
-                expedicao["tipo_movimentacao"],
-                expedicao["tipo_movimentacao"],
-            ),
+            saldos_legados=saldos_legados_operacionais() if expedicao["tipo_movimentacao"] in {"TRANSFERENCIA", "VENDA_DIRETA"} else [],
+            tipo_descricao=TIPOS_SAIDA.get(expedicao["tipo_saida"], TIPOS_ROMANEIO.get(
+                expedicao["tipo_movimentacao"], expedicao["tipo_movimentacao"])),
             skus=["Galinha Cortada", "Galinha Inteira"]
         )
 
@@ -542,10 +552,8 @@ def register_expedicao_routes(app, integracoes=None):
             expedicao=expedicao,
             itens=itens,
             resumo=calcular_resumo_itens_expedicao(itens),
-            tipo_descricao=TIPOS_ROMANEIO.get(
-                expedicao["tipo_movimentacao"],
-                expedicao["tipo_movimentacao"],
-            ),
+            tipo_descricao=TIPOS_SAIDA.get(expedicao["tipo_saida"], TIPOS_ROMANEIO.get(
+                expedicao["tipo_movimentacao"], expedicao["tipo_movimentacao"])),
             emissao_formatada=formatar_data_hora_emissao_manaus(
                 expedicao["emitido_em"]
             ),

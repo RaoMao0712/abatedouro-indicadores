@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block conteudo %}
+<div class="expedicao-page">
+  <header class="romaneios-header"><div><span class="eyebrow">Cadastros</span><h2>Clientes</h2><p>Base operacional para Venda Direta, sem dados financeiros.</p></div>{% if session.get('perfil') in ['admin','gerencia','pcp'] %}<a class="romaneio-btn romaneio-btn-primary" href="{{ url_for('novo_cliente') }}">+ Novo cliente</a>{% endif %}</header>
+  <form class="card expedicao-filtro-form" method="GET"><label>Busca<input name="busca" value="{{ busca }}" placeholder="Nome, fantasia, CPF/CNPJ ou cidade"></label><label>Status<select name="status"><option>Todos</option><option {% if status=='Ativo' %}selected{% endif %}>Ativo</option><option {% if status=='Inativo' %}selected{% endif %}>Inativo</option></select></label><button class="romaneio-btn romaneio-btn-filter">Aplicar</button></form>
+  <section class="card"><div class="tabela-responsiva tabela-executiva expedicao-tabela"><table><thead><tr><th>Nome / razão social</th><th>Fantasia</th><th>Tipo</th><th>CPF/CNPJ</th><th>Cidade/UF</th><th>Status</th><th>Ação</th></tr></thead><tbody>
+  {% for item in clientes %}<tr><td><strong>{{ item.razao_social }}</strong></td><td>{{ item.nome_fantasia or '-' }}</td><td>{{ 'Física' if item.tipo_pessoa=='PF' else 'Jurídica' }}</td><td>{{ item.documento or '-' }}</td><td>{{ item.cidade or '-' }}{% if item.uf %}/{{ item.uf }}{% endif %}</td><td><span class="badge-expedicao {{ 'concluido' if item.status=='Ativo' else 'cancelado' }}">{{ item.status }}</span></td><td><a href="{{ url_for('editar_cliente',cliente_id=item.id) }}">{{ 'Consultar' if session.get('perfil')=='expedicao' else 'Editar' }}</a>{% if session.get('perfil') in ['admin','gerencia'] %}<form method="POST" action="{{ url_for('status_cliente',cliente_id=item.id) }}" style="display:inline"><input type="hidden" name="status" value="{{ 'Inativo' if item.status=='Ativo' else 'Ativo' }}"><button class="romaneio-btn romaneio-btn-secondary">{{ 'Inativar' if item.status=='Ativo' else 'Ativar' }}</button></form>{% endif %}</td></tr>
+  {% else %}<tr><td colspan="7">Nenhum cliente encontrado.</td></tr>{% endfor %}
+  </tbody></table></div></section>
+</div>
+{% endblock %}

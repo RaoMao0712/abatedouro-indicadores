@@ -42,6 +42,15 @@ from modules.expedicao.estoque_service import (  # noqa: E402
     reservar_itens,
 )
 from modules.producao.services import registrar_peso_caixa_op  # noqa: E402
+from modules.clientes.services import (  # noqa: E402
+    alterar_status,
+    criar_tabelas_clientes,
+    historico_cliente,
+    listar_clientes,
+    salvar_cliente,
+)
+from modules.clientes.routes import register_clientes_routes  # noqa: E402
+from modules.expedicao.services import salvar_romaneio_expedicao  # noqa: E402
 
 
 def executar(sql, parametros=()):
@@ -125,6 +134,7 @@ class ExpedicaoMarcoZeroTest(unittest.TestCase):
         )
 
         criar_tabelas_estoque_confiavel()
+        criar_tabelas_clientes()
         cls.marco = obter_marco_zero()
 
         cls.app = Flask(__name__, template_folder=os.path.join(os.path.dirname(__file__), "..", "templates"))
@@ -136,6 +146,7 @@ class ExpedicaoMarcoZeroTest(unittest.TestCase):
         cls.app.add_url_rule("/login", "login", lambda: "login")
         cls.app.add_url_rule("/apontamento-descartes", "apontamento_descartes", lambda: "qualidade")
         register_expedicao_routes(cls.app)
+        register_clientes_routes(cls.app)
 
     @classmethod
     def tearDownClass(cls):
@@ -342,6 +353,154 @@ class ExpedicaoMarcoZeroTest(unittest.TestCase):
     def test_09_validade_novos_registros_e_de_um_ano(self):
         self.assertEqual(calcular_validade_padrao("2026-07-24"), "2027-07-24")
         self.assertEqual(calcular_validade_padrao("2028-02-29"), "2029-02-28")
+
+    def criar_cliente(self, documento, nome):
+        self.contexto("pcp")
+        return salvar_cliente({"razao_social": nome, "nome_fantasia": "Teste",
+                               "tipo_pessoa": "PF", "documento": documento,
+                               "cidade": "Manaus", "uf": "AM"})
+
+    def test_10_cadastro_cliente_valida_documento_duplicidade_e_permissoes(self):
+        cliente_id = self.criar_cliente("52998224725", "Cliente Teste")
+        with self.assertRaisesRegex(ValueError, "já cadastrado"):
+            salvar_cliente({"razao_social": "Duplicado", "tipo_pessoa": "PF",
+                            "documento": "529.982.247-25"}, usuario="PCP", perfil="pcp")
+        with self.assertRaisesRegex(ValueError, "inválido"):
+            salvar_cliente({"razao_social": "Inválido", "tipo_pessoa": "PJ",
+                            "documento": "123"}, usuario="PCP", perfil="pcp")
+        with self.assertRaises(PermissionError):
+            alterar_status(cliente_id, "Inativo", usuario="PCP", perfil="pcp")
+        alterar_status(cliente_id, "Inativo", usuario="Gerente", perfil="gerencia")
+        self.assertEqual(consultar_um("SELECT status FROM clientes WHERE id=?", (cliente_id,))["status"], "Inativo")
+        pj = salvar_cliente({"razao_social": "Empresa Válida", "tipo_pessoa": "PJ",
+                            "documento": "11.444.777/0001-61"}, usuario="PCP", perfil="pcp")
+        self.assertEqual(consultar_um("SELECT documento FROM clientes WHERE id=?", (pj,))["documento"],
+                         "11444777000161")
+
+    def test_10b_permissoes_frontend_e_backend_clientes(self):
+        cliente_id = self.criar_cliente("12345678909", "Cliente Permissões")
+        for perfil, esperado in (("pcp", 200), ("gerencia", 200), ("expedicao", 200),
+                                 ("producao", 302)):
+            cliente = self.app.test_client()
+            with cliente.session_transaction() as sessao:
+                sessao.update({"usuario_id": 10, "nome": perfil, "perfil": perfil})
+            self.assertEqual(cliente.get("/cadastros/clientes").status_code, esperado)
+        expedicao = self.app.test_client()
+        with expedicao.session_transaction() as sessao:
+            sessao.update({"usuario_id": 11, "nome": "Expedição", "perfil": "expedicao"})
+        self.assertEqual(expedicao.get("/cadastros/clientes/novo").status_code, 302)
+        self.assertEqual(expedicao.get(f"/cadastros/clientes/{cliente_id}").status_code, 200)
+
+    def test_11_venda_direta_caixa_regular_exige_cliente_e_preserva_snapshot(self):
+        cliente_id = self.criar_cliente("11144477735", "Comprador Original")
+        op_id = self.criar_op_nova()
+        caixa_id = self.criar_pa(op_id, "CX-VENDA-DIRETA", peso=18)
+        ativar_estoque_da_op(op_id)
+        with self.assertRaisesRegex(ValueError, "cliente ativo"):
+            salvar_romaneio_expedicao({"data": "2026-08-04", "tipo_saida": "VENDA_DIRETA",
+                                       "responsavel": "PCP"})
+        numero = salvar_romaneio_expedicao({
+            "data": "2026-08-04", "tipo_saida": "VENDA_DIRETA", "cliente_id": cliente_id,
+            "responsavel": "PCP", "veiculo": "ABC1D23", "motorista": "Motorista",
+        })
+        romaneio = consultar_um("SELECT * FROM expedicoes WHERE numero_romaneio=?", (numero,))
+        self.assertEqual((romaneio["tipo_saida"], romaneio["tipo_movimentacao"], romaneio["destino"]),
+                         ("VENDA_DIRETA", "VENDA_DIRETA", "Venda direta"))
+        reservar_itens(romaneio["id"], [caixa_id])
+        concluir_romaneio(romaneio["id"])
+        caixa = consultar_um("SELECT * FROM pa_caixas WHERE id=?", (caixa_id,))
+        final = consultar_um("SELECT * FROM expedicoes WHERE id=?", (romaneio["id"],))
+        self.assertEqual(caixa["disponibilidade"], "EXPEDIDO")
+        self.assertIsNone(final["destino_local_id"])
+        self.assertIn("Comprador Original", final["cliente_snapshot"])
+        salvar_cliente({"razao_social": "Nome Futuro", "tipo_pessoa": "PF",
+                        "documento": "11144477735"}, cliente_id, usuario="PCP", perfil="pcp")
+        self.assertEqual(buscar_expedicao_por_id(romaneio["id"])["cliente_nome"], "Comprador Original")
+        navegador = self.app.test_client()
+        with navegador.session_transaction() as sessao:
+            sessao.update({"usuario_id": 12, "nome": "PCP", "perfil": "pcp"})
+        impressao = navegador.get(f"/expedicao/{romaneio['id']}/imprimir").get_data(as_text=True)
+        self.assertIn("ROMANEIO DE VENDA DIRETA", impressao)
+        self.assertIn("Comprador Original", impressao)
+        self.assertNotIn("Nome Futuro", impressao)
+        central = navegador.get(
+            f"/expedicao?data_inicio=2026-08-04&data_fim=2026-08-04&tipo=VENDA_DIRETA&cliente_id={cliente_id}"
+        ).get_data(as_text=True)
+        self.assertIn(numero, central)
+        self.assertIn("Comprador Original", central)
+        with self.assertRaisesRegex(ValueError, "abertos"):
+            concluir_romaneio(romaneio["id"])
+
+    def test_12_transferencia_lsm_permanece_sem_cliente(self):
+        self.contexto("pcp")
+        numero = salvar_romaneio_expedicao({"data": "2026-08-04",
+            "tipo_saida": "TRANSFERENCIA_LSM", "responsavel": "PCP"})
+        item = consultar_um("SELECT * FROM expedicoes WHERE numero_romaneio=?", (numero,))
+        self.assertEqual(item["tipo_movimentacao"], "TRANSFERENCIA")
+        self.assertEqual(item["tipo_saida"], "TRANSFERENCIA_LSM")
+        self.assertEqual(item["destino"], "Câmara Fria LSM")
+        self.assertIsNone(item["cliente_id"])
+
+    def test_13_cliente_inativo_fica_no_historico_e_fora_da_selecao(self):
+        cliente_id = self.criar_cliente("98765432100", "Cliente Inativável")
+        alterar_status(cliente_id, "Inativo", usuario="Gerente", perfil="gerencia")
+        self.assertNotIn(cliente_id, {item["id"] for item in listar_clientes(somente_ativos=True)})
+        self.assertIn("CLIENTE_INATIVADO", {item["acao"] for item in historico_cliente(cliente_id)})
+        navegador = self.app.test_client()
+        with navegador.session_transaction() as sessao:
+            sessao.update({"usuario_id": 13, "nome": "PCP", "perfil": "pcp"})
+        self.assertNotIn("Cliente Inativável", navegador.get("/expedicao/novo").get_data(as_text=True))
+        with self.assertRaises(PermissionError):
+            alterar_status(cliente_id, "Ativo", usuario="PCP", perfil="pcp")
+        self.assertIn("TENTATIVA_STATUS_NEGADA", {item["acao"] for item in historico_cliente(cliente_id)})
+
+    def test_14_venda_direta_cancelamento_estorno_e_rollback_cliente_inativo(self):
+        self.contexto("pcp")
+        cliente_id = salvar_cliente({"razao_social": "Cliente Fluxo", "tipo_pessoa": "PJ"})
+        op_cancelar = self.criar_op_nova()
+        caixa_cancelar = self.criar_pa(op_cancelar, "CX-VD-CANCELAR", peso=21)
+        ativar_estoque_da_op(op_cancelar)
+        numero = salvar_romaneio_expedicao({"data": "2026-08-04", "tipo_saida": "VENDA_DIRETA",
+                                            "cliente_id": cliente_id, "responsavel": "PCP"})
+        romaneio = consultar_um("SELECT id FROM expedicoes WHERE numero_romaneio=?", (numero,))["id"]
+        reservar_itens(romaneio, [caixa_cancelar])
+        cancelar_romaneio(romaneio, "Venda cancelada antes da saída")
+        self.assertEqual(consultar_um("SELECT disponibilidade FROM pa_caixas WHERE id=?",
+                                     (caixa_cancelar,))["disponibilidade"], "DISPONIVEL")
+
+        op_estorno = self.criar_op_nova()
+        caixa_estorno = self.criar_pa(op_estorno, "CX-VD-ESTORNAR", peso=22)
+        ativar_estoque_da_op(op_estorno)
+        numero = salvar_romaneio_expedicao({"data": "2026-08-04", "tipo_saida": "VENDA_DIRETA",
+                                            "cliente_id": cliente_id, "responsavel": "PCP"})
+        romaneio = consultar_um("SELECT id FROM expedicoes WHERE numero_romaneio=?", (numero,))["id"]
+        reservar_itens(romaneio, [caixa_estorno])
+        concluir_romaneio(romaneio)
+        estornar_romaneio(romaneio, "Retorno físico autorizado")
+        self.assertEqual(consultar_um("SELECT disponibilidade FROM pa_caixas WHERE id=?",
+                                     (caixa_estorno,))["disponibilidade"], "DISPONIVEL")
+        with self.assertRaisesRegex(ValueError, "concluídos"):
+            estornar_romaneio(romaneio, "Tentativa repetida")
+
+        op_rollback = self.criar_op_nova()
+        caixa_rollback = self.criar_pa(op_rollback, "CX-VD-ROLLBACK", peso=23)
+        ativar_estoque_da_op(op_rollback)
+        numero = salvar_romaneio_expedicao({"data": "2026-08-04", "tipo_saida": "VENDA_DIRETA",
+                                            "cliente_id": cliente_id, "responsavel": "PCP"})
+        romaneio = consultar_um("SELECT id FROM expedicoes WHERE numero_romaneio=?", (numero,))["id"]
+        reservar_itens(romaneio, [caixa_rollback])
+        alterar_status(cliente_id, "Inativo", usuario="Gerente", perfil="gerencia")
+        with self.assertRaisesRegex(ValueError, "cliente ativo"):
+            concluir_romaneio(romaneio)
+        self.assertEqual(consultar_um("SELECT status FROM expedicoes WHERE id=?", (romaneio,))["status"],
+                         "Aberto")
+        self.assertEqual(consultar_um("SELECT disponibilidade FROM pa_caixas WHERE id=?",
+                                     (caixa_rollback,))["disponibilidade"], "RESERVADO")
+
+    def test_15_tipo_saida_obrigatorio(self):
+        self.contexto("pcp")
+        with self.assertRaisesRegex(ValueError, "Tipo de saída"):
+            salvar_romaneio_expedicao({"data": "2026-08-04", "responsavel": "PCP"})
 
 
 if __name__ == "__main__":

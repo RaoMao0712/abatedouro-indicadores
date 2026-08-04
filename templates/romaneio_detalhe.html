@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block conteudo %}
 {% set is_mz = expedicao.tipo_movimentacao == "HISTORICO_MARCO_ZERO" %}
+{% set is_venda = expedicao.tipo_saida == "VENDA_DIRETA" %}
 {% set status_classe = "concluido" if expedicao.status == "Concluído" else expedicao.status|lower %}
 {% set responsavel_exibido = expedicao.responsavel or expedicao.criado_por or session.get("nome", "") %}
 {% set documento_aberto = expedicao.status == "Aberto" %}
@@ -34,6 +35,9 @@
         <div><small>Data</small><strong>{{ expedicao.data[8:10] }}/{{ expedicao.data[5:7] }}/{{ expedicao.data[0:4] }}</strong></div>
         <div><small>Origem</small><strong>{{ expedicao.origem or "Abatedouro" }}</strong></div>
         <div><small>Destino</small><strong>{{ expedicao.destino }}</strong></div>
+        {% if is_venda %}<div><small>Cliente</small><strong>{{ expedicao.cliente_nome }}{% if expedicao.cliente_fantasia %} — {{ expedicao.cliente_fantasia }}{% endif %}</strong><span>{{ expedicao.cliente_documento or 'Sem CPF/CNPJ informado' }}</span></div>{% endif %}
+        {% if expedicao.veiculo %}<div><small>Veículo</small><strong>{{ expedicao.veiculo }}</strong></div>{% endif %}
+        {% if expedicao.motorista %}<div><small>Motorista</small><strong>{{ expedicao.motorista }}</strong></div>{% endif %}
         <div><small>Responsável</small><strong>{{ responsavel_exibido or "Não informado" }}</strong></div>
         <div class="romaneio-resumo-situacao">
             <small>Situação dos totais</small>
@@ -58,6 +62,8 @@
             <label>Origem<input name="origem" value="{{ expedicao.origem or 'Abatedouro' }}" {% if is_mz %}readonly{% endif %} required></label>
             <label>Destino operacional<input name="destino" value="{{ expedicao.destino }}" readonly required></label>
             <label>Responsável<input name="responsavel" value="{{ responsavel_exibido }}" required></label>
+            <label>Veículo<input name="veiculo" value="{{ expedicao.veiculo or '' }}"></label>
+            <label>Motorista<input name="motorista" value="{{ expedicao.motorista or '' }}"></label>
             <label class="campo-largo">Observações<textarea name="observacoes" rows="3">{{ expedicao.observacoes or '' }}</textarea></label>
             <div class="romaneio-form-actions campo-largo">
                 <button type="submit" class="romaneio-btn romaneio-btn-primary" data-save-button disabled>Salvar alterações</button>
@@ -220,7 +226,7 @@
                 {% if is_mz %}
                 <span>Confirmo que os totais foram conferidos e correspondem à transferência histórica realizada para a Câmara Fria LSM. Este documento não movimentará o estoque operacional iniciado após o marco zero.</span>
                 {% else %}
-                <span>Confirmo que os itens e o destino operacional deste romaneio foram conferidos.</span>
+                <span>Confirmo que os itens e {{ 'o cliente da Venda Direta' if is_venda else 'o destino operacional' }} deste romaneio foram conferidos.</span>
                 {% endif %}
             </label>
             {% if not pode_concluir %}<p class="romaneio-bloqueio">Complete o cabeçalho e salve ao menos um total histórico válido para concluir.</p>{% endif %}
