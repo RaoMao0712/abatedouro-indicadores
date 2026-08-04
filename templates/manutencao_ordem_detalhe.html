@@ -2,9 +2,10 @@
 
 {% block conteudo %}
 
-{% set pode_editar_materiais = session.get("perfil") in perfis_materiais and ordem.status != "Cancelada" %}
-{% set pode_executar = session.get("perfil") in ["admin", "manutencao", "gerencia"] and ordem.status != "Cancelada" %}
-{% set pode_editar_dados_gerais = session.get("perfil") in perfis_dados_gerais and ordem.status != "Cancelada" %}
+{% set qualidade_os_concluida = session.get("perfil") == "qualidade" and ordem.status == "Concluida" %}
+{% set pode_editar_materiais = session.get("perfil") in perfis_materiais and ordem.status != "Cancelada" and not qualidade_os_concluida %}
+{% set pode_executar = session.get("perfil") in ["admin", "manutencao", "qualidade", "gerencia"] and ordem.status != "Cancelada" and not qualidade_os_concluida %}
+{% set pode_editar_dados_gerais = session.get("perfil") in perfis_dados_gerais and ordem.status != "Cancelada" and not qualidade_os_concluida %}
 {% set pode_salvar = pode_editar_materiais or pode_executar %}
 {% set pode_cancelar = session.get("perfil") in perfis_cancelamento and ordem.status == "Aberta" and not ordem.parada_id and not ordem.sgi_nc_id and not ordem.diagnostico and not ordem.solucao and not ordem.data_conclusao and not ordem.hora_conclusao and not ordem.pecas_utilizadas and not ordem.observacoes_finais and (ordem.horas_paradas|float) == 0 and (ordem.custo_real|float) == 0 %}
 

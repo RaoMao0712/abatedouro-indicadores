@@ -181,16 +181,40 @@ def test_os_bidirecional_conclusao_eficacia_e_encerramento():
     assert repo.buscar_nc(nc["id"])["ordem_id"] == ordem_id
     ordem = manutencao_service.repo.buscar_ordem_por_id(ordem_id)
     assert ordem["sgi_nc_id"] == nc["id"]
-    manutencao_service.atualizar_ordem_manutencao(ordem_id, {
-        "status": "Concluida", "data_conclusao": "2026-07-21", "hora_conclusao": "10:00"
+    client = app.test_client(); sessao(client, "qualidade", 3)
+    resposta = client.post(f"/manutencao/ordem/{ordem_id}/salvar", data={
+        "tipo_objeto": "EQUIPAMENTO",
+        "equipamento_id": str(cadastros["equipamento"]["id"]),
+        "tipo": "Corretiva",
+        "prioridade": "Alta",
+        "status": "Concluida",
+        "data_abertura": "2026-07-20",
+        "data_conclusao": "2026-07-21",
+        "hora_conclusao": "10:00",
+        "origem": "Qualidade",
+        "responsavel": "Qualidade",
+        "descricao": "Calibrar balanca",
+        "diagnostico": "Desvio confirmado",
+        "solucao": "Balanca calibrada",
+        "horas_paradas": "1",
+        "custo_real": "50",
+        "pecas_utilizadas": "",
+        "observacoes_finais": "Servico conferido",
     })
+    assert resposta.status_code == 302
+    assert manutencao_service.repo.buscar_ordem_por_id(ordem_id)["status"] == "Concluida"
+    evento = manutencao_service.repo.listar_eventos_ordem(ordem_id)[-1]
+    assert evento["evento"] == "OS concluida"
+    assert evento["usuario_nome"] == "Teste qualidade"
+    assert "perfil: qualidade" in evento["descricao"]
+    assert "origem: ficha_principal" in evento["descricao"]
     assert repo.buscar_nc(nc["id"])["situacao"] == "Aguardando validacao da Qualidade"
     try:
         sgi.encerrar_nc_sgi(nc["id"], 3, "Qualidade")
         assert False, "nao pode encerrar antes da eficacia"
     except ValueError:
         pass
-    client = app.test_client(); sessao(client, "pcp", 2)
+    sessao(client, "pcp", 2)
     client.post(f"/sgi/qualidade/ncs/{nc['id']}/eficacia", data={
         "verificacao_id": vid, "resultado": "Eficaz", "observacao": "Tentativa PCP"})
     assert repo.buscar_nc(nc["id"])["eficacia_resultado"] is None

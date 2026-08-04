@@ -33,7 +33,7 @@ TRANSICOES_STATUS_MANUTENCAO = {
     "Cancelada": ("Cancelada",),
 }
 PERFIS_ABERTURA_OS = ("qualidade", "producao", "pcp", "manutencao", "gerencia")
-PERFIS_TECNICOS_OS = ("manutencao", "gerencia", "admin")
+PERFIS_TECNICOS_OS = ("manutencao", "qualidade", "gerencia", "admin")
 PERFIS_MATERIAIS_OS = ("qualidade", "pcp", "manutencao", "gerencia", "admin")
 PERFIS_CANCELAMENTO_OS = ("manutencao", "gerencia", "admin")
 PERFIS_DADOS_GERAIS_OS = ("qualidade", "pcp", "gerencia", "admin")
@@ -240,13 +240,26 @@ def salvar_ordem_manutencao(form, usuario_id=0, usuario_nome="", usuario_perfil=
     ), linhas_recursos, usuario_id, usuario_nome)
 
 
-def atualizar_ordem_manutencao(ordem_id, form, usuario_id=0, usuario_nome="Sistema", usuario_perfil=""):
+def atualizar_ordem_manutencao(
+    ordem_id,
+    form,
+    usuario_id=0,
+    usuario_nome="Sistema",
+    usuario_perfil="",
+    origem_operacao="servico_tecnico",
+):
     if usuario_perfil and usuario_perfil not in PERFIS_TECNICOS_OS:
         raise PermissionError("Perfil sem permissao para encerramento tecnico da OS.")
 
     dados, ordem_atual, status, data_conclusao, hora_conclusao, horas_paradas = preparar_atualizacao_ordem_manutencao(
         ordem_id, form)
-    repo.atualizar_ordem(ordem_id, dados)
+    if usuario_perfil == "qualidade" and ordem_atual["status"] == "Concluida":
+        raise PermissionError("OS concluida permanece somente para consulta da Qualidade.")
+    evento = montar_evento_execucao_os(ordem_atual, dados)
+    evento = enriquecer_evento_auditoria_os(
+        evento, ordem_id, usuario_perfil, origem_operacao, ordem_atual["status"], status)
+    repo.atualizar_ordem_com_recursos(
+        ordem_id, dados, [], usuario_id, usuario_nome, evento)
     aplicar_pos_atualizacao_ordem(ordem_id, ordem_atual, status, data_conclusao, hora_conclusao, horas_paradas, usuario_id, usuario_nome)
 
 
@@ -308,12 +321,21 @@ def aplicar_pos_atualizacao_ordem(ordem_id, ordem_atual, status, data_conclusao,
                 usuario_id, usuario_nome)
 
 
-def salvar_ficha_ordem_manutencao(ordem_id, form, usuario_id=0, usuario_nome="Sistema", usuario_perfil=""):
+def salvar_ficha_ordem_manutencao(
+    ordem_id,
+    form,
+    usuario_id=0,
+    usuario_nome="Sistema",
+    usuario_perfil="",
+    origem_operacao="ficha_principal",
+):
     ordem = repo.buscar_ordem_por_id(ordem_id)
     if not ordem:
         raise ValueError("Ordem de manutencao nao encontrada.")
     if ordem["status"] == "Cancelada":
         raise ValueError("OS cancelada nao pode ser editada.")
+    if usuario_perfil == "qualidade" and ordem["status"] == "Concluida":
+        raise PermissionError("OS concluida permanece somente para consulta da Qualidade.")
 
     perfil = usuario_perfil or ""
     if perfil in PERFIS_DADOS_GERAIS_OS:
@@ -322,8 +344,8 @@ def salvar_ficha_ordem_manutencao(ordem_id, form, usuario_id=0, usuario_nome="Si
             ordem_id, form, pode_executar_tecnico)
         linhas = coletar_linhas_recursos_ordem(form) if perfil in PERFIS_MATERIAIS_OS else []
         evento = montar_evento_atualizacao_os(ordem_atual, dados)
-        if evento:
-            evento["descricao"] = f"{evento['descricao']} | perfil: {perfil or 'nao informado'}"
+        evento = enriquecer_evento_auditoria_os(
+            evento, ordem_id, perfil, origem_operacao, ordem_atual["status"], status)
         repo.atualizar_ficha_ordem_com_recursos(ordem_id, dados, linhas, usuario_id, usuario_nome, evento)
         if pode_executar_tecnico:
             aplicar_pos_atualizacao_ordem(
@@ -333,6 +355,8 @@ def salvar_ficha_ordem_manutencao(ordem_id, form, usuario_id=0, usuario_nome="Si
             ordem_id, form)
         linhas = coletar_linhas_recursos_ordem(form) if perfil in PERFIS_MATERIAIS_OS else []
         evento = montar_evento_execucao_os(ordem_atual, dados)
+        evento = enriquecer_evento_auditoria_os(
+            evento, ordem_id, perfil, origem_operacao, ordem_atual["status"], status)
         repo.atualizar_ordem_com_recursos(ordem_id, dados, linhas, usuario_id, usuario_nome, evento)
         aplicar_pos_atualizacao_ordem(
             ordem_id, ordem_atual, status, data_conclusao, hora_conclusao, horas_paradas, usuario_id, usuario_nome)
@@ -529,6 +553,21 @@ def montar_evento_execucao_os(ordem_atual, dados):
     }
 
 
+def enriquecer_evento_auditoria_os(
+    evento, ordem_id, perfil, origem_operacao, status_anterior, status_novo
+):
+    if not evento:
+        return None
+    if status_anterior != status_novo and status_novo == "Concluida":
+        evento["evento"] = "OS concluida"
+    evento["descricao"] = (
+        f"{evento['descricao']} | OS #{ordem_id} | "
+        f"perfil: {perfil or 'nao informado'} | "
+        f"origem: {origem_operacao or 'nao informada'}"
+    )
+    return evento
+
+
 def usuario_pode_editar_materiais(perfil):
     return perfil in PERFIS_MATERIAIS_OS
 
@@ -709,6 +748,8 @@ def salvar_recursos_ordem_manutencao(ordem_id, form, usuario_perfil="", usuario_
         raise ValueError("Ordem de manutencao nao encontrada.")
     if ordem["status"] == "Cancelada":
         raise ValueError("OS cancelada nao pode receber alteracao de materiais.")
+    if usuario_perfil == "qualidade" and ordem["status"] == "Concluida":
+        raise PermissionError("OS concluida permanece somente para consulta da Qualidade.")
 
     linhas = coletar_linhas_recursos_ordem(form)
     repo.salvar_recursos_ordem(ordem_id, linhas, usuario_id, usuario_nome)

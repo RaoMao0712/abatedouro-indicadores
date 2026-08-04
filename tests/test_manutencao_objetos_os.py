@@ -282,7 +282,7 @@ def test_permissoes_abertura_e_bloqueio_tecnico_por_rota():
     ordens = manutencao_service.buscar_ordens_manutencao()
     ordem_id = ordens[0]["id"]
 
-    for perfil in ("qualidade", "producao", "pcp"):
+    for perfil in ("producao", "pcp"):
         client = app.test_client()
         sessao(client, perfil)
         resposta = client.post(f"/manutencao/ordem/{ordem_id}/atualizar", data={
@@ -771,11 +771,117 @@ def test_ficha_gerencia_edita_dados_gerais_descricao_e_registra_historico():
     assert manutencao_service.repo.buscar_ordem_por_id(ordem_id)["status"] == "Em andamento"
 
 
-def test_qualidade_e_pcp_editam_dados_ocorrencia_materiais_sem_execucao_tecnica():
-    cenarios = (
-        ("qualidade", "VEICULO", "Qualidade"),
-        ("pcp", "PREDIAL", "PCP"),
+def test_qualidade_conclui_pela_ficha_com_campos_tecnicos_e_auditoria():
+    ordem_id, equipamento = abrir_os("EQ-QUAL-CONCLUI")
+    client = app.test_client()
+    sessao(client, "qualidade", 96)
+
+    html = client.get(f"/manutencao/ordem/{ordem_id}").get_data(as_text=True)
+    assert 'name="diagnostico"' in html
+    assert 'name="solucao"' in html
+    assert 'name="horas_paradas"' in html
+    assert 'name="custo_real"' in html
+    assert 'value="Concluida"' in html
+
+    payload = form_ficha_dados_gerais(
+        equipamento_id=str(equipamento["id"]),
+        tipo="Corretiva",
+        prioridade="Media",
+        status="Concluida",
+        data_abertura="2026-07-23",
+        data_conclusao="",
+        hora_conclusao="",
+        responsavel="Responsavel Qualidade",
+        descricao="Solicitacao de manutencao",
+        diagnostico="Falha verificada pela Qualidade",
+        solucao="Servico executado e conferido",
+        horas_paradas="2.5",
+        custo_real="175.40",
+        pecas_utilizadas="Filtro sanitario",
+        observacoes_finais="Conclusao operacional provisoria",
     )
+    resposta = client.post(f"/manutencao/ordem/{ordem_id}/salvar", data=payload)
+    assert resposta.status_code == 302
+
+    ordem = manutencao_service.repo.buscar_ordem_por_id(ordem_id)
+    assert ordem["status"] == "Concluida"
+    assert ordem["responsavel"] == "Responsavel Qualidade"
+    assert ordem["diagnostico"] == "Falha verificada pela Qualidade"
+    assert ordem["solucao"] == "Servico executado e conferido"
+    assert float(ordem["horas_paradas"]) == 2.5
+    assert float(ordem["custo_real"]) == 175.40
+    assert ordem["data_conclusao"]
+    assert ordem["hora_conclusao"]
+
+    eventos = manutencao_service.repo.listar_eventos_ordem(ordem_id)
+    conclusao = next(evento for evento in eventos if evento["evento"] == "OS concluida")
+    assert conclusao["usuario_id"] == 96
+    assert conclusao["usuario_nome"] == "Usuario qualidade"
+    assert "perfil: qualidade" in conclusao["descricao"]
+    assert "origem: ficha_principal" in conclusao["descricao"]
+    assert f"OS #{ordem_id}" in conclusao["descricao"]
+    assert "status" in conclusao["valor_anterior"]
+    assert "status" in conclusao["valor_novo"]
+    assert "diagnostico" in conclusao["valor_novo"]
+    assert "data_conclusao" in conclusao["valor_novo"]
+    assert "hora_conclusao" in conclusao["valor_novo"]
+
+    html_concluida = client.get(f"/manutencao/ordem/{ordem_id}").get_data(as_text=True)
+    assert 'name="diagnostico"' not in html_concluida
+    assert 'name="status"' not in html_concluida
+    assert 'data-adicionar-recurso>Adicionar linha</button>' not in html_concluida
+    assert 'id="form-ficha-os"' not in html_concluida
+
+    total_eventos = len(eventos)
+    client.post(f"/manutencao/ordem/{ordem_id}/atualizar", data={
+        "status": "Concluida",
+        "diagnostico": "Tentativa de sobrescrita",
+    })
+    assert manutencao_service.repo.buscar_ordem_por_id(ordem_id)["diagnostico"] == "Falha verificada pela Qualidade"
+    assert len(manutencao_service.repo.listar_eventos_ordem(ordem_id)) == total_eventos
+
+    payload["status"] = "Em andamento"
+    client.post(f"/manutencao/ordem/{ordem_id}/salvar", data=payload)
+    assert manutencao_service.repo.buscar_ordem_por_id(ordem_id)["status"] == "Concluida"
+
+    total_antes = len(manutencao_service.buscar_ordens_manutencao())
+    resposta = client.post("/manutencao", data={
+        "tipo_objeto": "EQUIPAMENTO",
+        "equipamento_id": str(equipamento["id"]),
+        "tipo": "Corretiva",
+        "prioridade": "Media",
+        "data_abertura": "2026-07-25",
+        "descricao": f"Refazer servico da OS #{ordem_id}",
+    })
+    assert resposta.status_code == 302
+    assert len(manutencao_service.buscar_ordens_manutencao()) == total_antes + 1
+
+
+def test_rota_legada_audita_conclusao_e_preserva_perfis_tecnicos():
+    for indice, perfil in enumerate(("qualidade", "manutencao", "gerencia", "admin"), start=110):
+        ordem_id, _equipamento = abrir_os(f"EQ-LEG-{perfil.upper()}")
+        client = app.test_client()
+        sessao(client, perfil, indice)
+        resposta = client.post(f"/manutencao/ordem/{ordem_id}/atualizar", data={
+            "status": "Concluida",
+            "responsavel": f"Responsavel {perfil}",
+            "diagnostico": f"Diagnostico {perfil}",
+            "solucao": f"Solucao {perfil}",
+            "horas_paradas": "1",
+            "custo_real": "10",
+        })
+        assert resposta.status_code == 302
+        assert manutencao_service.repo.buscar_ordem_por_id(ordem_id)["status"] == "Concluida"
+        evento = manutencao_service.repo.listar_eventos_ordem(ordem_id)[-1]
+        assert evento["evento"] == "OS concluida"
+        assert evento["usuario_id"] == indice
+        assert evento["usuario_nome"] == f"Usuario {perfil}"
+        assert f"perfil: {perfil}" in evento["descricao"]
+        assert "origem: rota_legada" in evento["descricao"]
+
+
+def test_pcp_edita_dados_ocorrencia_materiais_sem_execucao_tecnica():
+    cenarios = (("pcp", "PREDIAL", "PCP"),)
     for indice, (perfil, tipo_objeto, origem) in enumerate(cenarios, start=101):
         ordem_id, _equipamento = abrir_os(f"EQ-{perfil.upper()}")
         veiculo = criar_veiculo(f"VEI-{perfil.upper()}")

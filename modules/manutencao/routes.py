@@ -110,7 +110,7 @@ def register_manutencao_routes(app):
         )
 
     @app.route("/manutencao/ordem/<int:ordem_id>/atualizar", methods=["POST"])
-    @perfil_permitido("manutencao", "gerencia")
+    @perfil_permitido("qualidade", "manutencao", "gerencia")
     def atualizar_ordem_manutencao_rota(ordem_id):
         try:
             manutencao_service.atualizar_ordem_manutencao(
@@ -119,6 +119,7 @@ def register_manutencao_routes(app):
                 session.get("usuario_id", 0),
                 session.get("nome", "Sistema"),
                 session.get("perfil", ""),
+                "rota_legada",
             )
             flash("Ordem de manutencao atualizada com sucesso.")
         except Exception as erro:
@@ -170,6 +171,7 @@ def register_manutencao_routes(app):
                 session.get("usuario_id", 0),
                 session.get("nome", "Sistema"),
                 session.get("perfil", ""),
+                "ficha_principal",
             )
             flash("Ordem de servico atualizada com sucesso.")
         except Exception as erro:
