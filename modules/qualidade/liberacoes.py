@@ -380,7 +380,7 @@ def solicitacoes_do_registro(registro_id):
 
 
 def saldos_legados_operacionais():
-    garantir_schema()
+    garantir_schema(criar_local=False)
     conn = conectar()
     try:
         cursor = conn.cursor()
@@ -390,6 +390,60 @@ def saldos_legados_operacionais():
         return cursor.fetchall()
     finally:
         conn.close()
+
+
+def inventario_legado_fisico():
+    """Lista o legado ainda presente fisicamente, independentemente da disponibilidade."""
+    garantir_schema(criar_local=False)
+    conn = conectar()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(q("""SELECT nc.*,le.nome AS local_nome
+            FROM pa_nao_conformes nc
+            JOIN locais_estoque le ON le.id=nc.local_estoque_id
+            WHERE nc.tipo_registro=?
+              AND (nc.saldo_inicial_g-COALESCE(nc.saldo_destinado_g,0))>0
+            ORDER BY nc.data_contagem,nc.id"""), (TIPO_LEGADO,))
+        registros = []
+        for linha in cursor.fetchall():
+            item = dict(linha)
+            item["sku_codigo"] = SKU_INVENTARIO_CODIGO
+            item["origem_fisica"] = "Inventário Legado"
+            item["peso_fisico_g"] = max(
+                0, int(item["saldo_inicial_g"] or 0) - int(item["saldo_destinado_g"] or 0)
+            )
+            if item["condicao_inicial"] == "NAO_CONFORME":
+                item["condicao_fisica"] = "Não conforme"
+            else:
+                item["condicao_fisica"] = "Conforme — aguardando liberação"
+            if int(item["saldo_bloqueado_g"] or 0) > 0:
+                item["disponibilidade_fisica"] = "Bloqueado"
+            elif int(item["saldo_reservado_operacional_g"] or 0) > 0:
+                item["disponibilidade_fisica"] = "Reservado"
+            else:
+                item["disponibilidade_fisica"] = "Disponível"
+            registros.append(item)
+        return registros
+    finally:
+        conn.close()
+
+
+def resumo_inventario_legado_fisico(registros=None):
+    registros = inventario_legado_fisico() if registros is None else registros
+    nao_conformes = [item for item in registros if item["condicao_inicial"] == "NAO_CONFORME"]
+    aguardando = [item for item in registros if item["condicao_inicial"] == "CONFORME_AGUARDANDO_LIBERACAO"]
+    return {
+        "registros": len(registros),
+        "caixas_fisicas": sum(int(item["caixas_iniciais"] or 0) for item in registros),
+        "bandejas_fisicas": sum(int(item["bandejas_iniciais"] or 0) for item in registros),
+        "peso_fisico_g": sum(int(item["peso_fisico_g"] or 0) for item in registros),
+        "caixas_bloqueadas_nc": sum(int(item["caixas_bloqueadas"] or 0) for item in nao_conformes),
+        "peso_bloqueado_nc_g": sum(int(item["saldo_bloqueado_g"] or 0) for item in nao_conformes),
+        "caixas_aguardando": sum(int(item["caixas_bloqueadas"] or 0) for item in aguardando),
+        "peso_aguardando_g": sum(int(item["saldo_bloqueado_g"] or 0) for item in aguardando),
+        "peso_disponivel_g": sum(int(item["saldo_operacional_g"] or 0) for item in registros),
+        "peso_reservado_g": sum(int(item["saldo_reservado_operacional_g"] or 0) for item in registros),
+    }
 
 
 def reservar_operacional(expedicao_id, registro_id, peso, caixas, bandejas, *,

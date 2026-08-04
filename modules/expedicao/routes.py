@@ -58,6 +58,7 @@ from .estoque_service import (
 )
 from modules.qualidade.produtos_nao_conformes import listar_locais_segregacao, MOTIVOS
 from modules.qualidade.liberacoes import (
+    inventario_legado_fisico, resumo_inventario_legado_fisico,
     remover_reserva_operacional, reservar_operacional,
     saldos_legados_operacionais,
 )
@@ -95,6 +96,21 @@ def _itens_nc_galinha_inteira(form):
                 "observacoes": form.get(prefixo + "observacoes"),
             })
     return itens
+
+
+def integrar_resumo_inventario_legado(resumo, resumo_legado):
+    """Soma presença física agregada sem convertê-la em estoque disponível."""
+    resumo = dict(resumo)
+    resumo["peso_legado_disponivel"] = resumo_legado["peso_disponivel_g"] / 1000
+    resumo["unidades_fisicas"] = float(resumo["unidades_fisicas"] or 0) + resumo_legado["caixas_fisicas"]
+    resumo["peso_fisico"] = float(resumo["peso_fisico"] or 0) + resumo_legado["peso_fisico_g"] / 1000
+    resumo["bandejas_legado"] = resumo_legado["bandejas_fisicas"]
+    resumo["unidades_bloqueadas"] = float(resumo["unidades_bloqueadas"] or 0) + resumo_legado["caixas_bloqueadas_nc"]
+    resumo["peso_bloqueado"] = float(resumo["peso_bloqueado"] or 0) + resumo_legado["peso_bloqueado_nc_g"] / 1000
+    resumo["unidades_outras_condicoes"] = float(resumo["unidades_outras_condicoes"] or 0) + resumo_legado["caixas_aguardando"]
+    resumo["peso_outras_condicoes"] = float(resumo["peso_outras_condicoes"] or 0) + resumo_legado["peso_aguardando_g"] / 1000
+    resumo["peso_reservado"] = float(resumo["peso_reservado"] or 0) + resumo_legado["peso_reservado_g"] / 1000
+    return resumo
 
 
 def register_expedicao_routes(app, integracoes=None):
@@ -454,12 +470,15 @@ def register_expedicao_routes(app, integracoes=None):
     def estoque_camara_expedicao():
         itens, resumo = buscar_estoque_operacional()
         saldos_legados = saldos_legados_operacionais()
-        resumo["peso_legado_disponivel"] = sum(int(item["saldo_operacional_g"] or 0) / 1000 for item in saldos_legados)
+        inventario_fisico = inventario_legado_fisico()
+        resumo_legado = resumo_inventario_legado_fisico(inventario_fisico)
+        resumo = integrar_resumo_inventario_legado(resumo, resumo_legado)
         return render_template(
             "expedicao_estoque.html",
             itens=itens,
             resumo=resumo,
             saldos_legados=saldos_legados,
+            inventario_fisico=inventario_fisico,
             marco=obter_marco_zero(),
         )
 

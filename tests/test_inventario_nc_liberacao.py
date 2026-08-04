@@ -124,6 +124,39 @@ def test_simulacao_e_carga_idempotente_reconciliam_totais_oficiais(banco):
     assert indicadores["nao_conforme_bloqueado_kg"] == 9876.560
     assert indicadores["aguardando_liberacao_kg"] == 595.500
     assert indicadores["disponivel_kg"] == 0
+    fisicos = liberacoes.inventario_legado_fisico()
+    resumo_fisico = liberacoes.resumo_inventario_legado_fisico(fisicos)
+    assert [item["id"] for item in fisicos] == [1, 2, 3]
+    assert len({item["idempotency_key"] for item in fisicos}) == 3
+    assert [(item["motivo"], item["caixas_iniciais"], item["bandejas_iniciais"], item["peso_fisico_g"])
+            for item in fisicos] == [
+        ("Carne Escura", 689, 8268, 8340430),
+        ("Carcaça Incompleta", 130, 1560, 1536130),
+        ("Aguardando Liberação", 48, 570, 595500),
+    ]
+    assert resumo_fisico == {
+        "registros": 3, "caixas_fisicas": 867, "bandejas_fisicas": 10398,
+        "peso_fisico_g": 10472060, "caixas_bloqueadas_nc": 819,
+        "peso_bloqueado_nc_g": 9876560, "caixas_aguardando": 48,
+        "peso_aguardando_g": 595500, "peso_disponivel_g": 0, "peso_reservado_g": 0,
+    }
+    assert liberacoes.saldos_legados_operacionais() == []
+    from modules.expedicao.routes import integrar_resumo_inventario_legado
+    resumo_tela = integrar_resumo_inventario_legado({
+        "unidades_fisicas": 0, "peso_fisico": 0, "unidades_bloqueadas": 0,
+        "peso_bloqueado": 0, "unidades_outras_condicoes": 0,
+        "peso_outras_condicoes": 0, "peso_reservado": 0,
+        "unidades_disponiveis": 0,
+    }, resumo_fisico)
+    assert resumo_tela["unidades_fisicas"] == 867
+    assert resumo_tela["peso_fisico"] == 10472.060
+    assert resumo_tela["unidades_bloqueadas"] == 819
+    assert resumo_tela["peso_bloqueado"] == 9876.560
+    assert resumo_tela["unidades_outras_condicoes"] == 48
+    assert resumo_tela["peso_outras_condicoes"] == 595.500
+    assert resumo_tela["peso_legado_disponivel"] == 0
+    assert resumo_tela["unidades_disponiveis"] == 0
+    assert resumo_tela["peso_reservado"] == 0
 
 
 @pytest.mark.parametrize("perfil", ["pcp", "producao", "gerencia"])
