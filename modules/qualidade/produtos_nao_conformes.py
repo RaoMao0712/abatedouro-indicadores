@@ -98,9 +98,10 @@ def criar_tabelas_pa_nao_conforme():
             idempotency_key TEXT UNIQUE NOT NULL, peso_g INTEGER NOT NULL,
             caixas INTEGER NOT NULL DEFAULT 0, bandejas INTEGER NOT NULL DEFAULT 0,
             status TEXT NOT NULL, justificativa TEXT NOT NULL, observacoes TEXT,
-            solicitado_por TEXT NOT NULL, perfil_solicitante TEXT NOT NULL,
+            solicitado_por TEXT NOT NULL, solicitado_por_id INTEGER,
+            perfil_solicitante TEXT NOT NULL,
             solicitado_em {timestamp_type} NOT NULL, decidido_por TEXT,
-            perfil_decisor TEXT, decidido_em {timestamp_type},
+            decidido_por_id INTEGER, perfil_decisor TEXT, decidido_em {timestamp_type},
             justificativa_decisao TEXT, criado_em {timestamp_type} NOT NULL,
             atualizado_em {timestamp_type} NOT NULL
         )
@@ -119,6 +120,10 @@ def criar_tabelas_pa_nao_conforme():
         for coluna in colunas:
             _alterar_coluna(cursor, f"ALTER TABLE pa_nao_conformes ADD COLUMN IF NOT EXISTS {coluna}",
                            f"ALTER TABLE pa_nao_conformes ADD COLUMN {coluna}")
+        for coluna in ("solicitado_por_id INTEGER", "decidido_por_id INTEGER"):
+            _alterar_coluna(cursor,
+                           f"ALTER TABLE pa_nao_conforme_solicitacoes ADD COLUMN IF NOT EXISTS {coluna}",
+                           f"ALTER TABLE pa_nao_conforme_solicitacoes ADD COLUMN {coluna}")
         if DATABASE_URL:
             cursor.execute("ALTER TABLE pa_nao_conformes ALTER COLUMN op_id DROP NOT NULL")
             cursor.execute("ALTER TABLE pa_nao_conformes ALTER COLUMN caixa_id DROP NOT NULL")

@@ -103,7 +103,12 @@ def register_qualidade_routes(app, integracoes=None):
     @app.get("/qualidade/liberacoes-pendentes")
     @perfil_permitido("gerencia")
     def validar_liberacoes_pendentes():
-        return render_template("liberacoes_pendentes.html", solicitacoes=liberacoes_pendentes())
+        return render_template(
+            "liberacoes_pendentes.html",
+            solicitacoes=liberacoes_pendentes(
+                usuario_id=session.get("usuario_id"), usuario=session.get("nome")
+            ),
+        )
 
     @app.post("/qualidade/liberacoes/<int:solicitacao_id>/validar")
     @perfil_permitido("gerencia")

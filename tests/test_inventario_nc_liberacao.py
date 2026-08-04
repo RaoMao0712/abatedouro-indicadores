@@ -222,6 +222,120 @@ def test_aprovacao_parcial_e_total_movem_exatamente_o_mesmo_peso(banco):
                            perfil="admin", origem="teste")
 
 
+def test_autoaprovacao_admin_e_bloqueada_no_backend_e_auditada(banco):
+    _carga(banco)
+    registro = _registro(banco)
+    solicitacao = liberacoes.solicitar(
+        registro["id"], "100", 8, 96, "Solicitacao administrativa",
+        usuario="Administrador", usuario_id=7, perfil="admin", origem="teste",
+    )
+    with pytest.raises(PermissionError, match="outro usuario autorizado"):
+        liberacoes.validar(
+            solicitacao, "APROVAR", "Autoaprovacao",
+            usuario="Administrador", usuario_id=7, perfil="admin", origem="teste",
+        )
+    conn = banco[0]()
+    pedido = conn.execute(
+        "SELECT status,decidido_por FROM pa_nao_conforme_solicitacoes WHERE id=?",
+        (solicitacao,),
+    ).fetchone()
+    negacao = conn.execute("""SELECT detalhes FROM pa_nao_conforme_eventos
+        WHERE pa_nao_conforme_id=? AND acao='TENTATIVA_NEGADA' ORDER BY id DESC LIMIT 1""",
+        (registro["id"],)).fetchone()
+    conn.close()
+    assert pedido[:] == (liberacoes.PENDENTE, None)
+    assert "Autoaprovacao bloqueada" in negacao["detalhes"]
+    atualizado = _registro(banco)
+    assert (atualizado["saldo_bloqueado_g"], atualizado["saldo_pendente_g"],
+            atualizado["saldo_operacional_g"]) == (595500, 100000, 0)
+
+
+@pytest.mark.parametrize("perfil", ["gerencia", "admin"])
+def test_usuario_diferente_pode_validar_e_ids_ficam_rastreaveis(perfil, banco):
+    _carga(banco)
+    registro = _registro(banco)
+    solicitacao = liberacoes.solicitar(
+        registro["id"], "100", 8, 96, "Qualidade aprovou",
+        usuario="Qualidade", usuario_id=11, perfil="qualidade", origem="teste",
+    )
+    liberacoes.validar(
+        solicitacao, "APROVAR", "Validacao independente",
+        usuario="Decisor", usuario_id=22, perfil=perfil, origem="teste",
+    )
+    conn = banco[0]()
+    pedido = conn.execute("""SELECT status,solicitado_por_id,decidido_por_id
+        FROM pa_nao_conforme_solicitacoes WHERE id=?""", (solicitacao,)).fetchone()
+    conn.close()
+    assert pedido[:] == (liberacoes.APROVADA, 11, 22)
+
+
+def test_painel_marca_solicitacao_propria_como_nao_validavel(banco):
+    _carga(banco)
+    registro = _registro(banco)
+    liberacoes.solicitar(
+        registro["id"], "100", 8, 96, "Avaliar",
+        usuario="Admin", usuario_id=5, perfil="admin", origem="teste",
+    )
+    assert liberacoes.pendentes(usuario_id=5, usuario="Admin")[0]["pode_validar"] is False
+    assert liberacoes.pendentes(usuario_id=6, usuario="Outro Admin")[0]["pode_validar"] is True
+
+
+def test_reversao_administrativa_preserva_historico_e_reconcilia_inventario(banco):
+    carga = _carga(banco)
+    registro = _registro(banco)
+    assert registro["id"] == 3
+    chave_original = registro["idempotency_key"]
+    solicitacao = liberacoes.solicitar(
+        registro["id"], "595,500", 48, 570, "Conforme",
+        usuario="Admin Solicitante", usuario_id=31, perfil="admin", origem="teste",
+        idempotency_key="SOL-OFICIAL",
+    )
+    liberacoes.validar(
+        solicitacao, "APROVAR", "Aprovacao indevida",
+        usuario="Admin Decisor", usuario_id=32, perfil="admin", origem="teste",
+    )
+    resultado = liberacoes.reverter_liberacao_administrativa(
+        solicitacao, usuario="Admin Corretor", usuario_id=33,
+        perfil="admin", origem="hotfix-autorizado",
+    )
+    assert resultado["antes"]["saldo_operacional_g"] == 595500
+    assert resultado["depois"]["saldo_operacional_g"] == 0
+    assert resultado["depois"]["saldo_bloqueado_g"] == 595500
+    assert liberacoes.reverter_liberacao_administrativa(
+        solicitacao, usuario="Admin Corretor", usuario_id=33,
+        perfil="admin", origem="hotfix-autorizado",
+    )["ja_revertida"] is True
+    conn = banco[0]()
+    pedido = conn.execute("SELECT * FROM pa_nao_conforme_solicitacoes WHERE id=?",
+                          (solicitacao,)).fetchone()
+    eventos = conn.execute("""SELECT acao,detalhes FROM pa_nao_conforme_eventos
+        WHERE pa_nao_conforme_id=? ORDER BY id""", (registro["id"],)).fetchall()
+    romaneios = conn.execute("SELECT COUNT(*) FROM expedicao_itens").fetchone()[0]
+    contagem = conn.execute("SELECT COUNT(*) FROM pa_nao_conformes").fetchone()[0]
+    conn.close()
+    atualizado = _registro(banco)
+    assert atualizado["id"] == carga["ids"][2] == 3
+    assert atualizado["idempotency_key"] == chave_original
+    assert (atualizado["status"], atualizado["saldo_bloqueado_g"],
+            atualizado["saldo_pendente_g"], atualizado["saldo_operacional_g"],
+            atualizado["caixas_bloqueadas"], atualizado["bandejas_bloqueadas"]) == (
+                "BLOQUEADO", 595500, 0, 0, 48, 570,
+            )
+    assert pedido["status"] == liberacoes.REVOGADA_POR_CORRECAO
+    assert pedido["decidido_por"] == "Admin Decisor"
+    assert [item["acao"] for item in eventos] == [
+        "CARGA_INICIAL", "SOLICITACAO_LIBERACAO", "APROVACAO_LIBERACAO",
+        "REVERSAO_LIBERACAO_ADMINISTRATIVA",
+    ]
+    assert '"eventos_originais"' in eventos[-1]["detalhes"]
+    assert contagem == 3
+    assert romaneios == 0
+    indicadores = nc.indicadores(nc.consultar())
+    assert indicadores["fisico_total_kg"] == 10472.060
+    assert indicadores["aguardando_liberacao_kg"] == 595.500
+    assert indicadores["disponivel_kg"] == 0
+
+
 def test_caixa_futura_nao_fraciona_e_so_gerencia_libera(banco):
     conn = banco[0]()
     conn.execute("INSERT INTO locais_estoque(nome,tipo,ativo) VALUES ('Bloqueado','segregacao','Sim')")

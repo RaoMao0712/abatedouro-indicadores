@@ -16,6 +16,7 @@ TIPO_LEGADO = "INVENTARIO_LEGADO_AGREGADO"
 PENDENTE = "AGUARDANDO_VALIDACAO_GERENCIA"
 APROVADA = "APROVADA"
 REJEITADA = "REJEITADA"
+REVOGADA_POR_CORRECAO = "REVOGADA_POR_CORRECAO"
 LOCAL_INVENTARIO = "Câmara de Estocagem - Estoque Não Conforme"
 LOCAL_INVENTARIO_ID = 4
 SKU_INVENTARIO_ID = 1
@@ -34,12 +35,21 @@ def _agora():
     return datetime.now().isoformat(sep=" ", timespec="seconds")
 
 
-def _identidade(usuario=None, perfil=None, origem=None):
+def _identidade(usuario=None, perfil=None, origem=None, usuario_id=None):
     if has_request_context():
         usuario = usuario or session.get("nome") or "Usuario nao identificado"
         perfil = perfil or session.get("perfil") or "nao identificado"
         origem = origem or request.remote_addr or "web"
-    return usuario or "Sistema", (perfil or "sistema").lower(), origem or "interno"
+        usuario_id = usuario_id if usuario_id is not None else session.get("usuario_id")
+    return (usuario or "Sistema", (perfil or "sistema").lower(),
+            origem or "interno", usuario_id)
+
+
+def _mesma_identidade(solicitacao, usuario, usuario_id):
+    solicitante_id = solicitacao["solicitado_por_id"]
+    if solicitante_id is not None and usuario_id is not None:
+        return int(solicitante_id) == int(usuario_id)
+    return str(solicitacao["solicitado_por"] or "").strip().casefold() == str(usuario or "").strip().casefold()
 
 
 def gramas(valor, campo="Peso"):
@@ -210,8 +220,8 @@ def carregar_inventario(*, confirmar=False, usuario="Sistema", perfil="admin", o
 
 
 def solicitar(registro_id, peso, caixas, bandejas, justificativa, observacoes="", *,
-              usuario=None, perfil=None, origem=None, idempotency_key=None):
-    usuario, perfil, origem = _identidade(usuario, perfil, origem)
+              usuario=None, perfil=None, origem=None, usuario_id=None, idempotency_key=None):
+    usuario, perfil, origem, usuario_id = _identidade(usuario, perfil, origem, usuario_id)
     if perfil not in {"qualidade", "admin"}:
         _auditar_negacao(registro_id, usuario, perfil, origem,
                          "Perfil sem permissao para solicitar liberacao.")
@@ -252,11 +262,12 @@ def solicitar(registro_id, peso, caixas, bandejas, justificativa, observacoes=""
                 raise ValueError("A caixa ja possui liberacao aguardando validacao.")
         agora = _agora()
         params = (registro_id, chave, peso_g, caixas, bandejas, PENDENTE, justificativa,
-                  str(observacoes or "").strip(), usuario, perfil, agora, agora, agora)
+                  str(observacoes or "").strip(), usuario, usuario_id, perfil, agora, agora, agora)
         sql = """INSERT INTO pa_nao_conforme_solicitacoes (
             pa_nao_conforme_id,idempotency_key,peso_g,caixas,bandejas,status,justificativa,
-            observacoes,solicitado_por,perfil_solicitante,solicitado_em,criado_em,atualizado_em
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)"""
+            observacoes,solicitado_por,solicitado_por_id,perfil_solicitante,
+            solicitado_em,criado_em,atualizado_em
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)"""
         if DATABASE_URL:
             cursor.execute(q(sql + " RETURNING id"), params)
             solicitacao_id = cursor.fetchone()["id"]
@@ -272,8 +283,9 @@ def solicitar(registro_id, peso, caixas, bandejas, justificativa, observacoes=""
         return solicitacao_id
 
 
-def validar(solicitacao_id, decisao, justificativa, *, usuario=None, perfil=None, origem=None):
-    usuario, perfil, origem = _identidade(usuario, perfil, origem)
+def validar(solicitacao_id, decisao, justificativa, *, usuario=None, perfil=None, origem=None,
+            usuario_id=None):
+    usuario, perfil, origem, usuario_id = _identidade(usuario, perfil, origem, usuario_id)
     decisao = str(decisao or "").upper()
     justificativa = str(justificativa or "").strip()
     if perfil not in {"gerencia", "admin"}:
@@ -292,69 +304,193 @@ def validar(solicitacao_id, decisao, justificativa, *, usuario=None, perfil=None
     if decisao not in {"APROVAR", "REJEITAR"} or not justificativa:
         raise ValueError("Informe aprovacao ou rejeicao e a respectiva justificativa.")
     garantir_schema()
+    registro_autoaprovacao = None
     with transaction() as conn:
         cursor = conn.cursor()
+        bloqueio = " FOR UPDATE" if DATABASE_URL else ""
         cursor.execute(q("""SELECT s.*,nc.tipo_registro,nc.status AS nc_status,nc.caixa_id,
             nc.saldo_bloqueado_g,nc.saldo_pendente_g,nc.saldo_operacional_g
-            FROM pa_nao_conforme_solicitacoes s
-            JOIN pa_nao_conformes nc ON nc.id=s.pa_nao_conforme_id WHERE s.id=?"""), (solicitacao_id,))
+            FROM pa_nao_conforme_solicitacoes s JOIN pa_nao_conformes nc
+            ON nc.id=s.pa_nao_conforme_id WHERE s.id=?""" + bloqueio), (solicitacao_id,))
         solicitacao = cursor.fetchone()
         if not solicitacao:
             raise ValueError("Solicitacao de liberacao nao encontrada.")
         if solicitacao["status"] != PENDENTE:
             raise ValueError("Esta solicitacao ja foi validada.")
-        agora = _agora()
-        novo_status = APROVADA if decisao == "APROVAR" else REJEITADA
-        cursor.execute(q("""UPDATE pa_nao_conforme_solicitacoes SET status=?,decidido_por=?,
-            perfil_decisor=?,decidido_em=?,justificativa_decisao=?,atualizado_em=?
-            WHERE id=? AND status=?"""),
-            (novo_status, usuario, perfil, agora, justificativa, agora, solicitacao_id, PENDENTE))
-        if cursor.rowcount != 1:
-            raise ValueError("A solicitacao foi validada simultaneamente por outro usuario.")
-        peso_g = int(solicitacao["peso_g"])
-        if solicitacao["tipo_registro"] == TIPO_LEGADO:
-            if decisao == "APROVAR":
-                cursor.execute(q("""UPDATE pa_nao_conformes SET saldo_bloqueado_g=saldo_bloqueado_g-?,
-                    saldo_pendente_g=saldo_pendente_g-?,saldo_operacional_g=saldo_operacional_g+?,
-                    caixas_bloqueadas=caixas_bloqueadas-?,bandejas_bloqueadas=bandejas_bloqueadas-?,
-                    atualizado_em=? WHERE id=? AND saldo_bloqueado_g>=? AND saldo_pendente_g>=?
-                    AND caixas_bloqueadas>=? AND bandejas_bloqueadas>=?"""),
-                    (peso_g,peso_g,peso_g,solicitacao["caixas"],solicitacao["bandejas"],agora,
-                     solicitacao["pa_nao_conforme_id"],peso_g,peso_g,solicitacao["caixas"],solicitacao["bandejas"]))
-            else:
-                cursor.execute(q("UPDATE pa_nao_conformes SET saldo_pendente_g=saldo_pendente_g-?,atualizado_em=? WHERE id=? AND saldo_pendente_g>=?"),
-                               (peso_g,agora,solicitacao["pa_nao_conforme_id"],peso_g))
+        if _mesma_identidade(solicitacao, usuario, usuario_id):
+            registro_autoaprovacao = solicitacao["pa_nao_conforme_id"]
+        else:
+            agora = _agora()
+            novo_status = APROVADA if decisao == "APROVAR" else REJEITADA
+            cursor.execute(q("""UPDATE pa_nao_conforme_solicitacoes SET status=?,decidido_por=?,
+                decidido_por_id=?,perfil_decisor=?,decidido_em=?,justificativa_decisao=?,atualizado_em=?
+                WHERE id=? AND status=?"""),
+                (novo_status, usuario, usuario_id, perfil, agora, justificativa, agora,
+                 solicitacao_id, PENDENTE))
             if cursor.rowcount != 1:
-                raise ValueError("A reserva de peso ou o controle auxiliar nao esta integro.")
-        elif decisao == "APROVAR":
-            cursor.execute(q("""UPDATE pa_caixas SET condicao='CONFORME',disponibilidade='DISPONIVEL',
-                zona_estoque='Conforme',motivo_nao_conformidade=NULL
-                WHERE id=? AND disponibilidade='BLOQUEADO'"""), (solicitacao["caixa_id"],))
-            if cursor.rowcount != 1:
-                raise ValueError("A caixa nao esta mais integralmente bloqueada.")
-            cursor.execute(q("""UPDATE pa_nao_conformes SET status='LIBERADO',decisao='LIBERAR',
-                decidido_por=?,perfil_decisao=?,decidido_em=?,justificativa_destinacao=?,atualizado_em=?
-                WHERE id=?"""), (usuario,perfil,agora,justificativa,agora,solicitacao["pa_nao_conforme_id"]))
-        acao = "APROVACAO_LIBERACAO" if decisao == "APROVAR" else "REJEICAO_LIBERACAO"
-        antes = {
-            "saldo_bloqueado_g": int(solicitacao["saldo_bloqueado_g"] or 0),
-            "saldo_pendente_g": int(solicitacao["saldo_pendente_g"] or 0),
-            "saldo_operacional_g": int(solicitacao["saldo_operacional_g"] or 0),
-        }
-        depois = dict(antes)
-        depois["saldo_pendente_g"] -= peso_g if solicitacao["tipo_registro"] == TIPO_LEGADO else 0
-        if decisao == "APROVAR" and solicitacao["tipo_registro"] == TIPO_LEGADO:
-            depois["saldo_bloqueado_g"] -= peso_g
-            depois["saldo_operacional_g"] += peso_g
-        _evento(cursor, solicitacao["pa_nao_conforme_id"], acao, solicitacao["nc_status"],
+                raise ValueError("A solicitacao foi validada simultaneamente por outro usuario.")
+            peso_g = int(solicitacao["peso_g"])
+            if solicitacao["tipo_registro"] == TIPO_LEGADO:
+                if decisao == "APROVAR":
+                    cursor.execute(q("""UPDATE pa_nao_conformes SET saldo_bloqueado_g=saldo_bloqueado_g-?,
+                        saldo_pendente_g=saldo_pendente_g-?,saldo_operacional_g=saldo_operacional_g+?,
+                        caixas_bloqueadas=caixas_bloqueadas-?,bandejas_bloqueadas=bandejas_bloqueadas-?,
+                        atualizado_em=? WHERE id=? AND saldo_bloqueado_g>=? AND saldo_pendente_g>=?
+                        AND caixas_bloqueadas>=? AND bandejas_bloqueadas>=?"""),
+                        (peso_g, peso_g, peso_g, solicitacao["caixas"], solicitacao["bandejas"],
+                         agora, solicitacao["pa_nao_conforme_id"], peso_g, peso_g,
+                         solicitacao["caixas"], solicitacao["bandejas"]))
+                else:
+                    cursor.execute(q("""UPDATE pa_nao_conformes SET
+                        saldo_pendente_g=saldo_pendente_g-?,atualizado_em=?
+                        WHERE id=? AND saldo_pendente_g>=?"""),
+                        (peso_g, agora, solicitacao["pa_nao_conforme_id"], peso_g))
+                if cursor.rowcount != 1:
+                    raise ValueError("A reserva de peso ou o controle auxiliar nao esta integro.")
+            elif decisao == "APROVAR":
+                cursor.execute(q("""UPDATE pa_caixas SET condicao='CONFORME',
+                    disponibilidade='DISPONIVEL',zona_estoque='Conforme',
+                    motivo_nao_conformidade=NULL
+                    WHERE id=? AND disponibilidade='BLOQUEADO'"""),
+                    (solicitacao["caixa_id"],))
+                if cursor.rowcount != 1:
+                    raise ValueError("A caixa nao esta mais integralmente bloqueada.")
+                cursor.execute(q("""UPDATE pa_nao_conformes SET status='LIBERADO',
+                    decisao='LIBERAR',decidido_por=?,perfil_decisao=?,decidido_em=?,
+                    justificativa_destinacao=?,atualizado_em=? WHERE id=?"""),
+                    (usuario, perfil, agora, justificativa, agora,
+                     solicitacao["pa_nao_conforme_id"]))
+            acao = "APROVACAO_LIBERACAO" if decisao == "APROVAR" else "REJEICAO_LIBERACAO"
+            antes = {
+                "saldo_bloqueado_g": int(solicitacao["saldo_bloqueado_g"] or 0),
+                "saldo_pendente_g": int(solicitacao["saldo_pendente_g"] or 0),
+                "saldo_operacional_g": int(solicitacao["saldo_operacional_g"] or 0),
+            }
+            depois = dict(antes)
+            depois["saldo_pendente_g"] -= peso_g if solicitacao["tipo_registro"] == TIPO_LEGADO else 0
+            if decisao == "APROVAR" and solicitacao["tipo_registro"] == TIPO_LEGADO:
+                depois["saldo_bloqueado_g"] -= peso_g
+                depois["saldo_operacional_g"] += peso_g
+            _evento(cursor, solicitacao["pa_nao_conforme_id"], acao, solicitacao["nc_status"],
                 "LIBERADO" if decisao == "APROVAR" and solicitacao["tipo_registro"] != TIPO_LEGADO else solicitacao["nc_status"],
                 usuario, perfil, origem, justificativa,
                 json.dumps({"solicitacao_id": solicitacao_id, "peso_g": peso_g,
                             "caixas": solicitacao["caixas"], "bandejas": solicitacao["bandejas"],
                             "antes": antes, "depois": depois}, sort_keys=True))
+    if registro_autoaprovacao is not None:
+        # A auditoria usa outra transacao para sobreviver ao bloqueio da operacao principal.
+        _auditar_negacao(registro_autoaprovacao, usuario, perfil, origem,
+                         "Autoaprovacao bloqueada: a solicitacao deve ser avaliada por outro usuario autorizado.")
+        raise PermissionError("Esta solicitacao deve ser avaliada por outro usuario autorizado.")
 
 
-def pendentes():
+def reverter_liberacao_administrativa(solicitacao_id, *, usuario=None, perfil=None,
+                                      origem=None, usuario_id=None):
+    """Revoga uma aprovacao sem uso posterior e restaura o bloqueio na mesma transacao."""
+    usuario, perfil, origem, usuario_id = _identidade(usuario, perfil, origem, usuario_id)
+    if perfil != "admin":
+        raise PermissionError("Somente Administrador pode executar a reversao administrativa.")
+    garantir_schema(criar_local=False)
+    motivo = ("Liberacao revertida porque o mesmo usuario solicitou e aprovou a movimentacao, "
+              "contrariando a segregacao de funcoes definida para Qualidade e Gerencia.")
+    with transaction() as conn:
+        cursor = conn.cursor()
+        bloqueio = " FOR UPDATE" if DATABASE_URL else ""
+        cursor.execute(q("""SELECT s.*,nc.idempotency_key AS registro_chave,
+            nc.tipo_registro,nc.status AS nc_status,nc.condicao_inicial,
+            nc.saldo_inicial_g,nc.saldo_bloqueado_g,nc.saldo_pendente_g,
+            nc.saldo_operacional_g,nc.saldo_reservado_operacional_g,nc.saldo_destinado_g,
+            nc.caixas_bloqueadas,nc.bandejas_bloqueadas
+            FROM pa_nao_conforme_solicitacoes s JOIN pa_nao_conformes nc
+            ON nc.id=s.pa_nao_conforme_id WHERE s.id=?""" + bloqueio), (solicitacao_id,))
+        solicitacao = cursor.fetchone()
+        if not solicitacao:
+            raise ValueError("Solicitacao de liberacao nao encontrada.")
+        if solicitacao["status"] == REVOGADA_POR_CORRECAO:
+            return {"solicitacao_id": solicitacao_id, "registro_id": solicitacao["pa_nao_conforme_id"],
+                    "status": REVOGADA_POR_CORRECAO, "ja_revertida": True}
+        if solicitacao["status"] != APROVADA:
+            raise ValueError("Somente uma solicitacao aprovada pode ser revertida.")
+        if solicitacao["tipo_registro"] != TIPO_LEGADO:
+            raise ValueError("Esta reversao administrativa exige inventario legado agregado.")
+        cursor.execute(q("SELECT COUNT(*) AS total FROM expedicao_itens WHERE pa_nao_conforme_id=?"),
+                       (solicitacao["pa_nao_conforme_id"],))
+        if int(cursor.fetchone()["total"] or 0):
+            raise ValueError("O saldo possui item de romaneio; a reversao foi interrompida.")
+        peso_g = int(solicitacao["peso_g"])
+        caixas = int(solicitacao["caixas"])
+        bandejas = int(solicitacao["bandejas"])
+        antes = {
+            "saldo_bloqueado_g": int(solicitacao["saldo_bloqueado_g"] or 0),
+            "saldo_pendente_g": int(solicitacao["saldo_pendente_g"] or 0),
+            "saldo_operacional_g": int(solicitacao["saldo_operacional_g"] or 0),
+            "saldo_reservado_operacional_g": int(solicitacao["saldo_reservado_operacional_g"] or 0),
+            "saldo_destinado_g": int(solicitacao["saldo_destinado_g"] or 0),
+            "caixas_bloqueadas": int(solicitacao["caixas_bloqueadas"] or 0),
+            "bandejas_bloqueadas": int(solicitacao["bandejas_bloqueadas"] or 0),
+        }
+        if (antes["saldo_reservado_operacional_g"] != 0 or antes["saldo_destinado_g"] != 0
+                or antes["saldo_pendente_g"] != 0 or antes["saldo_operacional_g"] != peso_g):
+            raise ValueError("O saldo aprovado foi utilizado ou alterado; a reversao foi interrompida.")
+        cursor.execute(q("""SELECT id,acao,detalhes FROM pa_nao_conforme_eventos
+            WHERE pa_nao_conforme_id=? AND acao IN ('SOLICITACAO_LIBERACAO','APROVACAO_LIBERACAO')
+            ORDER BY id"""), (solicitacao["pa_nao_conforme_id"],))
+        eventos_originais = []
+        for evento in cursor.fetchall():
+            try:
+                detalhes = json.loads(evento["detalhes"] or "{}")
+            except (TypeError, ValueError):
+                detalhes = {}
+            if int(detalhes.get("solicitacao_id") or 0) == int(solicitacao_id):
+                eventos_originais.append({"id": evento["id"], "acao": evento["acao"]})
+        if {item["acao"] for item in eventos_originais} != {
+                "SOLICITACAO_LIBERACAO", "APROVACAO_LIBERACAO"}:
+            raise ValueError("Os eventos originais da liberacao nao estao integros.")
+        agora = _agora()
+        cursor.execute(q("""UPDATE pa_nao_conformes SET status='BLOQUEADO',
+            saldo_bloqueado_g=saldo_bloqueado_g+?,saldo_operacional_g=saldo_operacional_g-?,
+            caixas_bloqueadas=caixas_bloqueadas+?,bandejas_bloqueadas=bandejas_bloqueadas+?,
+            atualizado_em=? WHERE id=? AND saldo_operacional_g=?
+            AND saldo_reservado_operacional_g=0 AND saldo_destinado_g=0 AND saldo_pendente_g=0"""),
+            (peso_g, peso_g, caixas, bandejas, agora, solicitacao["pa_nao_conforme_id"], peso_g))
+        if cursor.rowcount != 1:
+            raise ValueError("O saldo mudou simultaneamente; a reversao foi interrompida.")
+        cursor.execute(q("""UPDATE pa_nao_conforme_solicitacoes SET status=?,atualizado_em=?
+            WHERE id=? AND status=?"""),
+            (REVOGADA_POR_CORRECAO, agora, solicitacao_id, APROVADA))
+        if cursor.rowcount != 1:
+            raise ValueError("A solicitacao mudou simultaneamente; a reversao foi interrompida.")
+        depois = dict(antes)
+        depois.update({
+            "saldo_bloqueado_g": antes["saldo_bloqueado_g"] + peso_g,
+            "saldo_operacional_g": antes["saldo_operacional_g"] - peso_g,
+            "caixas_bloqueadas": antes["caixas_bloqueadas"] + caixas,
+            "bandejas_bloqueadas": antes["bandejas_bloqueadas"] + bandejas,
+        })
+        _evento(cursor, solicitacao["pa_nao_conforme_id"],
+                "REVERSAO_LIBERACAO_ADMINISTRATIVA", solicitacao["nc_status"], "BLOQUEADO",
+                usuario, perfil, origem, motivo,
+                json.dumps({
+                    "solicitacao_id": solicitacao_id,
+                    "registro_id": solicitacao["pa_nao_conforme_id"],
+                    "registro_chave": solicitacao["registro_chave"],
+                    "executor_usuario_id": usuario_id,
+                    "peso_g": peso_g, "caixas": caixas, "bandejas": bandejas,
+                    "antes": antes, "depois": depois,
+                    "eventos_originais": eventos_originais,
+                    "origem_correcao": origem,
+                }, sort_keys=True))
+        return {
+            "solicitacao_id": solicitacao_id,
+            "registro_id": solicitacao["pa_nao_conforme_id"],
+            "registro_chave": solicitacao["registro_chave"],
+            "status": REVOGADA_POR_CORRECAO,
+            "peso_g": peso_g, "caixas": caixas, "bandejas": bandejas,
+            "antes": antes, "depois": depois, "ja_revertida": False,
+        }
+
+
+def pendentes(usuario_id=None, usuario=None):
     garantir_schema()
     conn = conectar()
     try:
@@ -363,7 +499,12 @@ def pendentes():
             nc.saldo_bloqueado_g,nc.tipo_registro FROM pa_nao_conforme_solicitacoes s
             JOIN pa_nao_conformes nc ON nc.id=s.pa_nao_conforme_id
             WHERE s.status=? ORDER BY s.solicitado_em,s.id"""), (PENDENTE,))
-        return cursor.fetchall()
+        resultados = []
+        for linha in cursor.fetchall():
+            item = dict(linha)
+            item["pode_validar"] = not _mesma_identidade(item, usuario, usuario_id)
+            resultados.append(item)
+        return resultados
     finally:
         conn.close()
 
@@ -449,7 +590,7 @@ def resumo_inventario_legado_fisico(registros=None):
 def reservar_operacional(expedicao_id, registro_id, peso, caixas, bandejas, *,
                          usuario=None, perfil=None, origem=None):
     """Reserva saldo legado por kg para um romaneio normal aberto."""
-    usuario, perfil, origem = _identidade(usuario, perfil, origem)
+    usuario, perfil, origem, _ = _identidade(usuario, perfil, origem)
     peso_g = gramas(peso, "Peso a movimentar")
     caixas = inteiro(caixas, "Caixas")
     bandejas = inteiro(bandejas, "Bandejas")
@@ -485,7 +626,7 @@ def reservar_operacional(expedicao_id, registro_id, peso, caixas, bandejas, *,
 
 
 def remover_reserva_operacional(expedicao_id, item_id, *, usuario=None, perfil=None, origem=None):
-    usuario, perfil, origem = _identidade(usuario, perfil, origem)
+    usuario, perfil, origem, _ = _identidade(usuario, perfil, origem)
     with transaction() as conn:
         cursor = conn.cursor()
         cursor.execute(q("""SELECT i.*,e.status FROM expedicao_itens i JOIN expedicoes e ON e.id=i.expedicao_id

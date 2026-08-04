@@ -4,7 +4,11 @@
 {% for item in solicitacoes %}
 <section class="card"><div class="section-title-row"><div><h3>{{ item.numero }} &mdash; {{ item.produto }}</h3><p class="obs">Solicitado por {{ item.solicitado_por }} em {{ item.solicitado_em }}</p></div><strong>{{ (item.peso_g / 1000)|br_numero(3) }} kg</strong></div>
   <div class="form-grid"><p><strong>Motivo:</strong> {{ item.motivo }}</p><p><strong>Peso original:</strong> {{ ((item.saldo_inicial_g / 1000) if item.tipo_registro == 'INVENTARIO_LEGADO_AGREGADO' else item.peso)|br_numero(3) }} kg</p><p><strong>Saldo bloqueado:</strong> {{ ((item.saldo_bloqueado_g / 1000) if item.tipo_registro == 'INVENTARIO_LEGADO_AGREGADO' else item.peso)|br_numero(3) }} kg</p><p><strong>Caixas / bandejas:</strong> {{ item.caixas }} / {{ item.bandejas }}</p><p class="form-span-2"><strong>Justificativa da Qualidade:</strong> {{ item.justificativa }}</p><p class="form-span-2"><strong>Observa&ccedil;&otilde;es:</strong> {{ item.observacoes or '-' }}</p></div>
+  {% if item.pode_validar %}
   <form method="post" action="{{ url_for('validar_liberacao_produto', solicitacao_id=item.id) }}" class="form-grid"><div><label>Decis&atilde;o</label><select name="decisao" required><option value="APROVAR">Aprovar</option><option value="REJEITAR">Rejeitar</option></select></div><div class="form-span-2"><label>Justificativa gerencial</label><textarea name="justificativa" required></textarea></div><div><button class="botao-principal">Registrar valida&ccedil;&atilde;o</button></div></form>
+  {% else %}
+  <p class="alerta">Esta solicita&ccedil;&atilde;o deve ser avaliada por outro usu&aacute;rio autorizado.</p>
+  {% endif %}
 </section>
 {% else %}<section class="card"><p>Nenhuma libera&ccedil;&atilde;o aguarda valida&ccedil;&atilde;o gerencial.</p></section>{% endfor %}
 {% endblock %}
