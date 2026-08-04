@@ -3,6 +3,8 @@
 from datetime import datetime
 import csv
 import io
+import json
+import click
 
 from flask import Response, flash, redirect, render_template, request, session, url_for
 
@@ -17,6 +19,11 @@ from .produtos_nao_conformes import (
     indicadores as indicadores_pa_nc, iniciar_avaliacao, listar_locais_segregacao,
     obter_detalhe as obter_detalhe_pa_nc,
 )
+from .liberacoes import (
+    carregar_inventario, pendentes as liberacoes_pendentes,
+    solicitar as solicitar_liberacao, solicitacoes_do_registro,
+    validar as validar_liberacao,
+)
 
 _CRIAR_BANCO = None
 
@@ -25,6 +32,13 @@ def register_qualidade_routes(app, integracoes=None):
     global _CRIAR_BANCO
     integracoes = integracoes or {}
     _CRIAR_BANCO = integracoes.get("criar_banco")
+
+    @app.cli.command("carga-inventario-nc-20260730")
+    @click.option("--confirmar", is_flag=True, help="Persiste a carga; sem a flag apenas simula.")
+    def carga_inventario_nc_20260730(confirmar):
+        resultado = carregar_inventario(confirmar=confirmar, usuario="CLI administrativo",
+                                        perfil="admin", origem="flask-cli")
+        click.echo(json.dumps(resultado, ensure_ascii=False, sort_keys=True))
 
     @app.get("/qualidade/produtos-nao-conformes")
     @perfil_permitido("pcp", "producao", "qualidade", "gerencia")
@@ -70,7 +84,37 @@ def register_qualidade_routes(app, integracoes=None):
             flash("Produto Não Conforme não encontrado.")
             return redirect(url_for("produtos_nao_conformes"))
         return render_template("produto_nao_conforme_detalhe.html", registro=registro,
-                               eventos=eventos, status_labels=STATUS_LABELS)
+                               eventos=eventos, solicitacoes=solicitacoes_do_registro(pa_nc_id),
+                               status_labels=STATUS_LABELS)
+
+    @app.post("/qualidade/produtos-nao-conformes/<int:pa_nc_id>/solicitar-liberacao")
+    @perfil_permitido("qualidade")
+    def solicitar_liberacao_produto(pa_nc_id):
+        try:
+            solicitar_liberacao(pa_nc_id, request.form.get("peso"), request.form.get("caixas"),
+                                request.form.get("bandejas"), request.form.get("justificativa"),
+                                request.form.get("observacoes"),
+                                idempotency_key=request.form.get("idempotency_key"))
+            flash("Solicitacao registrada e reservada para validacao da Gerencia.")
+        except (ValueError, PermissionError) as erro:
+            flash(str(erro))
+        return redirect(url_for("detalhe_produto_nao_conforme", pa_nc_id=pa_nc_id))
+
+    @app.get("/qualidade/liberacoes-pendentes")
+    @perfil_permitido("gerencia")
+    def validar_liberacoes_pendentes():
+        return render_template("liberacoes_pendentes.html", solicitacoes=liberacoes_pendentes())
+
+    @app.post("/qualidade/liberacoes/<int:solicitacao_id>/validar")
+    @perfil_permitido("gerencia")
+    def validar_liberacao_produto(solicitacao_id):
+        try:
+            validar_liberacao(solicitacao_id, request.form.get("decisao"),
+                              request.form.get("justificativa"))
+            flash("Validacao gerencial registrada sem duplicidade.")
+        except (ValueError, PermissionError) as erro:
+            flash(str(erro))
+        return redirect(url_for("validar_liberacoes_pendentes"))
 
     @app.post("/qualidade/produtos-nao-conformes/<int:pa_nc_id>/avaliar")
     @perfil_permitido("pcp", "producao", "qualidade", "gerencia")

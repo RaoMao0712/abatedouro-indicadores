@@ -170,6 +170,24 @@
             {% else %}<p class="romaneio-empty-state">Nenhum item elegível para este tipo de romaneio.</p>{% endif %}
         </section>
         {% endif %}
+        {% if documento_aberto and saldos_legados %}
+        <section class="card romaneio-secao">
+            <h3>Saldo liberado do invent&aacute;rio legado</h3>
+            <p class="obs">Movimenta&ccedil;&atilde;o por kg; caixas e bandejas s&atilde;o informa&ccedil;&otilde;es f&iacute;sicas obrigat&oacute;rias.</p>
+            {% for saldo in saldos_legados %}
+            <form method="POST" class="form-grid">
+                <input type="hidden" name="acao" value="reservar">
+                <input type="hidden" name="pa_nao_conforme_id" value="{{ saldo.id }}">
+                <div><label>Origem</label><input value="{{ saldo.numero }} &mdash; {{ saldo.motivo }}" readonly></div>
+                <div><label>Dispon&iacute;vel</label><input value="{{ (saldo.saldo_operacional_g / 1000)|br_numero(3) }} kg" readonly></div>
+                <div><label>Peso (kg)</label><input name="peso_kg" required inputmode="decimal"></div>
+                <div><label>Caixas</label><input type="number" name="quantidade_caixas" min="0" step="1" required></div>
+                <div><label>Bandejas</label><input type="number" name="quantidade_bandejas" min="0" step="1" required></div>
+                <div><button type="submit" class="romaneio-btn romaneio-btn-primary">Reservar saldo legado</button></div>
+            </form>
+            {% endfor %}
+        </section>
+        {% endif %}
         <section class="card romaneio-secao">
             <h3>Itens do romaneio</h3>
             <div class="tabela-responsiva tabela-executiva expedicao-tabela">
@@ -178,12 +196,12 @@
                     <tbody>
                     {% for item in itens %}
                     <tr>
-                        <td>{{ item.codigo_caixa or "Total declarado" }}</td><td>{{ item.sku }}</td><td>{{ item.apresentacao or ("Caixa" if item.sku == "Galinha Cortada" else "-") }}</td><td>{{ item.op_id or "-" }}</td>
-                        <td>{% if item.unidade_estoque == "PACOTE" %}{{ item.quantidade_pacotes|br_numero(0) }} pacotes{% else %}{{ item.quantidade_unidades|br_numero }}{% endif %}</td>
+                        <td>{{ item.codigo_caixa or ("Invent&aacute;rio legado" if item.origem_tipo == "INVENTARIO_LEGADO_AGREGADO" else "Total declarado") }}</td><td>{{ item.sku }}</td><td>{{ item.apresentacao or ("Caixa" if item.sku == "Galinha Cortada" else "-") }}</td><td>{{ item.op_id or "N&atilde;o identificada" }}</td>
+                        <td>{% if item.origem_tipo == "INVENTARIO_LEGADO_AGREGADO" %}{{ item.quantidade_caixas }} caixas / {{ item.quantidade_bandejas }} bandejas{% elif item.unidade_estoque == "PACOTE" %}{{ item.quantidade_pacotes|br_numero(0) }} pacotes{% else %}{{ item.quantidade_unidades|br_numero }}{% endif %}</td>
                         <td>{% if item.unidade_estoque == "PACOTE" %}{{ item.quantidade_galinhas|br_numero(0) }}{% else %}Não aplicável{% endif %}</td>
                         <td>{% if item.unidade_estoque == "PACOTE" %}Não aplicável{% else %}{{ item.quantidade_kg|br_numero(3) }} kg{% endif %}</td>
                         <td>{{ item.disponibilidade_caixa|replace('_', ' ') if item.disponibilidade_caixa else expedicao.status }}</td>
-                        {% if documento_aberto %}<td>{% if item.caixa_id %}<form method="POST"><input type="hidden" name="acao" value="remover"><input type="hidden" name="caixa_id" value="{{ item.caixa_id }}"><button type="submit" class="romaneio-btn romaneio-btn-secondary">Remover</button></form>{% endif %}</td>{% endif %}
+                        {% if documento_aberto %}<td>{% if item.caixa_id or item.origem_tipo == "INVENTARIO_LEGADO_AGREGADO" %}<form method="POST"><input type="hidden" name="acao" value="remover">{% if item.caixa_id %}<input type="hidden" name="caixa_id" value="{{ item.caixa_id }}">{% else %}<input type="hidden" name="item_id" value="{{ item.id }}">{% endif %}<button type="submit" class="romaneio-btn romaneio-btn-secondary">Remover</button></form>{% endif %}</td>{% endif %}
                     </tr>
                     {% else %}<tr><td colspan="9">Nenhum item registrado.</td></tr>{% endfor %}
                     </tbody>

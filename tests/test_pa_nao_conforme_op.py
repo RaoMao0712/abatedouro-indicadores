@@ -255,7 +255,6 @@ def test_tentativa_direta_pelos_fluxos_legados_tambem_e_rejeitada(banco):
 
 
 @pytest.mark.parametrize("destino,status,disponibilidade", [
-    ("LIBERAR", "LIBERADO", "DISPONIVEL"),
     ("RETRABALHO", "RETRABALHO", "BLOQUEADO"),
     ("REPROCESSO", "REPROCESSO", "REPROCESSAMENTO"),
     ("DESCARTE", "DESCARTE", "DESCARTADO"),
@@ -279,10 +278,10 @@ def test_qualidade_destina_sem_apagar_ou_duplicar_estoque(banco, destino, status
 def test_justificativa_obrigatoria_e_producao_pcp_nao_decidem_com_tentativa_auditada(banco):
     registro_id = _registrar(banco, [_item()])[0]
     with pytest.raises(ValueError, match="obrigatória"):
-        nc.decidir(registro_id, "LIBERAR", "", usuario="Analista", perfil="qualidade", origem="teste")
+        nc.decidir(registro_id, "RETRABALHO", "", usuario="Analista", perfil="qualidade", origem="teste")
     for perfil in ("producao", "pcp"):
         with pytest.raises(PermissionError):
-            nc.decidir(registro_id, "LIBERAR", "Tentativa", usuario=perfil, perfil=perfil, origem="teste")
+            nc.decidir(registro_id, "RETRABALHO", "Tentativa", usuario=perfil, perfil=perfil, origem="teste")
     conn = banco[0]()
     assert conn.execute("SELECT status FROM pa_nao_conformes WHERE id=?", (registro_id,)).fetchone()[0] == "BLOQUEADO"
     assert conn.execute("SELECT COUNT(*) FROM pa_nao_conforme_eventos WHERE acao='TENTATIVA_NEGADA'").fetchone()[0] == 2
@@ -298,14 +297,12 @@ def test_perfis_autorizados_iniciam_avaliacao(perfil, banco):
     conn.close()
 
 
-def test_registro_liberado_retorna_ao_disponivel_uma_unica_vez(banco):
+def test_liberacao_direta_e_rejeitada_e_preserva_bloqueio(banco):
     registro_id = _registrar(banco, [_item()])[0]
-    nc.decidir(registro_id, "LIBERAR", "Conforme após avaliação", usuario="Gerente",
-               perfil="gerencia", origem="teste")
-    with pytest.raises(ValueError, match="já foi registrada"):
-        nc.decidir(registro_id, "LIBERAR", "Repetição", usuario="Gerente",
+    with pytest.raises(ValueError, match="solicitacao"):
+        nc.decidir(registro_id, "LIBERAR", "Conforme", usuario="Gerente",
                    perfil="gerencia", origem="teste")
     conn = banco[0]()
-    assert conn.execute("SELECT COUNT(*) FROM pa_caixas WHERE id=1 AND condicao='CONFORME' AND disponibilidade='DISPONIVEL'").fetchone()[0] == 1
+    assert conn.execute("SELECT COUNT(*) FROM pa_caixas WHERE id=1 AND condicao='NAO_CONFORME' AND disponibilidade='BLOQUEADO'").fetchone()[0] == 1
     assert conn.execute("SELECT COUNT(*) FROM pa_nao_conformes WHERE caixa_id=1").fetchone()[0] == 1
     conn.close()

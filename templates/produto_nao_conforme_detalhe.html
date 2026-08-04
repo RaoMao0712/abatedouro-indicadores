@@ -1,20 +1,58 @@
 {% extends "base.html" %}
 {% block conteudo %}
-<section class="hero-dashboard expedicao-hero"><div><span class="eyebrow">Qualidade · Rastreabilidade</span><h2>{{ registro.numero }}</h2><p class="obs">Status: <strong>{{ status_labels[registro.status] }}</strong></p></div><a class="botao-dre-exportar" href="{{ url_for('produtos_nao_conformes') }}">Voltar</a></section>
+<section class="hero-dashboard expedicao-hero">
+  <div><span class="eyebrow">Qualidade &middot; Rastreabilidade</span><h2>{{ registro.numero }}</h2>
+    <p class="obs">Status: <strong>{{ status_labels[registro.status] }}</strong></p></div>
+  <a class="botao-dre-exportar" href="{{ url_for('produtos_nao_conformes') }}">Voltar</a>
+</section>
 <div class="form-grid">
-  <section class="card"><h3>1 — Identificação</h3><p><strong>OP:</strong> #{{ registro.op_id }}</p><p><strong>Lote:</strong> {{ registro.lote }}</p><p><strong>Caixa/posição:</strong> {{ registro.codigo_caixa }}</p><p><strong>Produto:</strong> {{ registro.produto }}</p><p><strong>Apresentação:</strong> {{ registro.apresentacao }}</p><p><strong>Quantidade:</strong> {{ registro.quantidade|br_numero }} {{ registro.unidade }}</p><p><strong>Peso:</strong> {{ registro.peso|br_numero(3) ~ ' kg' if registro.peso is not none else 'Não aplicável' }}</p></section>
-  <section class="card"><h3>2 — Não conformidade</h3><p><strong>Motivo:</strong> {{ registro.motivo }}</p><p><strong>Descrição:</strong> {{ registro.descricao or '-' }}</p><p><strong>Registrado por:</strong> {{ registro.registrado_por }} ({{ registro.perfil_registro }})</p><p><strong>Data:</strong> {{ registro.registrado_em }}</p></section>
-  <section class="card"><h3>3 — Bloqueio</h3><p><strong>Status:</strong> {{ status_labels[registro.status] }}</p><p><strong>Local:</strong> {{ registro.local_nome }}</p><p><strong>Disponibilidade física:</strong> {{ registro.disponibilidade|replace('_', ' ')|title }}</p><p><strong>Responsável:</strong> {{ registro.registrado_por }}</p></section>
-  <section class="card"><h3>4 — Destinação</h3><p><strong>Decisão:</strong> {{ registro.decisao or 'Pendente' }}</p><p><strong>Justificativa:</strong> {{ registro.justificativa_destinacao or '-' }}</p><p><strong>Responsável:</strong> {{ registro.decidido_por or '-' }}</p><p><strong>Data:</strong> {{ registro.decidido_em or '-' }}</p><p><strong>Observações:</strong> {{ registro.observacoes or '-' }}</p></section>
+  <section class="card"><h3>1 &mdash; Identifica&ccedil;&atilde;o</h3>
+    <p><strong>Tipo:</strong> {{ 'Invent&aacute;rio legado agregado' if registro.tipo_registro == 'INVENTARIO_LEGADO_AGREGADO' else 'Caixa rastreada' }}</p>
+    <p><strong>OP:</strong> {{ '#' ~ registro.op_id if registro.op_id else 'N&atilde;o identificada' }}</p>
+    <p><strong>Lote:</strong> {{ registro.lote or 'N&atilde;o identificado' }}</p>
+    <p><strong>Validade:</strong> {{ registro.validade or 'N&atilde;o identificada' }}</p>
+    <p><strong>Produto:</strong> {{ registro.produto }}</p><p><strong>Local:</strong> {{ registro.local_nome }}</p>
+  </section>
+  <section class="card"><h3>2 &mdash; F&iacute;sico</h3>
+    {% if registro.tipo_registro == 'INVENTARIO_LEGADO_AGREGADO' %}
+    <p><strong>Saldo inicial:</strong> {{ (registro.saldo_inicial_g / 1000)|br_numero(3) }} kg</p>
+    <p><strong>Saldo bloqueado:</strong> {{ (registro.saldo_bloqueado_g / 1000)|br_numero(3) }} kg</p>
+    <p><strong>Pendente da Ger&ecirc;ncia:</strong> {{ (registro.saldo_pendente_g / 1000)|br_numero(3) }} kg</p>
+    <p><strong>Estoque operacional:</strong> {{ (registro.saldo_operacional_g / 1000)|br_numero(3) }} kg</p>
+    <p><strong>Caixas / bandejas bloqueadas:</strong> {{ registro.caixas_bloqueadas }} / {{ registro.bandejas_bloqueadas }}</p>
+    {% else %}
+    <p><strong>Caixa/posi&ccedil;&atilde;o:</strong> {{ registro.codigo_caixa }}</p>
+    <p><strong>Quantidade:</strong> {{ registro.quantidade|br_numero }} {{ registro.unidade }}</p>
+    <p><strong>Peso:</strong> {{ registro.peso|br_numero(3) }} kg</p>
+    {% endif %}
+  </section>
+  <section class="card"><h3>3 &mdash; N&atilde;o conformidade</h3><p><strong>Condi&ccedil;&atilde;o:</strong> {{ registro.condicao_inicial or registro.condicao }}</p><p><strong>Motivo:</strong> {{ registro.motivo }}</p><p><strong>Origem:</strong> {{ registro.origem_entrada or 'Produ&ccedil;&atilde;o rastreada' }}</p><p><strong>Contagem:</strong> {{ registro.data_contagem or registro.registrado_em }}</p><p><strong>Respons&aacute;veis:</strong> {{ registro.responsaveis_contagem or registro.registrado_por }}</p></section>
+  <section class="card"><h3>4 &mdash; Valida&ccedil;&otilde;es</h3><p><strong>Qualidade:</strong> {{ registro.validacao_qualidade or '-' }}</p><p><strong>Ger&ecirc;ncia:</strong> {{ registro.validacao_gerencia or '-' }}</p><p><strong>Observa&ccedil;&otilde;es:</strong> {{ registro.observacoes or '-' }}</p></section>
 </div>
-{% if session.get('perfil') in ['qualidade', 'gerencia', 'admin'] and registro.status in ['BLOQUEADO', 'MANTIDO_BLOQUEADO'] %}
-<section class="card"><form method="post" action="{{ url_for('avaliar_produto_nao_conforme', pa_nc_id=registro.id) }}"><button class="botao-dre-exportar">Iniciar avaliação</button></form></section>
+
+{% if session.get('perfil') in ['qualidade', 'admin'] and registro.status in ['BLOQUEADO', 'EM_AVALIACAO', 'MANTIDO_BLOQUEADO'] %}
+<section class="card"><h3>Solicitar libera&ccedil;&atilde;o</h3>
+  <p class="obs">A solicita&ccedil;&atilde;o reserva o peso; a entrada no estoque operacional s&oacute; ocorre ap&oacute;s aprova&ccedil;&atilde;o da Ger&ecirc;ncia.</p>
+  <form method="post" action="{{ url_for('solicitar_liberacao_produto', pa_nc_id=registro.id) }}" class="form-grid">
+    <input type="hidden" name="idempotency_key" value="WEB-LIB-{{ registro.id }}-{{ registro.atualizado_em }}">
+    <div><label>Saldo bloqueado atual</label><input value="{{ ((registro.saldo_bloqueado_g / 1000) if registro.tipo_registro == 'INVENTARIO_LEGADO_AGREGADO' else registro.peso)|br_numero(3) }} kg" readonly></div>
+    <div><label>Peso a liberar (kg)</label><input name="peso" inputmode="decimal" required value="{{ (registro.peso if registro.tipo_registro != 'INVENTARIO_LEGADO_AGREGADO' else '') }}"></div>
+    <div><label>Caixas envolvidas</label><input type="number" min="0" step="1" name="caixas" required></div>
+    <div><label>Bandejas envolvidas</label><input type="number" min="0" step="1" name="bandejas" required value="{{ registro.quantidade|int if registro.tipo_registro != 'INVENTARIO_LEGADO_AGREGADO' else '' }}"></div>
+    <div class="form-span-2"><label>Justificativa</label><textarea name="justificativa" required></textarea></div>
+    <div class="form-span-2"><label>Observa&ccedil;&otilde;es</label><textarea name="observacoes"></textarea></div>
+    <div><button class="botao-principal">Solicitar libera&ccedil;&atilde;o</button></div>
+  </form>
+</section>
 {% endif %}
-{% if session.get('perfil') in ['qualidade', 'gerencia', 'admin'] and registro.status in ['BLOQUEADO', 'EM_AVALIACAO', 'MANTIDO_BLOQUEADO'] %}
-<section class="card"><h3>Decisão da Qualidade</h3><form method="post" action="{{ url_for('decidir_produto_nao_conforme', pa_nc_id=registro.id) }}" class="form-grid" onsubmit="return confirm('Confirmar esta destinação? O histórico será preservado.')">
-  <div><label>Destinação</label><select name="destino" required><option value="">Selecione</option><option value="LIBERAR">Liberar</option><option value="RETRABALHO">Retrabalho</option><option value="REPROCESSO">Reprocesso</option><option value="DESCARTE">Descarte</option><option value="MANTER_BLOQUEADO">Manter bloqueado</option></select></div>
-  <div class="form-span-2"><label>Justificativa</label><textarea name="justificativa" required></textarea></div><div class="form-span-2"><label>Observações</label><textarea name="observacoes"></textarea></div><div><button class="botao-principal">Registrar decisão</button></div>
+
+{% if session.get('perfil') in ['qualidade', 'admin'] and registro.status in ['BLOQUEADO', 'EM_AVALIACAO', 'MANTIDO_BLOQUEADO'] %}
+<section class="card"><h3>Outras destina&ccedil;&otilde;es da Qualidade</h3><form method="post" action="{{ url_for('decidir_produto_nao_conforme', pa_nc_id=registro.id) }}" class="form-grid">
+  <div><label>Destina&ccedil;&atilde;o</label><select name="destino" required><option value="">Selecione</option><option value="RETRABALHO">Retrabalho</option><option value="REPROCESSO">Reprocesso</option><option value="DESCARTE">Descarte</option><option value="MANTER_BLOQUEADO">Manter bloqueado</option></select></div>
+  <div class="form-span-2"><label>Justificativa</label><textarea name="justificativa" required></textarea></div><div class="form-span-2"><label>Observa&ccedil;&otilde;es</label><textarea name="observacoes"></textarea></div><div><button class="botao-principal">Registrar destina&ccedil;&atilde;o</button></div>
 </form></section>
 {% endif %}
-<section class="card"><h3>5 — Histórico</h3><div class="tabela-responsiva tabela-executiva"><table><thead><tr><th>Data</th><th>Ação</th><th>Estado anterior</th><th>Novo estado</th><th>Usuário</th><th>Justificativa/detalhes</th></tr></thead><tbody>{% for item in eventos %}<tr><td>{{ item.criado_em }}</td><td>{{ item.acao|replace('_',' ')|title }}</td><td>{{ item.status_anterior or '-' }}</td><td>{{ item.status_novo or '-' }}</td><td>{{ item.usuario }} ({{ item.perfil }})</td><td>{{ item.justificativa or item.detalhes or '-' }}</td></tr>{% endfor %}</tbody></table></div></section>
+
+<section class="card"><h3>Solicita&ccedil;&otilde;es de libera&ccedil;&atilde;o</h3><div class="tabela-responsiva tabela-executiva"><table><thead><tr><th>Data</th><th>Peso</th><th>Caixas</th><th>Bandejas</th><th>Status</th><th>Solicitante</th><th>Decisor</th></tr></thead><tbody>{% for item in solicitacoes %}<tr><td>{{ item.solicitado_em }}</td><td>{{ (item.peso_g / 1000)|br_numero(3) }} kg</td><td>{{ item.caixas }}</td><td>{{ item.bandejas }}</td><td>{{ item.status|replace('_',' ') }}</td><td>{{ item.solicitado_por }}</td><td>{{ item.decidido_por or '-' }}</td></tr>{% else %}<tr><td colspan="7">Nenhuma solicita&ccedil;&atilde;o.</td></tr>{% endfor %}</tbody></table></div></section>
+<section class="card"><h3>Hist&oacute;rico permanente</h3><div class="tabela-responsiva tabela-executiva"><table><thead><tr><th>Data</th><th>A&ccedil;&atilde;o</th><th>Estado anterior</th><th>Novo estado</th><th>Usu&aacute;rio</th><th>Justificativa/detalhes</th></tr></thead><tbody>{% for item in eventos %}<tr><td>{{ item.criado_em }}</td><td>{{ item.acao|replace('_',' ')|title }}</td><td>{{ item.status_anterior or '-' }}</td><td>{{ item.status_novo or '-' }}</td><td>{{ item.usuario }} ({{ item.perfil }})</td><td>{{ item.justificativa or item.detalhes or '-' }}</td></tr>{% endfor %}</tbody></table></div></section>
 {% endblock %}

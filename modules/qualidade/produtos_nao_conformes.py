@@ -25,6 +25,7 @@ MOTIVOS = (
     "Aguardando avaliação da Qualidade", "Outro",
 )
 PERFIS_DECISAO = {"qualidade", "gerencia", "admin"}
+TIPO_LEGADO = "INVENTARIO_LEGADO_AGREGADO"
 LOCAL_PADRAO = "Abatedouro — Área de Produto Não Conforme"
 
 
@@ -57,8 +58,8 @@ def criar_tabelas_pa_nao_conforme():
     try:
         cursor.execute(f"""
         CREATE TABLE IF NOT EXISTS pa_nao_conformes (
-            id {id_type}, numero TEXT UNIQUE NOT NULL, op_id INTEGER NOT NULL,
-            caixa_id INTEGER UNIQUE NOT NULL, lote TEXT NOT NULL, produto TEXT NOT NULL,
+            id {id_type}, numero TEXT UNIQUE NOT NULL, op_id INTEGER,
+            caixa_id INTEGER UNIQUE, lote TEXT, produto TEXT NOT NULL,
             apresentacao TEXT NOT NULL, quantidade REAL NOT NULL, peso REAL,
             unidade TEXT NOT NULL, motivo TEXT NOT NULL, descricao TEXT,
             status TEXT NOT NULL DEFAULT 'BLOQUEADO', local_estoque_id INTEGER NOT NULL,
@@ -66,7 +67,21 @@ def criar_tabelas_pa_nao_conforme():
             registrado_em {timestamp_type} NOT NULL, decisao TEXT,
             justificativa_destinacao TEXT, observacoes TEXT,
             decidido_por TEXT, perfil_decisao TEXT, decidido_em {timestamp_type},
-            criado_em {timestamp_type} NOT NULL, atualizado_em {timestamp_type} NOT NULL
+            criado_em {timestamp_type} NOT NULL, atualizado_em {timestamp_type} NOT NULL,
+            tipo_registro TEXT NOT NULL DEFAULT 'CAIXA_RASTREADA',
+            idempotency_key TEXT UNIQUE, validade TEXT, origem_entrada TEXT,
+            data_contagem TEXT, responsaveis_contagem TEXT, validacao_qualidade TEXT,
+            validacao_gerencia TEXT, condicao_inicial TEXT,
+            caixas_iniciais INTEGER NOT NULL DEFAULT 0,
+            bandejas_iniciais INTEGER NOT NULL DEFAULT 0,
+            caixas_bloqueadas INTEGER NOT NULL DEFAULT 0,
+            bandejas_bloqueadas INTEGER NOT NULL DEFAULT 0,
+            saldo_inicial_g INTEGER NOT NULL DEFAULT 0,
+            saldo_bloqueado_g INTEGER NOT NULL DEFAULT 0,
+            saldo_pendente_g INTEGER NOT NULL DEFAULT 0,
+            saldo_operacional_g INTEGER NOT NULL DEFAULT 0,
+            saldo_reservado_operacional_g INTEGER NOT NULL DEFAULT 0,
+            saldo_destinado_g INTEGER NOT NULL DEFAULT 0
         )
         """)
         cursor.execute(f"""
@@ -77,9 +92,42 @@ def criar_tabelas_pa_nao_conforme():
             origem TEXT NOT NULL, criado_em {timestamp_type} NOT NULL
         )
         """)
+        cursor.execute(f"""
+        CREATE TABLE IF NOT EXISTS pa_nao_conforme_solicitacoes (
+            id {id_type}, pa_nao_conforme_id INTEGER NOT NULL,
+            idempotency_key TEXT UNIQUE NOT NULL, peso_g INTEGER NOT NULL,
+            caixas INTEGER NOT NULL DEFAULT 0, bandejas INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL, justificativa TEXT NOT NULL, observacoes TEXT,
+            solicitado_por TEXT NOT NULL, perfil_solicitante TEXT NOT NULL,
+            solicitado_em {timestamp_type} NOT NULL, decidido_por TEXT,
+            perfil_decisor TEXT, decidido_em {timestamp_type},
+            justificativa_decisao TEXT, criado_em {timestamp_type} NOT NULL,
+            atualizado_em {timestamp_type} NOT NULL
+        )
+        """)
+        colunas = [
+            "tipo_registro TEXT NOT NULL DEFAULT 'CAIXA_RASTREADA'", "idempotency_key TEXT",
+            "validade TEXT", "origem_entrada TEXT", "data_contagem TEXT",
+            "responsaveis_contagem TEXT", "validacao_qualidade TEXT", "validacao_gerencia TEXT",
+            "condicao_inicial TEXT", "caixas_iniciais INTEGER NOT NULL DEFAULT 0",
+            "bandejas_iniciais INTEGER NOT NULL DEFAULT 0", "caixas_bloqueadas INTEGER NOT NULL DEFAULT 0",
+            "bandejas_bloqueadas INTEGER NOT NULL DEFAULT 0", "saldo_inicial_g INTEGER NOT NULL DEFAULT 0",
+            "saldo_bloqueado_g INTEGER NOT NULL DEFAULT 0", "saldo_pendente_g INTEGER NOT NULL DEFAULT 0",
+            "saldo_operacional_g INTEGER NOT NULL DEFAULT 0", "saldo_reservado_operacional_g INTEGER NOT NULL DEFAULT 0",
+            "saldo_destinado_g INTEGER NOT NULL DEFAULT 0",
+        ]
+        for coluna in colunas:
+            _alterar_coluna(cursor, f"ALTER TABLE pa_nao_conformes ADD COLUMN IF NOT EXISTS {coluna}",
+                           f"ALTER TABLE pa_nao_conformes ADD COLUMN {coluna}")
+        if DATABASE_URL:
+            cursor.execute("ALTER TABLE pa_nao_conformes ALTER COLUMN op_id DROP NOT NULL")
+            cursor.execute("ALTER TABLE pa_nao_conformes ALTER COLUMN caixa_id DROP NOT NULL")
+            cursor.execute("ALTER TABLE pa_nao_conformes ALTER COLUMN lote DROP NOT NULL")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_pa_nc_op ON pa_nao_conformes(op_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_pa_nc_status ON pa_nao_conformes(status)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_pa_nc_eventos ON pa_nao_conforme_eventos(pa_nao_conforme_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_pa_nc_solicitacoes ON pa_nao_conforme_solicitacoes(pa_nao_conforme_id, status)")
+        cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_pa_nc_idempotency_key ON pa_nao_conformes(idempotency_key)")
         cursor.execute(q("""
             INSERT INTO locais_estoque (nome, tipo, ativo)
             SELECT ?, 'segregacao', 'Sim'
@@ -261,6 +309,10 @@ def decidir(pa_nc_id, destino, justificativa, observacoes="", *, usuario=None,
     criar_tabelas_pa_nao_conforme()
     if destino not in mapa:
         raise ValueError("Destinação inválida.")
+    if destino == "LIBERAR":
+        _auditar_negacao(pa_nc_id, usuario, perfil, origem, justificativa,
+                         "Liberacao direta recusada; use solicitacao e validacao gerencial.")
+        raise ValueError("A liberacao exige solicitacao da Qualidade e validacao da Gerencia.")
     if not justificativa:
         raise ValueError("A justificativa da destinação é obrigatória.")
     if perfil not in PERFIS_DECISAO:
@@ -343,7 +395,7 @@ def consultar(filtros=None):
             SELECT nc.*, le.nome AS local_nome, cx.codigo_caixa,
                    cx.condicao, cx.disponibilidade
             FROM pa_nao_conformes nc
-            JOIN pa_caixas cx ON cx.id=nc.caixa_id
+            LEFT JOIN pa_caixas cx ON cx.id=nc.caixa_id
             JOIN locais_estoque le ON le.id=nc.local_estoque_id
             WHERE {' AND '.join(clausulas)}
             ORDER BY nc.registrado_em DESC, nc.id DESC
@@ -361,7 +413,7 @@ def obter_detalhe(pa_nc_id):
         cursor.execute(q("""
             SELECT nc.*, le.nome AS local_nome, cx.codigo_caixa,
                    cx.condicao, cx.disponibilidade
-            FROM pa_nao_conformes nc JOIN pa_caixas cx ON cx.id=nc.caixa_id
+            FROM pa_nao_conformes nc LEFT JOIN pa_caixas cx ON cx.id=nc.caixa_id
             JOIN locais_estoque le ON le.id=nc.local_estoque_id WHERE nc.id=?
         """), (pa_nc_id,))
         registro = cursor.fetchone()
@@ -382,7 +434,11 @@ def indicadores(registros):
                 pass
     return {
         "registros_bloqueados": len(bloqueados),
-        "peso_bloqueado": sum(float(r["peso"] or 0) for r in bloqueados),
+        "peso_bloqueado": sum(
+            int(r["saldo_bloqueado_g"] or 0) / 1000
+            if r["tipo_registro"] == TIPO_LEGADO else float(r["peso"] or 0)
+            for r in bloqueados
+        ),
         "quantidade_bloqueada": sum(float(r["quantidade"] or 0) for r in bloqueados),
         "aguardando_avaliacao": sum(r["status"] == "BLOQUEADO" for r in registros),
         "liberados": sum(r["status"] == "LIBERADO" for r in registros),
@@ -390,4 +446,14 @@ def indicadores(registros):
         "reprocesso": sum(r["status"] == "REPROCESSO" for r in registros),
         "descarte": sum(r["status"] == "DESCARTE" for r in registros),
         "tempo_medio_horas": sum(tempos) / len(tempos) if tempos else 0,
+        "fisico_total_kg": round(sum(
+            int(r["saldo_inicial_g"] or 0) / 1000
+            if r["tipo_registro"] == TIPO_LEGADO else float(r["peso"] or 0)
+            for r in registros
+        ), 3),
+        "caixas_informativas": sum(int(r["caixas_iniciais"] or 0) for r in registros if r["tipo_registro"] == TIPO_LEGADO),
+        "nao_conforme_bloqueado_kg": round(sum(int(r["saldo_bloqueado_g"] or 0) / 1000 for r in registros if r["tipo_registro"] == TIPO_LEGADO and r["condicao_inicial"] == "NAO_CONFORME"), 3),
+        "aguardando_liberacao_kg": round(sum(int(r["saldo_bloqueado_g"] or 0) / 1000 for r in registros if r["tipo_registro"] == TIPO_LEGADO and r["condicao_inicial"] == "CONFORME_AGUARDANDO_LIBERACAO"), 3),
+        "pendente_gerencia_kg": round(sum(int(r["saldo_pendente_g"] or 0) / 1000 for r in registros), 3),
+        "disponivel_kg": round(sum(int(r["saldo_operacional_g"] or 0) / 1000 for r in registros), 3),
     }

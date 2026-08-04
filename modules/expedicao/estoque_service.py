@@ -359,6 +359,10 @@ def criar_tabelas_estoque_confiavel():
             "peso_bruto REAL",
             "peso_tara REAL",
             "lote TEXT",
+            "pa_nao_conforme_id INTEGER",
+            "quantidade_caixas INTEGER DEFAULT 0",
+            "quantidade_bandejas INTEGER DEFAULT 0",
+            "origem_tipo TEXT",
         ]
         for coluna in colunas_item:
             _alterar_coluna(
@@ -881,6 +885,8 @@ def concluir_romaneio(expedicao_id):
 
         for item in itens:
             if not item["caixa_id"]:
+                if item["origem_tipo"] == "INVENTARIO_LEGADO_AGREGADO":
+                    continue
                 raise ValueError("Romaneio operacional contem item sem posicao de estoque.")
             if item["unidade_atual"] == "PACOTE":
                 quantidade = int(item["quantidade_pacotes"] or 0)
@@ -964,6 +970,9 @@ def concluir_romaneio(expedicao_id):
                 peso=peso_evento,
             )
 
+        from modules.qualidade.liberacoes import concluir_reservas_cursor
+        concluir_reservas_cursor(cursor, expedicao_id, _usuario(), _perfil(), "romaneio")
+
         momento = _agora()
         cursor.execute(q("""
         UPDATE expedicoes
@@ -1040,6 +1049,8 @@ def cancelar_romaneio(expedicao_id, justificativa):
                     peso=None if item["unidade_atual"] == "PACOTE" else item["peso_liquido"],
                     justificativa=justificativa.strip(),
                 )
+        from modules.qualidade.liberacoes import cancelar_reservas_cursor
+        cancelar_reservas_cursor(cursor, expedicao_id, justificativa.strip(), _usuario(), _perfil(), "romaneio")
         momento = _agora()
         cursor.execute(q("""
         UPDATE expedicoes
@@ -1130,6 +1141,8 @@ def estornar_romaneio(expedicao_id, justificativa):
                 peso=None if item["unidade_atual"] == "PACOTE" else item["peso_liquido"],
                 justificativa=justificativa.strip(),
             )
+        from modules.qualidade.liberacoes import estornar_baixas_cursor
+        estornar_baixas_cursor(cursor, expedicao_id, justificativa.strip(), _usuario(), _perfil(), "romaneio")
         cursor.execute(q("""
         UPDATE expedicoes
         SET status = 'Estornado', estornado_em = ?, atualizado_em = ?,

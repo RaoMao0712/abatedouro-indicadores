@@ -7,6 +7,11 @@
 </section>
 
 <div class="expedicao-kpis">
+  <div class="card kpi-card"><span class="kpi-label">F&iacute;sico total</span><strong>{{ indicadores.fisico_total_kg|br_numero(3) }} kg</strong><small>{{ indicadores.caixas_informativas }} caixas informativas do legado</small></div>
+  <div class="card kpi-card"><span class="kpi-label">N&atilde;o conforme bloqueado</span><strong>{{ indicadores.nao_conforme_bloqueado_kg|br_numero(3) }} kg</strong><small>saldo agregado classificado como n&atilde;o conforme</small></div>
+  <div class="card kpi-card"><span class="kpi-label">Conforme aguardando libera&ccedil;&atilde;o</span><strong>{{ indicadores.aguardando_liberacao_kg|br_numero(3) }} kg</strong><small>ainda bloqueado</small></div>
+  <div class="card kpi-card"><span class="kpi-label">Pendente da Ger&ecirc;ncia</span><strong>{{ indicadores.pendente_gerencia_kg|br_numero(3) }} kg</strong><small>peso reservado por solicita&ccedil;&otilde;es</small></div>
+  <div class="card kpi-card"><span class="kpi-label">Conforme dispon&iacute;vel</span><strong>{{ indicadores.disponivel_kg|br_numero(3) }} kg</strong><small>invent&aacute;rio legado no Estoque Operacional</small></div>
   <div class="card kpi-card"><span class="kpi-label">Bloqueados</span><strong>{{ indicadores.registros_bloqueados }}</strong><small>registros sob bloqueio</small></div>
   <div class="card kpi-card"><span class="kpi-label">Peso bloqueado</span><strong>{{ indicadores.peso_bloqueado|br_numero(3) }} kg</strong><small>fora do estoque disponível</small></div>
   <div class="card kpi-card"><span class="kpi-label">Quantidade bloqueada</span><strong>{{ indicadores.quantidade_bloqueada|br_numero }}</strong><small>nas unidades registradas</small></div>
@@ -37,8 +42,8 @@
   <div class="tabela-responsiva tabela-executiva expedicao-tabela"><table>
     <thead><tr><th>Número</th><th>Data</th><th>OP</th><th>Lote</th><th>Produto</th><th>Quantidade</th><th>Peso</th><th>Motivo</th><th>Status</th><th>Local</th><th>Responsável</th><th>Ação</th></tr></thead>
     <tbody>{% for item in registros %}<tr>
-      <td><strong>{{ item.numero }}</strong></td><td>{{ item.registrado_em }}</td><td>#{{ item.op_id }}</td><td>{{ item.lote }}</td><td>{{ item.produto }}</td>
-      <td>{{ item.quantidade|br_numero }} {{ item.unidade }}</td><td>{{ item.peso|br_numero(3) ~ ' kg' if item.peso is not none else '-' }}</td><td>{{ item.motivo }}</td>
+      <td><strong>{{ item.numero }}</strong></td><td>{{ item.registrado_em }}</td><td>{{ '#' ~ item.op_id if item.op_id else 'N&atilde;o identificada' }}</td><td>{{ item.lote or 'N&atilde;o identificado' }}</td><td>{{ item.produto }}</td>
+      <td>{% if item.tipo_registro == 'INVENTARIO_LEGADO_AGREGADO' %}{{ item.caixas_bloqueadas }} caixas / {{ item.bandejas_bloqueadas }} bandejas{% else %}{{ item.quantidade|br_numero }} {{ item.unidade }}{% endif %}</td><td>{{ ((item.saldo_bloqueado_g / 1000) if item.tipo_registro == 'INVENTARIO_LEGADO_AGREGADO' else item.peso)|br_numero(3) }} kg</td><td>{{ item.motivo }}</td>
       <td><span class="badge-expedicao {% if item.status == 'LIBERADO' %}entrada{% else %}neutro{% endif %}">{{ status_labels[item.status] }}</span></td>
       <td>{{ item.local_nome }}</td><td>{{ item.registrado_por }}</td><td><a class="botao-dre-exportar" href="{{ url_for('detalhe_produto_nao_conforme', pa_nc_id=item.id) }}">Detalhes</a></td>
     </tr>{% else %}<tr><td colspan="12">Nenhum Produto Não Conforme encontrado.</td></tr>{% endfor %}</tbody>

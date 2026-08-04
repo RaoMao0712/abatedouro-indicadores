@@ -57,6 +57,10 @@ from .estoque_service import (
     reservar_itens,
 )
 from modules.qualidade.produtos_nao_conformes import listar_locais_segregacao, MOTIVOS
+from modules.qualidade.liberacoes import (
+    remover_reserva_operacional, reservar_operacional,
+    saldos_legados_operacionais,
+)
 
 
 def _itens_nc_caixas(form):
@@ -345,18 +349,28 @@ def register_expedicao_routes(app, integracoes=None):
             try:
                 acao = request.form.get("acao") or "reservar"
                 if acao == "reservar":
-                    caixa_ids = request.form.getlist("caixa_ids")
-                    reservar_itens(
-                        expedicao_id,
-                        caixa_ids,
-                        {
-                            caixa_id: request.form.get(f"quantidade_pacotes_{caixa_id}")
-                            for caixa_id in caixa_ids
-                        },
-                    )
+                    if request.form.get("pa_nao_conforme_id"):
+                        reservar_operacional(
+                            expedicao_id, int(request.form.get("pa_nao_conforme_id")),
+                            request.form.get("peso_kg"), request.form.get("quantidade_caixas"),
+                            request.form.get("quantidade_bandejas"),
+                        )
+                    else:
+                        caixa_ids = request.form.getlist("caixa_ids")
+                        reservar_itens(
+                            expedicao_id,
+                            caixa_ids,
+                            {
+                                caixa_id: request.form.get(f"quantidade_pacotes_{caixa_id}")
+                                for caixa_id in caixa_ids
+                            },
+                        )
                     flash("Itens reservados com sucesso.")
                 elif acao == "remover":
-                    remover_item_reservado(expedicao_id, int(request.form.get("caixa_id") or 0))
+                    if request.form.get("item_id"):
+                        remover_reserva_operacional(expedicao_id, int(request.form.get("item_id")))
+                    else:
+                        remover_item_reservado(expedicao_id, int(request.form.get("caixa_id") or 0))
                     flash("Item removido e situação anterior restaurada.")
                 elif acao == "concluir":
                     if request.form.get("confirmacao_conclusao") != "confirmado":
@@ -427,6 +441,7 @@ def register_expedicao_routes(app, integracoes=None):
             resumo_itens=resumo_itens,
             resumo_mz=resumo_mz,
             caixas_disponiveis=caixas_disponiveis,
+            saldos_legados=saldos_legados_operacionais() if expedicao["tipo_movimentacao"] == "TRANSFERENCIA" else [],
             tipo_descricao=TIPOS_ROMANEIO.get(
                 expedicao["tipo_movimentacao"],
                 expedicao["tipo_movimentacao"],
@@ -438,10 +453,13 @@ def register_expedicao_routes(app, integracoes=None):
     @perfil_permitido("pcp", "qualidade")
     def estoque_camara_expedicao():
         itens, resumo = buscar_estoque_operacional()
+        saldos_legados = saldos_legados_operacionais()
+        resumo["peso_legado_disponivel"] = sum(int(item["saldo_operacional_g"] or 0) / 1000 for item in saldos_legados)
         return render_template(
             "expedicao_estoque.html",
             itens=itens,
             resumo=resumo,
+            saldos_legados=saldos_legados,
             marco=obter_marco_zero(),
         )
 

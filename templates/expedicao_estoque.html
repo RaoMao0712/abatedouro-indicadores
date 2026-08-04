@@ -6,6 +6,7 @@
     </section>
     <nav class="romaneio-tabs no-print"><a href="{{ url_for('expedicao') }}">Romaneios</a><a class="ativo" href="{{ url_for('estoque_camara_expedicao') }}">Estoque da Câmara</a><a href="{{ url_for('nao_conformes_expedicao') }}">Produtos Não Conformes</a><a href="{{ url_for('historico_estoque_expedicao') }}">Histórico</a></nav>
     <section class="expedicao-kpis">
+        <div class="card expedicao-kpi verde"><span>Legado agregado dispon&iacute;vel</span><strong>{{ resumo.peso_legado_disponivel|br_numero(3) }} kg</strong><small>Origem preservada, sem OP ou lote fict&iacute;cio</small></div>
         <div class="card expedicao-kpi azul"><span>Físico total</span><strong>{{ resumo.unidades_fisicas|br_numero(0) }}</strong><small>Caixas + pacotes presentes</small></div>
         <div class="card expedicao-kpi verde"><span>Conforme disponível</span><strong>{{ resumo.unidades_disponiveis|br_numero(0) }}</strong><small>{{ resumo.peso_disponivel|br_numero(3) }} kg aplicáveis</small></div>
         <div class="card expedicao-kpi"><span>Reservado</span><strong>{{ resumo.unidades_reservadas|br_numero(0) }}</strong><small>{{ resumo.peso_reservado|br_numero(3) }} kg aplicáveis</small></div>
@@ -13,6 +14,9 @@
         <div class="card expedicao-kpi"><span>Em reprocessamento</span><strong>{{ resumo.unidades_reprocessamento|br_numero(0) }}</strong><small>{{ resumo.peso_reprocessamento|br_numero(3) }} kg aplicáveis</small></div>
         <div class="card expedicao-kpi"><span>Demais condições físicas</span><strong>{{ resumo.unidades_outras_condicoes|br_numero(0) }}</strong><small>Conferência de reconciliação</small></div>
     </section>
+    {% if saldos_legados %}
+    <section class="card"><h3>Invent&aacute;rio legado liberado</h3><div class="tabela-responsiva tabela-executiva"><table><thead><tr><th>Refer&ecirc;ncia</th><th>Produto</th><th>Motivo original</th><th>Saldo dispon&iacute;vel</th><th>Reservado</th><th>Origem</th><th>OP / lote</th></tr></thead><tbody>{% for item in saldos_legados %}<tr><td>{{ item.numero }}</td><td>{{ item.produto }}</td><td>{{ item.motivo }}</td><td>{{ (item.saldo_operacional_g / 1000)|br_numero(3) }} kg</td><td>{{ (item.saldo_reservado_operacional_g / 1000)|br_numero(3) }} kg</td><td>Invent&aacute;rio legado</td><td>N&atilde;o identificados</td></tr>{% endfor %}</tbody></table></div></section>
+    {% endif %}
     <section class="card">
         <div class="tabela-responsiva tabela-executiva expedicao-tabela"><table>
             <thead><tr><th>Identificação</th><th>SKU</th><th>OP</th><th>Lote/produção</th><th>Validade</th><th>Quantidade</th><th>Peso</th><th>Local/zona</th><th>Condição</th><th>Disponibilidade</th><th></th></tr></thead>

@@ -104,6 +104,12 @@ NAVEGACAO = [
                 "active_endpoints": ("produtos_nao_conformes", "detalhe_produto_nao_conforme"),
             },
             {
+                "titulo": "Validar Liberacoes",
+                "endpoint": "validar_liberacoes_pendentes",
+                "perfis": ("admin", "gerencia"),
+                "active_endpoints": ("validar_liberacoes_pendentes", "validar_liberacao_produto"),
+            },
+            {
                 "titulo": "Descartes e Condenações",
                 "endpoint": "apontamento_descartes",
                 "perfis": ("admin", "qualidade"),
