@@ -61,6 +61,17 @@ Executar novamente e seguro: o retorno deve informar `inseridos=0` e
 3. O saldo aprovado aparece separado no Estoque Operacional.
 4. Romaneio normal pode reservar o legado por kg, exigindo caixas e bandejas.
 
+## Clareza entre as visoes da Expedicao
+
+- `Estoque da Camara` e a visao fisica reconciliada. Ela inclui o inventario
+  legado agregado mesmo enquanto todo o saldo permanece bloqueado.
+- `Produtos Nao Conformes`, dentro da Expedicao, continua restrito aos registros
+  individualizados originados pelo fluxo operacional/OP em `pa_caixas`.
+- Portanto, essa segunda aba vazia e o comportamento esperado enquanto existirem
+  somente os tres registros agregados do inventario de 30/07/2026. Uma eventual
+  unificacao das duas experiencias fica como melhoria futura e nao integra esta
+  Sprint.
+
 ## Risco residual
 
 SQLite preexistente com `op_id`, `caixa_id` e `lote` definidos como `NOT NULL`
