@@ -41,6 +41,10 @@ def banco(tmp_path, monkeypatch):
             id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT UNIQUE NOT NULL,
             tipo TEXT NOT NULL, ativo TEXT NOT NULL
         );
+        CREATE TABLE skus (
+            id INTEGER PRIMARY KEY, codigo TEXT, nome TEXT, ativo TEXT,
+            excluido_em TEXT
+        );
         CREATE TABLE pa_caixas (
             id INTEGER PRIMARY KEY, codigo_caixa TEXT UNIQUE, sku TEXT,
             peso_liquido REAL, quantidade_bandejas REAL, status TEXT,
@@ -67,6 +71,9 @@ def banco(tmp_path, monkeypatch):
             origem_tipo TEXT
         );
         INSERT INTO expedicoes VALUES (1, 'Aberto', 'TRANSFERENCIA');
+        INSERT INTO skus VALUES (1, 'LEG-1', 'Galinha Cortada', 'Sim', NULL);
+        INSERT INTO locais_estoque(id,nome,tipo,ativo) VALUES
+            (4, 'Câmara de Estocagem - Estoque Não Conforme', 'segregacao', 'Sim');
     """)
     conn.commit()
     conn.close()
@@ -93,6 +100,7 @@ def test_simulacao_e_carga_idempotente_reconciliam_totais_oficiais(banco):
     segunda = _carga(banco)
     assert (primeira["inseridos"], primeira["existentes"]) == (3, 0)
     assert (segunda["inseridos"], segunda["existentes"]) == (0, 3)
+    assert primeira["ids"] == segunda["ids"]
     conn = banco[0]()
     resumo = conn.execute("""SELECT COUNT(*),SUM(saldo_inicial_g),SUM(saldo_bloqueado_g),
         SUM(saldo_operacional_g),SUM(caixas_iniciais),SUM(bandejas_iniciais)
@@ -101,6 +109,16 @@ def test_simulacao_e_carga_idempotente_reconciliam_totais_oficiais(banco):
     conn.close()
     assert resumo[:] == (3, 10472060, 10472060, 0, 867, 10398)
     assert eventos == 3
+    conn = banco[0]()
+    registros = conn.execute("""SELECT produto,apresentacao,observacoes
+        FROM pa_nao_conformes ORDER BY id""").fetchall()
+    detalhes = conn.execute("""SELECT detalhes FROM pa_nao_conforme_eventos
+        WHERE acao='CARGA_INICIAL' ORDER BY id""").fetchall()
+    conn.close()
+    assert all(item["produto"] == "Galinha Cortada" for item in registros)
+    assert all(item["apresentacao"] == "Congelada" for item in registros)
+    assert all("LEG-1 (ID 1)" in item["observacoes"] for item in registros)
+    assert all('"sku_id": 1' in item["detalhes"] for item in detalhes)
     indicadores = nc.indicadores(nc.consultar())
     assert indicadores["fisico_total_kg"] == 10472.060
     assert indicadores["nao_conforme_bloqueado_kg"] == 9876.560

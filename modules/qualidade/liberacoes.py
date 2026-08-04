@@ -17,6 +17,11 @@ PENDENTE = "AGUARDANDO_VALIDACAO_GERENCIA"
 APROVADA = "APROVADA"
 REJEITADA = "REJEITADA"
 LOCAL_INVENTARIO = "Câmara de Estocagem - Estoque Não Conforme"
+LOCAL_INVENTARIO_ID = 4
+SKU_INVENTARIO_ID = 1
+SKU_INVENTARIO_CODIGO = "LEG-1"
+SKU_INVENTARIO_NOME = "Galinha Cortada"
+APRESENTACAO_INVENTARIO = "Congelada"
 
 INVENTARIO_OFICIAL = (
     {"chave": "INVENTARIO_NC_2026_07_30_CARNE_ESCURA", "motivo": "Carne Escura", "condicao": "NAO_CONFORME", "caixas": 689, "bandejas": 8268, "kg": "8340.430"},
@@ -86,16 +91,17 @@ def _auditar_negacao(registro_id, usuario, perfil, origem, detalhes):
                     registro["status"], usuario, perfil, origem, detalhes=detalhes)
 
 
-def garantir_schema():
+def garantir_schema(*, criar_local=True):
     nc.criar_tabelas_pa_nao_conforme()
     conn = conectar()
     try:
         cursor = conn.cursor()
-        cursor.execute(q("""
-            INSERT INTO locais_estoque (nome, tipo, ativo)
-            SELECT ?, 'segregacao', 'Sim'
-            WHERE NOT EXISTS (SELECT 1 FROM locais_estoque WHERE nome = ?)
-        """), (LOCAL_INVENTARIO, LOCAL_INVENTARIO))
+        if criar_local:
+            cursor.execute(q("""
+                INSERT INTO locais_estoque (nome, tipo, ativo)
+                SELECT ?, 'segregacao', 'Sim'
+                WHERE NOT EXISTS (SELECT 1 FROM locais_estoque WHERE nome = ?)
+            """), (LOCAL_INVENTARIO, LOCAL_INVENTARIO))
         conn.commit()
     finally:
         conn.close()
@@ -118,24 +124,54 @@ def carregar_inventario(*, confirmar=False, usuario="Sistema", perfil="admin", o
     totais = simular_carga()
     if not confirmar:
         return {**totais, "modo": "SIMULACAO", "inseridos": 0, "existentes": 0}
-    garantir_schema()
+    garantir_schema(criar_local=False)
     inseridos = existentes = 0
+    ids = []
     with transaction() as conn:
         cursor = conn.cursor()
-        cursor.execute(q("SELECT id FROM locais_estoque WHERE nome=?"), (LOCAL_INVENTARIO,))
-        local_id = cursor.fetchone()["id"]
+        cursor.execute(q("""SELECT id,codigo,nome,ativo,excluido_em FROM skus
+            WHERE id=?"""), (SKU_INVENTARIO_ID,))
+        sku = cursor.fetchone()
+        if (not sku or sku["codigo"] != SKU_INVENTARIO_CODIGO
+                or sku["nome"] != SKU_INVENTARIO_NOME or sku["ativo"] != "Sim"
+                or sku["excluido_em"] is not None):
+            raise RuntimeError("O SKU oficial 1/LEG-1/Galinha Cortada não está íntegro e ativo.")
+        cursor.execute(q("SELECT id,nome,tipo,ativo FROM locais_estoque WHERE id=?"),
+                       (LOCAL_INVENTARIO_ID,))
+        local = cursor.fetchone()
+        if (not local or local["nome"] != LOCAL_INVENTARIO
+                or local["tipo"] != "segregacao" or local["ativo"] != "Sim"):
+            raise RuntimeError("O local oficial 4 de estoque não conforme não está íntegro e ativo.")
+        local_id = local["id"]
+        chaves = tuple(item["chave"] for item in INVENTARIO_OFICIAL)
+        cursor.execute(q("""SELECT id,idempotency_key FROM pa_nao_conformes
+            WHERE idempotency_key IN (?,?,?) ORDER BY id"""), chaves)
+        existentes_antes = cursor.fetchall()
+        if len(existentes_antes) not in {0, len(INVENTARIO_OFICIAL)}:
+            raise RuntimeError("Carga parcial detectada; nenhuma alteração foi realizada.")
+        if not existentes_antes:
+            cursor.execute(q("""SELECT COUNT(*) AS registros,
+                COALESCE(SUM(saldo_inicial_g),0) AS peso_g
+                FROM pa_nao_conformes WHERE tipo_registro=?"""), (TIPO_LEGADO,))
+            legado = cursor.fetchone()
+            if int(legado["registros"] or 0) or int(legado["peso_g"] or 0):
+                raise RuntimeError("Já existe inventário legado sem as chaves oficiais.")
         for item in INVENTARIO_OFICIAL:
             cursor.execute(q("SELECT id FROM pa_nao_conformes WHERE idempotency_key=?"), (item["chave"],))
-            if cursor.fetchone():
+            existente = cursor.fetchone()
+            if existente:
                 existentes += 1
+                ids.append(existente["id"])
                 continue
             peso_g = gramas(item["kg"])
             agora = _agora()
             numero = item["chave"].replace("INVENTARIO_NC_", "PNC-LEG-")
             params = (
-                numero, "Galinha Cortada Congelada", "Inventario legado agregado",
+                numero, SKU_INVENTARIO_NOME, APRESENTACAO_INVENTARIO,
                 item["bandejas"], peso_g / 1000, item["motivo"], local_id,
-                usuario, perfil, agora, "Lote e validade nao identificados.", agora, agora,
+                usuario, perfil, agora,
+                "SKU oficial LEG-1 (ID 1). Conservação: Congelada. "
+                "OP inexistente; lote e validade não identificados.", agora, agora,
                 TIPO_LEGADO, item["chave"], "Inventário físico de Produtos Não Conformes — 30/07/2026",
                 "2026-07-30", "Gabriel Menezes e Francimara Abreu", "Edivânia Nascimento",
                 "Thiago Nascimento", item["condicao"], item["caixas"], item["bandejas"],
@@ -159,12 +195,18 @@ def carregar_inventario(*, confirmar=False, usuario="Sistema", perfil="admin", o
             else:
                 cursor.execute(q(sql), params)
                 registro_id = cursor.lastrowid
+            ids.append(registro_id)
             _evento(cursor, registro_id, "CARGA_INICIAL", None, "BLOQUEADO", usuario,
                     perfil, origem, "Inventario fisico oficial de 30/07/2026",
                     json.dumps({"peso_g": peso_g, "caixas": item["caixas"],
-                                "bandejas": item["bandejas"]}, sort_keys=True))
+                                "bandejas": item["bandejas"],
+                                "sku_id": SKU_INVENTARIO_ID,
+                                "sku_codigo": SKU_INVENTARIO_CODIGO,
+                                "produto": SKU_INVENTARIO_NOME,
+                                "apresentacao": APRESENTACAO_INVENTARIO}, sort_keys=True))
             inseridos += 1
-    return {**totais, "modo": "EXECUCAO", "inseridos": inseridos, "existentes": existentes}
+    return {**totais, "modo": "EXECUCAO", "inseridos": inseridos,
+            "existentes": existentes, "ids": ids}
 
 
 def solicitar(registro_id, peso, caixas, bandejas, justificativa, observacoes="", *,
