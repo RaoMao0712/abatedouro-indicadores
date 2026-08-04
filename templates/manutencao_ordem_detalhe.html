@@ -138,7 +138,7 @@
             {% else %}
             {{ campo_leitura("Solicitante", ordem.solicitante) }}
             {% endif %}
-            {% if pode_editar_dados_gerais %}
+            {% if pode_editar_dados_gerais and not pode_executar %}
             <label>Responsavel<input type="text" name="responsavel" value="{{ ordem.responsavel or '' }}"></label>
             {% else %}
             {{ campo_leitura("Responsavel", ordem.responsavel) }}
@@ -212,11 +212,7 @@
             {% endif %}
             <div><label>Conclusao<input type="date" name="data_conclusao" value="{{ ordem.data_conclusao or '' }}"></label></div>
             <div><label>Hora conclusao<input type="time" name="hora_conclusao" value="{{ ordem.hora_conclusao or '' }}"></label></div>
-            {% if pode_editar_dados_gerais %}
-            <div><label>Responsavel<input type="text" value="{{ ordem.responsavel or '' }}" readonly></label></div>
-            {% else %}
             <div><label>Responsavel<input type="text" name="responsavel" value="{{ ordem.responsavel or '' }}"></label></div>
-            {% endif %}
             <div><label>Horas paradas<input type="number" name="horas_paradas" step="0.01" min="0" value="{{ ordem.horas_paradas or 0 }}"></label></div>
             <div><label>Custo realizado<input type="number" name="custo_real" step="0.01" min="0" value="{{ ordem.custo_real or 0 }}"></label></div>
         </div>

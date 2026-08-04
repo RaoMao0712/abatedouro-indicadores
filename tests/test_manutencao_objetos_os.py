@@ -782,6 +782,8 @@ def test_qualidade_conclui_pela_ficha_com_campos_tecnicos_e_auditoria():
     assert 'name="horas_paradas"' in html
     assert 'name="custo_real"' in html
     assert 'value="Concluida"' in html
+    assert html.count('name="responsavel"') == 1
+    assert '<label>Responsavel<input type="text" name="responsavel"' in html
 
     payload = form_ficha_dados_gerais(
         equipamento_id=str(equipamento["id"]),
