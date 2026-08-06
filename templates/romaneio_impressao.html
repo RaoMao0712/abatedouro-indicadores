@@ -1,86 +1,129 @@
-{% extends "base.html" %}
+{% extends "base_impressao.html" %}
+{% block titulo %}{{ expedicao.numero_romaneio }} | FrigoDatta{% endblock %}
 {% block conteudo %}
 {% set is_mz = expedicao.tipo_movimentacao == "HISTORICO_MARCO_ZERO" %}
 {% set is_venda = expedicao.tipo_saida == "VENDA_DIRETA" %}
-<div class="romaneio-impressao">
-    <div class="romaneio-print-toolbar no-print">
-        <a class="romaneio-btn romaneio-btn-secondary" href="{{ url_for('detalhe_romaneio_expedicao', expedicao_id=expedicao.id) }}">← Voltar</a>
-        <button class="romaneio-btn romaneio-btn-print" onclick="window.print()">⎙ Imprimir</button>
+{% set itens_gi = itens|selectattr("sku", "equalto", "Galinha Inteira")|list %}
+{% set itens_gc = itens|selectattr("sku", "equalto", "Galinha Cortada")|list %}
+
+<div class="rom-doc-screen-tools no-print">
+    <p>Na janela de impress&atilde;o, utilize <strong>A4</strong>, <strong>Retrato</strong>, <strong>1 p&aacute;gina por folha</strong> e desative <strong>Cabe&ccedil;alhos e rodap&eacute;s</strong>.</p>
+    <div>
+        <a href="{{ url_for('detalhe_romaneio_expedicao', expedicao_id=expedicao.id) }}">&larr; Voltar</a>
+        <button type="button" onclick="window.print()">Imprimir / Salvar PDF</button>
     </div>
-
-    {% if expedicao.status == "Aberto" %}
-    <div class="documento-marca rascunho">RASCUNHO</div>
-    <p class="documento-aviso">Pré-visualização: este romaneio ainda não foi concluído e não representa o documento definitivo.</p>
-    {% elif expedicao.status in ["Cancelado", "Estornado"] %}
-    <div class="documento-marca invalidado">{{ expedicao.status|upper }}</div>
-    {% endif %}
-
-    <header class="romaneio-print-header">
-        <div><h1>FrigoDatta</h1><p>ROMANEIO DE {{ tipo_descricao|upper }}</p></div>
-        <div><strong class="numero-romaneio">{{ expedicao.numero_romaneio }}</strong><span>{{ expedicao.status }}</span></div>
-    </header>
-
-    <section class="romaneio-print-meta">
-        <div><small>Data</small><strong>{{ expedicao.data[8:10] }}/{{ expedicao.data[5:7] }}/{{ expedicao.data[0:4] }}</strong></div>
-        <div><small>Origem</small><strong>{{ expedicao.origem or "Abatedouro" }}</strong></div>
-        <div><small>Destino</small><strong>{{ expedicao.destino }}</strong></div>
-        {% if is_venda %}<div><small>Cliente</small><strong>{{ expedicao.cliente_nome }}</strong>{% if expedicao.cliente_fantasia %}<span>{{ expedicao.cliente_fantasia }}</span>{% endif %}</div><div><small>CPF/CNPJ</small><strong>{{ expedicao.cliente_documento or '-' }}</strong></div><div><small>Endereço</small><strong>{{ expedicao.cliente_endereco or '-' }}{% if expedicao.cliente_cidade %} · {{ expedicao.cliente_cidade }}/{{ expedicao.cliente_uf }}{% endif %}</strong></div>{% endif %}
-        {% if expedicao.veiculo %}<div><small>Veículo</small><strong>{{ expedicao.veiculo }}</strong></div>{% endif %}
-        {% if expedicao.motorista %}<div><small>Motorista</small><strong>{{ expedicao.motorista }}</strong></div>{% endif %}
-        <div><small>Responsável</small><strong>{{ expedicao.responsavel or expedicao.criado_por or "-" }}</strong></div>
-        <div><small>Emitido por</small><strong>{{ expedicao.emitido_por or "-" }}</strong></div>
-        <div><small>Data e hora da emissão</small><strong>{{ emissao_formatada }}</strong></div>
-        {% if expedicao.concluido_em %}<div><small>Conclusão</small><strong>{{ expedicao.concluido_em }}</strong></div>{% endif %}
-    </section>
-
-    {% set itens_gi = itens|selectattr("sku", "equalto", "Galinha Inteira")|list %}
-    {% set itens_gc = itens|selectattr("sku", "equalto", "Galinha Cortada")|list %}
-    {% if is_mz %}
-        <h3>Resumo da transferência histórica</h3>
-        {% if itens_gi or itens_gc %}
-        <table>
-            <thead><tr><th>Produto / apresentação</th><th>Quantidade</th><th>Total físico aplicável</th></tr></thead>
-            <tbody>
-                {% for item in itens_gi %}
-                <tr><td>Galinha Inteira — V{{ item.galinhas_por_pacote|br_numero(0) }}<small>{{ item.apresentacao }}</small></td><td>{{ item.quantidade_pacotes|br_numero(0) }} pacotes</td><td>{{ item.quantidade_galinhas|br_numero(0) }} galinhas</td></tr>
-                {% endfor %}
-                {% for item in itens_gc %}
-                <tr><td>Galinha Cortada<small>Controle histórico por caixas e peso</small></td><td>{{ item.quantidade_unidades|br_numero(0) }} caixas</td><td>{{ item.quantidade_kg|br_numero(3) }} kg</td></tr>
-                {% endfor %}
-            </tbody>
-            <tfoot>
-                <tr><th>Totais de Galinha Inteira</th><th>{{ resumo.total_pacotes|br_numero(0) }} pacotes</th><th>{{ resumo.total_galinhas|br_numero(0) }} galinhas</th></tr>
-                <tr><th>Totais de Galinha Cortada</th><th>{{ resumo.total_caixas|br_numero(0) }} caixas</th><th>{{ resumo.total_kg|br_numero(3) }} kg</th></tr>
-            </tfoot>
-        </table>
-        {% else %}
-        <p class="romaneio-empty-state">Totais históricos ainda não informados.</p>
-        {% endif %}
-    {% else %}
-        {% if itens_gi %}
-        <h3>Galinha Inteira — controle por pacotes</h3>
-        <table>
-            <thead><tr><th>Lote/identificação</th><th>Apresentação</th><th>OP</th><th>Pacotes</th><th>Galinhas por pacote</th><th>Total de galinhas</th><th>Peso</th></tr></thead>
-            <tbody>
-                {% for item in itens_gi %}<tr><td>{{ item.lote or item.codigo_caixa }}</td><td>{{ item.apresentacao }}</td><td>{{ item.op_id or "-" }}</td><td>{{ item.quantidade_pacotes|br_numero(0) }}</td><td>{{ item.galinhas_por_pacote|br_numero(0) }}</td><td>{{ item.quantidade_galinhas|br_numero(0) }}</td><td>Não aplicável</td></tr>{% endfor %}
-                <tr><th colspan="3">Totais</th><th>{{ resumo.total_pacotes|br_numero(0) }}</th><th>-</th><th>{{ resumo.total_galinhas|br_numero(0) }}</th><th>Não aplicável</th></tr>
-            </tbody>
-        </table>
-        {% endif %}
-        {% if itens_gc %}
-        <h3>Galinha Cortada — controle por caixas e peso</h3>
-        <table>
-            <thead><tr><th>Lote/caixa</th><th>OP</th><th>Caixas</th><th>Bandejas</th><th>Peso bruto</th><th>Tara</th><th>Peso líquido</th></tr></thead>
-            <tbody>
-                {% for item in itens_gc %}<tr><td>{{ item.lote or item.codigo_caixa }}</td><td>{{ item.op_id or "-" }}</td><td>{{ (1 if item.caixa_id else item.quantidade_unidades)|br_numero(0) }}</td><td>{{ item.quantidade_unidades|br_numero }}</td><td>{{ item.peso_bruto|br_numero(3) }} kg</td><td>{{ item.peso_tara|br_numero(3) }} kg</td><td>{{ item.quantidade_kg|br_numero(3) }} kg</td></tr>{% endfor %}
-                <tr><th colspan="2">Totais</th><th>{{ resumo.total_caixas|br_numero(0) }}</th><th>{{ resumo.total_bandejas|br_numero }}</th><th>{{ resumo.total_peso_bruto|br_numero(3) }} kg</th><th>{{ resumo.total_tara|br_numero(3) }} kg</th><th>{{ resumo.total_kg|br_numero(3) }} kg</th></tr>
-            </tbody>
-        </table>
-        {% endif %}
-    {% endif %}
-
-    <section class="romaneio-print-observacoes"><strong>Observações</strong><p>{{ expedicao.observacoes or "Sem observações." }}</p></section>
-    {% if expedicao.justificativa %}<section class="romaneio-print-justificativa"><strong>Justificativa</strong><p>{{ expedicao.justificativa }}</p></section>{% endif %}
-    <div class="assinaturas"><span>Responsável pela movimentação</span><span>Conferência</span></div>
 </div>
+
+<main class="rom-doc" aria-label="Documento oficial do romaneio {{ expedicao.numero_romaneio }}">
+    <table class="rom-doc-shell" role="presentation">
+        <thead>
+            <tr><td>
+                <header class="rom-doc-header">
+                    <div class="rom-doc-brand">
+                        <img src="{{ url_for('static', filename='imagens/logo.png') }}" alt="Logo oficial do Abatedouro S&atilde;o Pedro">
+                        <div><strong>FRIGO<span>DATTA</span></strong><small>Abatedouro S&atilde;o Pedro</small></div>
+                    </div>
+                    <div class="rom-doc-title">
+                        <span>Documento operacional</span>
+                        <h1>ROMANEIO DE {{ tipo_descricao|upper }}</h1>
+                    </div>
+                    <div class="rom-doc-identity">
+                        <strong>{{ expedicao.numero_romaneio }}</strong>
+                        <span class="rom-doc-status">{{ expedicao.status }}</span>
+                        <small>Emiss&atilde;o: {{ emissao_formatada }}</small>
+                    </div>
+                </header>
+            </td></tr>
+        </thead>
+        <tfoot>
+            <tr><td>
+                <footer class="rom-doc-footer">
+                    <span>FrigoDatta &middot; {{ expedicao.numero_romaneio }}</span>
+                    <span>Gerado em {{ emissao_formatada }}</span>
+                    <span class="rom-doc-pagination">Documento oficial</span>
+                </footer>
+            </td></tr>
+        </tfoot>
+        <tbody>
+            <tr><td class="rom-doc-content">
+                {% if expedicao.status == "Aberto" %}
+                <div class="rom-doc-watermark documento-marca rascunho draft">RASCUNHO</div>
+                <p class="rom-doc-alert">Pr&eacute;-visualiza&ccedil;&atilde;o: documento ainda n&atilde;o conclu&iacute;do.</p>
+                {% elif expedicao.status in ["Cancelado", "Estornado"] %}
+                <div class="rom-doc-watermark documento-marca invalidado invalid">{{ expedicao.status|upper }}</div>
+                {% endif %}
+
+                <section class="rom-doc-operation">
+                    <h2>Identifica&ccedil;&atilde;o da opera&ccedil;&atilde;o</h2>
+                    <div class="rom-doc-meta-grid">
+                        <div><small>Data do romaneio</small><strong>{{ data_romaneio_formatada }}</strong></div>
+                        <div><small>Origem</small><strong>{{ expedicao.origem or "Abatedouro" }}</strong></div>
+                        <div><small>Tipo de sa&iacute;da</small><strong>{{ tipo_descricao }}</strong></div>
+                        {% if is_venda %}
+                        <div class="span-2"><small>Cliente</small><strong>{{ expedicao.cliente_nome or "-" }}</strong>{% if expedicao.cliente_fantasia %}<span>{{ expedicao.cliente_fantasia }}</span>{% endif %}</div>
+                        <div><small>CPF/CNPJ</small><strong>{{ documento_cliente_formatado }}</strong></div>
+                        <div class="span-2"><small>Endere&ccedil;o</small><strong>{{ expedicao.cliente_endereco or "-" }}{% if expedicao.cliente_complemento %}, {{ expedicao.cliente_complemento }}{% endif %}{% if expedicao.cliente_bairro %} &middot; {{ expedicao.cliente_bairro }}{% endif %}{% if expedicao.cliente_cidade %} &middot; {{ expedicao.cliente_cidade }}{% if expedicao.cliente_uf %}/{{ expedicao.cliente_uf }}{% endif %}{% endif %}</strong></div>
+                        {% else %}
+                        <div class="span-2"><small>Destino</small><strong>{{ expedicao.destino }}</strong></div>
+                        {% endif %}
+                        <div><small>Respons&aacute;vel</small><strong>{{ expedicao.responsavel or expedicao.criado_por or "-" }}</strong></div>
+                        {% if expedicao.motorista %}<div><small>Motorista</small><strong>{{ expedicao.motorista }}</strong></div>{% endif %}
+                        {% if expedicao.veiculo %}<div><small>Ve&iacute;culo</small><strong>{{ expedicao.veiculo }}</strong></div>{% endif %}
+                        <div><small>Emitido por</small><strong>{{ expedicao.emitido_por or "-" }}</strong></div>
+                        <div><small>Data e hora da emiss&atilde;o</small><strong>{{ emissao_formatada }}</strong></div>
+                        <div><small>Data e hora da conclus&atilde;o</small><strong>{{ conclusao_formatada }}</strong></div>
+                    </div>
+                </section>
+
+                {% if is_mz %}
+                <section class="rom-doc-items">
+                    <h2>Resumo da transfer&ecirc;ncia hist&oacute;rica</h2>
+                    {% if itens_gi or itens_gc %}
+                    <table class="rom-doc-item-table">
+                        <thead><tr><th>Produto / apresenta&ccedil;&atilde;o</th><th class="num">Quantidade</th><th class="num">Total f&iacute;sico aplic&aacute;vel</th></tr></thead>
+                        <tbody>
+                            {% for item in itens_gi %}<tr><td><strong>Galinha Inteira - V{{ item.galinhas_por_pacote|br_numero(0) }}</strong><small>{{ item.apresentacao }}</small></td><td class="num">{{ item.quantidade_pacotes|br_numero(0) }} pacotes</td><td class="num">{{ item.quantidade_galinhas|br_numero(0) }} galinhas</td></tr>{% endfor %}
+                            {% for item in itens_gc %}<tr><td><strong>Galinha Cortada</strong><small>Controle hist&oacute;rico por caixas e peso</small></td><td class="num">{{ item.quantidade_unidades|br_numero(0) }} caixas</td><td class="num">{{ item.quantidade_kg|br_numero(3) }} kg</td></tr>{% endfor %}
+                        </tbody>
+                        <tfoot>
+                            <tr><th>Totais - Galinha Inteira</th><th class="num">{{ resumo.total_pacotes|br_numero(0) }} pacotes</th><th class="num">{{ resumo.total_galinhas|br_numero(0) }} galinhas</th></tr>
+                            <tr><th>Totais - Galinha Cortada</th><th class="num">{{ resumo.total_caixas|br_numero(0) }} caixas</th><th class="num">{{ resumo.total_kg|br_numero(3) }} kg</th></tr>
+                        </tfoot>
+                    </table>
+                    {% else %}<p class="rom-doc-empty">Totais hist&oacute;ricos ainda n&atilde;o informados.</p>{% endif %}
+                </section>
+                {% else %}
+                    {% if itens_gi %}
+                    <section class="rom-doc-items">
+                        <h2>Galinha Inteira - controle por pacotes</h2>
+                        <p class="rom-doc-measure-note">Controle por peso: <strong>Não aplicável</strong>.</p>
+                        <table class="rom-doc-item-table">
+                            <thead><tr><th>Lote / identifica&ccedil;&atilde;o</th><th>Apresenta&ccedil;&atilde;o</th><th class="num">OP</th><th class="num">Pacotes</th><th class="num">Por pacote</th><th class="num">Total galinhas</th></tr></thead>
+                            <tbody>{% for item in itens_gi %}<tr><td>{{ item.lote or item.codigo_caixa or "N&atilde;o identificado" }}</td><td>{{ item.apresentacao or "-" }}</td><td class="num">{{ item.op_id or "-" }}</td><td class="num">{{ item.quantidade_pacotes|br_numero(0) }}</td><td class="num">{{ item.galinhas_por_pacote|br_numero(0) }}</td><td class="num">{{ item.quantidade_galinhas|br_numero(0) }}</td></tr>{% endfor %}</tbody>
+                            <tfoot><tr><th colspan="3">Totais</th><th class="num">{{ resumo.total_pacotes|br_numero(0) }}</th><th class="num">-</th><th class="num">{{ resumo.total_galinhas|br_numero(0) }}</th></tr></tfoot>
+                        </table>
+                    </section>
+                    {% endif %}
+                    {% if itens_gc %}
+                    <section class="rom-doc-items">
+                        <h2>Galinha Cortada - controle por caixas e peso</h2>
+                        <table class="rom-doc-item-table rom-doc-cut-table">
+                            <thead><tr><th>Lote / caixa</th><th>Apresenta&ccedil;&atilde;o</th><th class="num">OP</th><th class="num">Caixas</th><th class="num">Bandejas</th><th class="num">Peso bruto</th><th class="num">Tara</th><th class="num">Peso l&iacute;quido</th></tr></thead>
+                            <tbody>{% for item in itens_gc %}<tr><td>{{ item.lote or item.codigo_caixa or ("Inventário legado" if item.origem_tipo == "INVENTARIO_LEGADO_AGREGADO" else "Não identificado") }}</td><td>{{ item.apresentacao or ("Saldo agregado" if item.origem_tipo == "INVENTARIO_LEGADO_AGREGADO" else "Caixa") }}</td><td class="num">{{ item.op_id or "-" }}</td><td class="num">{{ (item.quantidade_caixas if item.origem_tipo == "INVENTARIO_LEGADO_AGREGADO" else 1)|br_numero(0) }}</td><td class="num">{{ (item.quantidade_bandejas if item.origem_tipo == "INVENTARIO_LEGADO_AGREGADO" else item.quantidade_unidades)|br_numero(0) }}</td><td class="num">{% if item.peso_bruto %}{{ item.peso_bruto|br_numero(3) }} kg{% else %}-{% endif %}</td><td class="num">{% if item.peso_tara %}{{ item.peso_tara|br_numero(3) }} kg{% else %}-{% endif %}</td><td class="num">{{ item.quantidade_kg|br_numero(3) }} kg</td></tr>{% endfor %}</tbody>
+                            <tfoot><tr><th colspan="3">Totais</th><th class="num">{{ resumo.total_caixas|br_numero(0) }}</th><th class="num">{{ resumo.total_bandejas|br_numero(0) }}</th><th class="num">{{ resumo.total_peso_bruto|br_numero(3) }} kg</th><th class="num">{{ resumo.total_tara|br_numero(3) }} kg</th><th class="num">{{ resumo.total_kg|br_numero(3) }} kg</th></tr></tfoot>
+                        </table>
+                    </section>
+                    {% endif %}
+                {% endif %}
+
+                <section class="rom-doc-notes"><h2>Observa&ccedil;&otilde;es</h2><p>{{ expedicao.observacoes or "Sem observa&ccedil;&otilde;es." }}</p></section>
+                {% if expedicao.justificativa %}<section class="rom-doc-notes"><h2>Justificativa</h2><p>{{ expedicao.justificativa }}</p></section>{% endif %}
+                <section class="rom-doc-signatures">
+                    <div><span></span><strong>Respons&aacute;vel pela movimenta&ccedil;&atilde;o</strong></div>
+                    <div><span></span><strong>Confer&ecirc;ncia / Recebimento</strong></div>
+                </section>
+            </td></tr>
+        </tbody>
+    </table>
+</main>
 {% endblock %}

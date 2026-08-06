@@ -51,6 +51,8 @@ from .estoque_service import (
     editar_romaneio_aberto,
     estornar_romaneio,
     formatar_data_hora_emissao_manaus,
+    formatar_data_brasileira,
+    formatar_documento_brasileiro,
     obter_marco_zero,
     registrar_emissao_romaneio,
     registrar_itens_historicos,
@@ -556,5 +558,12 @@ def register_expedicao_routes(app, integracoes=None):
                 expedicao["tipo_movimentacao"], expedicao["tipo_movimentacao"])),
             emissao_formatada=formatar_data_hora_emissao_manaus(
                 expedicao["emitido_em"]
+            ),
+            conclusao_formatada=formatar_data_hora_emissao_manaus(
+                expedicao["concluido_em"]
+            ),
+            data_romaneio_formatada=formatar_data_brasileira(expedicao["data"]),
+            documento_cliente_formatado=formatar_documento_brasileiro(
+                expedicao["cliente_documento"]
             ),
         )

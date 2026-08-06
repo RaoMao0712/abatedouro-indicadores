@@ -1,0 +1,58 @@
+:root{--rom-blue:#184d69;--rom-orange:#ed6f1c;--rom-ink:#26343a;--rom-muted:#607078;--rom-line:#cbd5d9;--rom-soft:#f3f6f7}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:#eef2f3;color:var(--rom-ink);font-family:Arial,"Helvetica Neue",sans-serif}
+.rom-doc-screen-tools{display:flex;max-width:210mm;margin:14px auto 8px;align-items:center;justify-content:space-between;gap:16px;padding:10px 14px;border:1px solid #d5dde0;border-radius:8px;background:#fff;box-shadow:0 2px 8px #1c374316}
+.rom-doc-screen-tools p{margin:0;color:#53656c;font-size:12px;line-height:1.4}
+.rom-doc-screen-tools>div{display:flex;gap:8px;flex:0 0 auto}
+.rom-doc-screen-tools a,.rom-doc-screen-tools button{display:inline-flex;align-items:center;min-height:34px;padding:7px 12px;border:1px solid #bfcbd0;border-radius:6px;background:#fff;color:#244853;font:700 12px Arial;text-decoration:none;cursor:pointer}
+.rom-doc-screen-tools button{border-color:#d65f15;background:var(--rom-orange);color:#fff}
+.rom-doc{width:210mm;min-height:297mm;margin:0 auto 18px;padding:10mm 11mm;background:#fff;box-shadow:0 4px 22px #18354122}
+.rom-doc-shell{width:100%;border:0;border-collapse:collapse;table-layout:fixed}
+.rom-doc-shell>thead>tr>td,.rom-doc-shell>tbody>tr>td,.rom-doc-shell>tfoot>tr>td{padding:0;border:0;vertical-align:top}
+.rom-doc-header{display:grid;grid-template-columns:150px minmax(0,1fr) 150px;align-items:center;gap:12px;padding:0 0 7px;border-bottom:2px solid var(--rom-blue)}
+.rom-doc-brand{display:flex;align-items:center;gap:7px;min-width:0}
+.rom-doc-brand img{width:39px;height:39px;object-fit:contain}
+.rom-doc-brand div{display:grid;min-width:0}
+.rom-doc-brand strong{color:var(--rom-blue);font-size:16px;letter-spacing:.04em}.rom-doc-brand strong span{color:var(--rom-orange)}
+.rom-doc-brand small{color:var(--rom-muted);font-size:8px;line-height:1.2}
+.rom-doc-title{text-align:center}.rom-doc-title span{color:var(--rom-orange);font-size:7px;font-weight:800;letter-spacing:.15em;text-transform:uppercase}
+.rom-doc-title h1{margin:2px 0 0;color:var(--rom-blue);font-size:13px;line-height:1.2;letter-spacing:.025em}
+.rom-doc-identity{display:grid;justify-items:end;gap:2px;text-align:right}.rom-doc-identity>strong{font-size:12px}.rom-doc-identity small{color:var(--rom-muted);font-size:7px;line-height:1.25}
+.rom-doc-status{display:inline-flex;padding:2px 7px;border-radius:999px;background:#e8f0f3;color:var(--rom-blue);font-size:7px;font-weight:800;text-transform:uppercase}
+.rom-doc-content{padding-top:6px!important}
+.rom-doc-watermark{margin:0 0 3px;padding:3px;border:2px solid;text-align:center;font-size:11px;font-weight:900;letter-spacing:.16em}.rom-doc-watermark.draft{border-color:#d4932e;color:#915b08;background:#fff9ed}.rom-doc-watermark.invalid{border-color:#b52c25;color:#a12520;background:#fff4f3}
+.rom-doc-alert{margin:0 0 5px;color:#82530e;text-align:center;font-size:7px;font-weight:700}
+.rom-doc-operation,.rom-doc-items,.rom-doc-notes{margin-top:5px;break-inside:avoid}
+.rom-doc-operation h2,.rom-doc-items h2,.rom-doc-notes h2{margin:0;padding:3px 6px;border-left:3px solid var(--rom-orange);background:var(--rom-soft);color:var(--rom-blue);font-size:8px;line-height:1.25;text-transform:uppercase;letter-spacing:.055em}
+.rom-doc-measure-note{margin:0;padding:3px 6px 1px;color:var(--rom-muted);font-size:7px}
+.rom-doc-meta-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border:1px solid var(--rom-line);border-top:0}
+.rom-doc-meta-grid>div{display:grid;align-content:start;gap:1px;min-height:27px;padding:4px 6px;border-right:1px solid #dfe5e7;border-bottom:1px solid #dfe5e7;overflow-wrap:anywhere}
+.rom-doc-meta-grid>div:nth-child(3n){border-right:0}.rom-doc-meta-grid .span-2{grid-column:span 2}
+.rom-doc-meta-grid small{color:var(--rom-muted);font-size:6px;font-weight:800;letter-spacing:.04em;text-transform:uppercase}
+.rom-doc-meta-grid strong{font-size:8px;line-height:1.25}.rom-doc-meta-grid span{color:var(--rom-muted);font-size:7px}
+.rom-doc-item-table{width:100%;margin:0;border-collapse:collapse;table-layout:fixed;font-size:7.4px}
+.rom-doc-item-table thead{display:table-header-group}.rom-doc-item-table tfoot{display:table-row-group}
+.rom-doc-item-table th,.rom-doc-item-table td{padding:3px 4px;border:1px solid var(--rom-line);vertical-align:top;line-height:1.25;overflow-wrap:anywhere}
+.rom-doc-item-table thead th{background:#e8eef1;color:#254f60;font-size:6.5px;letter-spacing:.025em;text-transform:uppercase}
+.rom-doc-item-table tbody tr,.rom-doc-item-table tfoot tr{break-inside:avoid;page-break-inside:avoid}
+.rom-doc-item-table tbody tr:nth-child(even){background:#fafcfc}.rom-doc-item-table tfoot th{background:#f0f4f5;color:#253c45;font-weight:800}
+.rom-doc-item-table .num{text-align:right;white-space:nowrap}.rom-doc-item-table td small{display:block;margin-top:1px;color:var(--rom-muted);font-size:6.5px}
+.rom-doc-cut-table th:first-child{width:20%}.rom-doc-cut-table th:nth-child(2){width:14%}.rom-doc-cut-table th:nth-child(3){width:7%}
+.rom-doc-empty{margin:0;padding:8px;border:1px solid var(--rom-line);color:var(--rom-muted);text-align:center;font-size:8px}
+.rom-doc-notes{border:1px solid var(--rom-line)}.rom-doc-notes h2{border:0;border-bottom:1px solid var(--rom-line)}.rom-doc-notes p{margin:0;padding:5px 7px;font-size:7.5px;line-height:1.35;white-space:pre-wrap;overflow-wrap:anywhere}
+.rom-doc-signatures{display:grid;grid-template-columns:1fr 1fr;gap:28mm;margin-top:11mm;break-inside:avoid;page-break-inside:avoid}
+.rom-doc-signatures div{display:grid;gap:3px;text-align:center}.rom-doc-signatures span{display:block;height:1px;border-top:1px solid #526269}.rom-doc-signatures strong{font-size:7px;font-weight:700}
+.rom-doc-footer{display:grid;grid-template-columns:1fr 1.35fr auto;gap:8px;margin-top:5px;padding-top:4px;border-top:1px solid var(--rom-line);color:var(--rom-muted);font-size:6.5px}.rom-doc-footer span:nth-child(2){text-align:center}.rom-doc-pagination{text-align:right}
+@media screen and (max-width:850px){.rom-doc-screen-tools{margin:8px;align-items:stretch;flex-direction:column}.rom-doc-screen-tools>div{justify-content:flex-end}.rom-doc{width:100%;min-height:0;margin:0;padding:16px}.rom-doc-header{grid-template-columns:1fr}.rom-doc-title,.rom-doc-identity{text-align:left;justify-items:start}.rom-doc-meta-grid{grid-template-columns:1fr 1fr}.rom-doc-meta-grid>div:nth-child(3n){border-right:1px solid #dfe5e7}.rom-doc-meta-grid>div:nth-child(2n){border-right:0}}
+@media print{
+    @page{size:A4 portrait;margin:10mm 11mm}
+    html,body{width:auto!important;min-width:0!important;background:#fff!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .no-print,.rom-doc-screen-tools{display:none!important}
+    .rom-doc{width:auto!important;min-height:0!important;margin:0!important;padding:0!important;box-shadow:none!important}
+    .rom-doc-shell{min-height:277mm}
+    .rom-doc-shell>thead{display:table-header-group}.rom-doc-shell>tfoot{display:table-footer-group}
+    .rom-doc-header{break-inside:avoid;page-break-inside:avoid}
+    .rom-doc-operation,.rom-doc-notes,.rom-doc-signatures{break-inside:avoid;page-break-inside:avoid}
+    .rom-doc-items{break-inside:auto}
+    .rom-doc-item-table thead{display:table-header-group}.rom-doc-item-table tfoot{display:table-row-group}
+}

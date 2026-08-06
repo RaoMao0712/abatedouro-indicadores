@@ -2408,9 +2408,9 @@ def calcular_resumo_itens_expedicao(itens):
         if (item["unidade_estoque"] or "CAIXA") == "CAIXA"
     )
     total_bandejas = sum(
-        float(item["quantidade_unidades"] or 0)
+        float(item["quantidade_bandejas"] or item["quantidade_unidades"] or 0)
         for item in itens
-        if (item["unidade_estoque"] or "CAIXA") == "CAIXA" and item["caixa_id"]
+        if (item["unidade_estoque"] or "CAIXA") == "CAIXA"
     )
     total_peso_bruto = sum(float(item["peso_bruto"] or 0) for item in itens)
     total_tara = sum(float(item["peso_tara"] or 0) for item in itens)

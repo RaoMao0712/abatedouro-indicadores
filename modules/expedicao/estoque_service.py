@@ -79,6 +79,30 @@ def formatar_data_hora_emissao_manaus(valor):
     )
 
 
+def formatar_data_brasileira(valor):
+    """Formata uma data ISO sem alterar seu dia operacional."""
+    if not valor:
+        return "-"
+    texto = str(valor).strip()
+    try:
+        return datetime.fromisoformat(texto).strftime("%d/%m/%Y")
+    except ValueError:
+        return "-"
+
+
+def formatar_documento_brasileiro(valor):
+    """Aplica máscara a CPF/CNPJ, preservando documentos não padronizados."""
+    if not valor:
+        return "-"
+    original = str(valor).strip()
+    digitos = "".join(caractere for caractere in original if caractere.isdigit())
+    if len(digitos) == 11:
+        return f"{digitos[:3]}.{digitos[3:6]}.{digitos[6:9]}-{digitos[9:]}"
+    if len(digitos) == 14:
+        return f"{digitos[:2]}.{digitos[2:5]}.{digitos[5:8]}/{digitos[8:12]}-{digitos[12:]}"
+    return original or "-"
+
+
 def _usuario():
     try:
         return nome_usuario_atual() or "Sistema"
