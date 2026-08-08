@@ -7,7 +7,7 @@
 {% set itens_gc = itens|selectattr("sku", "equalto", "Galinha Cortada")|list %}
 
 <div class="rom-doc-screen-tools no-print">
-    <p>Na janela de impress&atilde;o, utilize <strong>A4</strong>, <strong>Retrato</strong>, <strong>1 p&aacute;gina por folha</strong> e desative <strong>Cabe&ccedil;alhos e rodap&eacute;s</strong>.</p>
+    <p>Na janela de impress&atilde;o, utilize <strong>A4</strong>, <strong>Paisagem</strong>, <strong>1 p&aacute;gina por folha</strong> e desative <strong>Cabe&ccedil;alhos e rodap&eacute;s</strong>.</p>
     <div>
         <a href="{{ url_for('detalhe_romaneio_expedicao', expedicao_id=expedicao.id) }}">&larr; Voltar</a>
         <button type="button" onclick="window.print()">Imprimir / Salvar PDF</button>
@@ -97,8 +97,8 @@
                     <section class="rom-doc-items">
                         <h2>Galinha Inteira - controle por pacotes</h2>
                         <p class="rom-doc-measure-note">Controle por peso: <strong>Não aplicável</strong>.</p>
-                        <table class="rom-doc-item-table">
-                            <thead><tr><th>Lote / identifica&ccedil;&atilde;o</th><th>Apresenta&ccedil;&atilde;o</th><th class="num">OP</th><th class="num">Pacotes</th><th class="num">Por pacote</th><th class="num">Total galinhas</th></tr></thead>
+                        <table class="rom-doc-item-table rom-doc-whole-table">
+                            <thead><tr><th class="wrap">Lote / identifica&ccedil;&atilde;o</th><th>Apresenta&ccedil;&atilde;o</th><th class="num">OP</th><th class="num">Pacotes</th><th class="num">Por pacote</th><th class="num">Total galinhas</th></tr></thead>
                             <tbody>{% for item in itens_gi %}<tr><td>{{ item.lote or item.codigo_caixa or "Não identificado" }}</td><td>{{ item.apresentacao or "-" }}</td><td class="num">{{ item.op_id or "-" }}</td><td class="num">{{ item.quantidade_pacotes|br_numero(0) }}</td><td class="num">{{ item.galinhas_por_pacote|br_numero(0) }}</td><td class="num">{{ item.quantidade_galinhas|br_numero(0) }}</td></tr>{% endfor %}</tbody>
                             <tfoot><tr><th colspan="3">Totais</th><th class="num">{{ resumo.total_pacotes|br_numero(0) }}</th><th class="num">-</th><th class="num">{{ resumo.total_galinhas|br_numero(0) }}</th></tr></tfoot>
                         </table>
@@ -108,7 +108,7 @@
                     <section class="rom-doc-items">
                         <h2>Galinha Cortada - controle por caixas e peso</h2>
                         <table class="rom-doc-item-table rom-doc-cut-table">
-                            <thead><tr><th>Lote / caixa</th><th>Apresenta&ccedil;&atilde;o</th><th class="num">OP</th><th class="num">Caixas</th><th class="num">Bandejas</th><th class="num">Peso bruto</th><th class="num">Tara</th><th class="num">Peso l&iacute;quido</th></tr></thead>
+                            <thead><tr><th class="wrap">Lote / caixa</th><th>Apresenta&ccedil;&atilde;o</th><th class="num">OP</th><th class="num">Caixas</th><th class="num">Bandejas</th><th class="num">Peso bruto</th><th class="num">Tara</th><th class="num">Peso l&iacute;quido</th></tr></thead>
                             <tbody>{% for item in itens_gc %}<tr><td>{{ item.lote or item.codigo_caixa or ("Inventário legado" if item.origem_tipo == "INVENTARIO_LEGADO_AGREGADO" else "Não identificado") }}</td><td>{{ item.apresentacao or ("Saldo agregado" if item.origem_tipo == "INVENTARIO_LEGADO_AGREGADO" else "Caixa") }}</td><td class="num">{{ item.op_id or "-" }}</td><td class="num">{{ (item.quantidade_caixas if item.origem_tipo == "INVENTARIO_LEGADO_AGREGADO" else 1)|br_numero(0) }}</td><td class="num">{{ (item.quantidade_bandejas if item.origem_tipo == "INVENTARIO_LEGADO_AGREGADO" else item.quantidade_unidades)|br_numero(0) }}</td><td class="num">{% if item.peso_bruto %}{{ item.peso_bruto|br_numero(3) }} kg{% else %}-{% endif %}</td><td class="num">{% if item.peso_tara %}{{ item.peso_tara|br_numero(3) }} kg{% else %}-{% endif %}</td><td class="num">{{ item.quantidade_kg|br_numero(3) }} kg</td></tr>{% endfor %}</tbody>
                             <tfoot><tr><th colspan="3">Totais</th><th class="num">{{ resumo.total_caixas|br_numero(0) }}</th><th class="num">{{ resumo.total_bandejas|br_numero(0) }}</th><th class="num">{{ resumo.total_peso_bruto|br_numero(3) }} kg</th><th class="num">{{ resumo.total_tara|br_numero(3) }} kg</th><th class="num">{{ resumo.total_kg|br_numero(3) }} kg</th></tr></tfoot>
                         </table>

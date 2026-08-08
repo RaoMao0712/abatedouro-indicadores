@@ -47,9 +47,9 @@ def test_tabelas_preservam_inteira_cortada_e_legado_com_totais():
         assert contrato in TEMPLATE
 
 
-def test_css_define_a4_retrato_repeticao_e_quebras_seguras():
+def test_css_define_a4_horizontal_repeticao_e_quebras_seguras():
     compacto = "".join(CSS.split()).lower()
-    assert "@page{size:a4portrait;margin:10mm11mm}" in compacto
+    assert "@page{size:a4landscape;margin:10mm11mm}" in compacto
     assert ".rom-doc-shell>thead{display:table-header-group}" in compacto
     assert ".rom-doc-item-tablethead{display:table-header-group}" in compacto
     assert "break-inside:avoid" in compacto
@@ -62,6 +62,7 @@ def test_template_nao_incorpora_url_e_orienta_configuracao_do_navegador():
     assert "http://" not in TEMPLATE
     assert "https://" not in TEMPLATE
     assert "1 p&aacute;gina por folha" in TEMPLATE
+    assert "<strong>Paisagem</strong>" in TEMPLATE
     assert "Cabe&ccedil;alhos e rodap&eacute;s" in TEMPLATE
     assert 'class="rom-doc-screen-tools no-print"' in TEMPLATE
 
@@ -73,7 +74,7 @@ def test_rodape_oficial_e_assinaturas_estao_presentes():
     assert "Confer&ecirc;ncia / Recebimento" in TEMPLATE
 
 
-def test_tipografia_de_impressao_tem_escala_legivel_sem_alterar_a4_retrato():
+def test_tipografia_de_impressao_tem_escala_legivel_em_a4_horizontal():
     compacto = "".join(CSS.split()).lower()
     for contrato in (
         ".rom-doc-titleh1{margin:1mm00;color:var(--rom-blue);font-size:16pt",
@@ -85,7 +86,7 @@ def test_tipografia_de_impressao_tem_escala_legivel_sem_alterar_a4_retrato():
         ".rom-doc-signatures{display:grid;grid-template-columns:1fr1fr;gap:28mm;margin-top:18mm;min-height:22mm",
     ):
         assert contrato in compacto
-    assert "@page{size:a4portrait" in compacto
+    assert "@page{size:a4landscape" in compacto
 
 
 def test_fallbacks_jinja_usam_unicode_sem_entidades_duplamente_codificadas():
@@ -102,4 +103,16 @@ def test_fechamento_curto_fica_unido_e_tabela_cortada_distribui_as_colunas():
     assert "rom-doc-closing" in TEMPLATE
     assert "|length<600" in "".join(TEMPLATE.split())
     assert ".rom-doc-closing.keep-together{break-inside:avoid;page-break-inside:avoid}" in compacto
-    assert ".rom-doc-cut-tableth:nth-child(8){width:17%}" in compacto
+    assert ".rom-doc-cut-tableth:nth-child(8){width:13%}" in compacto
+
+
+def test_colunas_horizontais_e_quebra_somente_entre_palavras():
+    compacto = "".join(CSS.split()).lower()
+    assert "overflow-wrap:anywhere" not in compacto
+    assert "word-break:normal" in compacto
+    assert ".rom-doc-item-tabletheadth.wrap{white-space:normal;text-align:center}" in compacto
+    assert ".rom-doc-whole-tableth:first-child{width:25%}" in compacto
+    assert ".rom-doc-whole-tableth:nth-child(2){width:30%}" in compacto
+    assert ".rom-doc-whole-tableth:nth-child(6){width:15%}" in compacto
+    assert 'class="rom-doc-item-table rom-doc-whole-table"' in TEMPLATE
+    assert 'class="wrap">Lote / identifica&ccedil;&atilde;o' in TEMPLATE
