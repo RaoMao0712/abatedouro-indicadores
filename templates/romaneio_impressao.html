@@ -99,7 +99,7 @@
                         <p class="rom-doc-measure-note">Controle por peso: <strong>Não aplicável</strong>.</p>
                         <table class="rom-doc-item-table">
                             <thead><tr><th>Lote / identifica&ccedil;&atilde;o</th><th>Apresenta&ccedil;&atilde;o</th><th class="num">OP</th><th class="num">Pacotes</th><th class="num">Por pacote</th><th class="num">Total galinhas</th></tr></thead>
-                            <tbody>{% for item in itens_gi %}<tr><td>{{ item.lote or item.codigo_caixa or "N&atilde;o identificado" }}</td><td>{{ item.apresentacao or "-" }}</td><td class="num">{{ item.op_id or "-" }}</td><td class="num">{{ item.quantidade_pacotes|br_numero(0) }}</td><td class="num">{{ item.galinhas_por_pacote|br_numero(0) }}</td><td class="num">{{ item.quantidade_galinhas|br_numero(0) }}</td></tr>{% endfor %}</tbody>
+                            <tbody>{% for item in itens_gi %}<tr><td>{{ item.lote or item.codigo_caixa or "Não identificado" }}</td><td>{{ item.apresentacao or "-" }}</td><td class="num">{{ item.op_id or "-" }}</td><td class="num">{{ item.quantidade_pacotes|br_numero(0) }}</td><td class="num">{{ item.galinhas_por_pacote|br_numero(0) }}</td><td class="num">{{ item.quantidade_galinhas|br_numero(0) }}</td></tr>{% endfor %}</tbody>
                             <tfoot><tr><th colspan="3">Totais</th><th class="num">{{ resumo.total_pacotes|br_numero(0) }}</th><th class="num">-</th><th class="num">{{ resumo.total_galinhas|br_numero(0) }}</th></tr></tfoot>
                         </table>
                     </section>
@@ -116,12 +116,14 @@
                     {% endif %}
                 {% endif %}
 
-                <section class="rom-doc-notes"><h2>Observa&ccedil;&otilde;es</h2><p>{{ expedicao.observacoes or "Sem observa&ccedil;&otilde;es." }}</p></section>
-                {% if expedicao.justificativa %}<section class="rom-doc-notes"><h2>Justificativa</h2><p>{{ expedicao.justificativa }}</p></section>{% endif %}
-                <section class="rom-doc-signatures">
-                    <div><span></span><strong>Respons&aacute;vel pela movimenta&ccedil;&atilde;o</strong></div>
-                    <div><span></span><strong>Confer&ecirc;ncia / Recebimento</strong></div>
-                </section>
+                <div class="rom-doc-closing{% if not expedicao.justificativa and (expedicao.observacoes or '')|length < 600 %} keep-together{% endif %}">
+                    <section class="rom-doc-notes"><h2>Observa&ccedil;&otilde;es</h2><p>{{ expedicao.observacoes or "Sem observações." }}</p></section>
+                    {% if expedicao.justificativa %}<section class="rom-doc-notes"><h2>Justificativa</h2><p>{{ expedicao.justificativa }}</p></section>{% endif %}
+                    <section class="rom-doc-signatures">
+                        <div><span></span><strong>Respons&aacute;vel pela movimenta&ccedil;&atilde;o</strong></div>
+                        <div><span></span><strong>Confer&ecirc;ncia / Recebimento</strong></div>
+                    </section>
+                </div>
             </td></tr>
         </tbody>
     </table>

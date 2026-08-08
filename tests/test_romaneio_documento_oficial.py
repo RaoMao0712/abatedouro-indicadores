@@ -71,3 +71,35 @@ def test_rodape_oficial_e_assinaturas_estao_presentes():
     assert "Documento oficial" in TEMPLATE
     assert "Respons&aacute;vel pela movimenta&ccedil;&atilde;o" in TEMPLATE
     assert "Confer&ecirc;ncia / Recebimento" in TEMPLATE
+
+
+def test_tipografia_de_impressao_tem_escala_legivel_sem_alterar_a4_retrato():
+    compacto = "".join(CSS.split()).lower()
+    for contrato in (
+        ".rom-doc-titleh1{margin:1mm00;color:var(--rom-blue);font-size:16pt",
+        ".rom-doc-meta-gridsmall{color:var(--rom-muted);font-size:8.5pt",
+        ".rom-doc-meta-gridstrong{font-size:11pt",
+        ".rom-doc-item-table{width:100%;margin:0;border-collapse:collapse;table-layout:fixed;font-size:10pt",
+        ".rom-doc-item-tabletheadth{background:#e8eef1;color:#254f60;font-size:9pt",
+        ".rom-doc-notesp{margin:0;padding:3mm;font-size:10.5pt",
+        ".rom-doc-signatures{display:grid;grid-template-columns:1fr1fr;gap:28mm;margin-top:18mm;min-height:22mm",
+    ):
+        assert contrato in compacto
+    assert "@page{size:a4portrait" in compacto
+
+
+def test_fallbacks_jinja_usam_unicode_sem_entidades_duplamente_codificadas():
+    assert 'expedicao.observacoes or "Sem observações."' in TEMPLATE
+    assert 'or "Não identificado"' in TEMPLATE
+    assert "Inventário legado" in TEMPLATE
+    assert "NÃ" not in TEMPLATE
+    assert 'or "Sem observa&ccedil;&otilde;es."' not in TEMPLATE
+    assert "|safe" not in TEMPLATE
+
+
+def test_fechamento_curto_fica_unido_e_tabela_cortada_distribui_as_colunas():
+    compacto = "".join(CSS.split()).lower()
+    assert "rom-doc-closing" in TEMPLATE
+    assert "|length<600" in "".join(TEMPLATE.split())
+    assert ".rom-doc-closing.keep-together{break-inside:avoid;page-break-inside:avoid}" in compacto
+    assert ".rom-doc-cut-tableth:nth-child(8){width:17%}" in compacto
