@@ -11,7 +11,7 @@ import modules.clientes.services as clientes
 import modules.expedicao.services as expedicao
 import modules.expedicao.estoque_service as estoque
 import modules.pedidos_venda.services as pedidos
-from modules.pedidos_venda.pdf import gerar_pdf_pedido
+from modules.pedidos_venda.pdf import _larguras_colunas_itens, gerar_pdf_pedido
 
 
 @pytest.fixture()
@@ -520,6 +520,15 @@ def test_pdf_soma_total_de_aves_e_separa_unidades(base):
     texto_misto = "\n".join(p.extract_text() or "" for p in PdfReader(
         BytesIO(gerar_pdf_pedido(pedidos.buscar_pedido(pedido_com_unidades)))).pages)
     assert "TOTAL DE PACOTES" in texto_misto and "TOTAL EM KG" in texto_misto
+
+
+def test_pdf_tabela_itens_ocupa_largura_util_nas_proporcoes_definidas():
+    largura = 273
+    larguras = _larguras_colunas_itens(largura)
+    assert sum(larguras) == pytest.approx(largura)
+    assert [valor / largura for valor in larguras] == pytest.approx(
+        [0.15, 0.20, 0.10, 0.06, 0.11, 0.09, 0.11, 0.09, 0.09]
+    )
 
 
 def test_lista_somente_romaneio_elegivel_e_compativel(base):

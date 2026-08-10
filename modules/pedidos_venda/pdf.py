@@ -31,6 +31,21 @@ def _registrar_fonte():
     return "Helvetica"
 
 
+def _registrar_fonte_negrito():
+    caminhos = [
+        os.path.join(os.environ.get("WINDIR", "C:/Windows"), "Fonts", "arialbd.ttf"),
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    ]
+    for caminho in caminhos:
+        if os.path.exists(caminho):
+            try:
+                pdfmetrics.registerFont(TTFont("PedidoSansBold", caminho))
+                return "PedidoSansBold"
+            except Exception:
+                pass
+    return "Helvetica-Bold"
+
+
 def _moeda(centavos):
     valor = f"{decimal_centavos(centavos):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
     return f"R$ {valor}"
@@ -55,8 +70,15 @@ def _totais_comerciais(pedido):
     return totais
 
 
+def _larguras_colunas_itens(largura_disponivel):
+    percentuais = (0.15, 0.20, 0.10, 0.06, 0.11, 0.09, 0.11, 0.09)
+    larguras = [largura_disponivel * percentual for percentual in percentuais]
+    return larguras + [largura_disponivel - sum(larguras)]
+
+
 def gerar_pdf_pedido(pedido):
     fonte = _registrar_fonte()
+    fonte_negrito = _registrar_fonte_negrito()
     buffer = BytesIO()
     doc = BaseDocTemplate(buffer, pagesize=landscape(A4), leftMargin=12*mm, rightMargin=12*mm,
                           topMargin=34*mm, bottomMargin=18*mm, title=f"Pedido {pedido['numero']}")
@@ -65,6 +87,15 @@ def gerar_pdf_pedido(pedido):
                             fontSize=8.5, leading=11, wordWrap="LTR")
     pequeno = ParagraphStyle("pedido-pequeno", parent=normal, fontSize=7.3, leading=9)
     direita = ParagraphStyle("pedido-direita", parent=normal, alignment=TA_RIGHT)
+    item_esquerda = ParagraphStyle("pedido-item-esquerda", parent=normal, splitLongWords=False)
+    item_centro = ParagraphStyle("pedido-item-centro", parent=item_esquerda, alignment=TA_CENTER)
+    item_direita = ParagraphStyle("pedido-item-direita", parent=item_esquerda, alignment=TA_RIGHT)
+    cabecalho_esquerda = ParagraphStyle(
+        "pedido-cabecalho-esquerda", parent=pequeno, fontName=fonte_negrito,
+        textColor=colors.white,
+        leading=8.5, splitLongWords=False)
+    cabecalho_centro = ParagraphStyle(
+        "pedido-cabecalho-centro", parent=cabecalho_esquerda, alignment=TA_CENTER)
     titulo = ParagraphStyle("pedido-titulo", parent=normal, fontSize=13, leading=15,
                             alignment=TA_CENTER, textColor=colors.HexColor("#123f35"))
 
@@ -115,21 +146,30 @@ def gerar_pdf_pedido(pedido):
                                ("RIGHTPADDING",(0,0),(-1,-1),4), ("TOPPADDING",(0,0),(-1,-1),4),
                                ("BOTTOMPADDING",(0,0),(-1,-1),4)]))
     historia += [tabela, Spacer(1, 4*mm)]
-    cabecalho_itens = [Paragraph(f"<b>{x}</b>", pequeno) for x in
-               ("SKU / produto", "Apresentação", "Quantidade", "Un.", "Preço/un. comercial", "Desconto", "Total", "Entregue", "Saldo")]
+    rotulos_cabecalho = (
+        "SKU / produto", "Apresentação", "Quantidade", "Un.",
+        "Preço/un. comercial", "Desconto", "Total", "Entregue", "Saldo")
+    cabecalho_itens = [
+        Paragraph(rotulo, cabecalho_esquerda if indice < 2 else cabecalho_centro)
+        for indice, rotulo in enumerate(rotulos_cabecalho)
+    ]
     linhas_itens = []
     for item in pedido["itens"]:
         produto = item["sku"]
         linhas_itens.append([
-            Paragraph(produto, normal), Paragraph(item.get("apresentacao_snapshot") or "-", normal),
-            Paragraph(_qtd(item["quantidade_exibicao_mil"]), direita), Paragraph(item.get("unidade_exibicao") or item["unidade_comercial"], normal),
-            Paragraph(_moeda(item["preco_unitario_centavos"]), direita), Paragraph(_moeda(item["desconto_centavos"]), direita),
-            Paragraph(_moeda(item["valor_liquido_centavos"]), direita), Paragraph(_qtd(item["quantidade_entregue_exibicao_mil"]), direita),
-            Paragraph(_qtd(item["saldo_pendente_exibicao_mil"]), direita),
+            Paragraph(produto, item_esquerda),
+            Paragraph(item.get("apresentacao_snapshot") or "-", item_esquerda),
+            Paragraph(_qtd(item["quantidade_exibicao_mil"]), item_direita),
+            Paragraph(item.get("unidade_exibicao") or item["unidade_comercial"], item_centro),
+            Paragraph(_moeda(item["preco_unitario_centavos"]), item_direita),
+            Paragraph(_moeda(item["desconto_centavos"]), item_direita),
+            Paragraph(_moeda(item["valor_liquido_centavos"]), item_direita),
+            Paragraph(_qtd(item["quantidade_entregue_exibicao_mil"]), item_direita),
+            Paragraph(_qtd(item["saldo_pendente_exibicao_mil"]), item_direita),
         ])
     def tabela_itens(linhas):
         tabela = Table([cabecalho_itens] + linhas, repeatRows=1, splitByRow=1,
-                       colWidths=[46*mm,35*mm,25*mm,16*mm,27*mm,25*mm,28*mm,25*mm,25*mm])
+                       colWidths=_larguras_colunas_itens(doc.width))
         tabela.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,0),colors.HexColor("#123f35")),
             ("TEXTCOLOR",(0,0),(-1,0),colors.white),("GRID",(0,0),(-1,-1),.3,colors.HexColor("#aeb9b5")),
             ("VALIGN",(0,0),(-1,-1),"MIDDLE"),("ROWBACKGROUNDS",(0,1),(-1,-1),[colors.white,colors.HexColor("#f7faf9")]),
