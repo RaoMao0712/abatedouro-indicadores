@@ -66,6 +66,8 @@
         <label>Observações</label>
         <input type="text" name="observacoes" value="{{ op.observacoes or '' }}">
 
+        {% include "_programacao_linha_form.html" %}
+
         <button type="submit">
             Salvar alterações
         </button>

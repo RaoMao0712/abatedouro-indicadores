@@ -73,6 +73,10 @@
             <label>Observações</label>
             <input type="text" name="observacoes">
 
+            {% set programacao_linha = none %}
+            {% set pausas_planejadas = [] %}
+            {% include "_programacao_linha_form.html" %}
+
             <button type="submit">Cadastrar OP</button>
         </form>
     </div>

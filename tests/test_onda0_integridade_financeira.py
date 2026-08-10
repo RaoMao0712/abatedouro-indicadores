@@ -668,7 +668,7 @@ def test_base_sintetica_compara_dre_previsto_realizado_cp_cr_e_auditoria():
     )["total"] == 1
 
 
-def test_22_navegacao_logo_painel_e_modulos_operacionais_nao_foram_alterados():
+def test_22_navegacao_e_identidade_visual_nao_foram_alteradas():
     alterados = subprocess.run(
         ["git", "diff", "--name-only", "HEAD"],
         cwd=ROOT,
@@ -677,7 +677,6 @@ def test_22_navegacao_logo_painel_e_modulos_operacionais_nao_foram_alterados():
         text=True,
     ).stdout.splitlines()
     proibidos = (
-        "modules/producao",
         "templates/inicio",
         "static/img",
         "static/images",

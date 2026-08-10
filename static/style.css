@@ -9275,3 +9275,26 @@ dialog.modal-correcao-op::backdrop {
         width: 100%;
     }
 }
+.linha-programacao-card,
+.disponibilidade-linha-card {
+    margin-top: 1rem;
+}
+
+.pausa-planejada-linha {
+    align-items: end;
+    padding: .75rem 0;
+    border-bottom: 1px solid rgba(148, 163, 184, .25);
+}
+
+.situacao-inconsistente,
+.alerta-operacional {
+    border-left: 4px solid #b45309;
+    background: #fff7ed;
+}
+
+@media (max-width: 720px) {
+    .pausa-planejada-linha,
+    .disponibilidade-linha-card .kpi-grid {
+        grid-template-columns: 1fr;
+    }
+}

@@ -1,0 +1,14 @@
+BEGIN;
+DROP INDEX IF EXISTS idx_paradas_afeta_linha;
+DROP INDEX IF EXISTS idx_linha_auditoria_op;
+DROP INDEX IF EXISTS idx_linha_pausas_programacao;
+DROP INDEX IF EXISTS idx_linha_programacao_op;
+ALTER TABLE apontamentos_paradas DROP COLUMN IF EXISTS classificacao_justificativa;
+ALTER TABLE apontamentos_paradas DROP COLUMN IF EXISTS classificacao_alterada_por;
+ALTER TABLE apontamentos_paradas DROP COLUMN IF EXISTS classificacao_alterada_em;
+ALTER TABLE apontamentos_paradas DROP COLUMN IF EXISTS natureza_disponibilidade;
+ALTER TABLE apontamentos_paradas DROP COLUMN IF EXISTS afeta_linha_abate;
+DROP TABLE IF EXISTS linha_abate_auditoria;
+DROP TABLE IF EXISTS linha_abate_paradas_planejadas;
+DROP TABLE IF EXISTS linha_abate_programacoes;
+COMMIT;

@@ -4,7 +4,7 @@ from datetime import datetime
 
 from flask import flash, redirect, render_template, request, session, url_for
 
-from database import conectar, q
+from database import DATABASE_URL, conectar, q
 from modules.auth.decorators import login_obrigatorio, perfil_permitido
 from modules.auth.services import usuario_eh_admin
 from modules.qualidade import services as qualidade_service
@@ -30,6 +30,18 @@ from .services import (
 from .correcoes_administrativas import (
     buscar_correcoes_op,
     corrigir_peso_entrada_op,
+)
+from .disponibilidade import (
+    CATEGORIAS_PAUSA,
+    calcular_disponibilidade,
+    consultar_historico_paradas,
+    corrigir_medicao,
+    obter_programacao,
+    pausas_do_form,
+    reclassificar_parada,
+    registrar_fim_linha,
+    registrar_inicio_linha,
+    salvar_programacao,
 )
 
 _INTEGRACOES = {}
@@ -64,18 +76,46 @@ def register_producao_routes(app, integracoes=None):
 
             conn = conectar()
             cursor = conn.cursor()
-            cursor.execute(q("""
+            sql_op = """
             INSERT INTO ordens_producao (
                 data, sku, fornecedor, gta, nota_fiscal, quantidade_aves,
                 mortes_antes_pendura, peso_vivo, peso_medio, observacoes, status
             )
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """), (
+            """
+            parametros_op = (
                 data, sku, fornecedor, gta, nota_fiscal, quantidade_aves,
                 mortes_antes_pendura, peso_vivo, peso_medio, observacoes, "Aberta"
-            ))
-
-            conn.commit()
+            )
+            try:
+                if DATABASE_URL:
+                    cursor.execute(q(sql_op + " RETURNING id"), parametros_op)
+                    op_id = cursor.fetchone()["id"]
+                else:
+                    cursor.execute(sql_op, parametros_op)
+                    op_id = cursor.lastrowid
+                inicio_programado = request.form.get("inicio_programado")
+                fim_programado = request.form.get("fim_programado")
+                if inicio_programado or fim_programado:
+                    salvar_programacao(
+                        op_id,
+                        f"{data}T{inicio_programado}" if inicio_programado else "",
+                        f"{data}T{fim_programado}" if fim_programado else "",
+                        pausas_do_form(request.form),
+                        usuario=session.get("nome") or "Usuario",
+                        usuario_id=session.get("usuario_id"),
+                        perfil=session.get("perfil"),
+                        conn=conn,
+                    )
+                conn.commit()
+            except (ValueError, PermissionError) as erro:
+                conn.rollback()
+                conn.close()
+                flash(str(erro))
+                return render_template(
+                    "ordem_producao.html", hoje=data, ordens=buscar_ordens()[:10],
+                    fornecedores=buscar_fornecedores(), categorias_pausa=sorted(CATEGORIAS_PAUSA),
+                )
             conn.close()
 
             flash("OP cadastrada com sucesso")
@@ -89,7 +129,8 @@ def register_producao_routes(app, integracoes=None):
             "ordem_producao.html",
             hoje=hoje,
             ordens=ordens,
-            fornecedores=fornecedores
+            fornecedores=fornecedores,
+            categorias_pausa=sorted(CATEGORIAS_PAUSA),
         )
 
 
@@ -163,6 +204,8 @@ def register_producao_routes(app, integracoes=None):
     def apontamento_paradas():
         if request.method == "POST":
             try:
+                if not request.form.get("afeta_linha_abate"):
+                    raise ValueError("Informe se a parada afetou a Linha de Abate.")
                 salvar_apontamento_parada(request.form)
                 flash("Apontamento de horas paradas salvo.")
             except ValueError as erro:
@@ -170,7 +213,75 @@ def register_producao_routes(app, integracoes=None):
 
             return redirect(url_for("apontamento_paradas"))
 
-        return render_template("apontamento_paradas.html", **contexto_apontamento())
+        filtros = {nome: request.args.get(nome, "") for nome in (
+            "inicio", "fim", "op", "status", "setor", "equipamento",
+            "motivo", "situacao", "afeta",
+        )}
+        contexto = contexto_apontamento()
+        contexto.update({
+            "filtros": filtros,
+            "historico_paradas": consultar_historico_paradas(filtros),
+        })
+        return render_template("apontamento_paradas.html", **contexto)
+
+
+    @app.post("/op/<int:op_id>/linha/iniciar")
+    @perfil_permitido("producao")
+    def iniciar_linha_abate(op_id):
+        try:
+            registrar_inicio_linha(
+                op_id, usuario=session.get("nome") or "Usuario",
+                usuario_id=session.get("usuario_id"), perfil=session.get("perfil"),
+            )
+            flash("Inicio real da Linha de Abate registrado.")
+        except (ValueError, PermissionError) as erro:
+            flash(str(erro))
+        return redirect(url_for("consultar_op", op_id=op_id))
+
+
+    @app.post("/op/<int:op_id>/linha/encerrar")
+    @perfil_permitido("producao")
+    def encerrar_linha_abate(op_id):
+        try:
+            registrar_fim_linha(
+                op_id, usuario=session.get("nome") or "Usuario",
+                usuario_id=session.get("usuario_id"), perfil=session.get("perfil"),
+            )
+            flash("Termino real da Linha de Abate registrado sem encerrar a OP.")
+        except (ValueError, PermissionError) as erro:
+            flash(str(erro))
+        return redirect(url_for("consultar_op", op_id=op_id))
+
+
+    @app.post("/op/<int:op_id>/linha/corrigir")
+    @perfil_permitido("admin")
+    def corrigir_medicao_linha_abate(op_id):
+        try:
+            corrigir_medicao(
+                op_id, request.form.get("inicio_real"), request.form.get("fim_real"),
+                request.form.get("justificativa"), usuario=session.get("nome") or "Usuario",
+                usuario_id=session.get("usuario_id"), perfil=session.get("perfil"),
+            )
+            flash("Medicao da Linha corrigida com auditoria.")
+        except (ValueError, PermissionError) as erro:
+            flash(str(erro))
+        return redirect(url_for("consultar_op", op_id=op_id))
+
+
+    @app.post("/parada/<int:parada_id>/classificar-linha")
+    @perfil_permitido("admin")
+    def classificar_parada_linha(parada_id):
+        op_id = request.form.get("op_id")
+        try:
+            reclassificar_parada(
+                parada_id, request.form.get("afeta_linha_abate"),
+                request.form.get("justificativa"), usuario=session.get("nome") or "Usuario",
+                usuario_id=session.get("usuario_id"), perfil=session.get("perfil"),
+            )
+            flash("Classificacao da parada atualizada com auditoria.")
+        except (ValueError, PermissionError) as erro:
+            flash(str(erro))
+        return redirect(url_for("consultar_op", op_id=op_id) if op_id else url_for("apontamento_paradas"))
 
 
 
@@ -299,30 +410,55 @@ def register_producao_routes(app, integracoes=None):
             observacoes = request.form["observacoes"]
             peso_medio = peso_vivo / quantidade_aves if quantidade_aves else 0
 
-            cursor.execute(q("""
-            UPDATE ordens_producao
-            SET data = ?, sku = ?, fornecedor = ?, gta = ?, nota_fiscal = ?,
-                quantidade_aves = ?, mortes_antes_pendura = ?, peso_vivo = ?,
-                peso_medio = ?, observacoes = ?
-            WHERE id = ?
-            """), (
-                data, sku, fornecedor, gta, nota_fiscal, quantidade_aves,
-                mortes_antes_pendura, peso_vivo, peso_medio, observacoes, op_id
-            ))
+            sucesso = False
+            try:
+                cursor.execute(q("""
+                UPDATE ordens_producao
+                SET data = ?, sku = ?, fornecedor = ?, gta = ?, nota_fiscal = ?,
+                    quantidade_aves = ?, mortes_antes_pendura = ?, peso_vivo = ?,
+                    peso_medio = ?, observacoes = ?
+                WHERE id = ?
+                """), (
+                    data, sku, fornecedor, gta, nota_fiscal, quantidade_aves,
+                    mortes_antes_pendura, peso_vivo, peso_medio, observacoes, op_id
+                ))
+                inicio_programado = request.form.get("inicio_programado")
+                fim_programado = request.form.get("fim_programado")
+                if inicio_programado or fim_programado:
+                    salvar_programacao(
+                        op_id,
+                        f"{data}T{inicio_programado}" if inicio_programado else "",
+                        f"{data}T{fim_programado}" if fim_programado else "",
+                        pausas_do_form(request.form),
+                        usuario=session.get("nome") or "Usuario",
+                        usuario_id=session.get("usuario_id"),
+                        perfil=session.get("perfil"),
+                        justificativa=request.form.get("justificativa_programacao"),
+                        conn=conn,
+                    )
+                conn.commit()
+                sucesso = True
+            except (ValueError, PermissionError) as erro:
+                conn.rollback()
+                flash(str(erro))
+            finally:
+                conn.close()
 
-            conn.commit()
-            conn.close()
-
-            flash("OP atualizada com sucesso.")
-            return redirect(url_for("consultar_op", op_id=op_id))
+            if sucesso:
+                flash("OP atualizada com sucesso.")
+            return redirect(url_for("editar_op", op_id=op_id))
 
         fornecedores = buscar_fornecedores()
+        programacao_linha, pausas_planejadas = obter_programacao(op_id)
 
         conn.close()
         return render_template(
             "editar_op.html",
             op=op,
-            fornecedores=fornecedores
+            fornecedores=fornecedores,
+            programacao_linha=programacao_linha,
+            pausas_planejadas=pausas_planejadas,
+            categorias_pausa=sorted(CATEGORIAS_PAUSA),
         )
 
 
@@ -455,6 +591,11 @@ def register_producao_routes(app, integracoes=None):
             motivo = request.form["motivo"]
             horas_paradas = float(request.form.get("horas_paradas") or 0)
             observacoes = request.form.get("observacoes", "")
+
+            if "corretiva" in str(apontamento["motivo"] or "").lower() and "preventiva" in motivo.lower():
+                conn.close()
+                flash("Manutencao corretiva nao pode ser reclassificada como preventiva.")
+                return redirect(url_for("editar_parada", parada_id=parada_id))
 
             cursor.execute(q("""
             UPDATE apontamentos_paradas
@@ -709,6 +850,13 @@ def register_producao_routes(app, integracoes=None):
             horas_paradas = float(request.form.get("horas_paradas") or 0)
             observacoes = request.form.get("observacoes", "")
 
+            if any(
+                "corretiva" in str(item["motivo"] or "").lower()
+                for item in registros
+            ) and "preventiva" in motivo.lower():
+                flash("Manutencao corretiva nao pode ser reclassificada como preventiva.")
+                return redirect(url_for("editar_paradas_lote", ids=ids))
+
             placeholders = ",".join(["?"] * len(ids))
 
             conn = conectar()
@@ -883,6 +1031,7 @@ def register_producao_routes(app, integracoes=None):
         tempos_setor = []
         resumo = None
         correcoes_administrativas = []
+        disponibilidade_linha = None
 
         if op_id:
             conn = conectar()
@@ -909,6 +1058,7 @@ def register_producao_routes(app, integracoes=None):
             if op:
                 resumo = calcular_resumo_op(op, producoes, descartes)
                 correcoes_administrativas = buscar_correcoes_op(op_id)
+                disponibilidade_linha = calcular_disponibilidade(op_id, conn=conn)
 
             conn.close()
 
@@ -923,6 +1073,7 @@ def register_producao_routes(app, integracoes=None):
             tempos_setor=tempos_setor,
             resumo=resumo,
             correcoes_administrativas=correcoes_administrativas,
+            disponibilidade_linha=disponibilidade_linha,
         )
 
     @app.route("/op/<int:op_id>/corrigir-peso-entrada", methods=["POST"])
