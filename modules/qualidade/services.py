@@ -2,6 +2,7 @@
 
 from datetime import datetime
 
+from config import EMPRESA_EMITENTE
 from database import conectar, q
 from modules.producao.services import validar_op_aberta
 from . import repositories as repo
@@ -345,6 +346,7 @@ def contexto_consolidado(args):
         verificacao, itens, ncs, _, _ = repo.buscar_verificacao(resumo["id"])
         verificacoes.append({"cabecalho": verificacao, "itens": itens, "ncs": ncs})
     return {"formularios": FORMULARIOS_PLM, "filtros": filtros, "verificacoes": verificacoes,
+            "empresa_emitente": EMPRESA_EMITENTE,
             "setores": repo.listar_setores(),
             "ambientes": repo.listar_locais("Ambiente"), "estruturas": repo.listar_locais("Estrutura"),
             "equipamentos": repo.listar_equipamentos()}

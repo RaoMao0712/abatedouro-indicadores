@@ -2,6 +2,7 @@
 
 from flask import abort, flash, redirect, render_template, request, session, url_for
 
+from config import EMPRESA_EMITENTE
 from modules.auth.decorators import perfil_permitido
 from . import services as manutencao_service
 from . import repositories as manutencao_repo
@@ -184,6 +185,7 @@ def register_manutencao_routes(app):
     def imprimir_relatorio_ordens_manutencao():
         return render_template(
             "manutencao_ordens_impressao.html",
+            empresa_emitente=EMPRESA_EMITENTE,
             **manutencao_service.contexto_relatorio_ordens_impressao(
                 request.args,
                 session.get("nome", "Sistema"),
@@ -295,4 +297,8 @@ def register_manutencao_routes(app):
         )
         if not contexto:
             abort(404)
-        return render_template("manutencao_ordem_impressao.html", **contexto)
+        return render_template(
+            "manutencao_ordem_impressao.html",
+            empresa_emitente=EMPRESA_EMITENTE,
+            **contexto,
+        )

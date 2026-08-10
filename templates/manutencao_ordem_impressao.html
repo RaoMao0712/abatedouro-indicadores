@@ -44,7 +44,7 @@
     <header class="cabecalho">
         <img src="{{ url_for('static', filename='imagens/logo.png') }}" alt="FrigoDatta">
         <div>
-            <p class="empresa">FrigoDatta Abatedouro</p>
+            <p class="empresa">{{ empresa_emitente }}</p>
             <h1>Ordem de Servico</h1>
             <span>OS #{{ ordem.id }}</span>
         </div>

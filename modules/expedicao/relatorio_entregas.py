@@ -13,6 +13,7 @@ from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.platypus import KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
+from config import EMPRESA_EMITENTE
 from modules.auth.services import nome_usuario_atual
 
 from .estoque_service import TIPOS_ROMANEIO, TIPOS_SAIDA
@@ -25,7 +26,6 @@ TINTA = colors.HexColor("#26343a")
 CINZA = colors.HexColor("#607078")
 LINHA = colors.HexColor("#cbd5d9")
 FUNDO = colors.HexColor("#eef3f5")
-EMPRESA = "FrigoDatta Abatedouro"
 
 
 def _texto(valor, padrao="Não informado"):
@@ -155,7 +155,7 @@ def gerar_relatorio_entregas_pdf(expedicoes, filtros, cliente_selecionado=None, 
     tipo_codigo = filtros.get("tipo") or "Todos"
     tipo_filtro = "Todos" if tipo_codigo == "Todos" else TIPOS_SAIDA.get(tipo_codigo, TIPOS_ROMANEIO.get(tipo_codigo, tipo_codigo))
     metadados = [
-        ["Empresa", EMPRESA, "Cliente", cliente_filtro],
+        ["Empresa", EMPRESA_EMITENTE, "Cliente", cliente_filtro],
         ["Período", f"{_data_br(filtros.get('data_inicio'))} a {_data_br(filtros.get('data_fim'))}", "Status", _texto(filtros.get("status"), "Todos")],
         ["Tipo de operação", tipo_filtro, "Nº romaneio", _texto(filtros.get("numero"), "Todos")],
         ["Produto", _texto(filtros.get("produto"), "Todos"), "Destino", _texto(filtros.get("destino"), "Todos")],

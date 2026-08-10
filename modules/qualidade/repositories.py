@@ -1,7 +1,11 @@
 """Persistencia estruturada da Qualidade e da Central de Verificacoes SGI."""
 
 from database import DATABASE_URL, conectar, q, transaction
+from config import EMPRESA_EMITENTE
 from modules.cadastros import repositories as cadastros_repo
+
+
+EMPRESA_EMITENTE_LEGADA = "FrigoDatta Abatedouro"
 
 
 def criar_tabelas_sgi():
@@ -55,7 +59,7 @@ def criar_tabelas_sgi():
             criado_em {timestamp} DEFAULT CURRENT_TIMESTAMP
         )""",
         f"""CREATE TABLE IF NOT EXISTS sgi_plm01_fichas (
-            id {pk}, empresa TEXT NOT NULL DEFAULT 'FrigoDatta Abatedouro',
+            id {pk}, empresa TEXT NOT NULL,
             estabelecimento TEXT NOT NULL DEFAULT 'Abatedouro',
             formulario_codigo TEXT NOT NULL DEFAULT 'PLM 01',
             formulario_nome TEXT NOT NULL,
@@ -88,6 +92,21 @@ def criar_tabelas_sgi():
     ]
     for comando in tabelas:
         cursor.execute(q(comando))
+    cursor.execute(q("""SELECT id, estabelecimento, formulario_codigo, competencia
+        FROM sgi_plm01_fichas WHERE empresa = ?"""), (EMPRESA_EMITENTE_LEGADA,))
+    for ficha_legada in cursor.fetchall():
+        cursor.execute(q("""SELECT id FROM sgi_plm01_fichas
+            WHERE empresa = ? AND estabelecimento = ?
+              AND formulario_codigo = ? AND competencia = ?"""), (
+            EMPRESA_EMITENTE,
+            ficha_legada["estabelecimento"],
+            ficha_legada["formulario_codigo"],
+            ficha_legada["competencia"],
+        ))
+        if not cursor.fetchone():
+            cursor.execute(q("UPDATE sgi_plm01_fichas SET empresa = ? WHERE id = ?"), (
+                EMPRESA_EMITENTE, ficha_legada["id"],
+            ))
     if DATABASE_URL:
         try:
             cursor.execute(q("ALTER TABLE sgi_verificacoes ADD COLUMN IF NOT EXISTS setor_id INTEGER"))
@@ -153,10 +172,10 @@ def buscar_equipamento(equipamento_id):
 def buscar_plm01_ficha(competencia):
     conn = conectar(); cursor = conn.cursor()
     cursor.execute(q("""SELECT * FROM sgi_plm01_fichas
-        WHERE empresa = 'FrigoDatta Abatedouro'
+        WHERE empresa = ?
           AND estabelecimento = 'Abatedouro'
           AND formulario_codigo = 'PLM 01'
-          AND competencia = ?"""), (competencia,))
+          AND competencia = ?"""), (EMPRESA_EMITENTE, competencia))
     ficha = cursor.fetchone(); conn.close(); return ficha
 
 
@@ -196,10 +215,10 @@ def salvar_plm01_ficha(competencia, linhas, usuario_id, usuario_nome):
     with transaction() as conn:
         cursor = conn.cursor()
         cursor.execute(q("""SELECT * FROM sgi_plm01_fichas
-            WHERE empresa = 'FrigoDatta Abatedouro'
+            WHERE empresa = ?
               AND estabelecimento = 'Abatedouro'
               AND formulario_codigo = 'PLM 01'
-              AND competencia = ?"""), (competencia,))
+              AND competencia = ?"""), (EMPRESA_EMITENTE, competencia))
         ficha = cursor.fetchone()
         if ficha:
             ficha_id = ficha["id"]
@@ -209,10 +228,11 @@ def salvar_plm01_ficha(competencia, linhas, usuario_id, usuario_nome):
                 WHERE id = ?"""), (formulario_nome, usuario_id, usuario_nome, ficha_id))
         else:
             cursor.execute(q("""INSERT INTO sgi_plm01_fichas (
-                formulario_nome, competencia, criado_por, criado_por_nome,
+                empresa, formulario_nome, competencia, criado_por, criado_por_nome,
                 ultimo_salvamento_por, ultimo_salvamento_nome
-            ) VALUES (?, ?, ?, ?, ?, ?)"""), (
-                formulario_nome, competencia, usuario_id, usuario_nome, usuario_id, usuario_nome))
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)"""), (
+                EMPRESA_EMITENTE, formulario_nome, competencia, usuario_id,
+                usuario_nome, usuario_id, usuario_nome))
             cursor.execute("SELECT LASTVAL() AS id" if DATABASE_URL else "SELECT last_insert_rowid() AS id")
             ficha_id = cursor.fetchone()["id"]
 

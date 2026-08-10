@@ -15,7 +15,7 @@
     <select name="resultado"><option>Todos</option><option {% if filtros.resultado=='C' %}selected{% endif %}>C</option><option {% if filtros.resultado=='NC' %}selected{% endif %}>NC</option><option {% if filtros.resultado=='NA' %}selected{% endif %}>NA</option></select>
     <button class="sgi-btn">Aplicar</button>
   </form>
-  <div class="sgi-print-title"><strong>Empresa:</strong> FrigoDatta Abatedouro · <strong>Competencia:</strong> {{ filtros.mes }}</div>
+  <div class="sgi-print-title"><strong>Empresa:</strong> {{ empresa_emitente }} · <strong>Competencia:</strong> {{ filtros.mes }}</div>
   {% for registro in verificacoes %}
   <section class="card sgi-registro-print">
     <h3>{{ registro.cabecalho.formulario_codigo }} · {{ registro.cabecalho.formulario_nome }}</h3>

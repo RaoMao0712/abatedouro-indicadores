@@ -7,6 +7,7 @@ from unittest.mock import patch
 from flask import Flask
 from pypdf import PdfReader
 
+from config import EMPRESA_EMITENTE, MARCA_SISTEMA
 from modules.expedicao.relatorio_entregas import (
     _totais_unidades,
     gerar_relatorio_entregas_pdf,
@@ -97,6 +98,20 @@ def test_pdf_filtrado_traz_11_romaneios_sem_concatenar_cliente_e_destino():
     assert "5 pacotes" in texto
 
 
+def test_empresa_emitente_oficial_e_marca_frigodatta_ficam_separadas_no_pdf():
+    with patch("modules.expedicao.relatorio_entregas.buscar_itens_expedicao", return_value=[_pacote()]):
+        pdf = gerar_relatorio_entregas_pdf(
+            [_romaneio()], FILTROS, cliente_selecionado="Liberaci Silva e Silva",
+            emissao="10/08/2026 às 12:00", usuario="PCP Teste",
+        )
+    texto = "\n".join(p.extract_text() or "" for p in PdfReader(BytesIO(pdf)).pages)
+    assert EMPRESA_EMITENTE == "LF Boratto Abatedouro de Aves Ltda."
+    assert EMPRESA_EMITENTE in texto
+    assert "FrigoDatta Abatedouro" not in texto
+    assert "Frigo" in texto and "Datta" in texto
+    assert MARCA_SISTEMA == "FrigoDatta"
+
+
 def test_pdf_multipagina_repete_cabecalho_e_identificacao_de_pagina():
     romaneios = [_romaneio(i, cliente=f"Cliente {i % 3}") for i in range(1, 41)]
     with patch("modules.expedicao.relatorio_entregas.buscar_itens_expedicao", side_effect=lambda i: [_pacote(i), _pacote(i + 100)]):
@@ -159,3 +174,23 @@ def test_tela_envia_o_mesmo_formulario_e_separa_cliente_do_destino():
     assert "Cliente: {{ item.cliente_nome" in template
     assert "Destino: {{ item.destino" in template
     assert "|safe" not in template
+
+
+def test_relatorios_oficiais_usam_configuracao_central_da_empresa():
+    templates = [
+        ROOT / "templates" / "manutencao_ordem_impressao.html",
+        ROOT / "templates" / "manutencao_ordens_impressao.html",
+        ROOT / "templates" / "sgi_consolidado.html",
+    ]
+    for caminho in templates:
+        conteudo = caminho.read_text(encoding="utf-8")
+        assert "{{ empresa_emitente }}" in conteudo
+        assert "FrigoDatta Abatedouro" not in conteudo
+
+    relatorio = (ROOT / "modules" / "expedicao" / "relatorio_entregas.py").read_text(encoding="utf-8")
+    assert "from config import EMPRESA_EMITENTE" in relatorio
+    assert "FrigoDatta Abatedouro" not in relatorio
+
+    repositorio_sgi = (ROOT / "modules" / "qualidade" / "repositories.py").read_text(encoding="utf-8")
+    assert repositorio_sgi.count("FrigoDatta Abatedouro") == 1
+    assert "EMPRESA_EMITENTE_LEGADA" in repositorio_sgi
