@@ -235,3 +235,93 @@ def test_pdf_a4_horizontal_identidade_e_acentos(base):
     assert "LF Boratto Abatedouro de Aves Ltda." in texto
     assert "Documento gerado pelo FrigoDatta" in texto
     assert "Cliente Homologação" in texto
+
+
+def test_catalogo_comercial_reutiliza_apresentacoes_e_prioriza_sku(base):
+    conn = sqlite3.connect(base)
+    conn.execute("""CREATE TABLE pa_caixas (
+        id INTEGER PRIMARY KEY, sku TEXT, apresentacao TEXT,
+        unidade_estoque TEXT, galinhas_por_pacote INTEGER
+    )""")
+    conn.executemany("""INSERT INTO pa_caixas
+        (sku,apresentacao,unidade_estoque,galinhas_por_pacote) VALUES (?,?,?,?)""", [
+        ("Galinha Inteira", "Pacote com 1 galinha inteira", "PACOTE", 1),
+        ("Galinha Inteira", "Pacote com 2 galinhas inteiras", "PACOTE", 2),
+    ])
+    conn.commit(); conn.close()
+    catalogo = pedidos.catalogo_produtos_venda([
+        {"id": 10, "codigo": "LEG-2", "nome": "Galinha Inteira", "unidade_venda": "Pct"}
+    ])
+    assert len(catalogo) == 1
+    opcoes = catalogo[0]["apresentacoes"]
+    assert [opcao["fator_aves"] for opcao in opcoes] == [2, 1]
+    assert opcoes[0]["rotulo"] == "Pacote com 2 aves"
+    assert {opcao["unidade_rotulo"] for opcao in opcoes} == {"Pacote"}
+    automatico = pedidos.catalogo_produtos_venda([
+        {"id": 11, "codigo": "GC-KG", "nome": "Galinha Cortada", "unidade_venda": "Kg"}
+    ])[0]["apresentacoes"]
+    assert automatico == [{"valor": "Quilograma", "rotulo": "Quilograma", "unidade": "KG",
+                           "unidade_rotulo": "Quilograma", "fator_aves": None}]
+
+
+def test_backend_aceita_unidade_da_apresentacao_fisica_cadastrada(base):
+    conn = sqlite3.connect(base)
+    conn.execute("UPDATE skus SET codigo='LEG-2',nome='Galinha Inteira',unidade_venda='Un' WHERE id=2")
+    conn.execute("""CREATE TABLE pa_caixas (
+        id INTEGER PRIMARY KEY, sku TEXT, apresentacao TEXT,
+        unidade_estoque TEXT, galinhas_por_pacote INTEGER
+    )""")
+    conn.execute("""INSERT INTO pa_caixas
+        (sku,apresentacao,unidade_estoque,galinhas_por_pacote) VALUES (?,?,?,?)""",
+        ("Galinha Inteira", "Pacote com 2 galinhas inteiras", "PACOTE", 2))
+    conn.commit(); conn.close()
+    form = formulario()
+    valores = {
+        "produto_id": ["2"], "sku": ["LEG-2"],
+        "apresentacao": ["Pacote com 2 galinhas inteiras"], "quantidade": ["150"],
+        "unidade": ["PACOTE"], "preco_unitario": ["12,50"],
+        "desconto_item": ["0"], "observacao_item": [""], "desconto_geral": ["0"],
+    }
+    for chave, lista in valores.items():
+        form.setlist(chave, lista)
+    pedido_id, _ = pedidos.salvar_pedido(form, usuario="Comercial", perfil="pcp")
+    item = pedidos.buscar_pedido(pedido_id)["itens"][0]
+    assert item["unidade_comercial"] == "PACOTE"
+    assert item["quantidade_negociada_mil"] == 150000
+    assert item["valor_liquido_centavos"] == 187500
+
+
+def test_contrato_ux_do_formulario_preserva_backend_e_acessibilidade():
+    from pathlib import Path
+    template = (Path(__file__).parents[1] / "templates" / "pedido_venda_form.html").read_text(encoding="utf-8")
+    assert "2. Itens do pedido" in template
+    assert "+ Adicionar item" in template
+    assert "Quantidade de ${unidadesPlural[unidade]" in template
+    assert "Preço unitário (R$)" in template
+    assert "Desconto do item (R$)" in template
+    assert "Total do item" in template and "Total do pedido" in template
+    assert "window.confirm('Remover este item preenchido do pedido?')" in template
+    assert "data-show=\"PRAZO_UNICO PARCELADO ENTRADA_MAIS_SALDO\"" in template
+    assert "@media(max-width:700px)" in template
+    assert 'type="hidden" name="sku"' in template
+    assert 'placeholder="SKU"' not in template
+    assert "form.checkValidity()" in template
+
+
+def test_acao_principal_salva_e_confirma_sem_movimentar_estoque(monkeypatch):
+    from flask import Flask
+    import modules.pedidos_venda.routes as rotas
+
+    aplicacao = Flask(__name__)
+    aplicacao.secret_key = "teste-ux"
+    chamadas = []
+    monkeypatch.setattr(rotas, "salvar_pedido", lambda form: (77, "PV-20260810-077"))
+    monkeypatch.setattr(rotas, "confirmar_pedido", lambda pedido_id: chamadas.append(pedido_id))
+    rotas.register_pedidos_venda_routes(aplicacao)
+    cliente = aplicacao.test_client()
+    with cliente.session_transaction() as sessao:
+        sessao.update({"usuario_id": 1, "nome": "Administrador", "perfil": "admin"})
+    resposta = cliente.post("/pedidos-venda/novo", data={"acao": "confirmar"})
+    assert resposta.status_code == 302
+    assert resposta.headers["Location"].endswith("/pedidos-venda/77")
+    assert chamadas == [77]

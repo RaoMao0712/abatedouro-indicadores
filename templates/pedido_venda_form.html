@@ -1,33 +1,283 @@
 {% extends "base.html" %}
 {% block conteudo %}
-<style>.pv-form{max-width:1200px}.pv-bloco{background:#fff;border:1px solid #dbe4e1;border-radius:10px;padding:16px;margin:12px 0}.pv-campos{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.pv-form label{display:flex;flex-direction:column;gap:5px}.pv-form input,.pv-form select,.pv-form textarea{padding:8px;border:1px solid #bccac5;border-radius:6px}.pv-itens{width:100%;border-collapse:collapse}.pv-itens td,.pv-itens th{padding:6px;border-bottom:1px solid #e0e6e3}.pv-itens input,.pv-itens select{width:100%;box-sizing:border-box}.pv-btn{padding:9px 13px;border:0;border-radius:7px;background:#174c40;color:#fff;cursor:pointer}@media(max-width:900px){.pv-campos{grid-template-columns:1fr 1fr}}</style>
-<h1>{{ 'Editar '+pedido.numero if pedido else 'Novo Pedido de Venda Direta' }}</h1>
-<form class="pv-form" method="post" id="pedido-form">
-<section class="pv-bloco"><h2>1. Cliente e entrega</h2><div class="pv-campos">
-<label>Cliente<select name="cliente_id" required><option value="">Selecione</option>{% for c in clientes %}<option value="{{ c.id }}" {% if pedido and pedido.cliente_id==c.id %}selected{% endif %}>{{ c.razao_social }}</option>{% endfor %}</select></label>
-<label>Destino<input name="destino" required value="{{ pedido.destino if pedido else '' }}"></label>
-<label>Data<input type="date" name="data_pedido" required value="{{ pedido.data_pedido if pedido else hoje }}"></label>
-<label>Previsão<input type="date" name="previsao_entrega" value="{{ pedido.previsao_entrega if pedido else '' }}"></label>
-<label>Responsável / vendedor<input name="responsavel" required value="{{ pedido.responsavel if pedido else session.get('nome','') }}"></label>
-</div></section>
-<section class="pv-bloco"><div style="display:flex;justify-content:space-between"><h2>2. Itens</h2><button class="pv-btn" type="button" id="add-item">Adicionar item</button></div>
-<div style="overflow:auto"><table class="pv-itens"><thead><tr><th>Produto</th><th>Apresentação</th><th>Quantidade</th><th>Unidade</th><th>Preço unit.</th><th>Desconto</th><th>Observação</th><th></th></tr></thead><tbody id="itens">
-{% set linhas = pedido.itens if pedido else [none] %}{% for item in linhas %}<tr>
-<td><select name="produto_id"><option value="">SKU manual</option>{% for p in produtos %}<option value="{{ p.id }}" data-sku="{{ p.codigo }}" {% if item and item.produto_id==p.id %}selected{% endif %}>{{ p.codigo }} — {{ p.nome }}</option>{% endfor %}</select><input name="sku" placeholder="SKU" value="{{ item.sku if item else '' }}"></td>
-<td><input name="apresentacao" value="{{ item.apresentacao_snapshot if item else '' }}"></td><td><input type="number" step="0.001" min="0.001" name="quantidade" required value="{{ pedido_milesimos(item.quantidade_negociada_mil) if item else '' }}"></td>
-<td><select name="unidade">{% for u in unidades %}<option {% if item and item.unidade_comercial==u %}selected{% endif %}>{{ u }}</option>{% endfor %}</select></td>
-<td><input type="number" step="0.01" min="0.01" name="preco_unitario" required value="{{ pedido_centavos(item.preco_unitario_centavos) if item else '' }}"></td>
-<td><input type="number" step="0.01" min="0" name="desconto_item" value="{{ pedido_centavos(item.desconto_centavos) if item else 0 }}"></td><td><input name="observacao_item" value="{{ item.observacoes if item else '' }}"></td><td><button type="button" class="remover">×</button></td></tr>{% endfor %}
-</tbody></table></div><label>Desconto geral<input type="number" step="0.01" min="0" name="desconto_geral" value="{{ pedido_centavos(pedido.desconto_centavos) if pedido else 0 }}"></label></section>
-<section class="pv-bloco"><h2>3. Pagamento</h2><div class="pv-campos">
-<label>Forma<select name="forma_pagamento" required>{% for x in formas %}<option value="{{ x }}" {% if pedido and pedido.forma_pagamento==x %}selected{% endif %}>{{ x }}</option>{% endfor %}</select></label>
-<label>Condição<select name="condicao_pagamento" required>{% for x in condicoes %}<option value="{{ x }}" {% if pedido and pedido.condicao_pagamento==x %}selected{% endif %}>{{ x }}</option>{% endfor %}</select></label>
-<label>Vencimento inicial<input type="date" name="vencimento_inicial" value="{{ pedido.vencimento_inicial if pedido else '' }}"></label><label>Prazo (dias)<input type="number" min="1" name="prazo_dias" value="{{ pedido.prazo_dias if pedido else '' }}"></label>
-<label>Parcelas<input type="number" min="2" name="numero_parcelas" value="{{ pedido.numero_parcelas if pedido else '' }}"></label><label>Intervalo (dias)<input type="number" min="1" name="intervalo_dias" value="{{ pedido.intervalo_dias if pedido else '' }}"></label>
-<label>Entrada (R$)<input type="number" step="0.01" min="0" name="entrada_valor" value="{{ pedido_centavos(pedido.entrada_centavos) if pedido and pedido.entrada_centavos else '' }}"></label><label>Entrada (%)<input type="number" step="0.001" min="0" max="100" name="entrada_percentual" value="{{ pedido_milesimos(pedido.entrada_percentual_milesimos) if pedido and pedido.entrada_percentual_milesimos else '' }}"></label>
-<label>Condição do saldo<input name="condicao_saldo" value="{{ pedido.condicao_saldo if pedido else '' }}"></label><label>Descrição complementar<input name="descricao_condicao" value="{{ pedido.descricao_condicao if pedido else '' }}"></label>
-</div></section>
-<section class="pv-bloco"><h2>4. Observações</h2><textarea name="observacoes" rows="4" style="width:100%">{{ pedido.observacoes if pedido else '' }}</textarea></section>
-<button class="pv-btn" type="submit">Salvar rascunho</button> <a href="{{ url_for('pedidos_venda') }}">Cancelar</a></form>
-<script>const tbody=document.querySelector('#itens');document.querySelector('#add-item').onclick=()=>{const row=tbody.rows[0].cloneNode(true);row.querySelectorAll('input').forEach(x=>x.value=x.name==='desconto_item'?'0':'');tbody.appendChild(row)};tbody.addEventListener('click',e=>{if(e.target.classList.contains('remover')&&tbody.rows.length>1)e.target.closest('tr').remove()});</script>
+<style>
+.pv-form{max-width:1320px;margin:0 auto;color:#17352e}.pv-page-head{margin-bottom:16px}.pv-page-head h1{margin-bottom:4px}.pv-page-head p{margin:0;color:#5c716b}.pv-block{background:#fff;border:1px solid #dbe4e1;border-radius:12px;padding:20px;margin:14px 0;box-shadow:0 2px 8px rgba(20,61,51,.04)}.pv-block-head{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:16px}.pv-block-head h2{flex:1 1 auto}.pv-block h2{font-size:1.2rem;margin:0;white-space:nowrap}.pv-grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:14px}.pv-field{display:flex;flex-direction:column;gap:6px;min-width:0}.pv-field[hidden],.pv-payment-field[hidden]{display:none!important}.pv-field>span,.pv-label{font-size:.86rem;font-weight:700;color:#344f48}.pv-field input,.pv-field select,.pv-field textarea{width:100%;min-height:42px;padding:9px 10px;border:1px solid #b8c8c3;border-radius:7px;background:#fff;box-sizing:border-box;color:#183c33}.pv-field input:focus,.pv-field select:focus,.pv-field textarea:focus{outline:3px solid rgba(41,128,105,.16);border-color:#287a65}.pv-field input[readonly]{background:#f2f6f4;color:#3d554f}.pv-span-2{grid-column:span 2}.pv-span-3{grid-column:span 3}.pv-span-4{grid-column:span 4}.pv-span-6{grid-column:span 6}.pv-span-12{grid-column:1/-1}.pv-operation{display:inline-flex;align-items:center;gap:7px;margin-top:12px;padding:7px 10px;border-radius:999px;background:#edf5f2;color:#315b50;font-size:.84rem}.pv-add{width:auto!important;flex:0 0 auto!important;padding:8px 12px;border:1px solid #287a65;border-radius:7px;background:#fff;color:#1b6654;font-weight:700;cursor:pointer;white-space:nowrap}.pv-add:hover{background:#eef7f4}.pv-items{display:grid;gap:12px}.pv-item{border:1px solid #d6e1dd;border-radius:10px;padding:16px;background:#fbfdfc}.pv-item-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:13px}.pv-item-title{font-weight:800;color:#244b41}.pv-remove{border:0;background:transparent;color:#a22c2c;padding:7px;border-radius:5px;font-weight:700;cursor:pointer}.pv-remove:hover{background:#fff0f0}.pv-help{min-height:20px;margin:0;font-size:.82rem;color:#4b6961}.pv-total-field output{display:flex;align-items:center;min-height:42px;padding:9px 10px;border-radius:7px;background:#eaf4f0;font-weight:800;color:#174c40}.pv-observation{grid-column:1/-1}.pv-observation summary{cursor:pointer;color:#276c5a;font-weight:700;font-size:.88rem}.pv-observation label{margin-top:10px}.pv-summary{display:grid;grid-template-columns:1fr minmax(260px,380px);gap:20px;margin-top:18px;padding-top:18px;border-top:1px solid #dbe4e1}.pv-summary-note{color:#5b706a;font-size:.9rem}.pv-totals{display:grid;gap:10px}.pv-total-line{display:flex;align-items:center;justify-content:space-between;gap:20px}.pv-total-line strong{font-size:1.05rem}.pv-total-line.is-final{padding-top:10px;border-top:2px solid #b9cbc5;font-size:1.12rem}.pv-discount-general{display:grid;grid-template-columns:1fr 150px;align-items:center;gap:12px}.pv-payment-hint{margin:0 0 14px;color:#5b706a}.pv-review{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}.pv-review div{padding:12px;border-radius:8px;background:#f3f7f5;min-width:0}.pv-review small{display:block;color:#63766f;margin-bottom:5px}.pv-review strong{display:block;overflow-wrap:anywhere}.pv-actions{display:flex;justify-content:flex-end;align-items:center;gap:10px;margin-top:18px}.pv-actions .pv-btn{width:auto!important;flex:0 0 auto!important}.pv-btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;padding:9px 15px;border:1px solid transparent;border-radius:7px;font-weight:800;text-decoration:none;cursor:pointer}.pv-btn-primary{background:#174c40;color:#fff}.pv-btn-secondary{background:#eef4f2;color:#174c40;border-color:#b9cbc5}.pv-btn-link{background:transparent;color:#5b4b4b}.pv-money{font-variant-numeric:tabular-nums}.pv-screen-reader{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+@media(max-width:980px){.pv-span-2,.pv-span-3{grid-column:span 4}.pv-span-4{grid-column:span 6}.pv-span-6{grid-column:span 6}.pv-review{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:700px){.pv-form{width:100%}.pv-block{padding:15px}.pv-block-head{align-items:center}.pv-block h2{font-size:1.08rem}.pv-grid{display:block}.pv-field,.pv-observation{margin-bottom:13px}.pv-item{padding:14px}.pv-summary{grid-template-columns:1fr}.pv-review{grid-template-columns:1fr}.pv-actions{flex-direction:column}.pv-actions .pv-btn{width:100%}.pv-actions .pv-btn-primary{order:-1}.pv-discount-general{grid-template-columns:1fr}.pv-operation{margin-top:0}}
+</style>
+
+<div class="pv-page-head">
+  <h1>{{ 'Editar ' + pedido.numero if pedido else 'Novo Pedido de Venda Direta' }}</h1>
+  <p>Preencha os dados comerciais. O estoque só será movimentado posteriormente pelo romaneio.</p>
+</div>
+
+<form class="pv-form" method="post" id="pedido-form" novalidate>
+  <section class="pv-block" aria-labelledby="titulo-cliente">
+    <div class="pv-block-head"><h2 id="titulo-cliente">1. Cliente e entrega</h2></div>
+    <div class="pv-grid">
+      <label class="pv-field pv-span-4" for="cliente-id"><span>Cliente</span>
+        <select id="cliente-id" name="cliente_id" required>
+          <option value="">Selecione o cliente</option>
+          {% for c in clientes %}<option value="{{ c.id }}" {% if pedido and pedido.cliente_id==c.id %}selected{% endif %}>{{ c.razao_social }}</option>{% endfor %}
+        </select>
+      </label>
+      <label class="pv-field pv-span-2" for="data-pedido"><span>Data do pedido</span><input id="data-pedido" type="date" name="data_pedido" required value="{{ pedido.data_pedido if pedido else hoje }}"></label>
+      <label class="pv-field pv-span-2" for="previsao-entrega"><span>Previsão de entrega</span><input id="previsao-entrega" type="date" name="previsao_entrega" value="{{ pedido.previsao_entrega if pedido else '' }}"></label>
+      <label class="pv-field pv-span-4" for="responsavel"><span>Responsável / vendedor</span><input id="responsavel" name="responsavel" required value="{{ pedido.responsavel if pedido else session.get('nome','') }}"></label>
+      <label class="pv-field pv-span-12" for="destino"><span>Destino da entrega</span><input id="destino" name="destino" required autocomplete="street-address" placeholder="Endereço, unidade ou local combinado" value="{{ pedido.destino if pedido else '' }}"><small class="pv-help">Preenchido com o endereço cadastrado do cliente quando disponível.</small></label>
+    </div>
+    <div class="pv-operation" aria-label="Tipo de operação"><strong>Tipo:</strong> Venda direta</div>
+  </section>
+
+  <section class="pv-block" aria-labelledby="titulo-itens">
+    <div class="pv-block-head"><h2 id="titulo-itens">2. Itens do pedido</h2><button class="pv-add" type="button" id="add-item">+ Adicionar item</button></div>
+    <div class="pv-items" id="itens">
+      {% set linhas = pedido.itens if pedido else [none] %}
+      {% for item in linhas %}
+      <article class="pv-item" data-initial-presentation="{{ item.apresentacao_snapshot if item else '' }}">
+        <div class="pv-item-head"><span class="pv-item-title">Item {{ loop.index }}</span><button type="button" class="pv-remove" aria-label="Remover item {{ loop.index }}" title="Remover este item">Remover</button></div>
+        <div class="pv-grid">
+          <label class="pv-field pv-span-4"><span>Produto</span>
+            <select name="produto_id" class="pv-product" required>
+              <option value="">Selecione o produto</option>
+              {% for p in produtos %}<option value="{{ p.id }}" data-sku="{{ p.codigo }}" {% if item and item.produto_id==p.id %}selected{% endif %}>{{ p.codigo }} — {{ p.nome }}</option>{% endfor %}
+            </select>
+            <input type="hidden" name="sku" class="pv-sku" value="{{ item.sku if item else '' }}">
+          </label>
+          <div class="pv-field pv-span-4 pv-presentation-field"><span class="pv-label">Apresentação</span><div class="pv-presentation-host"></div></div>
+          <label class="pv-field pv-span-2"><span class="pv-quantity-label">Quantidade</span><input type="number" inputmode="decimal" step="0.001" min="0.001" name="quantidade" class="pv-quantity" required value="{{ pedido_milesimos(item.quantidade_negociada_mil) if item else '' }}"><small class="pv-help pv-conversion" aria-live="polite"></small></label>
+          <label class="pv-field pv-span-2"><span>Unidade comercial</span><input class="pv-unit-label" readonly aria-readonly="true"><input type="hidden" name="unidade" class="pv-unit" value="{{ item.unidade_comercial if item else '' }}"></label>
+          <label class="pv-field pv-span-3"><span>Preço unitário (R$)</span><input class="pv-money pv-price-display" inputmode="decimal" autocomplete="off" value=""><input type="hidden" name="preco_unitario" class="pv-price" value="{{ pedido_centavos(item.preco_unitario_centavos) if item else '' }}"></label>
+          <label class="pv-field pv-span-3"><span>Desconto do item (R$)</span><input class="pv-money pv-discount-display" inputmode="decimal" autocomplete="off" value=""><input type="hidden" name="desconto_item" class="pv-discount" value="{{ pedido_centavos(item.desconto_centavos) if item else 0 }}"></label>
+          <div class="pv-field pv-span-3 pv-total-field"><span class="pv-label">Total do item</span><output class="pv-item-total">R$ 0,00</output></div>
+          <details class="pv-observation pv-span-3" {% if item and item.observacoes %}open{% endif %}><summary>Adicionar observação</summary><label class="pv-field"><span>Observação do item</span><input name="observacao_item" value="{{ item.observacoes if item else '' }}"></label></details>
+        </div>
+      </article>
+      {% endfor %}
+    </div>
+    <div class="pv-summary">
+      <p class="pv-summary-note">Os valores desta tela são uma prévia. O cálculo oficial é refeito e validado pelo servidor ao salvar.</p>
+      <div class="pv-totals" aria-live="polite">
+        <div class="pv-total-line"><span>Subtotal</span><strong id="subtotal">R$ 0,00</strong></div>
+        <label class="pv-discount-general" for="desconto-geral-display"><span>Desconto geral (R$)</span><input id="desconto-geral-display" class="pv-money" inputmode="decimal" autocomplete="off"><input type="hidden" name="desconto_geral" id="desconto-geral" value="{{ pedido_centavos(pedido.desconto_centavos) if pedido else 0 }}"></label>
+        <div class="pv-total-line is-final"><span>Total do pedido</span><strong id="total-pedido">R$ 0,00</strong></div>
+        <input type="hidden" name="valor_total" id="valor-total" value="0.00">
+      </div>
+    </div>
+  </section>
+
+  <section class="pv-block" aria-labelledby="titulo-pagamento">
+    <div class="pv-block-head"><h2 id="titulo-pagamento">3. Pagamento</h2></div>
+    <p class="pv-payment-hint">Os campos abaixo são ajustados automaticamente à condição escolhida.</p>
+    <div class="pv-grid">
+      <label class="pv-field pv-span-3" for="forma-pagamento"><span>Forma de pagamento</span><select id="forma-pagamento" name="forma_pagamento" required>{% for x in formas %}<option value="{{ x }}" {% if pedido and pedido.forma_pagamento==x %}selected{% endif %}>{{ x|replace('_',' ')|title }}</option>{% endfor %}</select></label>
+      <label class="pv-field pv-span-3" for="condicao-pagamento"><span>Condição de pagamento</span><select id="condicao-pagamento" name="condicao_pagamento" required>{% for x in condicoes %}<option value="{{ x }}" {% if pedido and pedido.condicao_pagamento==x %}selected{% endif %}>{{ x|replace('_',' ')|title }}</option>{% endfor %}</select></label>
+      <label class="pv-field pv-span-3 pv-payment-field" data-show="PRAZO_UNICO PARCELADO ENTRADA_MAIS_SALDO" for="vencimento-inicial"><span class="pv-due-label">Vencimento</span><input id="vencimento-inicial" type="date" name="vencimento_inicial" value="{{ pedido.vencimento_inicial if pedido else '' }}"></label>
+      <label class="pv-field pv-span-3 pv-payment-field" data-show="PRAZO_UNICO" for="prazo-dias"><span>Prazo em dias</span><input id="prazo-dias" type="number" min="1" name="prazo_dias" value="{{ pedido.prazo_dias if pedido else '' }}"></label>
+      <label class="pv-field pv-span-3 pv-payment-field" data-show="PARCELADO" for="numero-parcelas"><span>Quantidade de parcelas</span><input id="numero-parcelas" type="number" min="2" name="numero_parcelas" value="{{ pedido.numero_parcelas if pedido else '' }}"></label>
+      <label class="pv-field pv-span-3 pv-payment-field" data-show="PARCELADO" for="intervalo-dias"><span>Intervalo entre parcelas (dias)</span><input id="intervalo-dias" type="number" min="1" name="intervalo_dias" value="{{ pedido.intervalo_dias if pedido else '' }}"></label>
+      <label class="pv-field pv-span-3 pv-payment-field" data-show="ENTRADA_MAIS_SALDO" for="entrada-valor-display"><span>Entrada (R$)</span><input id="entrada-valor-display" class="pv-money" inputmode="decimal" autocomplete="off"><input type="hidden" name="entrada_valor" id="entrada-valor" value="{{ pedido_centavos(pedido.entrada_centavos) if pedido and pedido.entrada_centavos else '' }}"></label>
+      <label class="pv-field pv-span-3 pv-payment-field" data-show="ENTRADA_MAIS_SALDO" for="entrada-percentual"><span>Entrada (%)</span><input id="entrada-percentual" type="number" step="0.001" min="0" max="100" name="entrada_percentual" value="{{ pedido_milesimos(pedido.entrada_percentual_milesimos) if pedido and pedido.entrada_percentual_milesimos else '' }}"></label>
+      <label class="pv-field pv-span-6 pv-payment-field" data-show="ENTRADA_MAIS_SALDO" for="condicao-saldo"><span>Condição do saldo</span><input id="condicao-saldo" name="condicao_saldo" placeholder="Ex.: saldo em 30 dias" value="{{ pedido.condicao_saldo if pedido else '' }}"></label>
+      <label class="pv-field pv-span-6 pv-payment-field" data-show="OUTRO" for="descricao-condicao"><span>Descrição complementar</span><input id="descricao-condicao" name="descricao_condicao" value="{{ pedido.descricao_condicao if pedido else '' }}"></label>
+    </div>
+  </section>
+
+  <section class="pv-block" aria-labelledby="titulo-conferencia">
+    <div class="pv-block-head"><h2 id="titulo-conferencia">4. Conferência</h2></div>
+    <div class="pv-review">
+      <div><small>Cliente</small><strong id="review-cliente">Não selecionado</strong></div>
+      <div><small>Itens</small><strong id="review-itens">1 item</strong></div>
+      <div><small>Total do pedido</small><strong id="review-total">R$ 0,00</strong></div>
+      <div><small>Condição</small><strong id="review-condicao">À vista</strong></div>
+      <div><small>Previsão de entrega</small><strong id="review-previsao">Não informada</strong></div>
+    </div>
+    <label class="pv-field" for="observacoes" style="margin-top:16px"><span>Observações gerais</span><textarea id="observacoes" name="observacoes" rows="3">{{ pedido.observacoes if pedido else '' }}</textarea></label>
+    <div class="pv-actions">
+      <a class="pv-btn pv-btn-link" href="{{ url_for('pedidos_venda') }}">Cancelar e voltar</a>
+      <button class="pv-btn pv-btn-secondary" type="submit" name="acao" value="rascunho">Salvar rascunho</button>
+      <button class="pv-btn pv-btn-primary" type="submit" name="acao" value="confirmar">Confirmar pedido</button>
+    </div>
+  </section>
+</form>
+
+<script>
+(() => {
+  const catalogo = {{ produtos|tojson }};
+  const destinos = {{ destinos_clientes|tojson }};
+  const produtosPorId = new Map(catalogo.map(p => [String(p.id), p]));
+  const itens = document.querySelector('#itens');
+  const form = document.querySelector('#pedido-form');
+  const moeda = new Intl.NumberFormat('pt-BR', {style:'currency', currency:'BRL'});
+  const unidades = {PACOTE:'Pacote', CAIXA:'Caixa', BANDEJA:'Bandeja', KG:'Quilograma', UNIDADE:'Unidade', GALINHA:'Ave'};
+  const unidadesPlural = {PACOTE:'pacotes', CAIXA:'caixas', BANDEJA:'bandejas', KG:'quilogramas', UNIDADE:'unidades', GALINHA:'aves'};
+  const condicoes = {A_VISTA:'À vista', PRAZO_UNICO:'Prazo único', PARCELADO:'Parcelado', ENTRADA_MAIS_SALDO:'Entrada mais saldo', OUTRO:'Outra condição'};
+
+  function numero(valor) { return Number(String(valor || '').replace(',', '.')) || 0; }
+  function formatarCentavos(centavos) { return moeda.format(Math.max(0, centavos) / 100); }
+  function configurarMoeda(visivel, oculto, callback) {
+    const inicial = Math.round(numero(oculto.value) * 100);
+    visivel.value = formatarCentavos(inicial);
+    visivel.addEventListener('input', () => {
+      const digitos = visivel.value.replace(/\D/g, '');
+      const centavos = Number(digitos || 0);
+      oculto.value = (centavos / 100).toFixed(2);
+      visivel.value = formatarCentavos(centavos);
+      if (callback) callback();
+    });
+  }
+
+  function atualizarIds() {
+    [...itens.querySelectorAll('.pv-item')].forEach((row, indice) => {
+      row.querySelector('.pv-item-title').textContent = `Item ${indice + 1}`;
+      const remover = row.querySelector('.pv-remove');
+      remover.setAttribute('aria-label', `Remover item ${indice + 1}`);
+      row.querySelectorAll('label').forEach((label, posicao) => {
+        const controle = label.querySelector('input:not([type=hidden]), select, textarea');
+        if (controle) {
+          controle.id = `item-${indice + 1}-campo-${posicao + 1}`;
+          label.setAttribute('for', controle.id);
+        }
+      });
+    });
+  }
+
+  function atualizarApresentacao(row, valorAnterior='') {
+    const produto = produtosPorId.get(row.querySelector('.pv-product').value);
+    const host = row.querySelector('.pv-presentation-host');
+    host.innerHTML = '';
+    if (!produto) {
+      const vazio = document.createElement('input');
+      vazio.readOnly = true; vazio.placeholder = 'Selecione o produto'; vazio.setAttribute('aria-label', 'Apresentação');
+      host.appendChild(vazio); atualizarUnidade(row, null); return;
+    }
+    const opcoes = produto.apresentacoes || [];
+    let controle;
+    if (opcoes.length <= 1) {
+      controle = document.createElement('input');
+      controle.readOnly = true; controle.value = opcoes[0]?.rotulo || 'Apresentação padrão';
+      controle.setAttribute('aria-label', 'Apresentação automática');
+      const hidden = document.createElement('input'); hidden.type = 'hidden'; hidden.name = 'apresentacao'; hidden.value = opcoes[0]?.valor || '';
+      host.append(controle, hidden);
+    } else {
+      controle = document.createElement('select'); controle.name = 'apresentacao'; controle.setAttribute('aria-label', 'Apresentação');
+      opcoes.forEach((opcao, indice) => {
+        const option = document.createElement('option'); option.value = opcao.valor; option.textContent = opcao.rotulo;
+        if (opcao.valor === valorAnterior || (!valorAnterior && indice === 0)) option.selected = true;
+        controle.appendChild(option);
+      });
+      controle.addEventListener('change', () => atualizarUnidade(row, opcoes.find(o => o.valor === controle.value)));
+      host.appendChild(controle);
+    }
+    const selecionada = opcoes.find(o => o.valor === (host.querySelector('[name=apresentacao]')?.value || valorAnterior)) || opcoes[0];
+    atualizarUnidade(row, selecionada);
+  }
+
+  function atualizarUnidade(row, opcao) {
+    const unidade = opcao?.unidade || '';
+    row.dataset.fatorAves = opcao?.fator_aves || '';
+    row.querySelector('.pv-unit').value = unidade;
+    row.querySelector('.pv-unit-label').value = unidades[unidade] || '';
+    row.querySelector('.pv-quantity-label').textContent = unidade === 'KG' ? 'Peso (kg)' : `Quantidade de ${unidadesPlural[unidade] || 'itens'}`;
+    atualizarLinha(row);
+  }
+
+  function atualizarLinha(row) {
+    const quantidade = numero(row.querySelector('.pv-quantity').value);
+    const preco = Math.round(numero(row.querySelector('.pv-price').value) * 100);
+    const desconto = Math.round(numero(row.querySelector('.pv-discount').value) * 100);
+    const total = Math.max(0, Math.round(quantidade * preco) - desconto);
+    row.dataset.totalCentavos = total;
+    row.querySelector('.pv-item-total').textContent = formatarCentavos(total);
+    const fator = Number(row.dataset.fatorAves || 0);
+    const unidade = row.querySelector('.pv-unit').value;
+    row.querySelector('.pv-conversion').textContent = fator && quantidade ? `${quantidade.toLocaleString('pt-BR')} ${unidadesPlural[unidade]} × ${fator} ${fator === 1 ? 'ave' : 'aves'} = ${(quantidade * fator).toLocaleString('pt-BR')} aves` : '';
+    atualizarResumo();
+  }
+
+  function inicializarLinha(row) {
+    const produtoSelect = row.querySelector('.pv-product');
+    const priceDisplay = row.querySelector('.pv-price-display');
+    const discountDisplay = row.querySelector('.pv-discount-display');
+    configurarMoeda(priceDisplay, row.querySelector('.pv-price'), () => atualizarLinha(row));
+    configurarMoeda(discountDisplay, row.querySelector('.pv-discount'), () => atualizarLinha(row));
+    produtoSelect.addEventListener('change', () => {
+      const option = produtoSelect.selectedOptions[0];
+      row.querySelector('.pv-sku').value = option?.dataset.sku || '';
+      atualizarApresentacao(row);
+      atualizarResumo();
+    });
+    row.querySelector('.pv-quantity').addEventListener('input', () => atualizarLinha(row));
+    atualizarApresentacao(row, row.dataset.initialPresentation || '');
+    atualizarLinha(row);
+  }
+
+  function limparLinha(row) {
+    row.dataset.initialPresentation = '';
+    row.querySelectorAll('input').forEach(input => {
+      if (input.type !== 'hidden' || !['desconto_item'].includes(input.name)) input.value = '';
+    });
+    row.querySelector('.pv-product').value = '';
+    row.querySelector('[name=desconto_item]').value = '0';
+    row.querySelectorAll('details').forEach(d => d.open = false);
+    row.querySelector('.pv-presentation-host').innerHTML = '';
+  }
+
+  function adicionarLinha() {
+    const row = itens.querySelector('.pv-item').cloneNode(true);
+    limparLinha(row); itens.appendChild(row); inicializarLinha(row); atualizarIds(); atualizarResumo();
+    row.querySelector('.pv-product').focus();
+  }
+
+  function atualizarResumo() {
+    const rows = [...itens.querySelectorAll('.pv-item')];
+    const subtotal = rows.reduce((s, row) => s + Number(row.dataset.totalCentavos || 0), 0);
+    const desconto = Math.round(numero(document.querySelector('#desconto-geral').value) * 100);
+    const total = Math.max(0, subtotal - desconto);
+    document.querySelector('#subtotal').textContent = formatarCentavos(subtotal);
+    document.querySelector('#total-pedido').textContent = formatarCentavos(total);
+    document.querySelector('#valor-total').value = (total / 100).toFixed(2);
+    document.querySelector('#review-total').textContent = formatarCentavos(total);
+    document.querySelector('#review-itens').textContent = `${rows.length} ${rows.length === 1 ? 'item' : 'itens'}`;
+  }
+
+  document.querySelector('#add-item').addEventListener('click', adicionarLinha);
+  itens.addEventListener('click', event => {
+    const botao = event.target.closest('.pv-remove'); if (!botao) return;
+    const row = botao.closest('.pv-item');
+    const preenchida = row.querySelector('.pv-product').value || numero(row.querySelector('.pv-quantity').value) || numero(row.querySelector('.pv-price').value);
+    if (preenchida && !window.confirm('Remover este item preenchido do pedido?')) return;
+    if (itens.querySelectorAll('.pv-item').length === 1) {
+      const nova = row.cloneNode(true); limparLinha(nova); row.replaceWith(nova); inicializarLinha(nova);
+    } else row.remove();
+    atualizarIds(); atualizarResumo();
+  });
+
+  const cliente = document.querySelector('#cliente-id');
+  const destino = document.querySelector('#destino');
+  function atualizarCliente() {
+    if (!destino.value.trim() && destinos[cliente.value]) destino.value = destinos[cliente.value];
+    document.querySelector('#review-cliente').textContent = cliente.selectedOptions[0]?.textContent || 'Não selecionado';
+  }
+  cliente.addEventListener('change', atualizarCliente);
+  document.querySelector('#previsao-entrega').addEventListener('change', event => document.querySelector('#review-previsao').textContent = event.target.value ? event.target.value.split('-').reverse().join('/') : 'Não informada');
+  const condicao = document.querySelector('#condicao-pagamento');
+  function atualizarPagamento() {
+    document.querySelectorAll('.pv-payment-field').forEach(campo => {
+      const mostrar = campo.dataset.show.split(' ').includes(condicao.value);
+      campo.hidden = !mostrar;
+      campo.querySelectorAll('input').forEach(input => input.disabled = !mostrar);
+    });
+    document.querySelector('.pv-due-label').textContent = condicao.value === 'ENTRADA_MAIS_SALDO' ? 'Vencimento do saldo' : (condicao.value === 'PARCELADO' ? 'Primeiro vencimento' : 'Vencimento');
+    document.querySelector('#review-condicao').textContent = condicoes[condicao.value] || condicao.value;
+  }
+  condicao.addEventListener('change', atualizarPagamento);
+  configurarMoeda(document.querySelector('#desconto-geral-display'), document.querySelector('#desconto-geral'), atualizarResumo);
+  configurarMoeda(document.querySelector('#entrada-valor-display'), document.querySelector('#entrada-valor'));
+  [...itens.querySelectorAll('.pv-item')].forEach(inicializarLinha);
+  atualizarIds(); atualizarCliente(); atualizarPagamento(); atualizarResumo();
+  const previsao = document.querySelector('#previsao-entrega'); if (previsao.value) previsao.dispatchEvent(new Event('change'));
+  form.addEventListener('submit', event => { if (!form.checkValidity()) { event.preventDefault(); form.reportValidity(); } });
+})();
+</script>
 {% endblock %}

@@ -7,6 +7,7 @@ Assim, SQLite e PostgreSQL compartilham a mesma semântica exata.
 from datetime import datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import json
+import re
 
 from flask import has_request_context, session
 
@@ -80,6 +81,87 @@ def decimal_centavos(valor):
 
 def decimal_milesimos(valor):
     return (Decimal(int(valor or 0)) / Decimal(1000)).quantize(Decimal("0.001"))
+
+
+def catalogo_produtos_venda(produtos):
+    """Monta opções de venda usando cadastro e apresentações já vistas no estoque.
+
+    Não cria um segundo cadastro comercial. Quando não há apresentação física
+    conhecida, a unidade de venda do SKU fornece uma opção segura de fallback.
+    """
+    produtos = [dict(produto) for produto in produtos]
+    apresentacoes_estoque = []
+    conn = conectar()
+    try:
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute("SELECT to_regclass('public.pa_caixas') AS tabela")
+            existe = bool(cursor.fetchone()["tabela"])
+        else:
+            cursor.execute("SELECT name AS tabela FROM sqlite_master WHERE type='table' AND name='pa_caixas'")
+            existe = bool(cursor.fetchone())
+        if existe:
+            cursor.execute("""SELECT DISTINCT sku,apresentacao,unidade_estoque,galinhas_por_pacote
+                FROM pa_caixas WHERE apresentacao IS NOT NULL AND TRIM(apresentacao)<>''
+                ORDER BY apresentacao""")
+            apresentacoes_estoque = [dict(linha) for linha in cursor.fetchall()]
+    finally:
+        conn.close()
+
+    mapa_unidades = {
+        "KG": ("KG", "Quilograma"), "UN": ("UNIDADE", "Unidade"),
+        "CX": ("CAIXA", "Caixa"), "PCT": ("PACOTE", "Pacote"),
+    }
+    catalogo = []
+    for produto in produtos:
+        unidade_cadastro = str(produto.get("unidade_venda") or "").upper()
+        unidade_padrao = mapa_unidades.get(unidade_cadastro)
+        if not unidade_padrao:
+            continue
+        codigo = str(produto.get("codigo") or "").strip()
+        nome = str(produto.get("nome") or "").strip()
+        chaves = {codigo.casefold(), nome.casefold()}
+        opcoes = []
+        for estoque in apresentacoes_estoque:
+            if str(estoque.get("sku") or "").strip().casefold() not in chaves:
+                continue
+            unidade = str(estoque.get("unidade_estoque") or unidade_padrao[0]).upper()
+            if unidade not in UNIDADES:
+                unidade = unidade_padrao[0]
+            fator = int(estoque.get("galinhas_por_pacote") or 0) or None
+            valor = str(estoque["apresentacao"]).strip()
+            rotulo = valor
+            if unidade == "PACOTE" and fator:
+                rotulo = f"Pacote com {fator} {'ave' if fator == 1 else 'aves'}"
+            opcoes.append({"valor": valor, "rotulo": rotulo, "unidade": unidade,
+                           "unidade_rotulo": mapa_unidades.get(unidade, (unidade, unidade.title()))[1],
+                           "fator_aves": fator})
+        if not opcoes:
+            fator = None
+            valor = unidade_padrao[1]
+            rotulo = unidade_padrao[1]
+            if unidade_padrao[0] == "PACOTE" and "galinha inteira" in nome.casefold():
+                sufixo = re.search(r"(?:^|[-_ V])([12])$", codigo, re.IGNORECASE)
+                fator = int(sufixo.group(1)) if sufixo else None
+                if fator:
+                    valor = f"Pacote com {fator} {'galinha inteira' if fator == 1 else 'galinhas inteiras'}"
+                    rotulo = f"Pacote com {fator} {'ave' if fator == 1 else 'aves'}"
+            opcoes.append({"valor": valor, "rotulo": rotulo, "unidade": unidade_padrao[0],
+                           "unidade_rotulo": unidade_padrao[1], "fator_aves": fator})
+        unicas = []
+        vistos = set()
+        for opcao in opcoes:
+            chave = (opcao["valor"].casefold(), opcao["unidade"])
+            if chave not in vistos:
+                vistos.add(chave)
+                unicas.append(opcao)
+        preferido = re.search(r"(?:^|[-_ V])([12])$", codigo, re.IGNORECASE)
+        if preferido:
+            fator_preferido = int(preferido.group(1))
+            unicas.sort(key=lambda item: item.get("fator_aves") != fator_preferido)
+        catalogo.append({"id": produto["id"], "codigo": codigo, "nome": nome,
+                         "apresentacoes": unicas})
+    return catalogo
 
 
 def criar_tabelas_pedidos_venda():
@@ -322,12 +404,19 @@ def _dados_form(form):
             unidade = str(unidades[indice] if indice < len(unidades) else "").upper().strip()
             if unidade not in UNIDADES:
                 raise ValueError(f"Unidade comercial inválida para {sku}.")
+            apresentacao = str(apresentacoes[indice] if indice < len(apresentacoes) else "").strip() or None
             if produto:
                 mapa = {"KG": "KG", "UN": "UNIDADE", "CX": "CAIXA", "PCT": "PACOTE"}
                 unidade_catalogo = mapa.get(str(produto["unidade_venda"] or "").upper())
-                if unidade_catalogo and unidade != unidade_catalogo:
+                catalogo_apresentacao = catalogo_produtos_venda([produto])
+                opcoes_apresentacao = catalogo_apresentacao[0]["apresentacoes"] if catalogo_apresentacao else []
+                unidade_da_apresentacao = any(
+                    opcao["valor"].casefold() == (apresentacao or "").casefold()
+                    and opcao["unidade"] == unidade
+                    for opcao in opcoes_apresentacao
+                )
+                if unidade_catalogo and unidade != unidade_catalogo and not unidade_da_apresentacao:
                     raise ValueError(f"Unidade incompatível com o cadastro do produto {sku}.")
-            apresentacao = str(apresentacoes[indice] if indice < len(apresentacoes) else "").strip() or None
             chave_item = (sku.casefold(), (apresentacao or "").casefold(), unidade)
             if chave_item in chaves_itens:
                 raise ValueError("Itens com mesmo SKU, apresentação e unidade devem ser consolidados.")

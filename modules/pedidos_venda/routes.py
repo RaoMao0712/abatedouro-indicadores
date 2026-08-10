@@ -10,8 +10,25 @@ from modules.clientes.services import listar_clientes
 from modules.engenharia_produtos.services import listar_catalogo
 from .pdf import gerar_pdf_pedido
 from .services import (CONDICOES_PAGAMENTO, FORMAS_PAGAMENTO, STATUS, UNIDADES,
-    buscar_pedido, cancelar_pedido, confirmar_pedido, decimal_centavos, decimal_milesimos,
+    buscar_pedido, cancelar_pedido, catalogo_produtos_venda, confirmar_pedido, decimal_centavos, decimal_milesimos,
     gerar_romaneio_pedido, listar_pedidos, resumo_pedidos, salvar_pedido)
+
+
+def _dados_formulario(pedido=None):
+    clientes = [dict(cliente) for cliente in listar_clientes(somente_ativos=True)]
+    destinos = {}
+    for cliente in clientes:
+        partes = [cliente.get("endereco"), cliente.get("complemento"), cliente.get("bairro")]
+        cidade_uf = " / ".join(x for x in (cliente.get("cidade"), cliente.get("uf")) if x)
+        partes.extend((cidade_uf, cliente.get("cep")))
+        destinos[str(cliente["id"])] = ", ".join(str(x).strip() for x in partes if x and str(x).strip())
+    produtos, _ = listar_catalogo({"status": "Sim"})
+    return {
+        "pedido": pedido, "clientes": clientes, "destinos_clientes": destinos,
+        "produtos": catalogo_produtos_venda(produtos), "unidades": UNIDADES,
+        "formas": FORMAS_PAGAMENTO, "condicoes": CONDICOES_PAGAMENTO,
+        "hoje": datetime.now().strftime("%Y-%m-%d"),
+    }
 
 
 def register_pedidos_venda_routes(app):
@@ -32,13 +49,14 @@ def register_pedidos_venda_routes(app):
         if request.method=="POST":
             try:
                 pedido_id,numero=salvar_pedido(request.form)
-                flash(f"Pedido {numero} salvo como rascunho.")
+                if request.form.get("acao") == "confirmar":
+                    confirmar_pedido(pedido_id)
+                    flash(f"Pedido {numero} salvo e confirmado sem movimentar estoque.")
+                else:
+                    flash(f"Pedido {numero} salvo como rascunho.")
                 return redirect(url_for("detalhe_pedido_venda",pedido_id=pedido_id))
             except (ValueError,PermissionError) as erro: flash(str(erro))
-        produtos,_=listar_catalogo({"status":"Sim"})
-        return render_template("pedido_venda_form.html",pedido=None,clientes=listar_clientes(somente_ativos=True),
-            produtos=produtos,unidades=UNIDADES,formas=FORMAS_PAGAMENTO,condicoes=CONDICOES_PAGAMENTO,
-            hoje=datetime.now().strftime("%Y-%m-%d"))
+        return render_template("pedido_venda_form.html", **_dados_formulario())
 
     @app.route("/pedidos-venda/<int:pedido_id>/editar",methods=["GET","POST"])
     @perfil_permitido("pcp", "expedicao", "gerencia")
@@ -49,12 +67,14 @@ def register_pedidos_venda_routes(app):
         if request.method=="POST":
             try:
                 salvar_pedido(request.form,pedido_id)
-                flash("Pedido atualizado."); return redirect(url_for("detalhe_pedido_venda",pedido_id=pedido_id))
+                if request.form.get("acao") == "confirmar":
+                    confirmar_pedido(pedido_id)
+                    flash("Pedido atualizado e confirmado sem movimentar estoque.")
+                else:
+                    flash("Pedido atualizado.")
+                return redirect(url_for("detalhe_pedido_venda",pedido_id=pedido_id))
             except (ValueError,PermissionError) as erro: flash(str(erro))
-        produtos,_=listar_catalogo({"status":"Sim"})
-        return render_template("pedido_venda_form.html",pedido=pedido,clientes=listar_clientes(somente_ativos=True),
-            produtos=produtos,unidades=UNIDADES,formas=FORMAS_PAGAMENTO,condicoes=CONDICOES_PAGAMENTO,
-            hoje=datetime.now().strftime("%Y-%m-%d"))
+        return render_template("pedido_venda_form.html", **_dados_formulario(pedido))
 
     @app.route("/pedidos-venda/<int:pedido_id>",methods=["GET","POST"])
     @perfil_permitido("pcp", "expedicao", "gerencia")
