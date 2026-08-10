@@ -132,12 +132,12 @@ def _p(texto, estilo):
 
 
 class _Documento(SimpleDocTemplate):
-    def __init__(self, destino, emissao, usuario, logo):
+    def __init__(self, destino, emissao, usuario, logo, titulo_documento):
         super().__init__(
             destino, pagesize=landscape(A4),
             leftMargin=10 * mm, rightMargin=10 * mm,
             topMargin=38 * mm, bottomMargin=13 * mm,
-            title="Relatório de Entregas por Cliente",
+            title=titulo_documento,
             author=usuario,
         )
         self.emissao = emissao
@@ -178,11 +178,15 @@ def gerar_relatorio_entregas_pdf(expedicoes, filtros, cliente_selecionado=None, 
     """Gera as visoes comercial ou analitica sem alterar dados operacionais."""
     agrupamento = _normalizar_agrupamento(agrupamento or filtros.get("agrupamento"))
     expedicoes = _expedicoes_unicas(expedicoes)
+    visao_op = agrupamento == AGRUPAMENTO_OP
+    titulo_texto = "RELATÓRIO ANALÍTICO DE ENTREGAS POR ORDEM DE PRODUÇÃO" if visao_op else "RELATÓRIO DE ENTREGAS POR CLIENTE"
+    titulo_documento = "Relatório Analítico de Entregas por Ordem de Produção" if visao_op else "Relatório de Entregas por Cliente"
+    agrupamento_texto = "Por Ordem de Produção - Visão analítica" if visao_op else "Por romaneio - Visão comercial"
     emissao = emissao or datetime.now().strftime("%d/%m/%Y às %H:%M")
     usuario = _texto(usuario or nome_usuario_atual(), "Usuário não identificado")
     logo = logo or str(Path(__file__).resolve().parents[2] / "static" / "imagens" / "logo.png")
     buffer = BytesIO()
-    doc = _Documento(buffer, emissao, usuario, logo)
+    doc = _Documento(buffer, emissao, usuario, logo, titulo_documento)
     estilos = getSampleStyleSheet()
     titulo = ParagraphStyle("titulo", parent=estilos["Title"], fontName="Helvetica-Bold", fontSize=15, leading=18, textColor=AZUL, alignment=TA_CENTER, spaceAfter=2 * mm)
     subtitulo = ParagraphStyle("subtitulo", parent=estilos["Normal"], fontSize=8.5, leading=11, textColor=CINZA, alignment=TA_CENTER, spaceAfter=3 * mm)
@@ -195,9 +199,6 @@ def gerar_relatorio_entregas_pdf(expedicoes, filtros, cliente_selecionado=None, 
     direita_analitico = ParagraphStyle("direita_analitico", parent=analitico, alignment=TA_RIGHT)
     grupo = ParagraphStyle("grupo", parent=normal, fontName="Helvetica-Bold", fontSize=9, textColor=AZUL, spaceBefore=2 * mm, spaceAfter=1 * mm)
 
-    visao_op = agrupamento == AGRUPAMENTO_OP
-    titulo_texto = "RELATÓRIO ANALÍTICO DE ENTREGAS POR ORDEM DE PRODUÇÃO" if visao_op else "RELATÓRIO DE ENTREGAS POR CLIENTE"
-    agrupamento_texto = "Por Ordem de Produção - Visão analítica" if visao_op else "Por romaneio - Visão comercial"
     historia = [Paragraph(titulo_texto, titulo), Paragraph(f"Agrupamento: {agrupamento_texto}", subtitulo)]
 
     cliente_filtro = _texto(cliente_selecionado, "Todos")

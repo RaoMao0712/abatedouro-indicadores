@@ -126,6 +126,7 @@ def test_visao_comercial_consolida_varias_ops_e_apresentacoes_em_um_romaneio():
     with patch("modules.expedicao.relatorio_entregas.buscar_itens_expedicao", return_value=itens):
         pdf = gerar_relatorio_entregas_pdf([_romaneio()], FILTROS, agrupamento=AGRUPAMENTO_ROMANEIO, usuario="PCP")
     texto = "\n".join(p.extract_text() or "" for p in PdfReader(BytesIO(pdf)).pages)
+    assert PdfReader(BytesIO(pdf)).metadata.title == "Relatório de Entregas por Cliente"
     assert "Agrupamento: Por romaneio - Visão comercial" in texto
     assert texto.count("ROM-20260801") == 1
     assert "Pacote com 2 galinhas" in texto
@@ -144,6 +145,7 @@ def test_visao_analitica_repete_romaneio_por_item_e_preserva_op_e_lote():
     with patch("modules.expedicao.relatorio_entregas.buscar_itens_expedicao", return_value=itens):
         pdf = gerar_relatorio_entregas_pdf([_romaneio()], FILTROS, agrupamento=AGRUPAMENTO_OP, usuario="Qualidade")
     texto = "\n".join(p.extract_text() or "" for p in PdfReader(BytesIO(pdf)).pages)
+    assert PdfReader(BytesIO(pdf)).metadata.title == "Relatório Analítico de Entregas por Ordem de Produção"
     assert "RELATÓRIO ANALÍTICO DE ENTREGAS POR ORDEM DE PRODUÇÃO" in texto
     assert "Agrupamento: Por Ordem de Produção - Visão analítica" in texto
     assert texto.count("ROM-20260801") == 2
