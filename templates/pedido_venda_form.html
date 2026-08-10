@@ -45,9 +45,9 @@
             <input type="hidden" name="sku" class="pv-sku" value="{{ item.sku if item else '' }}">
           </label>
           <div class="pv-field pv-span-4 pv-presentation-field"><span class="pv-label">Apresentação</span><div class="pv-presentation-host"></div></div>
-          <label class="pv-field pv-span-2"><span class="pv-quantity-label">Quantidade</span><input type="number" inputmode="decimal" step="0.001" min="0.001" name="quantidade" class="pv-quantity" required value="{{ pedido_milesimos(item.quantidade_negociada_mil) if item else '' }}"><small class="pv-help pv-conversion" aria-live="polite"></small></label>
+          <label class="pv-field pv-span-2"><span class="pv-quantity-label">Quantidade</span><input type="number" inputmode="decimal" step="0.001" min="0.001" name="quantidade" class="pv-quantity" required value="{{ pedido_milesimos(item.quantidade_operacional_mil or item.quantidade_negociada_mil) if item else '' }}"><small class="pv-help pv-conversion" aria-live="polite"></small></label>
           <label class="pv-field pv-span-2"><span>Unidade comercial</span><input class="pv-unit-label" readonly aria-readonly="true"><input type="hidden" name="unidade" class="pv-unit" value="{{ item.unidade_comercial if item else '' }}"></label>
-          <label class="pv-field pv-span-3"><span>Preço unitário (R$)</span><input class="pv-money pv-price-display" inputmode="decimal" autocomplete="off" value=""><input type="hidden" name="preco_unitario" class="pv-price" value="{{ pedido_centavos(item.preco_unitario_centavos) if item else '' }}"></label>
+          <label class="pv-field pv-span-3"><span class="pv-price-label">Preço unitário (R$)</span><input class="pv-money pv-price-display" inputmode="decimal" autocomplete="off" value=""><input type="hidden" name="preco_unitario" class="pv-price" value="{{ pedido_centavos(item.preco_unitario_centavos) if item else '' }}"></label>
           <label class="pv-field pv-span-3"><span>Desconto do item (R$)</span><input class="pv-money pv-discount-display" inputmode="decimal" autocomplete="off" value=""><input type="hidden" name="desconto_item" class="pv-discount" value="{{ pedido_centavos(item.desconto_centavos) if item else 0 }}"></label>
           <div class="pv-field pv-span-3 pv-total-field"><span class="pv-label">Total do item</span><output class="pv-item-total">R$ 0,00</output></div>
           <details class="pv-observation pv-span-3" {% if item and item.observacoes %}open{% endif %}><summary>Adicionar observação</summary><label class="pv-field"><span>Observação do item</span><input name="observacao_item" value="{{ item.observacoes if item else '' }}"></label></details>
@@ -176,9 +176,11 @@
   function atualizarUnidade(row, opcao) {
     const unidade = opcao?.unidade || '';
     row.dataset.fatorAves = opcao?.fator_aves || '';
+    row.dataset.basePreco = opcao?.base_preco || unidade;
     row.querySelector('.pv-unit').value = unidade;
     row.querySelector('.pv-unit-label').value = opcao?.unidade_rotulo || unidades[unidade] || '';
     row.querySelector('.pv-quantity-label').textContent = unidade === 'KG' ? 'Peso (kg)' : `Quantidade de ${unidadesPlural[unidade] || 'itens'}`;
+    row.querySelector('.pv-price-label').textContent = row.dataset.basePreco === 'AVE' ? 'Preço por Ave (R$)' : 'Preço unitário (R$)';
     atualizarLinha(row);
   }
 
@@ -186,10 +188,11 @@
     const quantidade = numero(row.querySelector('.pv-quantity').value);
     const preco = Math.round(numero(row.querySelector('.pv-price').value) * 100);
     const desconto = Math.round(numero(row.querySelector('.pv-discount').value) * 100);
-    const total = Math.max(0, Math.round(quantidade * preco) - desconto);
+    const fator = Number(row.dataset.fatorAves || 0);
+    const quantidadePrecificada = row.dataset.basePreco === 'AVE' ? quantidade * fator : quantidade;
+    const total = Math.max(0, Math.round(quantidadePrecificada * preco) - desconto);
     row.dataset.totalCentavos = total;
     row.querySelector('.pv-item-total').textContent = formatarCentavos(total);
-    const fator = Number(row.dataset.fatorAves || 0);
     const unidade = row.querySelector('.pv-unit').value;
     row.querySelector('.pv-conversion').textContent = fator && quantidade ? `${quantidade.toLocaleString('pt-BR')} ${unidadesPlural[unidade]} × ${fator} ${fator === 1 ? 'ave' : 'aves'} = ${(quantidade * fator).toLocaleString('pt-BR')} aves` : '';
     atualizarResumo();

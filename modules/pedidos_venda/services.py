@@ -42,6 +42,19 @@ def rotulo_unidade_comercial(sku, apresentacao, unidade):
     return None
 
 
+def _opcao_comercial_ave(sku, apresentacao, unidade, opcoes):
+    """Resolve no cadastro, nunca no formulário, a conversão comercial da LEG-2."""
+    if str(sku or "").strip().upper() != "LEG-2" or str(unidade or "").strip().upper() != "PACOTE":
+        return None
+    apresentacao_normalizada = str(apresentacao or "").strip().casefold()
+    opcao = next((item for item in opcoes
+                  if str(item.get("valor") or "").strip().casefold() == apresentacao_normalizada
+                  and item.get("unidade") == "PACOTE"), None)
+    if not opcao or opcao.get("fator_aves") not in {1, 2}:
+        raise ValueError("Apresentação da LEG-2 não possui conversão segura para aves.")
+    return opcao
+
+
 def _agora():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -147,9 +160,10 @@ def catalogo_produtos_venda(produtos):
                 rotulo = f"Pacote com {fator} {'ave' if fator == 1 else 'aves'}"
             unidade_rotulo = rotulo_unidade_comercial(codigo, valor, unidade) or \
                 mapa_unidades.get(unidade, (unidade, unidade.title()))[1]
+            base_preco = "AVE" if rotulo_unidade_comercial(codigo, valor, unidade) else unidade
             opcoes.append({"valor": valor, "rotulo": rotulo, "unidade": unidade,
                            "unidade_rotulo": unidade_rotulo,
-                           "fator_aves": fator})
+                           "fator_aves": fator, "base_preco": base_preco})
         if not opcoes:
             fator = None
             valor = unidade_padrao[1]
@@ -161,8 +175,10 @@ def catalogo_produtos_venda(produtos):
                     valor = f"Pacote com {fator} {'galinha inteira' if fator == 1 else 'galinhas inteiras'}"
                     rotulo = f"Pacote com {fator} {'ave' if fator == 1 else 'aves'}"
             unidade_rotulo = rotulo_unidade_comercial(codigo, valor, unidade_padrao[0]) or unidade_padrao[1]
+            base_preco = "AVE" if rotulo_unidade_comercial(codigo, valor, unidade_padrao[0]) else unidade_padrao[0]
             opcoes.append({"valor": valor, "rotulo": rotulo, "unidade": unidade_padrao[0],
-                           "unidade_rotulo": unidade_rotulo, "fator_aves": fator})
+                           "unidade_rotulo": unidade_rotulo, "fator_aves": fator,
+                           "base_preco": base_preco})
         unicas = []
         vistos = set()
         for opcao in opcoes:
@@ -207,7 +223,9 @@ def criar_tabelas_pedidos_venda():
             quantidade_negociada_mil BIGINT NOT NULL, unidade_comercial TEXT NOT NULL,
             preco_unitario_centavos BIGINT NOT NULL, desconto_centavos BIGINT NOT NULL DEFAULT 0,
             valor_bruto_centavos BIGINT NOT NULL, valor_liquido_centavos BIGINT NOT NULL,
-            observacoes TEXT, criado_em {ts} NOT NULL
+            quantidade_operacional_mil BIGINT, unidade_operacional TEXT,
+            aves_por_unidade_operacional INTEGER, quantidade_comercial_mil BIGINT,
+            base_preco TEXT, observacoes TEXT, criado_em {ts} NOT NULL
         )""")
         cursor.execute(f"""CREATE TABLE IF NOT EXISTS pedido_venda_romaneio_itens (
             id {pk}, pedido_id INTEGER NOT NULL, pedido_item_id INTEGER NOT NULL,
@@ -237,6 +255,13 @@ def criar_tabelas_pedidos_venda():
                  "ALTER TABLE expedicoes ADD COLUMN pedido_destino_entrega TEXT")
         _alterar(cursor, "ALTER TABLE expedicao_itens ADD COLUMN IF NOT EXISTS pedido_item_id INTEGER",
                  "ALTER TABLE expedicao_itens ADD COLUMN pedido_item_id INTEGER")
+        for coluna, tipo in (
+            ("quantidade_operacional_mil", "BIGINT"), ("unidade_operacional", "TEXT"),
+            ("aves_por_unidade_operacional", "INTEGER"), ("quantidade_comercial_mil", "BIGINT"),
+            ("base_preco", "TEXT"),
+        ):
+            _alterar(cursor, f"ALTER TABLE pedido_venda_itens ADD COLUMN IF NOT EXISTS {coluna} {tipo}",
+                     f"ALTER TABLE pedido_venda_itens ADD COLUMN {coluna} {tipo}")
         for sql in (
             "CREATE INDEX IF NOT EXISTS idx_pedidos_venda_filtros ON pedidos_venda(status,data_pedido,cliente_id)",
             "CREATE INDEX IF NOT EXISTS idx_pedido_itens_pedido ON pedido_venda_itens(pedido_id)",
@@ -432,6 +457,8 @@ def _dados_form(form):
                 )
                 if unidade_catalogo and unidade != unidade_catalogo and not unidade_da_apresentacao:
                     raise ValueError(f"Unidade incompatível com o cadastro do produto {sku}.")
+            else:
+                opcoes_apresentacao = []
             chave_item = (sku.casefold(), (apresentacao or "").casefold(), unidade)
             if chave_item in chaves_itens:
                 raise ValueError("Itens com mesmo SKU, apresentação e unidade devem ser consolidados.")
@@ -442,11 +469,24 @@ def _dados_form(form):
                                     f"Preço de {sku}", positivo=True)
             desconto_cent = _centavos(descontos[indice] if indice < len(descontos) else 0,
                                        f"Desconto de {sku}")
-            bruto = int((Decimal(qtd_mil) * Decimal(preco_cent) / Decimal(1000)).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+            opcao_ave = _opcao_comercial_ave(sku, apresentacao, unidade, opcoes_apresentacao)
+            fator_aves = int(opcao_ave["fator_aves"]) if opcao_ave else None
+            quantidade_comercial_mil = qtd_mil * fator_aves if fator_aves else qtd_mil
+            unidade_comercial = "AVE" if fator_aves else unidade
+            base_preco = "AVE" if fator_aves else unidade_comercial
+            bruto = int((Decimal(quantidade_comercial_mil) * Decimal(preco_cent) / Decimal(1000))
+                        .quantize(Decimal("1"), rounding=ROUND_HALF_UP))
             if desconto_cent > bruto:
                 raise ValueError(f"Desconto de {sku} supera o valor bruto.")
             produto_snapshot = {"codigo": sku, "nome": produto["nome"] if produto else sku,
-                                "unidade_venda": produto["unidade_venda"] if produto else unidade}
+                                "unidade_venda": produto["unidade_venda"] if produto else unidade,
+                                "unidade_operacional": unidade,
+                                "quantidade_operacional_mil": qtd_mil,
+                                "unidade_comercial": unidade_comercial,
+                                "quantidade_comercial_mil": quantidade_comercial_mil,
+                                "base_preco": base_preco}
+            if fator_aves:
+                produto_snapshot["aves_por_unidade_operacional"] = fator_aves
             unidade_rotulo = rotulo_unidade_comercial(sku, apresentacao, unidade)
             if unidade_rotulo:
                 produto_snapshot["unidade_comercial_rotulo"] = unidade_rotulo
@@ -454,7 +494,12 @@ def _dados_form(form):
                 "produto_id": produto_id or None, "sku": sku,
                 "produto_snapshot": produto_snapshot,
                 "apresentacao_snapshot": apresentacao,
-                "quantidade_negociada_mil": qtd_mil, "unidade_comercial": unidade,
+                # O campo legado permanece com a quantidade operacional para não alterar
+                # saldos/romaneios históricos. Os novos campos tornam as duas dimensões explícitas.
+                "quantidade_negociada_mil": qtd_mil, "unidade_comercial": unidade_comercial,
+                "quantidade_operacional_mil": qtd_mil, "unidade_operacional": unidade,
+                "aves_por_unidade_operacional": fator_aves,
+                "quantidade_comercial_mil": quantidade_comercial_mil, "base_preco": base_preco,
                 "preco_unitario_centavos": preco_cent, "desconto_centavos": desconto_cent,
                 "valor_bruto_centavos": bruto, "valor_liquido_centavos": bruto - desconto_cent,
                 "observacoes": str(observacoes[indice] if indice < len(observacoes) else "").strip() or None,
@@ -531,12 +576,16 @@ def salvar_pedido(form, pedido_id=None, *, usuario=None, perfil=None):
         for item in dados["itens"]:
             cursor.execute(q("""INSERT INTO pedido_venda_itens(pedido_id,produto_id,sku,produto_snapshot,
                 apresentacao_snapshot,quantidade_negociada_mil,unidade_comercial,preco_unitario_centavos,
-                desconto_centavos,valor_bruto_centavos,valor_liquido_centavos,observacoes,criado_em)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)"""),
+                desconto_centavos,valor_bruto_centavos,valor_liquido_centavos,quantidade_operacional_mil,
+                unidade_operacional,aves_por_unidade_operacional,quantidade_comercial_mil,base_preco,
+                observacoes,criado_em)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"""),
                 (pedido_id, item["produto_id"], item["sku"], _json(item["produto_snapshot"]),
                  item["apresentacao_snapshot"], item["quantidade_negociada_mil"], item["unidade_comercial"],
                  item["preco_unitario_centavos"], item["desconto_centavos"], item["valor_bruto_centavos"],
-                 item["valor_liquido_centavos"], item["observacoes"], agora))
+                 item["valor_liquido_centavos"], item["quantidade_operacional_mil"], item["unidade_operacional"],
+                 item["aves_por_unidade_operacional"], item["quantidade_comercial_mil"], item["base_preco"],
+                 item["observacoes"], agora))
         cursor.execute(q("SELECT * FROM pedidos_venda WHERE id=?"), (pedido_id,))
         depois = dict(cursor.fetchone())
         _evento(cursor, pedido_id, "PEDIDO_EDITADO" if antes else "PEDIDO_CRIADO", antes, depois,
@@ -609,12 +658,20 @@ def buscar_pedido(pedido_id):
         pedido = dict(pedido); pedido["cliente_snapshot"] = json.loads(pedido["cliente_snapshot"])
         expr = _quantidade_entregue_expr()
         cursor.execute(q(f"""SELECT i.*, {expr} AS quantidade_entregue_mil,
-            i.quantidade_negociada_mil-{expr} AS saldo_pendente_mil
+            COALESCE(i.quantidade_operacional_mil,i.quantidade_negociada_mil)-{expr} AS saldo_pendente_mil
             FROM pedido_venda_itens i WHERE i.pedido_id=? ORDER BY i.id"""), (pedido_id,))
         pedido["itens"] = []
         for linha in cursor.fetchall():
             item = dict(linha)
             snapshot = json.loads(item.get("produto_snapshot") or "{}")
+            fator = int(item.get("aves_por_unidade_operacional") or 1)
+            quantidade_operacional = int(item.get("quantidade_operacional_mil") or item["quantidade_negociada_mil"])
+            entregue_operacional = int(item.get("quantidade_entregue_mil") or 0)
+            item["quantidade_operacional_mil"] = quantidade_operacional
+            item["unidade_operacional"] = item.get("unidade_operacional") or snapshot.get("unidade_operacional") or item["unidade_comercial"]
+            item["quantidade_exibicao_mil"] = int(item.get("quantidade_comercial_mil") or quantidade_operacional * fator)
+            item["quantidade_entregue_exibicao_mil"] = entregue_operacional * fator
+            item["saldo_pendente_exibicao_mil"] = int(item["saldo_pendente_mil"]) * fator
             item["unidade_exibicao"] = snapshot.get("unidade_comercial_rotulo") or item["unidade_comercial"]
             pedido["itens"].append(item)
         cursor.execute(q("""SELECT e.id,e.numero_romaneio,e.data,e.status
@@ -707,7 +764,8 @@ def gerar_romaneio_pedido(pedido_id, quantidades, *, data=None, responsavel=None
                 FROM pedido_venda_romaneio_itens pr JOIN expedicoes e ON e.id=pr.expedicao_id
                 WHERE pr.pedido_item_id=? AND e.status='Aberto'"""),(item["id"],))
             aberto=int(cursor.fetchone()["total"] or 0)
-            if qtd > int(item["quantidade_negociada_mil"])-entregue-aberto:
+            quantidade_operacional = int(item["quantidade_operacional_mil"] or item["quantidade_negociada_mil"])
+            if qtd > quantidade_operacional-entregue-aberto:
                 raise ValueError(f"Quantidade de {item['sku']} supera o saldo disponível.")
             planos.append((item,qtd))
         if not planos: raise ValueError("Selecione ao menos uma quantidade para entrega.")
@@ -734,7 +792,7 @@ def gerar_romaneio_pedido(pedido_id, quantidades, *, data=None, responsavel=None
         for item,qtd in planos:
             cursor.execute(q("""INSERT INTO pedido_venda_romaneio_itens(pedido_id,pedido_item_id,expedicao_id,
                 quantidade_planejada_mil,unidade,criado_por,criado_em) VALUES (?,?,?,?,?,?,?)"""),
-                (pedido_id,item["id"],expedicao_id,qtd,item["unidade_comercial"],usuario,_agora()))
+                (pedido_id,item["id"],expedicao_id,qtd,item["unidade_operacional"] or item["unidade_comercial"],usuario,_agora()))
         cursor.execute(q("UPDATE pedidos_venda SET versao=versao+1,atualizado_em=?,atualizado_por=? WHERE id=?"),
                        (_agora(), usuario, pedido_id))
         _evento(cursor,pedido_id,"ROMANEIO_GERADO",dict(pedido),{"status":pedido["status"],"romaneio":numero},
@@ -803,12 +861,14 @@ def validar_e_registrar_atendimento_cursor(cursor, expedicao_id):
         cursor.execute(q("SELECT * FROM pedido_venda_itens WHERE id=? AND pedido_id=?"),(item["pedido_item_id"],pedido_id))
         pi=cursor.fetchone()
         if not pi: raise ValueError("Item não pertence ao pedido vinculado.")
-        qtd=_qtd_item_romaneio_mil(item,pi["unidade_comercial"])
+        unidade_operacional = pi["unidade_operacional"] or pi["unidade_comercial"]
+        qtd=_qtd_item_romaneio_mil(item,unidade_operacional)
         cursor.execute(q("SELECT COALESCE(SUM(quantidade_atendida_mil),0) total FROM pedido_venda_atendimentos WHERE pedido_item_id=? AND status='ENTREGUE'"),(pi["id"],))
         entregue=int(cursor.fetchone()["total"] or 0)
-        if entregue+qtd>int(pi["quantidade_negociada_mil"]): raise ValueError(f"Entrega de {pi['sku']} supera o saldo do pedido.")
+        quantidade_operacional = int(pi["quantidade_operacional_mil"] or pi["quantidade_negociada_mil"])
+        if entregue+qtd>quantidade_operacional: raise ValueError(f"Entrega de {pi['sku']} supera o saldo do pedido.")
         peso=int(Decimal(str(item["quantidade_kg"] or 0))*1000) if item["quantidade_kg"] is not None else None
-        params=(pedido_id,pi["id"],expedicao_id,item["id"],qtd,pi["unidade_comercial"],peso,"ENTREGUE",_identidade()[0],_agora(),_agora())
+        params=(pedido_id,pi["id"],expedicao_id,item["id"],qtd,unidade_operacional,peso,"ENTREGUE",_identidade()[0],_agora(),_agora())
         if DATABASE_URL:
             cursor.execute(q("""INSERT INTO pedido_venda_atendimentos(pedido_id,pedido_item_id,expedicao_id,
                 expedicao_item_id,quantidade_atendida_mil,unidade,peso_atendido_mil_kg,status,criado_por,criado_em,atualizado_em)
@@ -837,10 +897,11 @@ def _recalcular_status_cursor(cursor,pedido_id,acao,expedicao_id,justificativa=N
     if not pedido or pedido["status"]=="CANCELADO": return
     cursor.execute(q("""SELECT COUNT(*) total,
         SUM(CASE WHEN entregue>0 THEN 1 ELSE 0 END) com_entrega,
-        SUM(CASE WHEN entregue>=quantidade_negociada_mil THEN 1 ELSE 0 END) completos FROM (
-          SELECT i.quantidade_negociada_mil,COALESCE(SUM(CASE WHEN a.status='ENTREGUE' THEN a.quantidade_atendida_mil ELSE 0 END),0) entregue
+        SUM(CASE WHEN entregue>=quantidade_operacional_mil THEN 1 ELSE 0 END) completos FROM (
+          SELECT COALESCE(i.quantidade_operacional_mil,i.quantidade_negociada_mil) quantidade_operacional_mil,
+            COALESCE(SUM(CASE WHEN a.status='ENTREGUE' THEN a.quantidade_atendida_mil ELSE 0 END),0) entregue
           FROM pedido_venda_itens i LEFT JOIN pedido_venda_atendimentos a ON a.pedido_item_id=i.id
-          WHERE i.pedido_id=? GROUP BY i.id,i.quantidade_negociada_mil) x"""),(pedido_id,))
+          WHERE i.pedido_id=? GROUP BY i.id,i.quantidade_operacional_mil,i.quantidade_negociada_mil) x"""),(pedido_id,))
     r=cursor.fetchone(); novo="ATENDIDO" if int(r["completos"] or 0)==int(r["total"] or 0) else ("PARCIALMENTE_ATENDIDO" if int(r["com_entrega"] or 0)>0 else "CONFIRMADO")
     antes=dict(pedido); cursor.execute(q("UPDATE pedidos_venda SET status=?,atualizado_em=?,versao=versao+1 WHERE id=?"),(novo,_agora(),pedido_id))
     cursor.execute(q("SELECT * FROM pedidos_venda WHERE id=?"),(pedido_id,)); depois=dict(cursor.fetchone())
@@ -851,14 +912,16 @@ def _recalcular_status_cursor(cursor,pedido_id,acao,expedicao_id,justificativa=N
 def plano_romaneio(expedicao_id):
     criar_tabelas_pedidos_venda(); conn=conectar(); cursor=conn.cursor()
     try:
-        cursor.execute(q("""SELECT pr.*,pi.sku,pi.apresentacao_snapshot,pi.produto_snapshot,p.numero FROM pedido_venda_romaneio_itens pr
+        cursor.execute(q("""SELECT pr.*,pi.sku,pi.apresentacao_snapshot,pi.produto_snapshot,
+            pi.unidade_comercial,pi.aves_por_unidade_operacional,p.numero FROM pedido_venda_romaneio_itens pr
             JOIN pedido_venda_itens pi ON pi.id=pr.pedido_item_id JOIN pedidos_venda p ON p.id=pr.pedido_id
             WHERE pr.expedicao_id=? ORDER BY pr.id"""),(expedicao_id,))
         planos = []
         for linha in cursor.fetchall():
             plano = dict(linha)
-            snapshot = json.loads(plano.get("produto_snapshot") or "{}")
-            plano["unidade_exibicao"] = snapshot.get("unidade_comercial_rotulo") or plano["unidade"]
+            fator = int(plano.get("aves_por_unidade_operacional") or 1)
+            plano["unidade_exibicao"] = plano["unidade"]
+            plano["quantidade_comercial_planejada_mil"] = int(plano["quantidade_planejada_mil"]) * fator
             planos.append(plano)
         return planos
     finally: conn.close()
@@ -866,16 +929,21 @@ def plano_romaneio(expedicao_id):
 
 def _resumo_quantidades_cursor(cursor, pedido_id):
     cursor.execute(q("""SELECT i.unidade_comercial,i.produto_snapshot,i.quantidade_negociada_mil,
+        i.quantidade_operacional_mil,i.quantidade_comercial_mil,i.aves_por_unidade_operacional,
         COALESCE(SUM(CASE WHEN a.status='ENTREGUE' THEN a.quantidade_atendida_mil ELSE 0 END),0) entregue
         FROM pedido_venda_itens i LEFT JOIN pedido_venda_atendimentos a ON a.pedido_item_id=i.id
-        WHERE i.pedido_id=? GROUP BY i.id,i.unidade_comercial,i.produto_snapshot,i.quantidade_negociada_mil"""), (pedido_id,))
+        WHERE i.pedido_id=? GROUP BY i.id,i.unidade_comercial,i.produto_snapshot,i.quantidade_negociada_mil,
+          i.quantidade_operacional_mil,i.quantidade_comercial_mil,i.aves_por_unidade_operacional"""), (pedido_id,))
     totais = {}
     for linha in cursor.fetchall():
         snapshot = json.loads(linha["produto_snapshot"] or "{}")
         unidade = snapshot.get("unidade_comercial_rotulo") or linha["unidade_comercial"]
+        fator = int(linha["aves_por_unidade_operacional"] or 1)
+        quantidade_comercial = int(linha["quantidade_comercial_mil"] or linha["quantidade_negociada_mil"])
+        entregue_comercial = int(linha["entregue"] or 0) * fator
         atual = totais.setdefault(unidade, [0, 0])
-        atual[0] += int(linha["entregue"] or 0)
-        atual[1] += int(linha["quantidade_negociada_mil"] or 0) - int(linha["entregue"] or 0)
+        atual[0] += entregue_comercial
+        atual[1] += quantidade_comercial - entregue_comercial
     partes = []
     for unidade, (entregue, saldo) in sorted(totais.items()):
         partes.append(f"{decimal_milesimos(entregue)} {unidade} entregue; {decimal_milesimos(saldo)} {unidade} saldo")

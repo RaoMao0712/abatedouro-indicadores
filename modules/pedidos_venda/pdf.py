@@ -101,16 +101,16 @@ def gerar_pdf_pedido(pedido):
                                ("BOTTOMPADDING",(0,0),(-1,-1),4)]))
     historia += [tabela, Spacer(1, 4*mm)]
     cabecalho_itens = [Paragraph(f"<b>{x}</b>", pequeno) for x in
-               ("SKU / produto", "Apresentação", "Quantidade", "Un.", "Preço unit.", "Desconto", "Total", "Entregue", "Saldo")]
+               ("SKU / produto", "Apresentação", "Quantidade", "Un.", "Preço/un. comercial", "Desconto", "Total", "Entregue", "Saldo")]
     linhas_itens = []
     for item in pedido["itens"]:
         produto = item["sku"]
         linhas_itens.append([
             Paragraph(produto, normal), Paragraph(item.get("apresentacao_snapshot") or "-", normal),
-            Paragraph(_qtd(item["quantidade_negociada_mil"]), direita), Paragraph(item.get("unidade_exibicao") or item["unidade_comercial"], normal),
+            Paragraph(_qtd(item["quantidade_exibicao_mil"]), direita), Paragraph(item.get("unidade_exibicao") or item["unidade_comercial"], normal),
             Paragraph(_moeda(item["preco_unitario_centavos"]), direita), Paragraph(_moeda(item["desconto_centavos"]), direita),
-            Paragraph(_moeda(item["valor_liquido_centavos"]), direita), Paragraph(_qtd(item["quantidade_entregue_mil"]), direita),
-            Paragraph(_qtd(item["saldo_pendente_mil"]), direita),
+            Paragraph(_moeda(item["valor_liquido_centavos"]), direita), Paragraph(_qtd(item["quantidade_entregue_exibicao_mil"]), direita),
+            Paragraph(_qtd(item["saldo_pendente_exibicao_mil"]), direita),
         ])
     def tabela_itens(linhas):
         tabela = Table([cabecalho_itens] + linhas, repeatRows=1, splitByRow=1,

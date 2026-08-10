@@ -17,7 +17,9 @@ CREATE TABLE IF NOT EXISTS pedido_venda_itens (
  produto_snapshot TEXT NOT NULL, apresentacao_snapshot TEXT, quantidade_negociada_mil BIGINT NOT NULL,
  unidade_comercial TEXT NOT NULL, preco_unitario_centavos BIGINT NOT NULL,
  desconto_centavos BIGINT NOT NULL DEFAULT 0, valor_bruto_centavos BIGINT NOT NULL,
- valor_liquido_centavos BIGINT NOT NULL, observacoes TEXT, criado_em TIMESTAMP NOT NULL
+ valor_liquido_centavos BIGINT NOT NULL, quantidade_operacional_mil BIGINT,
+ unidade_operacional TEXT, aves_por_unidade_operacional INTEGER,
+ quantidade_comercial_mil BIGINT, base_preco TEXT, observacoes TEXT, criado_em TIMESTAMP NOT NULL
 );
 CREATE TABLE IF NOT EXISTS pedido_venda_romaneio_itens (
  id SERIAL PRIMARY KEY, pedido_id INTEGER NOT NULL, pedido_item_id INTEGER NOT NULL,

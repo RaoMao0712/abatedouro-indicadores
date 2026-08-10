@@ -267,7 +267,8 @@ def test_catalogo_comercial_reutiliza_apresentacoes_e_prioriza_sku(base):
         {"id": 11, "codigo": "GC-KG", "nome": "Galinha Cortada", "unidade_venda": "Kg"}
     ])[0]["apresentacoes"]
     assert automatico == [{"valor": "Quilograma", "rotulo": "Quilograma", "unidade": "KG",
-                           "unidade_rotulo": "Quilograma", "fator_aves": None}]
+                           "unidade_rotulo": "Quilograma", "fator_aves": None,
+                           "base_preco": "KG"}]
 
 
 def test_backend_aceita_unidade_da_apresentacao_fisica_cadastrada(base):
@@ -292,10 +293,15 @@ def test_backend_aceita_unidade_da_apresentacao_fisica_cadastrada(base):
         form.setlist(chave, lista)
     pedido_id, _ = pedidos.salvar_pedido(form, usuario="Comercial", perfil="pcp")
     item = pedidos.buscar_pedido(pedido_id)["itens"][0]
-    assert item["unidade_comercial"] == "PACOTE"
+    assert item["unidade_comercial"] == "AVE"
+    assert item["unidade_operacional"] == "PACOTE"
     assert item["unidade_exibicao"] == "Ave"
     assert item["quantidade_negociada_mil"] == 150000
-    assert item["valor_liquido_centavos"] == 187500
+    assert item["quantidade_operacional_mil"] == 150000
+    assert item["aves_por_unidade_operacional"] == 2
+    assert item["quantidade_comercial_mil"] == 300000
+    assert item["base_preco"] == "AVE"
+    assert item["valor_liquido_centavos"] == 375000
     texto_pdf = "\n".join(
         pagina.extract_text() or "" for pagina in PdfReader(BytesIO(gerar_pdf_pedido(pedidos.buscar_pedido(pedido_id)))).pages
     )
@@ -307,7 +313,72 @@ def test_backend_aceita_unidade_da_apresentacao_fisica_cadastrada(base):
     )
     plano = pedidos.plano_romaneio(expedicao_id)[0]
     assert plano["unidade"] == "PACOTE"
-    assert plano["unidade_exibicao"] == "Ave"
+    assert plano["unidade_exibicao"] == "PACOTE"
+    assert plano["quantidade_comercial_planejada_mil"] == 300000
+
+
+@pytest.mark.parametrize("apresentacao,pacotes,fator,total_aves,total_centavos", [
+    ("Pacote com 1 galinha inteira", "500", 1, 500000, 325000),
+    ("Pacote com 2 galinhas inteiras", "1864", 2, 3728000, 2423200),
+])
+def test_leg2_preco_e_total_sao_sempre_por_ave(base, apresentacao, pacotes, fator,
+                                                total_aves, total_centavos):
+    conn = sqlite3.connect(base)
+    conn.execute("UPDATE skus SET codigo='LEG-2',nome='Galinha Inteira',unidade_venda='Pct' WHERE id=1")
+    conn.execute("""CREATE TABLE pa_caixas (
+        id INTEGER PRIMARY KEY, sku TEXT, apresentacao TEXT,
+        unidade_estoque TEXT, galinhas_por_pacote INTEGER
+    )""")
+    conn.executemany("""INSERT INTO pa_caixas
+        (sku,apresentacao,unidade_estoque,galinhas_por_pacote) VALUES (?,?,?,?)""", [
+        ("Galinha Inteira", "Pacote com 1 galinha inteira", "PACOTE", 1),
+        ("Galinha Inteira", "Pacote com 2 galinhas inteiras", "PACOTE", 2),
+    ])
+    conn.commit(); conn.close()
+    form = formulario()
+    for chave, lista in {
+        "produto_id": ["1"], "sku": ["LEG-2"], "apresentacao": [apresentacao],
+        "quantidade": [pacotes], "unidade": ["PACOTE"], "preco_unitario": ["6.50"],
+        "desconto_item": ["0"], "observacao_item": [""], "desconto_geral": ["0"],
+        "valor_total": [f"{total_centavos / 100:.2f}"],
+    }.items():
+        form.setlist(chave, lista)
+    pedido_id, _ = pedidos.salvar_pedido(form, usuario="Comercial", perfil="pcp")
+    pedido = pedidos.buscar_pedido(pedido_id)
+    item = pedido["itens"][0]
+    assert item["quantidade_operacional_mil"] == int(pacotes) * 1000
+    assert item["unidade_operacional"] == "PACOTE"
+    assert item["aves_por_unidade_operacional"] == fator
+    assert item["quantidade_comercial_mil"] == total_aves
+    assert item["unidade_comercial"] == "AVE"
+    assert item["preco_unitario_centavos"] == 650
+    assert item["valor_bruto_centavos"] == total_centavos
+    assert item["valor_liquido_centavos"] == total_centavos
+    assert pedido["subtotal_centavos"] == pedido["valor_total_centavos"] == total_centavos
+
+
+def test_leg2_rejeita_total_adulterado_e_apresentacao_ambigua(base):
+    conn = sqlite3.connect(base)
+    conn.execute("UPDATE skus SET codigo='LEG-2',nome='Galinha Inteira',unidade_venda='Pct' WHERE id=1")
+    conn.execute("""CREATE TABLE pa_caixas (
+        id INTEGER PRIMARY KEY, sku TEXT, apresentacao TEXT,
+        unidade_estoque TEXT, galinhas_por_pacote INTEGER
+    )""")
+    conn.execute("""INSERT INTO pa_caixas
+        (sku,apresentacao,unidade_estoque,galinhas_por_pacote) VALUES (?,?,?,?)""",
+        ("Galinha Inteira", "Pacote com 2 galinhas inteiras", "PACOTE", 2))
+    conn.commit(); conn.close()
+    form = formulario(valor_total="120.00")
+    form.setlist("produto_id", ["1"]); form.setlist("sku", ["LEG-2"])
+    form.setlist("apresentacao", ["Pacote com 2 galinhas inteiras"])
+    form.setlist("quantidade", ["10"]); form.setlist("unidade", ["PACOTE"])
+    form.setlist("preco_unitario", ["6.50"]); form.setlist("desconto_item", ["0"])
+    form.setlist("observacao_item", [""]); form.setlist("desconto_geral", ["0"])
+    with pytest.raises(ValueError, match="divergente"):
+        pedidos.salvar_pedido(form, usuario="Comercial", perfil="pcp")
+    form.setlist("apresentacao", ["Pacote especial"])
+    with pytest.raises(ValueError, match="conversão segura"):
+        pedidos.salvar_pedido(form, usuario="Comercial", perfil="pcp")
 
 
 def test_contrato_ux_do_formulario_preserva_backend_e_acessibilidade():
@@ -317,6 +388,8 @@ def test_contrato_ux_do_formulario_preserva_backend_e_acessibilidade():
     assert "+ Adicionar item" in template
     assert "Quantidade de ${unidadesPlural[unidade]" in template
     assert "Preço unitário (R$)" in template
+    assert "Preço por Ave (R$)" in template
+    assert "quantidadePrecificada = row.dataset.basePreco === 'AVE' ? quantidade * fator : quantidade" in template
     assert "Desconto do item (R$)" in template
     assert "Total do item" in template and "Total do pedido" in template
     assert "window.confirm('Remover este item preenchido do pedido?')" in template

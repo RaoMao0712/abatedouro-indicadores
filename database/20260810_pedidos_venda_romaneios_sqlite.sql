@@ -17,7 +17,9 @@ CREATE TABLE IF NOT EXISTS pedido_venda_itens (
  produto_snapshot TEXT NOT NULL, apresentacao_snapshot TEXT, quantidade_negociada_mil INTEGER NOT NULL,
  unidade_comercial TEXT NOT NULL, preco_unitario_centavos INTEGER NOT NULL,
  desconto_centavos INTEGER NOT NULL DEFAULT 0, valor_bruto_centavos INTEGER NOT NULL,
- valor_liquido_centavos INTEGER NOT NULL, observacoes TEXT, criado_em TEXT NOT NULL
+ valor_liquido_centavos INTEGER NOT NULL, quantidade_operacional_mil INTEGER,
+ unidade_operacional TEXT, aves_por_unidade_operacional INTEGER,
+ quantidade_comercial_mil INTEGER, base_preco TEXT, observacoes TEXT, criado_em TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS pedido_venda_romaneio_itens (
  id INTEGER PRIMARY KEY AUTOINCREMENT, pedido_id INTEGER NOT NULL, pedido_item_id INTEGER NOT NULL,
