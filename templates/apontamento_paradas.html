@@ -98,6 +98,15 @@
             </div>
 
             <div>
+                <label>Afetou a Linha de Abate?</label>
+                <select name="afeta_linha_abate" required>
+                    <option value="">Selecione</option>
+                    <option value="Sim">Sim</option>
+                    <option value="Nao">N&atilde;o</option>
+                </select>
+            </div>
+
+            <div>
                 <label>Observacoes</label>
                 <input type="text" name="observacoes" placeholder="Causa aparente, acao tomada ou responsavel">
             </div>
@@ -107,6 +116,38 @@
     </form>
 </div>
 </div>
+
+<section class="card">
+    <div class="section-title-row"><div><span class="eyebrow">Hist&oacute;rico</span><h2>Paradas registradas</h2></div></div>
+    <form method="GET" class="form-grid">
+        <div><label>Data inicial</label><input type="date" name="inicio" value="{{ filtros.inicio }}"></div>
+        <div><label>Data final</label><input type="date" name="fim" value="{{ filtros.fim }}"></div>
+        <div><label>OP</label><input type="number" name="op" value="{{ filtros.op }}"></div>
+        <div><label>Status da OP</label><select name="status"><option value="">Todos</option>{% for item in ['Aberta','Encerrada','ORFA'] %}<option value="{{ item }}" {% if filtros.status == item %}selected{% endif %}>{{ item }}</option>{% endfor %}</select></div>
+        <div><label>Setor</label><select name="setor"><option value="">Todos</option>{% for item in setores %}<option value="{{ item }}" {% if filtros.setor == item %}selected{% endif %}>{{ item }}</option>{% endfor %}</select></div>
+        <div><label>Equipamento</label><input type="search" name="equipamento" value="{{ filtros.equipamento }}"></div>
+        <div><label>Motivo</label><input type="search" name="motivo" value="{{ filtros.motivo }}"></div>
+        <div><label>Situa&ccedil;&atilde;o</label><select name="situacao"><option value="">Todas</option><option value="ABERTA" {% if filtros.situacao == 'ABERTA' %}selected{% endif %}>Aberta</option><option value="ENCERRADA" {% if filtros.situacao == 'ENCERRADA' %}selected{% endif %}>Encerrada</option></select></div>
+        <div><label>Impacto na linha</label><select name="afeta"><option value="">Todos</option><option value="SIM" {% if filtros.afeta == 'SIM' %}selected{% endif %}>Afetou</option><option value="NAO" {% if filtros.afeta == 'NAO' %}selected{% endif %}>N&atilde;o afetou</option><option value="NAO_CLASSIFICADA" {% if filtros.afeta == 'NAO_CLASSIFICADA' %}selected{% endif %}>N&atilde;o classificada</option></select></div>
+        <div><button type="submit">Filtrar hist&oacute;rico</button></div>
+    </form>
+    <div class="tabela-responsiva">
+        <table>
+            <thead><tr><th>OP</th><th>Data</th><th>In&iacute;cio</th><th>T&eacute;rmino</th><th>Dura&ccedil;&atilde;o</th><th>Setor</th><th>Equipamento</th><th>Motivo</th><th>Natureza</th><th>Linha</th><th>Situa&ccedil;&atilde;o</th></tr></thead>
+            <tbody>
+            {% for item in historico_paradas %}
+            <tr class="{% if item.registro_orfao %}alerta-operacional{% endif %}">
+                <td>{% if item.registro_orfao %}OP {{ item.op_id }} &mdash; &oacute;rf&atilde;{% else %}OP {{ item.op_id }}{% endif %}</td>
+                <td>{{ item.data }}</td><td>{{ item.hora_inicio or '-' }}</td><td>{{ item.hora_fim or '-' }}</td><td>{{ item.horas_paradas }} h</td>
+                <td>{{ item.setor }}</td><td>{{ item.equipamento or '-' }}</td><td>{{ item.motivo }}</td><td>{{ item.natureza_disponibilidade or 'N&atilde;o classificada' }}</td>
+                <td>{% if item.afeta_linha_abate == 1 %}Sim{% elif item.afeta_linha_abate == 0 %}N&atilde;o{% else %}N&atilde;o classificada{% endif %}</td>
+                <td>{% if item.hora_fim %}Encerrada{% else %}Aberta{% endif %}</td>
+            </tr>
+            {% else %}<tr><td colspan="11">Nenhuma parada localizada para os filtros.</td></tr>{% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
 <script>
 const motivosManutencao = {{ motivos_manutencao|tojson }};
 const motivoParada = document.getElementById("motivo-parada");

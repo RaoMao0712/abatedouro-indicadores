@@ -27,6 +27,7 @@ from modules.movimentacoes.routes import register_movimentacoes_routes
 from modules.movimentacoes.commands import register_movimentacoes_commands
 from modules.producao.routes import register_producao_routes
 from modules.producao.correcoes_administrativas import criar_tabelas_correcoes_administrativas_op
+from modules.producao.disponibilidade import criar_tabelas_disponibilidade
 from modules.qualidade.routes import register_qualidade_routes
 from modules.qualidade.services import criar_tabelas_sgi
 from modules.qualidade.produtos_nao_conformes import criar_tabelas_pa_nao_conforme
@@ -584,6 +585,7 @@ def inicializar_schema_aplicacao():
         criar_tabelas_clientes,
         criar_tabelas_pedidos_venda,
         criar_tabelas_correcoes_administrativas_op,
+        criar_tabelas_disponibilidade,
     ])
 
 

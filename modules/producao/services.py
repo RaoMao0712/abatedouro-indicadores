@@ -695,6 +695,12 @@ def copiar_mao_obra_de_op(origem_op_id, destino_op_id, data_destino):
 def salvar_apontamento_parada(form):
     op_id = int(form["op_id"])
     validar_op_aberta(op_id)
+    afeta_raw = str(form.get("afeta_linha_abate") or "").strip().lower()
+    afeta_linha_abate = None
+    if afeta_raw in {"sim", "1", "true"}:
+        afeta_linha_abate = 1
+    elif afeta_raw in {"nao", "não", "0", "false"}:
+        afeta_linha_abate = 0
 
     setores_form = form.getlist("setores") if hasattr(form, "getlist") else form.get("setores", [])
     if isinstance(setores_form, str):
@@ -723,8 +729,9 @@ def salvar_apontamento_parada(form):
         for setor_legado in setores_impactados:
             cursor.execute(q("""
             INSERT INTO apontamentos_paradas (
-                evento_id, op_id, data, setor, motivo, hora_inicio, hora_fim, horas_paradas, observacoes
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                evento_id, op_id, data, setor, motivo, hora_inicio, hora_fim,
+                horas_paradas, observacoes, afeta_linha_abate, natureza_disponibilidade
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """), (
                 evento_id,
                 op_id,
@@ -734,7 +741,9 @@ def salvar_apontamento_parada(form):
                 form.get("hora_inicio", ""),
                 form.get("hora_fim", ""),
                 horas_paradas,
-                form.get("observacoes", "")
+                form.get("observacoes", ""),
+                afeta_linha_abate,
+                "NAO_PLANEJADA" if afeta_linha_abate is not None else None,
             ))
 
         conn.commit()
@@ -792,8 +801,9 @@ def salvar_apontamento_parada(form):
     cursor.execute(q("""
     INSERT INTO apontamentos_paradas (
         evento_id, op_id, data, data_fim, setor, motivo, equipamento, equipamento_id,
-        hora_inicio, hora_fim, horas_paradas, observacoes, manutencao_aberta
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        hora_inicio, hora_fim, horas_paradas, observacoes, manutencao_aberta,
+        afeta_linha_abate, natureza_disponibilidade
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """), (
         evento_id,
         op_id,
@@ -807,7 +817,9 @@ def salvar_apontamento_parada(form):
         hora_fim or "",
         horas_paradas,
         form.get("observacoes", ""),
-        "Sim" if abrir_os else "Nao"
+        "Sim" if abrir_os else "Nao",
+        afeta_linha_abate,
+        "NAO_PLANEJADA" if afeta_linha_abate is not None else None,
     ))
 
     conn.commit()

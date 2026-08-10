@@ -174,6 +174,38 @@
 
 </div>
 
+{% if disponibilidade_linha %}
+<section class="card disponibilidade-linha-card situacao-{{ disponibilidade_linha.situacao|lower }}">
+    <div class="section-title-row">
+        <div><span class="eyebrow">Disponibilidade</span><h2>Disponibilidade da Linha</h2></div>
+        <strong>{{ disponibilidade_linha.situacao|replace('_', ' ') }}</strong>
+    </div>
+    {% if disponibilidade_linha.inicio_programado %}
+    <div class="kpi-grid">
+        <div class="kpi-card"><span>Hor&aacute;rio programado</span><strong>{{ disponibilidade_linha.inicio_programado[11:16] }} &ndash; {{ disponibilidade_linha.fim_programado[11:16] }}</strong></div>
+        <div class="kpi-card"><span>Hor&aacute;rio real</span><strong>{{ disponibilidade_linha.inicio_real[11:16] if disponibilidade_linha.inicio_real else '-' }} &ndash; {{ disponibilidade_linha.fim_real[11:16] if disponibilidade_linha.fim_real else '-' }}</strong></div>
+        <div class="kpi-card"><span>Planejado l&iacute;quido</span><strong>{{ disponibilidade_linha.tempo_planejado_liquido_minutos|br_numero(0) }} min</strong></div>
+        <div class="kpi-card"><span>Perdas n&atilde;o planejadas</span><strong>{{ disponibilidade_linha.paradas_nao_planejadas_minutos|br_numero(0) if disponibilidade_linha.paradas_nao_planejadas_minutos is not none else '-' }} min</strong></div>
+        <div class="kpi-card"><span>Tempo operacional</span><strong>{{ disponibilidade_linha.tempo_operacional_minutos|br_numero(0) if disponibilidade_linha.tempo_operacional_minutos is not none else '-' }} min</strong></div>
+        <div class="kpi-card"><span>Disponibilidade</span><strong>{% if disponibilidade_linha.disponibilidade is not none %}{{ disponibilidade_linha.disponibilidade|br_numero(2) }}%{% else %}N&atilde;o calcul&aacute;vel{% endif %}</strong></div>
+    </div>
+    {% if disponibilidade_linha.pausas_planejadas %}<h3>Pausas planejadas</h3><ul>{% for pausa in disponibilidade_linha.pausas_planejadas %}<li>{{ pausa.categoria|replace('_',' ') }}: {{ pausa.inicio_previsto[11:16] }}&ndash;{{ pausa.fim_previsto[11:16] }}</li>{% endfor %}</ul>{% endif %}
+    {% else %}
+    <p class="obs">Disponibilidade n&atilde;o calcul&aacute;vel: a OP n&atilde;o possui programa&ccedil;&atilde;o oficial.</p>
+    {% endif %}
+    {% for motivo in disponibilidade_linha.motivos %}<p class="obs">{{ motivo }}</p>{% endfor %}
+    {% for alerta in disponibilidade_linha.alertas %}<p class="alerta-operacional">{{ alerta }}</p>{% endfor %}
+    <div class="acoes-op-topo">
+        {% if disponibilidade_linha.inicio_programado and not disponibilidade_linha.inicio_real and session.get('perfil') in ['admin','producao'] %}<form method="POST" action="{{ url_for('iniciar_linha_abate',op_id=op.id) }}"><button type="submit">Iniciar Linha</button></form>{% endif %}
+        {% if disponibilidade_linha.inicio_real and not disponibilidade_linha.fim_real and session.get('perfil') in ['admin','producao'] %}<form method="POST" action="{{ url_for('encerrar_linha_abate',op_id=op.id) }}"><button type="submit">Encerrar Linha</button></form>{% endif %}
+        {% if session.get('perfil') in ['admin','pcp'] %}<a class="botao-editar" href="{{ url_for('editar_op',op_id=op.id) }}">Programar Linha</a>{% endif %}
+    </div>
+    {% if session.get('perfil') == 'admin' and disponibilidade_linha.inicio_real %}
+    <details><summary>Corre&ccedil;&atilde;o administrativa da medi&ccedil;&atilde;o</summary><form method="POST" action="{{ url_for('corrigir_medicao_linha_abate',op_id=op.id) }}" class="form-grid"><div><label>In&iacute;cio real</label><input type="datetime-local" name="inicio_real" value="{{ disponibilidade_linha.inicio_real[:16] }}" required></div><div><label>T&eacute;rmino real</label><input type="datetime-local" name="fim_real" value="{{ disponibilidade_linha.fim_real[:16] if disponibilidade_linha.fim_real else '' }}"></div><div><label>Justificativa</label><input name="justificativa" required></div><div><button type="submit">Corrigir com auditoria</button></div></form></details>
+    {% endif %}
+</section>
+{% endif %}
+
 {% if op.status == "Encerrada" and session.get("perfil") in ["admin", "gerencia"] %}
 <dialog id="modal-correcao-op" class="modal-correcao-op">
     <form method="POST" action="{{ url_for('corrigir_peso_entrada', op_id=op.id) }}">
@@ -662,6 +694,9 @@ function abrirModalCorrecaoOp() {
                     <span class="item-detalhe-operacional">
                         {{ item.data }} | {{ item.setor }} | {{ item.horas_paradas }} h
                     </span>
+                    <span class="item-detalhe-operacional">
+                        Linha de Abate: {% if item.afeta_linha_abate == 1 %}afetou{% elif item.afeta_linha_abate == 0 %}n&atilde;o afetou{% else %}n&atilde;o classificada{% endif %}
+                    </span>
 
                     {% if item.observacoes %}
                     <span class="item-detalhe-operacional">
@@ -700,6 +735,20 @@ function abrirModalCorrecaoOp() {
             {% endif %}
 
         </form>
+
+        {% if session.get("perfil") == "admin" %}
+        <details><summary>Reclassificar impacto na Linha de Abate</summary>
+            {% for item in paradas %}
+            <form method="POST" action="{{ url_for('classificar_parada_linha',parada_id=item.id) }}" class="form-grid">
+                <input type="hidden" name="op_id" value="{{ op.id }}">
+                <div><label>Parada</label><input value="#{{ item.id }} - {{ item.motivo }}" readonly></div>
+                <div><label>Impacto</label><select name="afeta_linha_abate" required><option value="Sim">Afetou</option><option value="Nao">N&atilde;o afetou</option></select></div>
+                <div><label>Justificativa</label><input name="justificativa" required></div>
+                <div><button type="submit">Reclassificar</button></div>
+            </form>
+            {% endfor %}
+        </details>
+        {% endif %}
 
     {% else %}
 

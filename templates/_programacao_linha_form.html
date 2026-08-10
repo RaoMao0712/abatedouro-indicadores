@@ -1,0 +1,46 @@
+<section class="card linha-programacao-card">
+    <div class="section-title-row"><div><span class="eyebrow">Disponibilidade</span><h3>Programa&ccedil;&atilde;o da Linha de Abate</h3></div></div>
+    <p class="obs">Hor&aacute;rios locais de Manaus. Deixe ambos vazios somente quando a OP ainda n&atilde;o tiver programa&ccedil;&atilde;o aprovada.</p>
+    <div class="form-grid">
+        <div><label>In&iacute;cio programado</label><input type="time" name="inicio_programado" value="{{ programacao_linha.inicio_programado[11:16] if programacao_linha else '' }}"></div>
+        <div><label>T&eacute;rmino programado</label><input type="time" name="fim_programado" value="{{ programacao_linha.fim_programado[11:16] if programacao_linha else '' }}"></div>
+    </div>
+    <h4>Paradas planejadas</h4>
+    <div id="pausas-planejadas">
+        {% set linhas_pausa = pausas_planejadas if pausas_planejadas else [none] %}
+        {% for pausa in linhas_pausa %}
+        <div class="form-grid pausa-planejada-linha">
+            <div><label>Categoria</label><select name="pausa_categoria"><option value="">Sem pausa</option>{% for categoria in categorias_pausa %}<option value="{{ categoria }}" {% if pausa and pausa.categoria == categoria %}selected{% endif %}>{{ categoria|replace('_', ' ') }}</option>{% endfor %}</select></div>
+            <div><label>In&iacute;cio</label><input type="time" name="pausa_inicio" value="{{ pausa.inicio_previsto[11:16] if pausa else '' }}"></div>
+            <div><label>T&eacute;rmino</label><input type="time" name="pausa_fim" value="{{ pausa.fim_previsto[11:16] if pausa else '' }}"></div>
+            <div><label>Observa&ccedil;&atilde;o</label><input type="text" name="pausa_observacao" value="{{ pausa.observacao if pausa else '' }}"></div>
+            <div><button type="button" class="botao-secundario remover-pausa">Remover</button></div>
+        </div>
+        {% endfor %}
+    </div>
+    <button type="button" id="adicionar-pausa" class="botao-secundario">Adicionar pausa planejada</button>
+    {% if programacao_linha and programacao_linha.inicio_real %}
+    <div><label>Justificativa da altera&ccedil;&atilde;o ap&oacute;s o in&iacute;cio real</label><input type="text" name="justificativa_programacao" placeholder="Obrigat&oacute;ria para altera&ccedil;&atilde;o administrativa"></div>
+    {% endif %}
+</section>
+<script>
+(function () {
+    const container = document.getElementById("pausas-planejadas");
+    const adicionar = document.getElementById("adicionar-pausa");
+    if (!container || !adicionar || adicionar.dataset.ativo) return;
+    adicionar.dataset.ativo = "1";
+    adicionar.addEventListener("click", function () {
+        const modelo = container.querySelector(".pausa-planejada-linha");
+        const nova = modelo.cloneNode(true);
+        nova.querySelectorAll("input, select").forEach(function (campo) { campo.value = ""; });
+        container.appendChild(nova);
+    });
+    container.addEventListener("click", function (evento) {
+        if (!evento.target.classList.contains("remover-pausa")) return;
+        const linhas = container.querySelectorAll(".pausa-planejada-linha");
+        const linha = evento.target.closest(".pausa-planejada-linha");
+        if (linhas.length === 1) linha.querySelectorAll("input, select").forEach(function (campo) { campo.value = ""; });
+        else linha.remove();
+    });
+})();
+</script>
