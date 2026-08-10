@@ -1,0 +1,13 @@
+BEGIN;
+DROP INDEX IF EXISTS idx_expedicao_itens_pedido_item;
+DROP INDEX IF EXISTS idx_expedicoes_pedido;
+ALTER TABLE expedicao_itens DROP COLUMN pedido_item_id;
+ALTER TABLE expedicoes DROP COLUMN pedido_venda_id;
+ALTER TABLE expedicoes DROP COLUMN pedido_destino_entrega;
+DROP TABLE IF EXISTS pedido_venda_atendimentos;
+DROP TABLE IF EXISTS pedido_venda_romaneio_itens;
+DROP TABLE IF EXISTS pedido_venda_eventos;
+DROP TABLE IF EXISTS pedido_venda_itens;
+DROP TABLE IF EXISTS pedido_venda_sequencias;
+DROP TABLE IF EXISTS pedidos_venda;
+COMMIT;

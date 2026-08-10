@@ -40,6 +40,10 @@ def _numero(valor, casas=0):
     return texto.replace(",", "X").replace(".", ",").replace("X", ".")
 
 
+def _moeda_centavos(valor):
+    return "R$ " + _numero(float(valor or 0) / 100, 2)
+
+
 def _data_br(valor):
     try:
         return datetime.strptime(str(valor), "%Y-%m-%d").strftime("%d/%m/%Y")
@@ -209,6 +213,7 @@ def gerar_relatorio_entregas_pdf(expedicoes, filtros, cliente_selecionado=None, 
         ["Período", f"{_data_br(filtros.get('data_inicio'))} a {_data_br(filtros.get('data_fim'))}", "Status", _texto(filtros.get("status"), "Todos")],
         ["Tipo de operação", tipo_filtro, "Nº romaneio", _texto(filtros.get("numero"), "Todos")],
         ["Produto", _texto(filtros.get("produto"), "Todos"), "Destino", _texto(filtros.get("destino"), "Todos")],
+        ["Pedido de venda", _texto(filtros.get("pedido_numero"), "Todos"), "Agrupamento", agrupamento_texto],
     ]
     meta = Table([[Paragraph(f"<b>{escape(a)}</b>", pequeno), _p(b, normal), Paragraph(f"<b>{escape(c)}</b>", pequeno), _p(d, normal)] for a, b, c, d in metadados], colWidths=[29*mm, 96*mm, 29*mm, 123*mm])
     meta.setStyle(TableStyle([
@@ -252,6 +257,7 @@ def gerar_relatorio_entregas_pdf(expedicoes, filtros, cliente_selecionado=None, 
     historia += [cards, Spacer(1, 3 * mm)]
 
     grupos = defaultdict(list)
+    pedidos_com_valor_exibido = set()
     ordenadas = sorted(expedicoes, key=lambda x: (str(x.get("cliente_nome") or x.get("destino") or ""), str(x.get("data") or ""), str(x.get("numero_romaneio") or "")))
     for expedicao in ordenadas:
         grupos[_cliente(expedicao)].append(expedicao)
@@ -260,8 +266,8 @@ def gerar_relatorio_entregas_pdf(expedicoes, filtros, cliente_selecionado=None, 
         itens_cliente = []
         historia.append(Paragraph(f"Cliente: {escape(nome_cliente)}", grupo))
         if visao_op:
-            colunas = ["Romaneio", "OP / lote", "Produto / apresentação", "Quantidade", "Peso", "Cliente / destino", "Responsável", "Status"]
-            larguras = [25, 26, 48, 28, 20, 53, 48, 29]
+            colunas = ["Romaneio / pedido", "OP / lote", "Produto / apresentação", "Quantidade", "Peso", "Cliente / destino", "Responsável", "Status"]
+            larguras = [29, 25, 46, 28, 20, 52, 47, 30]
             linhas = [[Paragraph(c, cab_analitico) for c in colunas]]
             for romaneio in romaneios:
                 itens = itens_por_romaneio[romaneio["id"]] or [{}]
@@ -271,16 +277,16 @@ def gerar_relatorio_entregas_pdf(expedicoes, filtros, cliente_selecionado=None, 
                     quantidade = _quantidade_item(item) if item else 0
                     op_lote = f"<b>OP:</b> {escape(_texto(item.get('op_id') if item else None, '-'))}<br/><b>Lote:</b> {escape(_texto((item.get('lote') or item.get('codigo_caixa')) if item else None, '-'))}"
                     produto = f"{escape(_texto(item.get('sku') if item else None))}<br/><font color='#607078'>{escape(_texto(item.get('apresentacao') if item else None, '-'))}</font>"
-                    cliente_destino = f"<b>Cliente:</b> {escape(_cliente(romaneio))}<br/><b>Destino:</b> {escape(_texto(romaneio.get('destino')))}"
+                    cliente_destino = f"<b>Cliente:</b> {escape(_cliente(romaneio))}<br/><b>Destino:</b> {escape(_texto(romaneio.get('pedido_destino_entrega') or romaneio.get('destino')))}"
                     linhas.append([
-                        _p(romaneio.get("numero_romaneio"), analitico), Paragraph(op_lote, analitico), Paragraph(produto, analitico),
+                        Paragraph(f"{escape(_texto(romaneio.get('numero_romaneio')))}<br/><font color='#607078'>{escape(_texto(romaneio.get('pedido_venda_numero'), 'Sem pedido'))}</font>", analitico), Paragraph(op_lote, analitico), Paragraph(produto, analitico),
                         Paragraph(f"{_numero(quantidade, 0 if quantidade.is_integer() else 2)} {escape(_rotulo_unidade(unidade, quantidade))}", direita_analitico),
                         _p(f"{_numero(item.get('quantidade_kg'), 3)} kg" if item and item.get("quantidade_kg") else "-", direita_analitico),
                         Paragraph(cliente_destino, analitico), _p(romaneio.get("responsavel") or romaneio.get("criado_por"), analitico), _p(romaneio.get("status"), analitico),
                     ])
         else:
-            colunas = ["Romaneio", "Data", "Cliente / destino", "Tipo", "Produtos / apresentações", "Quantidade entregue", "Peso", "Responsável", "Status"]
-            larguras = [25, 16, 39, 24, 59, 31, 19, 38, 26]
+            colunas = ["Romaneio", "Pedido / comercial", "Data", "Cliente / destino", "Tipo", "Produtos / apresentações", "Quantidade entregue", "Peso", "Status"]
+            larguras = [23, 39, 16, 41, 22, 59, 30, 19, 28]
             linhas = [[Paragraph(c, cab) for c in colunas]]
             for romaneio in romaneios:
                 itens = itens_por_romaneio[romaneio["id"]]
@@ -295,13 +301,22 @@ def gerar_relatorio_entregas_pdf(expedicoes, filtros, cliente_selecionado=None, 
                     if peso_apresentacao:
                         detalhe += f"; {_numero(peso_apresentacao, 3)} kg"
                     produtos.append(f"<b>{escape(sku)}</b> - {escape(apresentacao)}<br/><font color='#607078'>{escape(detalhe)}</font>")
-                cliente_destino = f"<b>Cliente:</b> {escape(_cliente(romaneio))}<br/><b>Destino:</b> {escape(_texto(romaneio.get('destino')))}"
+                cliente_destino = f"<b>Cliente:</b> {escape(_cliente(romaneio))}<br/><b>Destino:</b> {escape(_texto(romaneio.get('pedido_destino_entrega') or romaneio.get('destino')))}"
                 peso_romaneio = _peso_itens(itens)
+                pedido_numero = romaneio.get("pedido_venda_numero")
+                if pedido_numero and pedido_numero not in pedidos_com_valor_exibido:
+                    comercial = (f"<b>{escape(pedido_numero)}</b><br/>Valor: {escape(_moeda_centavos(romaneio.get('pedido_valor_total_centavos')))}"
+                                 f"<br/>{escape(_texto(romaneio.get('pedido_quantidades_resumo'), 'Quantidades por unidade não disponíveis'))}")
+                    pedidos_com_valor_exibido.add(pedido_numero)
+                elif pedido_numero:
+                    comercial = f"<b>{escape(pedido_numero)}</b><br/><font color='#607078'>Valores já apresentados</font>"
+                else:
+                    comercial = "Não vinculado — documento anterior"
                 linhas.append([
-                    _p(romaneio.get("numero_romaneio"), pequeno), _p(_data_br(romaneio.get("data")), pequeno), Paragraph(cliente_destino, pequeno),
+                    _p(romaneio.get("numero_romaneio"), pequeno), Paragraph(comercial, pequeno), _p(_data_br(romaneio.get("data")), pequeno), Paragraph(cliente_destino, pequeno),
                     _p(_tipo(romaneio), pequeno), Paragraph("<br/>".join(produtos) if produtos else "Sem itens", pequeno),
                     _p(_resumo_quantidades(itens), direita), _p(f"{_numero(peso_romaneio, 3)} kg" if peso_romaneio else "-", direita),
-                    _p(romaneio.get("responsavel") or romaneio.get("criado_por"), pequeno), _p(romaneio.get("status"), pequeno),
+                    _p(romaneio.get("status"), pequeno),
                 ])
 
         tabela = Table(linhas, repeatRows=1, colWidths=[x*mm for x in larguras], hAlign="LEFT")

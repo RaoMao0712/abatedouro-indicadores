@@ -783,6 +783,12 @@ def reservar_itens(expedicao_id, caixa_ids, quantidades_pacotes=None):
                 ))
                 peso_evento = caixa["peso_liquido"]
                 quantidade_evento = caixa["quantidade_bandejas"]
+            cursor.execute(q("""SELECT id FROM expedicao_itens
+                WHERE expedicao_id = ? AND caixa_id = ? ORDER BY id DESC LIMIT 1"""),
+                           (expedicao_id, caixa_id))
+            expedicao_item_id = cursor.fetchone()["id"]
+            from modules.pedidos_venda.services import vincular_item_reservado_cursor
+            vincular_item_reservado_cursor(cursor, expedicao_id, expedicao_item_id)
             _inserir_evento(
                 cursor,
                 caixa_id=caixa_id,
@@ -903,6 +909,9 @@ def concluir_romaneio(expedicao_id):
         itens = cursor.fetchall()
         if not itens:
             raise ValueError("Inclua ao menos um item antes de concluir.")
+
+        from modules.pedidos_venda.services import validar_e_registrar_atendimento_cursor
+        validar_e_registrar_atendimento_cursor(cursor, expedicao_id)
 
         if tipo == "HISTORICO_MARCO_ZERO":
             _validar_mz_para_conclusao(romaneio, itens)
@@ -1195,6 +1204,8 @@ def estornar_romaneio(expedicao_id, justificativa):
             )
         from modules.qualidade.liberacoes import estornar_baixas_cursor
         estornar_baixas_cursor(cursor, expedicao_id, justificativa.strip(), _usuario(), _perfil(), "romaneio")
+        from modules.pedidos_venda.services import estornar_atendimento_cursor
+        estornar_atendimento_cursor(cursor, expedicao_id, justificativa.strip())
         cursor.execute(q("""
         UPDATE expedicoes
         SET status = 'Estornado', estornado_em = ?, atualizado_em = ?,

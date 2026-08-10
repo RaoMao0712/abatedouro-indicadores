@@ -1666,12 +1666,14 @@ def calcular_resumo_estoque_pa(saldos):
 
 
 def buscar_expedicoes(data_inicio=None, data_fim=None, status=None, tipo_movimentacao=None,
-                      numero=None, cliente_id=None, produto=None, destino=None):
+                      numero=None, cliente_id=None, produto=None, destino=None, pedido_numero=None):
     from .estoque_service import criar_tabelas_estoque_confiavel
     from modules.clientes.services import criar_tabelas_clientes
+    from modules.pedidos_venda.services import criar_tabelas_pedidos_venda, resumo_quantidades_pedido
 
     criar_tabelas_estoque_confiavel()
     criar_tabelas_clientes()
+    criar_tabelas_pedidos_venda()
     filtros = []
     parametros = []
 
@@ -1693,6 +1695,9 @@ def buscar_expedicoes(data_inicio=None, data_fim=None, status=None, tipo_movimen
     if numero:
         filtros.append("e.numero_romaneio LIKE ?")
         parametros.append(f"%{numero.strip()}%")
+    if pedido_numero:
+        filtros.append("p.numero LIKE ?")
+        parametros.append(f"%{pedido_numero.strip()}%")
     if cliente_id:
         filtros.append("e.cliente_id = ?")
         parametros.append(int(cliente_id))
@@ -1710,18 +1715,23 @@ def buscar_expedicoes(data_inicio=None, data_fim=None, status=None, tipo_movimen
     conn = conectar()
     cursor = conn.cursor()
     cursor.execute(q(f"""
-    SELECT e.*,c.razao_social AS cliente_nome,c.nome_fantasia AS cliente_fantasia,
+    SELECT e.*,p.numero AS pedido_venda_numero,p.valor_total_centavos AS pedido_valor_total_centavos,
+        (SELECT COALESCE(SUM(pi.quantidade_negociada_mil),0) FROM pedido_venda_itens pi WHERE pi.pedido_id=p.id) AS pedido_quantidade_negociada_mil,
+        (SELECT COALESCE(SUM(pa.quantidade_atendida_mil),0) FROM pedido_venda_atendimentos pa WHERE pa.pedido_id=p.id AND pa.status='ENTREGUE') AS pedido_quantidade_entregue_mil,
+        c.razao_social AS cliente_nome,c.nome_fantasia AS cliente_fantasia,
         c.documento AS cliente_documento,
         (SELECT COUNT(*) FROM expedicao_itens i WHERE i.expedicao_id = e.id) AS total_itens,
         (SELECT COALESCE(SUM(i.quantidade_unidades), 0) FROM expedicao_itens i WHERE i.expedicao_id = e.id) AS total_unidades,
         (SELECT COALESCE(SUM(i.quantidade_kg), 0) FROM expedicao_itens i WHERE i.expedicao_id = e.id) AS total_kg
     FROM expedicoes e
     LEFT JOIN clientes c ON c.id=e.cliente_id
+    LEFT JOIN pedidos_venda p ON p.id=e.pedido_venda_id
     {where}
     ORDER BY e.data DESC, e.id DESC
     """), tuple(parametros))
 
     expedicoes = []
+    resumos_pedido = {}
     for linha in cursor.fetchall():
         item = dict(linha)
         if item.get("cliente_snapshot"):
@@ -1729,6 +1739,11 @@ def buscar_expedicoes(data_inicio=None, data_fim=None, status=None, tipo_movimen
             item["cliente_nome"] = snapshot.get("razao_social")
             item["cliente_fantasia"] = snapshot.get("nome_fantasia")
             item["cliente_documento"] = snapshot.get("documento")
+        pedido_id = item.get("pedido_venda_id")
+        if pedido_id:
+            if pedido_id not in resumos_pedido:
+                resumos_pedido[pedido_id] = resumo_quantidades_pedido(pedido_id)
+            item["pedido_quantidades_resumo"] = resumos_pedido[pedido_id]
         expedicoes.append(item)
     conn.close()
     return expedicoes
@@ -1924,17 +1939,20 @@ def salvar_romaneio_expedicao(form):
 def buscar_expedicao_por_id(expedicao_id):
     criar_tabelas_expedicao()
     from modules.clientes.services import criar_tabelas_clientes
+    from modules.pedidos_venda.services import criar_tabelas_pedidos_venda
     criar_tabelas_clientes()
+    criar_tabelas_pedidos_venda()
 
     conn = conectar()
     cursor = conn.cursor()
 
     cursor.execute(q("""
-    SELECT e.*,c.razao_social AS cliente_nome,c.nome_fantasia AS cliente_fantasia,
+    SELECT e.*,p.numero AS pedido_venda_numero,c.razao_social AS cliente_nome,c.nome_fantasia AS cliente_fantasia,
         c.documento AS cliente_documento,c.endereco AS cliente_endereco,
         c.complemento AS cliente_complemento,c.bairro AS cliente_bairro,
         c.cidade AS cliente_cidade,c.uf AS cliente_uf,c.status AS cliente_status
     FROM expedicoes e LEFT JOIN clientes c ON c.id=e.cliente_id
+    LEFT JOIN pedidos_venda p ON p.id=e.pedido_venda_id
     WHERE e.id = ?
     """), (expedicao_id,))
 

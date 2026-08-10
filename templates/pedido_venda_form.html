@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block conteudo %}
+<style>.pv-form{max-width:1200px}.pv-bloco{background:#fff;border:1px solid #dbe4e1;border-radius:10px;padding:16px;margin:12px 0}.pv-campos{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.pv-form label{display:flex;flex-direction:column;gap:5px}.pv-form input,.pv-form select,.pv-form textarea{padding:8px;border:1px solid #bccac5;border-radius:6px}.pv-itens{width:100%;border-collapse:collapse}.pv-itens td,.pv-itens th{padding:6px;border-bottom:1px solid #e0e6e3}.pv-itens input,.pv-itens select{width:100%;box-sizing:border-box}.pv-btn{padding:9px 13px;border:0;border-radius:7px;background:#174c40;color:#fff;cursor:pointer}@media(max-width:900px){.pv-campos{grid-template-columns:1fr 1fr}}</style>
+<h1>{{ 'Editar '+pedido.numero if pedido else 'Novo Pedido de Venda Direta' }}</h1>
+<form class="pv-form" method="post" id="pedido-form">
+<section class="pv-bloco"><h2>1. Cliente e entrega</h2><div class="pv-campos">
+<label>Cliente<select name="cliente_id" required><option value="">Selecione</option>{% for c in clientes %}<option value="{{ c.id }}" {% if pedido and pedido.cliente_id==c.id %}selected{% endif %}>{{ c.razao_social }}</option>{% endfor %}</select></label>
+<label>Destino<input name="destino" required value="{{ pedido.destino if pedido else '' }}"></label>
+<label>Data<input type="date" name="data_pedido" required value="{{ pedido.data_pedido if pedido else hoje }}"></label>
+<label>Previsão<input type="date" name="previsao_entrega" value="{{ pedido.previsao_entrega if pedido else '' }}"></label>
+<label>Responsável / vendedor<input name="responsavel" required value="{{ pedido.responsavel if pedido else session.get('nome','') }}"></label>
+</div></section>
+<section class="pv-bloco"><div style="display:flex;justify-content:space-between"><h2>2. Itens</h2><button class="pv-btn" type="button" id="add-item">Adicionar item</button></div>
+<div style="overflow:auto"><table class="pv-itens"><thead><tr><th>Produto</th><th>Apresentação</th><th>Quantidade</th><th>Unidade</th><th>Preço unit.</th><th>Desconto</th><th>Observação</th><th></th></tr></thead><tbody id="itens">
+{% set linhas = pedido.itens if pedido else [none] %}{% for item in linhas %}<tr>
+<td><select name="produto_id"><option value="">SKU manual</option>{% for p in produtos %}<option value="{{ p.id }}" data-sku="{{ p.codigo }}" {% if item and item.produto_id==p.id %}selected{% endif %}>{{ p.codigo }} — {{ p.nome }}</option>{% endfor %}</select><input name="sku" placeholder="SKU" value="{{ item.sku if item else '' }}"></td>
+<td><input name="apresentacao" value="{{ item.apresentacao_snapshot if item else '' }}"></td><td><input type="number" step="0.001" min="0.001" name="quantidade" required value="{{ pedido_milesimos(item.quantidade_negociada_mil) if item else '' }}"></td>
+<td><select name="unidade">{% for u in unidades %}<option {% if item and item.unidade_comercial==u %}selected{% endif %}>{{ u }}</option>{% endfor %}</select></td>
+<td><input type="number" step="0.01" min="0.01" name="preco_unitario" required value="{{ pedido_centavos(item.preco_unitario_centavos) if item else '' }}"></td>
+<td><input type="number" step="0.01" min="0" name="desconto_item" value="{{ pedido_centavos(item.desconto_centavos) if item else 0 }}"></td><td><input name="observacao_item" value="{{ item.observacoes if item else '' }}"></td><td><button type="button" class="remover">×</button></td></tr>{% endfor %}
+</tbody></table></div><label>Desconto geral<input type="number" step="0.01" min="0" name="desconto_geral" value="{{ pedido_centavos(pedido.desconto_centavos) if pedido else 0 }}"></label></section>
+<section class="pv-bloco"><h2>3. Pagamento</h2><div class="pv-campos">
+<label>Forma<select name="forma_pagamento" required>{% for x in formas %}<option value="{{ x }}" {% if pedido and pedido.forma_pagamento==x %}selected{% endif %}>{{ x }}</option>{% endfor %}</select></label>
+<label>Condição<select name="condicao_pagamento" required>{% for x in condicoes %}<option value="{{ x }}" {% if pedido and pedido.condicao_pagamento==x %}selected{% endif %}>{{ x }}</option>{% endfor %}</select></label>
+<label>Vencimento inicial<input type="date" name="vencimento_inicial" value="{{ pedido.vencimento_inicial if pedido else '' }}"></label><label>Prazo (dias)<input type="number" min="1" name="prazo_dias" value="{{ pedido.prazo_dias if pedido else '' }}"></label>
+<label>Parcelas<input type="number" min="2" name="numero_parcelas" value="{{ pedido.numero_parcelas if pedido else '' }}"></label><label>Intervalo (dias)<input type="number" min="1" name="intervalo_dias" value="{{ pedido.intervalo_dias if pedido else '' }}"></label>
+<label>Entrada (R$)<input type="number" step="0.01" min="0" name="entrada_valor" value="{{ pedido_centavos(pedido.entrada_centavos) if pedido and pedido.entrada_centavos else '' }}"></label><label>Entrada (%)<input type="number" step="0.001" min="0" max="100" name="entrada_percentual" value="{{ pedido_milesimos(pedido.entrada_percentual_milesimos) if pedido and pedido.entrada_percentual_milesimos else '' }}"></label>
+<label>Condição do saldo<input name="condicao_saldo" value="{{ pedido.condicao_saldo if pedido else '' }}"></label><label>Descrição complementar<input name="descricao_condicao" value="{{ pedido.descricao_condicao if pedido else '' }}"></label>
+</div></section>
+<section class="pv-bloco"><h2>4. Observações</h2><textarea name="observacoes" rows="4" style="width:100%">{{ pedido.observacoes if pedido else '' }}</textarea></section>
+<button class="pv-btn" type="submit">Salvar rascunho</button> <a href="{{ url_for('pedidos_venda') }}">Cancelar</a></form>
+<script>const tbody=document.querySelector('#itens');document.querySelector('#add-item').onclick=()=>{const row=tbody.rows[0].cloneNode(true);row.querySelectorAll('input').forEach(x=>x.value=x.name==='desconto_item'?'0':'');tbody.appendChild(row)};tbody.addEventListener('click',e=>{if(e.target.classList.contains('remover')&&tbody.rows.length>1)e.target.closest('tr').remove()});</script>
+{% endblock %}

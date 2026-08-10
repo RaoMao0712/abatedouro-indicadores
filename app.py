@@ -22,6 +22,7 @@ from modules.fluxo_caixa.routes import register_fluxo_caixa_routes
 from modules.financeiro.routes import register_financeiro_routes
 from modules.relatorios.routes import register_relatorios_routes
 from modules.expedicao.routes import register_expedicao_routes
+from modules.pedidos_venda import criar_tabelas_pedidos_venda, register_pedidos_venda_routes
 from modules.movimentacoes.routes import register_movimentacoes_routes
 from modules.movimentacoes.commands import register_movimentacoes_commands
 from modules.producao.routes import register_producao_routes
@@ -550,6 +551,7 @@ register_clientes_routes(app)
 register_expedicao_routes(app, {
     "criar_banco": criar_banco,
 })
+register_pedidos_venda_routes(app)
 
 register_movimentacoes_routes(app)
 register_movimentacoes_commands(app)
@@ -580,6 +582,7 @@ def inicializar_schema_aplicacao():
         criar_tabelas_sgi,
         criar_tabelas_pa_nao_conforme,
         criar_tabelas_clientes,
+        criar_tabelas_pedidos_venda,
         criar_tabelas_correcoes_administrativas_op,
     ])
 

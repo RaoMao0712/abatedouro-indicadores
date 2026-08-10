@@ -162,6 +162,7 @@ NAVEGACAO = [
         "perfis": ("admin", "pcp", "qualidade"),
         "card": True,
         "itens": [
+            {"titulo": "Pedidos de Venda", "endpoint": "pedidos_venda", "perfis": ("admin", "pcp"), "principal": True, "active_endpoints": ("pedidos_venda", "novo_pedido_venda", "editar_pedido_venda", "detalhe_pedido_venda", "imprimir_pedido_venda")},
             {"titulo": "Central de Romaneios", "endpoint": "expedicao", "perfis": ("admin", "pcp", "qualidade"), "principal": True, "active_endpoints": ("expedicao", "detalhe_romaneio_expedicao", "imprimir_romaneio_expedicao")},
             {"titulo": "Novo Romaneio", "endpoint": "novo_romaneio_expedicao", "perfis": ("admin", "pcp", "qualidade")},
             {"titulo": "Estoque Operacional", "endpoint": "estoque_camara_expedicao", "perfis": ("admin", "pcp", "qualidade")},
@@ -205,6 +206,7 @@ NAVEGACAO = [
         "perfis": ("admin", "pcp", "producao", "qualidade", "gerencia"),
         "card": True,
         "itens": [
+            {"titulo": "Pedidos de Venda", "endpoint": "pedidos_venda", "perfis": ("gerencia",), "principal": True, "active_endpoints": ("pedidos_venda", "novo_pedido_venda", "editar_pedido_venda", "detalhe_pedido_venda", "imprimir_pedido_venda")},
             {"titulo": "Fornecedores", "endpoint": "fornecedores", "perfis": ADMIN_PCP},
             {"titulo": "Clientes", "endpoint": "clientes", "perfis": ("admin", "gerencia", "pcp")},
             {

@@ -61,6 +61,8 @@
                         <div><small>Origem</small><strong>{{ expedicao.origem or "Abatedouro" }}</strong></div>
                         <div><small>Tipo de sa&iacute;da</small><strong>{{ tipo_descricao }}</strong></div>
                         {% if is_venda %}
+                        <div><small>Pedido de Venda</small><strong>{{ expedicao.pedido_venda_numero or "Não vinculado — documento anterior ao novo fluxo" }}</strong></div>
+                        {% if expedicao.pedido_destino_entrega %}<div class="span-2"><small>Destino de entrega do pedido</small><strong>{{ expedicao.pedido_destino_entrega }}</strong></div>{% endif %}
                         <div class="span-2"><small>Cliente</small><strong>{{ expedicao.cliente_nome or "-" }}</strong>{% if expedicao.cliente_fantasia %}<span>{{ expedicao.cliente_fantasia }}</span>{% endif %}</div>
                         <div><small>CPF/CNPJ</small><strong>{{ documento_cliente_formatado }}</strong></div>
                         <div class="span-2"><small>Endere&ccedil;o</small><strong>{{ expedicao.cliente_endereco or "-" }}{% if expedicao.cliente_complemento %}, {{ expedicao.cliente_complemento }}{% endif %}{% if expedicao.cliente_bairro %} &middot; {{ expedicao.cliente_bairro }}{% endif %}{% if expedicao.cliente_cidade %} &middot; {{ expedicao.cliente_cidade }}{% if expedicao.cliente_uf %}/{{ expedicao.cliente_uf }}{% endif %}{% endif %}</strong></div>

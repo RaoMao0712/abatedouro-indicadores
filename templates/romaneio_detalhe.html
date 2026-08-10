@@ -36,6 +36,8 @@
         <div><small>Origem</small><strong>{{ expedicao.origem or "Abatedouro" }}</strong></div>
         <div><small>Destino</small><strong>{{ expedicao.destino }}</strong></div>
         {% if is_venda %}<div><small>Cliente</small><strong>{{ expedicao.cliente_nome }}{% if expedicao.cliente_fantasia %} — {{ expedicao.cliente_fantasia }}{% endif %}</strong><span>{{ expedicao.cliente_documento or 'Sem CPF/CNPJ informado' }}</span></div>{% endif %}
+        {% if is_venda %}<div><small>Pedido de venda</small>{% if expedicao.pedido_venda_numero %}<strong><a href="{{ url_for('detalhe_pedido_venda', pedido_id=expedicao.pedido_venda_id) }}">{{ expedicao.pedido_venda_numero }}</a></strong>{% else %}<strong>Não vinculado — documento anterior ao novo fluxo</strong>{% endif %}</div>{% endif %}
+        {% if is_venda and expedicao.pedido_destino_entrega %}<div><small>Destino de entrega do pedido</small><strong>{{ expedicao.pedido_destino_entrega }}</strong></div>{% endif %}
         {% if expedicao.veiculo %}<div><small>Veículo</small><strong>{{ expedicao.veiculo }}</strong></div>{% endif %}
         {% if expedicao.motorista %}<div><small>Motorista</small><strong>{{ expedicao.motorista }}</strong></div>{% endif %}
         <div><small>Responsável</small><strong>{{ responsavel_exibido or "Não informado" }}</strong></div>
@@ -54,6 +56,7 @@
     <div id="aviso-alteracoes" class="romaneio-unsaved no-print" hidden>Existem alterações não salvas.</div>
 
     {% if documento_aberto %}
+    {% if plano_pedido %}<section class="card romaneio-secao"><h3>Saldo planejado do pedido</h3><p>{% for p in plano_pedido %}<strong>{{ p.sku }}</strong>: {{ pedido_milesimos(p.quantidade_planejada_mil)|br_numero(3) }} {{ p.unidade }}{% if not loop.last %} · {% endif %}{% endfor %}</p><small>Reserve posições físicas compatíveis. O backend impede quantidade acima deste plano.</small></section>{% endif %}
     <details class="card romaneio-details no-print">
         <summary><span>Editar cabeçalho</span><small>Data, responsável e observações</small></summary>
         <form method="POST" class="romaneio-form-grid romaneio-track-form" data-form="cabecalho">

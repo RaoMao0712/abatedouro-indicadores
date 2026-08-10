@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block conteudo %}
+<style>.pv-grid{display:grid;grid-template-columns:repeat(4,minmax(150px,1fr));gap:12px}.pv-card{background:#fff;border:1px solid #dbe4e1;border-radius:10px;padding:14px}.pv-table{width:100%;border-collapse:collapse;background:#fff}.pv-table th,.pv-table td{padding:9px;border-bottom:1px solid #e4e9e7;text-align:left}.pv-actions{display:flex;justify-content:space-between;align-items:center;gap:12px}.pv-filtros{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin:14px 0}.pv-filtros input,.pv-filtros select{width:100%;padding:8px}.pv-btn{display:inline-block;padding:9px 13px;border-radius:7px;background:#174c40;color:#fff;text-decoration:none;border:0}@media(max-width:900px){.pv-grid,.pv-filtros{grid-template-columns:1fr 1fr}}</style>
+<div class="pv-actions"><div><h1>Pedidos de Venda</h1><p>Negociação comercial e atendimento por romaneios.</p></div><a class="pv-btn" href="{{ url_for('novo_pedido_venda') }}">Novo pedido</a></div>
+<div class="pv-grid">
+  <div class="pv-card"><small>Pedidos</small><h2>{{ resumo.total }}</h2></div><div class="pv-card"><small>Confirmados / parciais</small><h2>{{ resumo.confirmado + resumo.parcialmente_atendido }}</h2></div>
+  <div class="pv-card"><small>Valor vendido</small><h2>R$ {{ pedido_centavos(resumo.valor_total_centavos)|br_numero }}</h2></div><div class="pv-card"><small>Saldo comercial</small><h2>R$ {{ pedido_centavos(resumo.saldo_centavos)|br_numero }}</h2></div>
+</div>
+<form class="pv-filtros" method="get">
+  <input name="numero" value="{{ filtros.numero }}" placeholder="Número">
+  <input type="date" name="data_inicio" value="{{ filtros.data_inicio }}"><input type="date" name="data_fim" value="{{ filtros.data_fim }}">
+  <select name="cliente_id"><option value="">Todos os clientes</option>{% for c in clientes %}<option value="{{ c.id }}" {% if filtros.cliente_id|string==c.id|string %}selected{% endif %}>{{ c.razao_social }}</option>{% endfor %}</select>
+  <input name="destino" value="{{ filtros.destino }}" placeholder="Destino"><input name="produto" value="{{ filtros.produto }}" placeholder="Produto/SKU">
+  <select name="status"><option value="">Todos os status</option>{% for k,v in status_opcoes.items() %}<option value="{{ k }}" {% if filtros.status==k %}selected{% endif %}>{{ v }}</option>{% endfor %}</select>
+  <input name="responsavel" value="{{ filtros.responsavel }}" placeholder="Responsável">
+  <select name="forma_pagamento"><option value="">Todas as formas</option>{% for x in formas %}<option {% if filtros.forma_pagamento==x %}selected{% endif %}>{{ x }}</option>{% endfor %}</select>
+  <select name="condicao_pagamento"><option value="">Todas as condições</option>{% for x in condicoes %}<option {% if filtros.condicao_pagamento==x %}selected{% endif %}>{{ x }}</option>{% endfor %}</select>
+  <button class="pv-btn">Filtrar</button>
+</form>
+<div style="overflow:auto"><table class="pv-table"><thead><tr><th>Número</th><th>Data</th><th>Cliente</th><th>Previsão</th><th>Valor</th><th>Pagamento</th><th colspan="2">Entregue / saldo por unidade</th><th>Status</th><th></th></tr></thead><tbody>
+{% for p in pedidos %}<tr><td>{{ p.numero }}</td><td>{{ p.data_pedido }}</td><td>{{ p.cliente_snapshot.razao_social }}</td><td>{{ p.previsao_entrega or '-' }}</td><td>R$ {{ pedido_centavos(p.valor_total_centavos)|br_numero }}</td><td>{{ p.condicao_pagamento }}</td><td colspan="2">{{ p.quantidades_resumo }}</td><td>{{ status_opcoes[p.status] }}</td><td><a href="{{ url_for('detalhe_pedido_venda',pedido_id=p.id) }}">Detalhes</a></td></tr>
+{% else %}<tr><td colspan="10">Nenhum pedido encontrado.</td></tr>{% endfor %}</tbody></table></div>
+{% endblock %}

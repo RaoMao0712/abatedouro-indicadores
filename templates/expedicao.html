@@ -40,6 +40,7 @@
         <label>Produto<input name="produto" value="{{ produto }}"></label>
         <label>Destino<input name="destino" value="{{ destino }}"></label>
         <label>Agrupar relat&oacute;rio por
+            <input name="pedido_numero" value="{{ pedido_numero }}" placeholder="Nº do pedido">
             <select name="agrupamento">
                 <option value="ROMANEIO" {% if agrupamento_relatorio != "OP" %}selected{% endif %}>Romaneio - Vis&atilde;o comercial</option>
                 <option value="OP" {% if agrupamento_relatorio == "OP" %}selected{% endif %}>Ordem de Produ&ccedil;&atilde;o - Vis&atilde;o anal&iacute;tica</option>

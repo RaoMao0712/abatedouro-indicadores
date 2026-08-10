@@ -69,6 +69,7 @@ from modules.qualidade.liberacoes import (
 )
 from modules.clientes.services import listar_clientes
 from .relatorio_entregas import gerar_relatorio_entregas_pdf
+from modules.pedidos_venda.services import plano_romaneio
 
 
 def _itens_nc_caixas(form):
@@ -314,7 +315,7 @@ def register_expedicao_routes(app, integracoes=None):
         )
 
     @app.route("/expedicao")
-    @perfil_permitido("pcp", "qualidade")
+    @perfil_permitido("pcp", "qualidade", "gerencia", "expedicao")
     def expedicao():
         hoje = datetime.now()
         primeiro_dia_mes = hoje.replace(day=1).strftime("%Y-%m-%d")
@@ -326,10 +327,11 @@ def register_expedicao_routes(app, integracoes=None):
         numero = request.args.get("numero") or ""
         produto = request.args.get("produto") or ""
         destino = request.args.get("destino") or ""
+        pedido_numero = request.args.get("pedido_numero") or ""
         agrupamento_relatorio = request.args.get("agrupamento") or "ROMANEIO"
 
         expedicoes = buscar_expedicoes(data_inicio, data_fim, status, tipo_movimentacao,
-                                       numero, cliente_id, produto, destino)
+                                       numero, cliente_id, produto, destino, pedido_numero)
         resumo = calcular_resumo_expedicao(expedicoes)
 
         return render_template(
@@ -345,12 +347,13 @@ def register_expedicao_routes(app, integracoes=None):
             tipos_saida=TIPOS_SAIDA,
             clientes=listar_clientes(somente_ativos=True), cliente_id=cliente_id,
             numero=numero, produto=produto, destino=destino,
+            pedido_numero=pedido_numero,
             agrupamento_relatorio=agrupamento_relatorio,
             status_opcoes=["Todos", "Aberto", "Concluído", "Cancelado", "Estornado"]
         )
 
     @app.route("/expedicao/novo", methods=["GET", "POST"])
-    @perfil_permitido("pcp", "qualidade")
+    @perfil_permitido("pcp", "qualidade", "gerencia", "expedicao")
     def novo_romaneio_expedicao():
         hoje = datetime.now().strftime("%Y-%m-%d")
 
@@ -372,7 +375,7 @@ def register_expedicao_routes(app, integracoes=None):
         )
 
     @app.route("/expedicao/<int:expedicao_id>", methods=["GET", "POST"])
-    @perfil_permitido("pcp", "qualidade")
+    @perfil_permitido("pcp", "qualidade", "gerencia", "expedicao")
     def detalhe_romaneio_expedicao(expedicao_id):
         expedicao = buscar_expedicao_por_id(expedicao_id)
 
@@ -476,6 +479,7 @@ def register_expedicao_routes(app, integracoes=None):
             resumo_itens=resumo_itens,
             resumo_mz=resumo_mz,
             caixas_disponiveis=caixas_disponiveis,
+            plano_pedido=plano_romaneio(expedicao_id),
             saldos_legados=saldos_legados_operacionais() if expedicao["tipo_movimentacao"] in {"TRANSFERENCIA", "VENDA_DIRETA"} else [],
             tipo_descricao=TIPOS_SAIDA.get(expedicao["tipo_saida"], TIPOS_ROMANEIO.get(
                 expedicao["tipo_movimentacao"], expedicao["tipo_movimentacao"])),
@@ -545,7 +549,7 @@ def register_expedicao_routes(app, integracoes=None):
         )
 
     @app.route("/expedicao/<int:expedicao_id>/imprimir")
-    @perfil_permitido("pcp", "qualidade")
+    @perfil_permitido("pcp", "qualidade", "gerencia", "expedicao")
     def imprimir_romaneio_expedicao(expedicao_id):
         expedicao = buscar_expedicao_por_id(expedicao_id)
         if not expedicao:
@@ -589,11 +593,15 @@ def register_expedicao_routes(app, integracoes=None):
             "produto": request.args.get("produto") or "",
             "destino": request.args.get("destino") or "",
             "agrupamento": request.args.get("agrupamento") or "ROMANEIO",
+            "pedido_numero": request.args.get("pedido_numero") or "",
         }
-        expedicoes = buscar_expedicoes(
+        argumentos = [
             filtros["data_inicio"], filtros["data_fim"], filtros["status"], filtros["tipo"],
             filtros["numero"], filtros["cliente_id"], filtros["produto"], filtros["destino"],
-        )
+        ]
+        if filtros["pedido_numero"]:
+            argumentos.append(filtros["pedido_numero"])
+        expedicoes = buscar_expedicoes(*argumentos)
         cliente_selecionado = None
         if filtros["cliente_id"]:
             cliente_selecionado = next(
