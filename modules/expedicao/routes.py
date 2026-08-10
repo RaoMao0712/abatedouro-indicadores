@@ -2,7 +2,8 @@
 
 from datetime import datetime
 
-from flask import flash, redirect, render_template, request, url_for
+from flask import flash, redirect, render_template, request, send_file, session, url_for
+from io import BytesIO
 
 from database import conectar, q
 from modules.auth.decorators import perfil_permitido
@@ -66,6 +67,7 @@ from modules.qualidade.liberacoes import (
     saldos_legados_operacionais,
 )
 from modules.clientes.services import listar_clientes
+from .relatorio_entregas import gerar_relatorio_entregas_pdf
 
 
 def _itens_nc_caixas(form):
@@ -566,4 +568,37 @@ def register_expedicao_routes(app, integracoes=None):
             documento_cliente_formatado=formatar_documento_brasileiro(
                 expedicao["cliente_documento"]
             ),
+        )
+
+    @app.route("/expedicao/relatorio-entregas.pdf")
+    @perfil_permitido("pcp", "qualidade")
+    def relatorio_entregas_expedicao():
+        filtros = {
+            "numero": request.args.get("numero") or "",
+            "data_inicio": request.args.get("data_inicio") or "",
+            "data_fim": request.args.get("data_fim") or "",
+            "status": request.args.get("status") or "Todos",
+            "tipo": request.args.get("tipo") or "Todos",
+            "cliente_id": request.args.get("cliente_id") or None,
+            "produto": request.args.get("produto") or "",
+            "destino": request.args.get("destino") or "",
+        }
+        expedicoes = buscar_expedicoes(
+            filtros["data_inicio"], filtros["data_fim"], filtros["status"], filtros["tipo"],
+            filtros["numero"], filtros["cliente_id"], filtros["produto"], filtros["destino"],
+        )
+        cliente_selecionado = None
+        if filtros["cliente_id"]:
+            cliente_selecionado = next(
+                (item["razao_social"] for item in listar_clientes(somente_ativos=False)
+                 if str(item["id"]) == str(filtros["cliente_id"])),
+                None,
+            )
+        pdf = gerar_relatorio_entregas_pdf(
+            expedicoes, filtros, cliente_selecionado=cliente_selecionado,
+            usuario=session.get("nome") or "Usuário não identificado",
+        )
+        return send_file(
+            BytesIO(pdf), mimetype="application/pdf", as_attachment=False,
+            download_name="relatorio-entregas-por-cliente.pdf",
         )

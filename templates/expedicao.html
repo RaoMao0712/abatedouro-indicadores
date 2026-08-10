@@ -40,6 +40,7 @@
         <label>Produto<input name="produto" value="{{ produto }}"></label>
         <label>Destino<input name="destino" value="{{ destino }}"></label>
         <button type="submit" class="romaneio-btn romaneio-btn-filter">Aplicar filtros</button>
+        <button type="submit" class="romaneio-btn romaneio-btn-primary" formaction="{{ url_for('relatorio_entregas_expedicao') }}" formtarget="_blank">Gerar relatÃ³rio</button>
     </form>
 
     <section class="expedicao-kpis romaneio-kpis" aria-label="Indicadores dos documentos filtrados">
@@ -66,7 +67,7 @@
                         </td>
                         <td>{{ item.data[8:10] }}/{{ item.data[5:7] }}/{{ item.data[0:4] }}</td>
                         <td>{{ tipos_saida.get(item.tipo_saida, tipos_romaneio.get(item.tipo_movimentacao, item.tipo_movimentacao|replace('_', ' ')|title)) }}</td>
-                        <td>{% if item.tipo_saida == 'VENDA_DIRETA' %}<strong>{{ item.cliente_nome }}</strong>{% if item.cliente_fantasia %}<small>{{ item.cliente_fantasia }}</small>{% endif %}{% else %}{{ item.destino }}{% endif %}</td>
+                        <td>{% if item.tipo_saida == 'VENDA_DIRETA' %}<strong>Cliente: {{ item.cliente_nome or item.cliente_fantasia or "NÃ£o informado" }}</strong><small>Destino: {{ item.destino or "NÃ£o informado" }}</small>{% else %}<strong>Destino: {{ item.destino or "NÃ£o informado" }}</strong>{% endif %}</td>
                         <td>
                             {% if item.tipo_movimentacao == "HISTORICO_MARCO_ZERO" and not item.total_itens %}
                             <span class="romaneio-pendente">Totais pendentes</span>
