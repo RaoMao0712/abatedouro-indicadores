@@ -1,4 +1,5 @@
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
 
 import pytest
@@ -417,3 +418,304 @@ def test_acao_principal_salva_e_confirma_sem_movimentar_estoque(monkeypatch):
     assert resposta.status_code == 302
     assert resposta.headers["Location"].endswith("/pedidos-venda/77")
     assert chamadas == [77]
+
+
+def _preparar_pedido_leg2_duas_apresentacoes(base):
+    expedicao.criar_tabelas_estoque_pi_pa()
+    estoque.criar_tabelas_estoque_confiavel()
+    conn = sqlite3.connect(base)
+    conn.execute("UPDATE skus SET codigo='LEG-2',nome='Galinha Inteira',unidade_venda='Pct' WHERE id=1")
+    caixas = []
+    for codigo, apresentacao, fator in (
+        ("LEG2-V1", "Pacote com 1 galinha inteira", 1),
+        ("LEG2-V2", "Pacote com 2 galinhas inteiras", 2),
+    ):
+        cursor = conn.execute("""INSERT INTO pa_caixas
+            (codigo_caixa,sku,status,estoque_operacional,unidade_estoque,apresentacao,
+             galinhas_por_pacote,quantidade_pacotes,quantidade_galinhas,
+             quantidade_pacotes_reservados,condicao,disponibilidade)
+            VALUES (?,?,?,1,'PACOTE',?,?,5000,?,0,'CONFORME','EXPEDIDO')""",
+            (codigo, "Galinha Inteira", "Expedido", apresentacao, fator, 5000 * fator))
+        caixas.append(cursor.lastrowid)
+    conn.commit(); conn.close()
+    form = MultiDict([
+        ("cliente_id", "1"), ("destino", "Rua de entrega"), ("data_pedido", "2026-08-10"),
+        ("responsavel", "Vendedor"), ("forma_pagamento", "PIX"),
+        ("condicao_pagamento", "A_VISTA"),
+        ("produto_id", "1"), ("sku", "LEG-2"),
+        ("apresentacao", "Pacote com 2 galinhas inteiras"), ("quantidade", "1864"),
+        ("unidade", "PACOTE"), ("preco_unitario", "6.50"),
+        ("desconto_item", "0"), ("observacao_item", ""),
+        ("produto_id", "1"), ("sku", "LEG-2"),
+        ("apresentacao", "Pacote com 1 galinha inteira"), ("quantidade", "500"),
+        ("unidade", "PACOTE"), ("preco_unitario", "6.50"),
+        ("desconto_item", "0"), ("observacao_item", ""), ("desconto_geral", "0"),
+    ])
+    pedido_id, _ = pedidos.salvar_pedido(form, usuario="Comercial", perfil="pcp")
+    pedidos.confirmar_pedido(pedido_id, usuario="Comercial", perfil="pcp")
+    return pedido_id, caixas
+
+
+def _criar_romaneio_pronto(base, numero, itens, *, cliente_id=1, status="Concluído",
+                            destino="Venda direta", destino_documentado=None, vinculado=None):
+    conn = sqlite3.connect(base)
+    cursor = conn.execute("""INSERT INTO expedicoes
+        (numero_romaneio,data,tipo_movimentacao,origem,destino,responsavel,status,tipo_saida,
+         cliente_id,concluido_em,atualizado_em,pedido_venda_id,pedido_destino_entrega)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (numero, "2026-08-10", "VENDA_DIRETA", "Abatedouro", destino, "Expedição",
+         status, "VENDA_DIRETA", cliente_id, "2026-08-10 10:00:00" if status == "Concluído" else None,
+         "2026-08-10 10:00:00", vinculado, destino_documentado))
+    expedicao_id = cursor.lastrowid
+    for indice, (caixa_id, apresentacao, fator, pacotes) in enumerate(itens, 1):
+        item_cursor = conn.execute("""INSERT INTO expedicao_itens
+            (expedicao_id,caixa_id,sku,quantidade_unidades,quantidade_pacotes,
+             quantidade_galinhas,unidade_estoque,apresentacao,galinhas_por_pacote)
+            VALUES (?,?,?,?,?,?,?,?,?)""",
+            (expedicao_id, caixa_id, "Galinha Inteira", pacotes, pacotes,
+             pacotes * fator, "PACOTE", apresentacao, fator))
+        conn.execute("""INSERT INTO estoque_eventos
+            (caixa_id,expedicao_id,acao,situacao_anterior,situacao_nova,quantidade,
+             usuario,perfil,criado_em,idempotency_key)
+            VALUES (?,?,?,'RESERVADO','EXPEDIDO',?,'Teste','pcp','2026-08-10 10:00:00',?)""",
+            (caixa_id, expedicao_id, "VENDA_DIRETA", pacotes,
+             f"TESTE-VENDA-{expedicao_id}-{item_cursor.lastrowid}-{indice}"))
+    conn.commit(); conn.close()
+    return expedicao_id
+
+
+def _fotografia_estoque(base):
+    conn = sqlite3.connect(base)
+    caixas = conn.execute("""SELECT id,quantidade_pacotes,quantidade_galinhas,
+        quantidade_pacotes_reservados,disponibilidade,status FROM pa_caixas ORDER BY id""").fetchall()
+    eventos = conn.execute("SELECT id,caixa_id,expedicao_id,acao,quantidade FROM estoque_eventos ORDER BY id").fetchall()
+    conn.close()
+    return caixas, eventos
+
+
+def test_pdf_soma_total_de_aves_e_separa_unidades(base):
+    pedido_id, _ = _preparar_pedido_leg2_duas_apresentacoes(base)
+    pdf = gerar_pdf_pedido(pedidos.buscar_pedido(pedido_id))
+    leitor = PdfReader(BytesIO(pdf))
+    texto = "\n".join(p.extract_text() or "" for p in leitor.pages)
+    assert "TOTAL DE AVES DO PEDIDO" in texto
+    assert "4.228 AVES" in texto
+    assert float(leitor.pages[0].mediabox.width) > float(leitor.pages[0].mediabox.height)
+    conn = sqlite3.connect(base)
+    conn.execute("""INSERT INTO skus(codigo,nome,unidade_venda,ativo)
+        VALUES ('OUT-PCT','Produto em Pacote','Pct','Sim')""")
+    produto_pacote = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    conn.commit(); conn.close()
+    form_misto = MultiDict([
+        ("cliente_id", "1"), ("destino", "Rua de entrega"), ("data_pedido", "2026-08-10"),
+        ("responsavel", "Vendedor"), ("forma_pagamento", "PIX"), ("condicao_pagamento", "A_VISTA"),
+        ("produto_id", "2"), ("sku", "GC-KG"), ("apresentacao", "Quilograma"),
+        ("quantidade", "2.5"), ("unidade", "KG"), ("preco_unitario", "20"),
+        ("desconto_item", "0"), ("observacao_item", ""),
+        ("produto_id", str(produto_pacote)), ("sku", "OUT-PCT"), ("apresentacao", "Pacote"),
+        ("quantidade", "10"), ("unidade", "PACOTE"), ("preco_unitario", "5"),
+        ("desconto_item", "0"), ("observacao_item", ""), ("desconto_geral", "0"),
+    ])
+    pedido_com_unidades, _ = pedidos.salvar_pedido(form_misto, usuario="Comercial", perfil="pcp")
+    texto_misto = "\n".join(p.extract_text() or "" for p in PdfReader(
+        BytesIO(gerar_pdf_pedido(pedidos.buscar_pedido(pedido_com_unidades)))).pages)
+    assert "TOTAL DE PACOTES" in texto_misto and "TOTAL EM KG" in texto_misto
+
+
+def test_lista_somente_romaneio_elegivel_e_compativel(base):
+    pedido_id, caixas = _preparar_pedido_leg2_duas_apresentacoes(base)
+    elegivel = _criar_romaneio_pronto(base, "ROM-ELEGIVEL", [
+        (caixas[1], "Pacote com 2 galinhas inteiras", 2, 500)])
+    _criar_romaneio_pronto(base, "ROM-OUTRO-CLIENTE", [
+        (caixas[1], "Pacote com 2 galinhas inteiras", 2, 10)], cliente_id=999)
+    _criar_romaneio_pronto(base, "ROM-CANCELADO", [
+        (caixas[1], "Pacote com 2 galinhas inteiras", 2, 10)], status="Cancelado")
+    _criar_romaneio_pronto(base, "ROM-ESTORNADO", [
+        (caixas[1], "Pacote com 2 galinhas inteiras", 2, 10)], status="Estornado")
+    _criar_romaneio_pronto(base, "ROM-APRESENTACAO-ERRADA", [
+        (caixas[0], "Pacote com 1 galinha inteira", 2, 10)])
+    vinculada = _criar_romaneio_pronto(base, "ROM-JA-VINCULADO", [
+        (caixas[1], "Pacote com 2 galinhas inteiras", 2, 10)], vinculado=pedido_id)
+    ids = {item["id"] for item in pedidos.listar_romaneios_elegiveis(pedido_id)}
+    assert ids == {elegivel}
+    assert vinculada not in ids
+
+
+def test_vinculo_parcial_preserva_estoque_e_audita_fotografia(base):
+    pedido_id, caixas = _preparar_pedido_leg2_duas_apresentacoes(base)
+    expedicao_id = _criar_romaneio_pronto(base, "ROM-PARCIAL", [
+        (caixas[1], "Pacote com 2 galinhas inteiras", 2, 500)])
+    antes = _fotografia_estoque(base)
+    pedidos.vincular_romaneio_existente(
+        pedido_id, expedicao_id, "vinculo-parcial-001", confirmar_destino=True,
+        usuario="Comercial", perfil="pcp")
+    depois = _fotografia_estoque(base)
+    assert antes == depois
+    pedido = pedidos.buscar_pedido(pedido_id)
+    item_v2 = next(item for item in pedido["itens"] if item["aves_por_unidade_operacional"] == 2)
+    assert pedido["status"] == "PARCIALMENTE_ATENDIDO"
+    assert item_v2["quantidade_entregue_exibicao_mil"] == 1000000
+    assert item_v2["saldo_pendente_exibicao_mil"] == 2728000
+    conn = sqlite3.connect(base)
+    assert conn.execute("SELECT pedido_venda_id,status FROM expedicoes WHERE id=?", (expedicao_id,)).fetchone() == (pedido_id, "Concluído")
+    snapshot = conn.execute("""SELECT quantidade_operacional_mil,quantidade_comercial_mil,
+        unidade_comercial,saldo_anterior_mil,saldo_posterior_mil
+        FROM pedido_venda_vinculo_itens""").fetchone()
+    assert snapshot == (500000, 1000000, "AVE", 1864000, 1364000)
+    acoes = {linha[0] for linha in conn.execute(
+        "SELECT acao FROM pedido_venda_eventos WHERE pedido_id=?", (pedido_id,)).fetchall()}
+    conn.close()
+    assert "ROMANEIO_EXISTENTE_VINCULADO" in acoes
+
+
+def test_vinculo_integral_multiplos_romaneios_e_repeticao_idempotente(base):
+    pedido_id, caixas = _preparar_pedido_leg2_duas_apresentacoes(base)
+    primeiro = _criar_romaneio_pronto(base, "ROM-P1", [
+        (caixas[1], "Pacote com 2 galinhas inteiras", 2, 500)])
+    segundo = _criar_romaneio_pronto(base, "ROM-P2", [
+        (caixas[1], "Pacote com 2 galinhas inteiras", 2, 1364),
+        (caixas[0], "Pacote com 1 galinha inteira", 1, 500)])
+    pedidos.vincular_romaneio_existente(pedido_id, primeiro, "multi-001", confirmar_destino=True,
+                                        usuario="Comercial", perfil="pcp")
+    pedidos.vincular_romaneio_existente(pedido_id, segundo, "multi-002", confirmar_destino=True,
+                                        usuario="Comercial", perfil="pcp")
+    pedido = pedidos.buscar_pedido(pedido_id)
+    assert pedido["status"] == "ATENDIDO"
+    assert len(pedido["romaneios"]) == 2
+    assert all(item["saldo_pendente_mil"] == 0 for item in pedido["itens"])
+    vinculo_repetido = pedidos.vincular_romaneio_existente(
+        pedido_id, segundo, "multi-002", confirmar_destino=True,
+        usuario="Comercial", perfil="pcp")
+    conn = sqlite3.connect(base)
+    assert vinculo_repetido == conn.execute(
+        "SELECT id FROM pedido_venda_vinculos WHERE expedicao_id=?", (segundo,)).fetchone()[0]
+    assert conn.execute("SELECT COUNT(*) FROM pedido_venda_vinculos").fetchone()[0] == 2
+    assert conn.execute("SELECT COUNT(*) FROM pedido_venda_atendimentos").fetchone()[0] == 3
+    assert conn.execute("""SELECT COUNT(*) FROM pedido_venda_eventos
+        WHERE pedido_id=? AND acao='VINCULO_ROMANEIO_NEGADO'""", (pedido_id,)).fetchone()[0] == 0
+    conn.close()
+
+
+def test_romaneio_maior_que_saldo_faz_rollback_integral(base):
+    pedido_id, caixas = _preparar_pedido_leg2_duas_apresentacoes(base)
+    expedicao_id = _criar_romaneio_pronto(base, "ROM-MAIOR", [
+        (caixas[1], "Pacote com 2 galinhas inteiras", 2, 1865)])
+    antes = _fotografia_estoque(base)
+    assert expedicao_id not in {item["id"] for item in pedidos.listar_romaneios_elegiveis(pedido_id)}
+    with pytest.raises(ValueError, match="supera o saldo"):
+        pedidos.vincular_romaneio_existente(
+            pedido_id, expedicao_id, "maior-001", confirmar_destino=True,
+            usuario="Comercial", perfil="pcp")
+    assert antes == _fotografia_estoque(base)
+    conn = sqlite3.connect(base)
+    assert conn.execute("SELECT pedido_venda_id FROM expedicoes WHERE id=?", (expedicao_id,)).fetchone()[0] is None
+    assert conn.execute("SELECT COUNT(*) FROM pedido_venda_atendimentos").fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM pedido_venda_vinculos").fetchone()[0] == 0
+    conn.close()
+
+
+def test_concorrencia_permite_um_unico_vinculo(base):
+    pedido_id, caixas = _preparar_pedido_leg2_duas_apresentacoes(base)
+    expedicao_id = _criar_romaneio_pronto(base, "ROM-CONCORRENTE", [
+        (caixas[1], "Pacote com 2 galinhas inteiras", 2, 1864)])
+
+    def tentar(chave):
+        try:
+            pedidos.vincular_romaneio_existente(
+                pedido_id, expedicao_id, chave, confirmar_destino=True,
+                usuario="Comercial", perfil="pcp")
+            return "ok"
+        except ValueError:
+            return "negado"
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        resultados = list(executor.map(tentar, ("conc-001", "conc-002")))
+    assert sorted(resultados) == ["negado", "ok"]
+    conn = sqlite3.connect(base)
+    assert conn.execute("SELECT COUNT(*) FROM pedido_venda_vinculos WHERE expedicao_id=?", (expedicao_id,)).fetchone()[0] == 1
+    assert conn.execute("SELECT COUNT(*) FROM pedido_venda_atendimentos WHERE expedicao_id=?", (expedicao_id,)).fetchone()[0] == 1
+    conn.close()
+
+
+def test_destino_exige_conferencia_e_permissao_backend(base):
+    pedido_id, caixas = _preparar_pedido_leg2_duas_apresentacoes(base)
+    generico = _criar_romaneio_pronto(base, "ROM-DESTINO-GENERICO", [
+        (caixas[1], "Pacote com 2 galinhas inteiras", 2, 10)])
+    errado = _criar_romaneio_pronto(base, "ROM-DESTINO-ERRADO", [
+        (caixas[1], "Pacote com 2 galinhas inteiras", 2, 10)], destino="Outro endereço")
+    ids = {item["id"] for item in pedidos.listar_romaneios_elegiveis(pedido_id)}
+    assert generico in ids and errado not in ids
+    with pytest.raises(ValueError, match="Confirme o destino"):
+        pedidos.vincular_romaneio_existente(
+            pedido_id, generico, "destino-sem-confirmacao", usuario="Comercial", perfil="pcp")
+    with pytest.raises(PermissionError):
+        pedidos.vincular_romaneio_existente(
+            pedido_id, generico, "perfil-consulta", confirmar_destino=True,
+            usuario="Consulta", perfil="consulta")
+    conn = sqlite3.connect(base)
+    assert conn.execute("SELECT COUNT(*) FROM pedido_venda_vinculos").fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM pedido_venda_eventos WHERE acao='TENTATIVA_NEGADA'").fetchone()[0] == 1
+    conn.close()
+
+
+def test_rollback_em_falha_interna_nao_deixa_vinculo_parcial(base, monkeypatch):
+    pedido_id, caixas = _preparar_pedido_leg2_duas_apresentacoes(base)
+    expedicao_id = _criar_romaneio_pronto(base, "ROM-ROLLBACK", [
+        (caixas[1], "Pacote com 2 galinhas inteiras", 2, 100)])
+    antes = _fotografia_estoque(base)
+
+    def falhar(*args, **kwargs):
+        raise RuntimeError("falha injetada")
+
+    monkeypatch.setattr(pedidos, "_recalcular_status_cursor", falhar)
+    with pytest.raises(ValueError, match="concorrência"):
+        pedidos.vincular_romaneio_existente(
+            pedido_id, expedicao_id, "rollback-001", confirmar_destino=True,
+            usuario="Comercial", perfil="pcp")
+    assert antes == _fotografia_estoque(base)
+    conn = sqlite3.connect(base)
+    assert conn.execute("SELECT pedido_venda_id FROM expedicoes WHERE id=?", (expedicao_id,)).fetchone()[0] is None
+    assert conn.execute("SELECT pedido_item_id FROM expedicao_itens WHERE expedicao_id=?", (expedicao_id,)).fetchone()[0] is None
+    assert conn.execute("SELECT COUNT(*) FROM pedido_venda_vinculos").fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM pedido_venda_atendimentos").fetchone()[0] == 0
+    conn.close()
+
+
+def test_concorrencia_de_dois_romaneios_contra_o_mesmo_saldo(base):
+    pedido_id, caixas = _preparar_pedido_leg2_duas_apresentacoes(base)
+    romaneios = [
+        _criar_romaneio_pronto(base, "ROM-SALDO-A", [
+            (caixas[1], "Pacote com 2 galinhas inteiras", 2, 1864)]),
+        _criar_romaneio_pronto(base, "ROM-SALDO-B", [
+            (caixas[1], "Pacote com 2 galinhas inteiras", 2, 1864)]),
+    ]
+
+    def tentar(dados):
+        expedicao_id, chave = dados
+        try:
+            pedidos.vincular_romaneio_existente(
+                pedido_id, expedicao_id, chave, confirmar_destino=True,
+                usuario="Comercial", perfil="pcp")
+            return "ok"
+        except ValueError:
+            return "negado"
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        resultados = list(executor.map(tentar, zip(romaneios, ("saldo-a", "saldo-b"))))
+    assert sorted(resultados) == ["negado", "ok"]
+    pedido = pedidos.buscar_pedido(pedido_id)
+    item_v2 = next(item for item in pedido["itens"] if item["aves_por_unidade_operacional"] == 2)
+    assert item_v2["saldo_pendente_mil"] == 0
+    conn = sqlite3.connect(base)
+    assert conn.execute("SELECT COUNT(*) FROM pedido_venda_vinculos").fetchone()[0] == 1
+    assert conn.execute("SELECT COUNT(*) FROM expedicoes WHERE pedido_venda_id=?", (pedido_id,)).fetchone()[0] == 1
+    conn.close()
+
+
+def test_contrato_visual_mantem_geracao_e_adiciona_vinculo_existente():
+    from pathlib import Path
+    template = (Path(__file__).parents[1] / "templates" / "pedido_venda_detalhe.html").read_text(encoding="utf-8")
+    assert "Gerar romaneio" in template
+    assert "Vincular romaneio existente" in template
+    assert 'name="idempotency_key"' in template
+    assert "Esta ação não movimenta estoque" in template

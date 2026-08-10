@@ -8,6 +8,7 @@ from datetime import datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import json
 import re
+import unicodedata
 
 from flask import has_request_context, session
 
@@ -246,6 +247,24 @@ def criar_tabelas_pedidos_venda():
             usuario TEXT NOT NULL, perfil TEXT NOT NULL, justificativa TEXT,
             origem TEXT NOT NULL, criado_em {ts} NOT NULL, idempotency_key TEXT UNIQUE
         )""")
+        cursor.execute(f"""CREATE TABLE IF NOT EXISTS pedido_venda_vinculos (
+            id {pk}, pedido_id INTEGER NOT NULL REFERENCES pedidos_venda(id),
+            expedicao_id INTEGER NOT NULL UNIQUE REFERENCES expedicoes(id),
+            origem TEXT NOT NULL, idempotency_key TEXT NOT NULL UNIQUE,
+            usuario TEXT NOT NULL, perfil TEXT NOT NULL, criado_em {ts} NOT NULL
+        )""")
+        cursor.execute(f"""CREATE TABLE IF NOT EXISTS pedido_venda_vinculo_itens (
+            id {pk}, vinculo_id INTEGER NOT NULL REFERENCES pedido_venda_vinculos(id),
+            pedido_item_id INTEGER NOT NULL REFERENCES pedido_venda_itens(id),
+            expedicao_item_id INTEGER NOT NULL UNIQUE REFERENCES expedicao_itens(id),
+            sku TEXT NOT NULL, apresentacao_snapshot TEXT,
+            quantidade_operacional_mil BIGINT NOT NULL, unidade_operacional TEXT NOT NULL,
+            aves_por_unidade_operacional INTEGER, quantidade_comercial_mil BIGINT NOT NULL,
+            unidade_comercial TEXT NOT NULL, peso_mil_kg BIGINT,
+            quantidade_entregue_anterior_mil BIGINT NOT NULL,
+            saldo_anterior_mil BIGINT NOT NULL, saldo_posterior_mil BIGINT NOT NULL,
+            criado_em {ts} NOT NULL
+        )""")
         cursor.execute("""CREATE TABLE IF NOT EXISTS pedido_venda_sequencias (
             data_documento TEXT PRIMARY KEY, ultimo INTEGER NOT NULL
         )""")
@@ -268,6 +287,8 @@ def criar_tabelas_pedidos_venda():
             "CREATE INDEX IF NOT EXISTS idx_pedido_planos_expedicao ON pedido_venda_romaneio_itens(expedicao_id)",
             "CREATE INDEX IF NOT EXISTS idx_pedido_atendimentos_item ON pedido_venda_atendimentos(pedido_item_id,status)",
             "CREATE INDEX IF NOT EXISTS idx_pedido_eventos_pedido ON pedido_venda_eventos(pedido_id,criado_em)",
+            "CREATE INDEX IF NOT EXISTS idx_pedido_vinculos_pedido ON pedido_venda_vinculos(pedido_id,criado_em)",
+            "CREATE INDEX IF NOT EXISTS idx_pedido_vinculo_itens_pedido ON pedido_venda_vinculo_itens(pedido_item_id)",
             "CREATE INDEX IF NOT EXISTS idx_expedicoes_pedido ON expedicoes(pedido_venda_id,status)",
             "CREATE INDEX IF NOT EXISTS idx_expedicao_itens_pedido_item ON expedicao_itens(pedido_item_id)",
         ):
@@ -647,6 +668,342 @@ def _quantidade_entregue_expr():
         WHERE a.pedido_item_id=i.id AND a.status='ENTREGUE'),0)"""
 
 
+def _normalizar_chave(valor):
+    texto = unicodedata.normalize("NFKD", str(valor or "").strip().casefold())
+    return " ".join("".join(c for c in texto if not unicodedata.combining(c)).split())
+
+
+def _chave_apresentacao(valor, fator=None):
+    texto = _normalizar_chave(valor)
+    if fator:
+        encontrado = re.search(r"pacote\s+com\s+([12])\s+(?:ave|aves|galinha|galinhas)", texto)
+        if encontrado:
+            return f"pacote-{encontrado.group(1)}"
+    return texto
+
+
+def _dados_comerciais_item_romaneio(item):
+    item = dict(item)
+    unidade = str(item.get("unidade_estoque") or "").strip().upper()
+    if not unidade:
+        if item.get("quantidade_pacotes"):
+            unidade = "PACOTE"
+        elif item.get("quantidade_kg"):
+            unidade = "KG"
+        else:
+            unidade = "UNIDADE"
+    quantidade_operacional = _qtd_item_romaneio_mil(item, unidade)
+    if quantidade_operacional <= 0:
+        raise ValueError(f"Item {item.get('sku') or '-'} do romaneio não possui quantidade válida.")
+    fator = int(item.get("galinhas_por_pacote") or 0) or None
+    if unidade == "PACOTE":
+        if fator not in {1, 2}:
+            raise ValueError(f"Item {item.get('sku') or '-'} não possui fator de aves seguro.")
+        unidade_comercial = "AVE"
+        quantidade_comercial = quantidade_operacional * fator
+    else:
+        unidade_comercial = unidade
+        quantidade_comercial = quantidade_operacional
+    peso = item.get("quantidade_kg")
+    peso_mil = _milesimos(peso, "Peso do romaneio") if peso not in (None, "") and Decimal(str(peso or 0)) > 0 else None
+    return {
+        "expedicao_item_id": int(item["id"]), "sku": item.get("sku"),
+        "apresentacao": item.get("apresentacao"),
+        "quantidade_operacional_mil": quantidade_operacional,
+        "unidade_operacional": unidade, "fator_aves": fator,
+        "quantidade_comercial_mil": quantidade_comercial,
+        "unidade_comercial": unidade_comercial, "peso_mil_kg": peso_mil,
+    }
+
+
+def _itens_pedido_para_vinculo(cursor, pedido_id):
+    expr = _quantidade_entregue_expr()
+    cursor.execute(q(f"""SELECT i.*, {expr} AS quantidade_entregue_mil
+        FROM pedido_venda_itens i WHERE i.pedido_id=? ORDER BY i.id"""), (pedido_id,))
+    itens = []
+    for linha in cursor.fetchall():
+        item = dict(linha)
+        item["snapshot"] = json.loads(item.get("produto_snapshot") or "{}")
+        item["quantidade_operacional_mil"] = int(item.get("quantidade_operacional_mil") or item["quantidade_negociada_mil"])
+        item["unidade_operacional"] = item.get("unidade_operacional") or item["unidade_comercial"]
+        item["fator_aves"] = int(item.get("aves_por_unidade_operacional") or 0) or None
+        item["quantidade_entregue_mil"] = int(item.get("quantidade_entregue_mil") or 0)
+        itens.append(item)
+    return itens
+
+
+def _item_romaneio_compativel(item_pedido, item_romaneio):
+    codigos = {_normalizar_chave(item_pedido.get("sku")),
+               _normalizar_chave(item_pedido["snapshot"].get("nome"))}
+    if _normalizar_chave(item_romaneio["sku"]) not in codigos:
+        return False
+    if item_pedido["unidade_operacional"] != item_romaneio["unidade_operacional"]:
+        return False
+    if str(item_pedido["unidade_comercial"] or "").upper() != item_romaneio["unidade_comercial"]:
+        return False
+    if item_pedido["fator_aves"] or item_romaneio["fator_aves"]:
+        return (item_pedido["fator_aves"] == item_romaneio["fator_aves"]
+                and _chave_apresentacao(item_pedido.get("apresentacao_snapshot"), item_pedido["fator_aves"])
+                == _chave_apresentacao(item_romaneio["apresentacao"], item_romaneio["fator_aves"]))
+    return _chave_apresentacao(item_pedido.get("apresentacao_snapshot")) == _chave_apresentacao(item_romaneio["apresentacao"])
+
+
+def _mapear_itens_romaneio_cursor(cursor, pedido_id, expedicao_id):
+    itens_pedido = _itens_pedido_para_vinculo(cursor, pedido_id)
+    cursor.execute(q("SELECT * FROM expedicao_itens WHERE expedicao_id=? ORDER BY id"), (expedicao_id,))
+    itens_romaneio = cursor.fetchall()
+    if not itens_romaneio:
+        raise ValueError("Romaneio concluído não possui itens para vinculação.")
+    saldos = {item["id"]: item["quantidade_operacional_mil"] - item["quantidade_entregue_mil"]
+              for item in itens_pedido}
+    entregues = {item["id"]: item["quantidade_entregue_mil"] for item in itens_pedido}
+    mapeamento = []
+    for linha in itens_romaneio:
+        dados = _dados_comerciais_item_romaneio(linha)
+        candidatos = [item for item in itens_pedido if _item_romaneio_compativel(item, dados)]
+        if len(candidatos) != 1:
+            raise ValueError(f"Item incompatível: {dados['sku']} / {dados['apresentacao'] or 'sem apresentação'}.")
+        item = candidatos[0]
+        saldo_anterior = saldos[item["id"]]
+        if dados["quantidade_operacional_mil"] > saldo_anterior:
+            raise ValueError(
+                f"Quantidade do romaneio para {dados['sku']} ({decimal_milesimos(dados['quantidade_operacional_mil'])} "
+                f"{dados['unidade_operacional']}) supera o saldo do pedido "
+                f"({decimal_milesimos(saldo_anterior)} {item['unidade_operacional']})."
+            )
+        dados.update({
+            "pedido_item_id": item["id"],
+            "quantidade_entregue_anterior_mil": entregues[item["id"]],
+            "saldo_anterior_mil": saldo_anterior,
+            "saldo_posterior_mil": saldo_anterior - dados["quantidade_operacional_mil"],
+        })
+        entregues[item["id"]] += dados["quantidade_operacional_mil"]
+        saldos[item["id"]] -= dados["quantidade_operacional_mil"]
+        mapeamento.append(dados)
+    return mapeamento
+
+
+def _analisar_romaneio_existente_cursor(cursor, pedido, expedicao_id, *, confirmar_destino=False,
+                                         permitir_confirmacao=False, bloquear=False):
+    sufixo = " FOR UPDATE" if DATABASE_URL and bloquear else ""
+    cursor.execute(q(f"SELECT * FROM expedicoes WHERE id=?{sufixo}"), (expedicao_id,))
+    romaneio = cursor.fetchone()
+    if not romaneio:
+        raise ValueError("Romaneio não encontrado.")
+    romaneio = dict(romaneio)
+    if romaneio.get("pedido_venda_id"):
+        raise ValueError("Romaneio já vinculado a um pedido de venda.")
+    if romaneio.get("status") != "Concluído":
+        raise ValueError("Somente romaneio concluído pode ser vinculado.")
+    if (romaneio.get("tipo_saida") or romaneio.get("tipo_movimentacao")) != "VENDA_DIRETA":
+        raise ValueError("Romaneio não é de Venda Direta.")
+    if int(romaneio.get("cliente_id") or 0) != int(pedido["cliente_id"]):
+        raise ValueError("Cliente do romaneio é incompatível com o pedido.")
+    if not romaneio.get("concluido_em"):
+        raise ValueError("Romaneio não possui conclusão operacional registrada.")
+    cursor.execute(q("""SELECT COUNT(DISTINCT i.id) total,
+        COUNT(DISTINCT CASE WHEN ev.id IS NOT NULL THEN i.id END) movimentados
+        FROM expedicao_itens i LEFT JOIN estoque_eventos ev
+          ON ev.expedicao_id=i.expedicao_id AND ev.caixa_id=i.caixa_id AND ev.acao='VENDA_DIRETA'
+        WHERE i.expedicao_id=? AND i.caixa_id IS NOT NULL"""), (expedicao_id,))
+    movimento = cursor.fetchone()
+    if not movimento or int(movimento["total"] or 0) == 0 or int(movimento["movimentados"] or 0) != int(movimento["total"] or 0):
+        raise ValueError("Romaneio não possui baixa física integralmente concluída.")
+    destino_pedido = _normalizar_chave(pedido["destino"])
+    destino_documentado = romaneio.get("pedido_destino_entrega")
+    destino_romaneio = _normalizar_chave(destino_documentado or romaneio.get("destino"))
+    requer_confirmacao = False
+    if destino_documentado:
+        if destino_romaneio != destino_pedido:
+            raise ValueError("Destino do romaneio é incompatível com o pedido.")
+    elif destino_romaneio in {"venda direta", "venda_direta"}:
+        requer_confirmacao = True
+        if not (confirmar_destino or permitir_confirmacao):
+            raise ValueError("Confirme o destino genérico do romaneio antes de vincular.")
+    elif destino_romaneio != destino_pedido:
+        raise ValueError("Destino do romaneio é incompatível com o pedido.")
+    mapeamento = _mapear_itens_romaneio_cursor(cursor, pedido["id"], expedicao_id)
+    return romaneio, mapeamento, requer_confirmacao
+
+
+def _resumo_mapeamento(mapeamento):
+    totais = {}
+    for item in mapeamento:
+        totais[item["unidade_comercial"]] = totais.get(item["unidade_comercial"], 0) + item["quantidade_comercial_mil"]
+    return " | ".join(f"{decimal_milesimos(valor)} {unidade}" for unidade, valor in sorted(totais.items()))
+
+
+def listar_romaneios_elegiveis(pedido_id):
+    criar_tabelas_pedidos_venda()
+    conn = conectar(); cursor = conn.cursor()
+    try:
+        cursor.execute(q("SELECT * FROM pedidos_venda WHERE id=?"), (pedido_id,))
+        pedido = cursor.fetchone()
+        if not pedido or pedido["status"] not in {"CONFIRMADO", "PARCIALMENTE_ATENDIDO"}:
+            return []
+        pedido = dict(pedido)
+        cursor.execute(q("""SELECT id FROM expedicoes
+            WHERE status='Concluído' AND COALESCE(tipo_saida,tipo_movimentacao)='VENDA_DIRETA'
+              AND cliente_id=? AND pedido_venda_id IS NULL ORDER BY data DESC,id DESC"""), (pedido["cliente_id"],))
+        elegiveis = []
+        for linha in cursor.fetchall():
+            try:
+                romaneio, mapeamento, requer = _analisar_romaneio_existente_cursor(
+                    cursor, pedido, linha["id"], permitir_confirmacao=True)
+                romaneio["quantidades_resumo"] = _resumo_mapeamento(mapeamento)
+                romaneio["requer_confirmacao_destino"] = requer
+                elegiveis.append(romaneio)
+            except ValueError:
+                continue
+        return elegiveis
+    finally:
+        conn.close()
+
+
+def _registrar_vinculo_negado(pedido_id, expedicao_id, motivo, chave, usuario, perfil):
+    try:
+        with transaction() as conn:
+            cursor = conn.cursor()
+            cursor.execute(q("SELECT * FROM pedidos_venda WHERE id=?"), (pedido_id,))
+            pedido = cursor.fetchone()
+            if pedido:
+                _evento(cursor, pedido_id, "VINCULO_ROMANEIO_NEGADO", dict(pedido),
+                        {"expedicao_id": expedicao_id, "motivo": str(motivo)},
+                        justificativa=str(motivo), origem="vinculo_romaneio_existente",
+                        idempotency_key=f"NEGADO-{chave}", usuario=usuario, perfil=perfil)
+    except Exception:
+        pass
+
+
+def _vinculo_por_chave(cursor, chave):
+    cursor.execute(q("""SELECT id,pedido_id,expedicao_id FROM pedido_venda_vinculos
+        WHERE idempotency_key=?"""), (chave,))
+    linha = cursor.fetchone()
+    return dict(linha) if linha else None
+
+
+def vincular_romaneio_existente(pedido_id, expedicao_id, idempotency_key, *,
+                                 confirmar_destino=False, usuario=None, perfil=None):
+    criar_tabelas_pedidos_venda()
+    usuario, perfil = _identidade(usuario, perfil)
+    chave = str(idempotency_key or "").strip()
+    if not chave or len(chave) > 128:
+        raise ValueError("Chave idempotente da vinculação é inválida.")
+    try:
+        with transaction() as conn:
+            cursor = conn.cursor()
+            sufixo = " FOR UPDATE" if DATABASE_URL else ""
+            cursor.execute(q(f"SELECT * FROM pedidos_venda WHERE id=?{sufixo}"), (pedido_id,))
+            pedido = cursor.fetchone()
+            if not pedido:
+                raise ValueError("Pedido não encontrado.")
+            pedido = dict(pedido)
+            _autorizar(cursor, pedido_id, PERFIS_OPERACAO, "VINCULAR_ROMANEIO_EXISTENTE", usuario, perfil)
+            repetido = _vinculo_por_chave(cursor, chave)
+            if repetido:
+                if (int(repetido["pedido_id"]) == int(pedido_id)
+                        and int(repetido["expedicao_id"]) == int(expedicao_id)):
+                    return repetido["id"]
+                raise ValueError("Chave idempotente já foi usada em outro vínculo.")
+            cursor.execute(q("""UPDATE pedidos_venda SET versao=versao+1
+                WHERE id=? AND versao=?"""), (pedido_id, pedido["versao"]))
+            if cursor.rowcount != 1:
+                raise ValueError("Pedido foi atualizado por outra vinculação; recarregue a página.")
+            romaneio, mapeamento, _ = _analisar_romaneio_existente_cursor(
+                cursor, pedido, expedicao_id, confirmar_destino=confirmar_destino, bloquear=True)
+            if pedido["status"] not in {"CONFIRMADO", "PARCIALMENTE_ATENDIDO"}:
+                raise ValueError("Pedido não está disponível para receber romaneio.")
+            cursor.execute(q("""UPDATE expedicoes SET pedido_venda_id=?,pedido_destino_entrega=?
+                WHERE id=? AND pedido_venda_id IS NULL AND status='Concluído'"""),
+                (pedido_id, pedido["destino"], expedicao_id))
+            if cursor.rowcount != 1:
+                raise ValueError("Romaneio já vinculado ou alterado por outra operação.")
+            campos_vinculo = (pedido_id, expedicao_id, "ROMANEIO_EXISTENTE", chave,
+                              usuario, perfil, _agora())
+            sql = """INSERT INTO pedido_venda_vinculos
+                (pedido_id,expedicao_id,origem,idempotency_key,usuario,perfil,criado_em)
+                VALUES (?,?,?,?,?,?,?)"""
+            if DATABASE_URL:
+                cursor.execute(q(sql + " RETURNING id"), campos_vinculo)
+                vinculo_id = cursor.fetchone()["id"]
+            else:
+                cursor.execute(q(sql), campos_vinculo)
+                vinculo_id = cursor.lastrowid
+            agrupado = {}
+            for item in mapeamento:
+                agrupado[item["pedido_item_id"]] = agrupado.get(item["pedido_item_id"], 0) + item["quantidade_operacional_mil"]
+                cursor.execute(q("""INSERT INTO pedido_venda_atendimentos
+                    (pedido_id,pedido_item_id,expedicao_id,expedicao_item_id,quantidade_atendida_mil,
+                     unidade,peso_atendido_mil_kg,status,criado_por,criado_em,atualizado_em)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?)"""),
+                    (pedido_id, item["pedido_item_id"], expedicao_id, item["expedicao_item_id"],
+                     item["quantidade_operacional_mil"], item["unidade_operacional"], item["peso_mil_kg"],
+                     "ENTREGUE", usuario, _agora(), _agora()))
+                cursor.execute(q("""INSERT INTO pedido_venda_vinculo_itens
+                    (vinculo_id,pedido_item_id,expedicao_item_id,sku,apresentacao_snapshot,
+                     quantidade_operacional_mil,unidade_operacional,aves_por_unidade_operacional,
+                     quantidade_comercial_mil,unidade_comercial,peso_mil_kg,
+                     quantidade_entregue_anterior_mil,saldo_anterior_mil,saldo_posterior_mil,criado_em)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"""),
+                    (vinculo_id, item["pedido_item_id"], item["expedicao_item_id"], item["sku"],
+                     item["apresentacao"], item["quantidade_operacional_mil"], item["unidade_operacional"],
+                     item["fator_aves"], item["quantidade_comercial_mil"], item["unidade_comercial"],
+                     item["peso_mil_kg"], item["quantidade_entregue_anterior_mil"],
+                     item["saldo_anterior_mil"], item["saldo_posterior_mil"], _agora()))
+            for pedido_item_id, quantidade in agrupado.items():
+                cursor.execute(q("""INSERT INTO pedido_venda_romaneio_itens
+                    (pedido_id,pedido_item_id,expedicao_id,quantidade_planejada_mil,unidade,criado_por,criado_em)
+                    SELECT ?,?,?,?,COALESCE(unidade_operacional,unidade_comercial),?,?
+                    FROM pedido_venda_itens WHERE id=?"""),
+                    (pedido_id, pedido_item_id, expedicao_id, quantidade, usuario, _agora(), pedido_item_id))
+            _recalcular_status_cursor(cursor, pedido_id, "STATUS_APOS_VINCULO_EXISTENTE", expedicao_id)
+            cursor.execute(q("SELECT * FROM pedidos_venda WHERE id=?"), (pedido_id,))
+            depois = dict(cursor.fetchone())
+            _evento(cursor, pedido_id, "ROMANEIO_EXISTENTE_VINCULADO", pedido, depois,
+                    justificativa=_json({"expedicao_id": expedicao_id, "numero": romaneio["numero_romaneio"],
+                                         "itens": mapeamento}), origem="vinculo_romaneio_existente",
+                    idempotency_key=f"VINCULO-{chave}", usuario=usuario, perfil=perfil)
+            return vinculo_id
+    except PermissionError:
+        raise
+    except Exception as erro:
+        conn_consulta = conectar()
+        try:
+            repetido = _vinculo_por_chave(conn_consulta.cursor(), chave)
+            if (repetido and int(repetido["pedido_id"]) == int(pedido_id)
+                    and int(repetido["expedicao_id"]) == int(expedicao_id)):
+                return repetido["id"]
+        finally:
+            conn_consulta.close()
+        _registrar_vinculo_negado(pedido_id, expedicao_id, erro, chave, usuario, perfil)
+        if isinstance(erro, ValueError):
+            raise
+        raise ValueError("Vinculação rejeitada por concorrência ou repetição de requisição.") from erro
+
+
+def _resumo_romaneio_vinculado_cursor(cursor, expedicao_id):
+    cursor.execute(q("""SELECT quantidade_comercial_mil,unidade_comercial,peso_mil_kg
+        FROM pedido_venda_vinculo_itens WHERE vinculo_id=(
+          SELECT id FROM pedido_venda_vinculos WHERE expedicao_id=?)"""), (expedicao_id,))
+    snapshots = cursor.fetchall()
+    totais, peso_mil = {}, 0
+    if snapshots:
+        for linha in snapshots:
+            totais[linha["unidade_comercial"]] = totais.get(linha["unidade_comercial"], 0) + int(linha["quantidade_comercial_mil"] or 0)
+            peso_mil += int(linha["peso_mil_kg"] or 0)
+    else:
+        cursor.execute(q("SELECT * FROM expedicao_itens WHERE expedicao_id=? ORDER BY id"), (expedicao_id,))
+        for linha in cursor.fetchall():
+            try:
+                dados = _dados_comerciais_item_romaneio(linha)
+            except (ValueError, KeyError):
+                continue
+            totais[dados["unidade_comercial"]] = totais.get(dados["unidade_comercial"], 0) + dados["quantidade_comercial_mil"]
+            peso_mil += int(dados["peso_mil_kg"] or 0)
+    resumo = " | ".join(f"{decimal_milesimos(valor)} {unidade}" for unidade, valor in sorted(totais.items()))
+    return resumo or "Sem itens", peso_mil
+
+
 def buscar_pedido(pedido_id):
     criar_tabelas_pedidos_venda()
     conn = conectar(); cursor = conn.cursor()
@@ -674,9 +1031,20 @@ def buscar_pedido(pedido_id):
             item["saldo_pendente_exibicao_mil"] = int(item["saldo_pendente_mil"]) * fator
             item["unidade_exibicao"] = snapshot.get("unidade_comercial_rotulo") or item["unidade_comercial"]
             pedido["itens"].append(item)
-        cursor.execute(q("""SELECT e.id,e.numero_romaneio,e.data,e.status
-            FROM expedicoes e WHERE e.pedido_venda_id=? ORDER BY e.data,e.id"""), (pedido_id,))
-        pedido["romaneios"] = [dict(x) for x in cursor.fetchall()]
+        cursor.execute(q("""SELECT e.id,e.numero_romaneio,e.data,e.status,e.destino,e.cliente_snapshot,
+            c.razao_social AS cliente_nome
+            FROM expedicoes e LEFT JOIN clientes c ON c.id=e.cliente_id
+            WHERE e.pedido_venda_id=? ORDER BY e.data,e.id"""), (pedido_id,))
+        pedido["romaneios"] = []
+        for linha in cursor.fetchall():
+            romaneio = dict(linha)
+            if romaneio.get("cliente_snapshot"):
+                try:
+                    romaneio["cliente_nome"] = json.loads(romaneio["cliente_snapshot"]).get("razao_social") or romaneio.get("cliente_nome")
+                except (TypeError, ValueError):
+                    pass
+            romaneio["quantidades_resumo"], romaneio["peso_mil_kg"] = _resumo_romaneio_vinculado_cursor(cursor, romaneio["id"])
+            pedido["romaneios"].append(romaneio)
         cursor.execute(q("SELECT * FROM pedido_venda_eventos WHERE pedido_id=? ORDER BY criado_em,id"), (pedido_id,))
         pedido["eventos"] = [dict(x) for x in cursor.fetchall()]
         return pedido

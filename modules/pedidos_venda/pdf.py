@@ -40,6 +40,21 @@ def _qtd(mil):
     return f"{decimal_milesimos(mil):,.3f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
+def _qtd_resumo(mil, unidade):
+    valor = decimal_milesimos(mil)
+    casas = 0 if valor == valor.to_integral() else 3
+    texto = f"{valor:,.{casas}f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    return f"{texto} {unidade}"
+
+
+def _totais_comerciais(pedido):
+    totais = {}
+    for item in pedido["itens"]:
+        unidade = str(item.get("unidade_comercial") or item.get("unidade_exibicao") or "").upper()
+        totais[unidade] = totais.get(unidade, 0) + int(item.get("quantidade_exibicao_mil") or 0)
+    return totais
+
+
 def gerar_pdf_pedido(pedido):
     fonte = _registrar_fonte()
     buffer = BytesIO()
@@ -132,6 +147,25 @@ def gerar_pdf_pedido(pedido):
         ultimo_lote = lote
     if len(linhas_itens) > 5 and len(ultimo_lote) > 5:
         historia.append(PageBreak())
+    linhas_quantidades = []
+    rotulos = {"AVE": ("TOTAL DE AVES DO PEDIDO", "AVES"), "KG": ("TOTAL EM KG", "KG"),
+               "CAIXA": ("TOTAL DE CAIXAS", "CAIXAS"), "PACOTE": ("TOTAL DE PACOTES", "PACOTES")}
+    for unidade, quantidade in sorted(_totais_comerciais(pedido).items()):
+        rotulo, unidade_saida = rotulos.get(unidade, (f"TOTAL EM {unidade}", unidade))
+        linhas_quantidades.append([
+            Paragraph(f"<b>{rotulo}</b>", normal),
+            Paragraph(f"<b>{_qtd_resumo(quantidade, unidade_saida)}</b>", direita),
+        ])
+    if linhas_quantidades:
+        resumo_quantidades = Table(linhas_quantidades, colWidths=[58*mm,38*mm], hAlign="LEFT")
+        resumo_quantidades.setStyle(TableStyle([
+            ("GRID",(0,0),(-1,-1),.45,colors.HexColor("#7f9992")),
+            ("BACKGROUND",(0,0),(-1,-1),colors.HexColor("#e8f1ee")),
+            ("TEXTCOLOR",(0,0),(-1,-1),colors.HexColor("#123f35")),
+            ("LEFTPADDING",(0,0),(-1,-1),6),("RIGHTPADDING",(0,0),(-1,-1),6),
+            ("TOPPADDING",(0,0),(-1,-1),5),("BOTTOMPADDING",(0,0),(-1,-1),5),
+        ]))
+        historia += [resumo_quantidades, Spacer(1, 3*mm)]
     totais = Table([[Paragraph("Subtotal", normal), Paragraph(_moeda(pedido["subtotal_centavos"]), direita)],
                     [Paragraph("Desconto geral", normal), Paragraph(_moeda(pedido["desconto_centavos"]), direita)],
                     [Paragraph("<b>Valor total</b>", normal), Paragraph(f"<b>{_moeda(pedido['valor_total_centavos'])}</b>", direita)]],

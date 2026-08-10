@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from io import BytesIO
+import secrets
 
 from flask import flash, redirect, render_template, request, send_file, session, url_for
 
@@ -11,7 +12,8 @@ from modules.engenharia_produtos.services import listar_catalogo
 from .pdf import gerar_pdf_pedido
 from .services import (CONDICOES_PAGAMENTO, FORMAS_PAGAMENTO, STATUS, UNIDADES,
     buscar_pedido, cancelar_pedido, catalogo_produtos_venda, confirmar_pedido, decimal_centavos, decimal_milesimos,
-    gerar_romaneio_pedido, listar_pedidos, resumo_pedidos, salvar_pedido)
+    gerar_romaneio_pedido, listar_pedidos, listar_romaneios_elegiveis, resumo_pedidos, salvar_pedido,
+    vincular_romaneio_existente)
 
 
 def _dados_formulario(pedido=None):
@@ -89,13 +91,21 @@ def register_pedidos_venda_routes(app):
                     expedicao_id,numero=gerar_romaneio_pedido(pedido_id,quantidades,data=request.form.get("data_romaneio"),responsavel=request.form.get("responsavel"),versao_esperada=request.form.get("versao"))
                     flash(f"Romaneio {numero} criado. Reserve os itens físicos para concluir.")
                     return redirect(url_for("detalhe_romaneio_expedicao",expedicao_id=expedicao_id))
+                elif acao=="vincular_romaneio_existente":
+                    vincular_romaneio_existente(
+                        pedido_id, int(request.form.get("expedicao_id") or 0),
+                        request.form.get("idempotency_key"),
+                        confirmar_destino=request.form.get("confirmar_destino") == "1")
+                    flash("Romaneio existente vinculado sem nova movimentação de estoque.")
                 else: raise ValueError("Ação inválida.")
             except (ValueError,PermissionError) as erro: flash(str(erro))
             return redirect(url_for("detalhe_pedido_venda",pedido_id=pedido_id))
         pedido=buscar_pedido(pedido_id)
         if not pedido: flash("Pedido não encontrado."); return redirect(url_for("pedidos_venda"))
         return render_template("pedido_venda_detalhe.html",pedido=pedido,status_descricoes=STATUS,
-            hoje=datetime.now().strftime("%Y-%m-%d"),pode_cancelar=session.get("perfil") in {"admin","gerencia"})
+            hoje=datetime.now().strftime("%Y-%m-%d"),pode_cancelar=session.get("perfil") in {"admin","gerencia"},
+            romaneios_elegiveis=listar_romaneios_elegiveis(pedido_id),
+            vinculo_idempotency_key=secrets.token_urlsafe(24))
 
     @app.route("/pedidos-venda/<int:pedido_id>/imprimir")
     @perfil_permitido("pcp", "expedicao", "gerencia")
