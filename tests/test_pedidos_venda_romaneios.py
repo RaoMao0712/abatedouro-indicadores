@@ -256,7 +256,13 @@ def test_catalogo_comercial_reutiliza_apresentacoes_e_prioriza_sku(base):
     opcoes = catalogo[0]["apresentacoes"]
     assert [opcao["fator_aves"] for opcao in opcoes] == [2, 1]
     assert opcoes[0]["rotulo"] == "Pacote com 2 aves"
-    assert {opcao["unidade_rotulo"] for opcao in opcoes} == {"Pacote"}
+    assert {opcao["unidade_rotulo"] for opcao in opcoes} == {"Ave"}
+    assert 500 * opcoes[1]["fator_aves"] == 500
+    assert 1864 * opcoes[0]["fator_aves"] == 3728
+    outro = pedidos.catalogo_produtos_venda([
+        {"id": 12, "codigo": "OUTRO", "nome": "Galinha Inteira", "unidade_venda": "Pct"}
+    ])[0]["apresentacoes"]
+    assert {opcao["unidade_rotulo"] for opcao in outro} == {"Pacote"}
     automatico = pedidos.catalogo_produtos_venda([
         {"id": 11, "codigo": "GC-KG", "nome": "Galinha Cortada", "unidade_venda": "Kg"}
     ])[0]["apresentacoes"]
@@ -287,8 +293,21 @@ def test_backend_aceita_unidade_da_apresentacao_fisica_cadastrada(base):
     pedido_id, _ = pedidos.salvar_pedido(form, usuario="Comercial", perfil="pcp")
     item = pedidos.buscar_pedido(pedido_id)["itens"][0]
     assert item["unidade_comercial"] == "PACOTE"
+    assert item["unidade_exibicao"] == "Ave"
     assert item["quantidade_negociada_mil"] == 150000
     assert item["valor_liquido_centavos"] == 187500
+    texto_pdf = "\n".join(
+        pagina.extract_text() or "" for pagina in PdfReader(BytesIO(gerar_pdf_pedido(pedidos.buscar_pedido(pedido_id)))).pages
+    )
+    assert "Ave" in texto_pdf and "PACOTE" not in texto_pdf
+    pedidos.confirmar_pedido(pedido_id, usuario="Comercial", perfil="pcp")
+    item = pedidos.buscar_pedido(pedido_id)["itens"][0]
+    expedicao_id, _ = pedidos.gerar_romaneio_pedido(
+        pedido_id, {item["id"]: "150"}, usuario="Expedição", perfil="pcp"
+    )
+    plano = pedidos.plano_romaneio(expedicao_id)[0]
+    assert plano["unidade"] == "PACOTE"
+    assert plano["unidade_exibicao"] == "Ave"
 
 
 def test_contrato_ux_do_formulario_preserva_backend_e_acessibilidade():

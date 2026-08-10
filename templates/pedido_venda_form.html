@@ -177,7 +177,7 @@
     const unidade = opcao?.unidade || '';
     row.dataset.fatorAves = opcao?.fator_aves || '';
     row.querySelector('.pv-unit').value = unidade;
-    row.querySelector('.pv-unit-label').value = unidades[unidade] || '';
+    row.querySelector('.pv-unit-label').value = opcao?.unidade_rotulo || unidades[unidade] || '';
     row.querySelector('.pv-quantity-label').textContent = unidade === 'KG' ? 'Peso (kg)' : `Quantidade de ${unidadesPlural[unidade] || 'itens'}`;
     atualizarLinha(row);
   }

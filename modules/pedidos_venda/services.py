@@ -30,6 +30,18 @@ PERFIS_GESTAO = {"admin", "gerencia"}
 _SCHEMA_INICIALIZADO = False
 
 
+def rotulo_unidade_comercial(sku, apresentacao, unidade):
+    if str(sku or "").strip().upper() != "LEG-2" or str(unidade or "").strip().upper() != "PACOTE":
+        return None
+    apresentacao_normalizada = str(apresentacao or "").strip().casefold()
+    if apresentacao_normalizada in {
+        "pacote com 1 ave", "pacote com 2 aves",
+        "pacote com 1 galinha inteira", "pacote com 2 galinhas inteiras",
+    }:
+        return "Ave"
+    return None
+
+
 def _agora():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -133,8 +145,10 @@ def catalogo_produtos_venda(produtos):
             rotulo = valor
             if unidade == "PACOTE" and fator:
                 rotulo = f"Pacote com {fator} {'ave' if fator == 1 else 'aves'}"
+            unidade_rotulo = rotulo_unidade_comercial(codigo, valor, unidade) or \
+                mapa_unidades.get(unidade, (unidade, unidade.title()))[1]
             opcoes.append({"valor": valor, "rotulo": rotulo, "unidade": unidade,
-                           "unidade_rotulo": mapa_unidades.get(unidade, (unidade, unidade.title()))[1],
+                           "unidade_rotulo": unidade_rotulo,
                            "fator_aves": fator})
         if not opcoes:
             fator = None
@@ -146,8 +160,9 @@ def catalogo_produtos_venda(produtos):
                 if fator:
                     valor = f"Pacote com {fator} {'galinha inteira' if fator == 1 else 'galinhas inteiras'}"
                     rotulo = f"Pacote com {fator} {'ave' if fator == 1 else 'aves'}"
+            unidade_rotulo = rotulo_unidade_comercial(codigo, valor, unidade_padrao[0]) or unidade_padrao[1]
             opcoes.append({"valor": valor, "rotulo": rotulo, "unidade": unidade_padrao[0],
-                           "unidade_rotulo": unidade_padrao[1], "fator_aves": fator})
+                           "unidade_rotulo": unidade_rotulo, "fator_aves": fator})
         unicas = []
         vistos = set()
         for opcao in opcoes:
@@ -430,10 +445,14 @@ def _dados_form(form):
             bruto = int((Decimal(qtd_mil) * Decimal(preco_cent) / Decimal(1000)).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
             if desconto_cent > bruto:
                 raise ValueError(f"Desconto de {sku} supera o valor bruto.")
+            produto_snapshot = {"codigo": sku, "nome": produto["nome"] if produto else sku,
+                                "unidade_venda": produto["unidade_venda"] if produto else unidade}
+            unidade_rotulo = rotulo_unidade_comercial(sku, apresentacao, unidade)
+            if unidade_rotulo:
+                produto_snapshot["unidade_comercial_rotulo"] = unidade_rotulo
             itens.append({
                 "produto_id": produto_id or None, "sku": sku,
-                "produto_snapshot": {"codigo": sku, "nome": produto["nome"] if produto else sku,
-                                      "unidade_venda": produto["unidade_venda"] if produto else unidade},
+                "produto_snapshot": produto_snapshot,
                 "apresentacao_snapshot": apresentacao,
                 "quantidade_negociada_mil": qtd_mil, "unidade_comercial": unidade,
                 "preco_unitario_centavos": preco_cent, "desconto_centavos": desconto_cent,
@@ -592,7 +611,12 @@ def buscar_pedido(pedido_id):
         cursor.execute(q(f"""SELECT i.*, {expr} AS quantidade_entregue_mil,
             i.quantidade_negociada_mil-{expr} AS saldo_pendente_mil
             FROM pedido_venda_itens i WHERE i.pedido_id=? ORDER BY i.id"""), (pedido_id,))
-        pedido["itens"] = [dict(x) for x in cursor.fetchall()]
+        pedido["itens"] = []
+        for linha in cursor.fetchall():
+            item = dict(linha)
+            snapshot = json.loads(item.get("produto_snapshot") or "{}")
+            item["unidade_exibicao"] = snapshot.get("unidade_comercial_rotulo") or item["unidade_comercial"]
+            pedido["itens"].append(item)
         cursor.execute(q("""SELECT e.id,e.numero_romaneio,e.data,e.status
             FROM expedicoes e WHERE e.pedido_venda_id=? ORDER BY e.data,e.id"""), (pedido_id,))
         pedido["romaneios"] = [dict(x) for x in cursor.fetchall()]
@@ -827,21 +851,28 @@ def _recalcular_status_cursor(cursor,pedido_id,acao,expedicao_id,justificativa=N
 def plano_romaneio(expedicao_id):
     criar_tabelas_pedidos_venda(); conn=conectar(); cursor=conn.cursor()
     try:
-        cursor.execute(q("""SELECT pr.*,pi.sku,pi.apresentacao_snapshot,p.numero FROM pedido_venda_romaneio_itens pr
+        cursor.execute(q("""SELECT pr.*,pi.sku,pi.apresentacao_snapshot,pi.produto_snapshot,p.numero FROM pedido_venda_romaneio_itens pr
             JOIN pedido_venda_itens pi ON pi.id=pr.pedido_item_id JOIN pedidos_venda p ON p.id=pr.pedido_id
             WHERE pr.expedicao_id=? ORDER BY pr.id"""),(expedicao_id,))
-        return cursor.fetchall()
+        planos = []
+        for linha in cursor.fetchall():
+            plano = dict(linha)
+            snapshot = json.loads(plano.get("produto_snapshot") or "{}")
+            plano["unidade_exibicao"] = snapshot.get("unidade_comercial_rotulo") or plano["unidade"]
+            planos.append(plano)
+        return planos
     finally: conn.close()
 
 
 def _resumo_quantidades_cursor(cursor, pedido_id):
-    cursor.execute(q("""SELECT i.unidade_comercial,i.quantidade_negociada_mil,
+    cursor.execute(q("""SELECT i.unidade_comercial,i.produto_snapshot,i.quantidade_negociada_mil,
         COALESCE(SUM(CASE WHEN a.status='ENTREGUE' THEN a.quantidade_atendida_mil ELSE 0 END),0) entregue
         FROM pedido_venda_itens i LEFT JOIN pedido_venda_atendimentos a ON a.pedido_item_id=i.id
-        WHERE i.pedido_id=? GROUP BY i.id,i.unidade_comercial,i.quantidade_negociada_mil"""), (pedido_id,))
+        WHERE i.pedido_id=? GROUP BY i.id,i.unidade_comercial,i.produto_snapshot,i.quantidade_negociada_mil"""), (pedido_id,))
     totais = {}
     for linha in cursor.fetchall():
-        unidade = linha["unidade_comercial"]
+        snapshot = json.loads(linha["produto_snapshot"] or "{}")
+        unidade = snapshot.get("unidade_comercial_rotulo") or linha["unidade_comercial"]
         atual = totais.setdefault(unidade, [0, 0])
         atual[0] += int(linha["entregue"] or 0)
         atual[1] += int(linha["quantidade_negociada_mil"] or 0) - int(linha["entregue"] or 0)

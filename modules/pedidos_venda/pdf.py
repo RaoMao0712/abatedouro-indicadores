@@ -107,7 +107,7 @@ def gerar_pdf_pedido(pedido):
         produto = item["sku"]
         linhas_itens.append([
             Paragraph(produto, normal), Paragraph(item.get("apresentacao_snapshot") or "-", normal),
-            Paragraph(_qtd(item["quantidade_negociada_mil"]), direita), Paragraph(item["unidade_comercial"], normal),
+            Paragraph(_qtd(item["quantidade_negociada_mil"]), direita), Paragraph(item.get("unidade_exibicao") or item["unidade_comercial"], normal),
             Paragraph(_moeda(item["preco_unitario_centavos"]), direita), Paragraph(_moeda(item["desconto_centavos"]), direita),
             Paragraph(_moeda(item["valor_liquido_centavos"]), direita), Paragraph(_qtd(item["quantidade_entregue_mil"]), direita),
             Paragraph(_qtd(item["saldo_pendente_mil"]), direita),

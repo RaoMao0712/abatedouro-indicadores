@@ -56,7 +56,7 @@
     <div id="aviso-alteracoes" class="romaneio-unsaved no-print" hidden>Existem alterações não salvas.</div>
 
     {% if documento_aberto %}
-    {% if plano_pedido %}<section class="card romaneio-secao"><h3>Saldo planejado do pedido</h3><p>{% for p in plano_pedido %}<strong>{{ p.sku }}</strong>: {{ pedido_milesimos(p.quantidade_planejada_mil)|br_numero(3) }} {{ p.unidade }}{% if not loop.last %} · {% endif %}{% endfor %}</p><small>Reserve posições físicas compatíveis. O backend impede quantidade acima deste plano.</small></section>{% endif %}
+    {% if plano_pedido %}<section class="card romaneio-secao"><h3>Saldo planejado do pedido</h3><p>{% for p in plano_pedido %}<strong>{{ p.sku }}</strong>: {{ pedido_milesimos(p.quantidade_planejada_mil)|br_numero(3) }} {{ p.unidade_exibicao }}{% if not loop.last %} · {% endif %}{% endfor %}</p><small>Reserve posições físicas compatíveis. O backend impede quantidade acima deste plano.</small></section>{% endif %}
     <details class="card romaneio-details no-print">
         <summary><span>Editar cabeçalho</span><small>Data, responsável e observações</small></summary>
         <form method="POST" class="romaneio-form-grid romaneio-track-form" data-form="cabecalho">
