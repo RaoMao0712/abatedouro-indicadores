@@ -2,7 +2,7 @@
 
 from flask import abort, flash, redirect, render_template, request, session, url_for
 
-from config import EMPRESA_EMITENTE
+from config import EMPRESA_EMITENTE, ESTABELECIMENTO_DOCUMENTO, IDENTIFICACAO_TECNOLOGIA
 from modules.auth.decorators import perfil_permitido
 from . import services as manutencao_service
 from . import repositories as manutencao_repo
@@ -186,6 +186,8 @@ def register_manutencao_routes(app):
         return render_template(
             "manutencao_ordens_impressao.html",
             empresa_emitente=EMPRESA_EMITENTE,
+            estabelecimento_documento=ESTABELECIMENTO_DOCUMENTO,
+            identificacao_tecnologia=IDENTIFICACAO_TECNOLOGIA,
             **manutencao_service.contexto_relatorio_ordens_impressao(
                 request.args,
                 session.get("nome", "Sistema"),
@@ -300,5 +302,7 @@ def register_manutencao_routes(app):
         return render_template(
             "manutencao_ordem_impressao.html",
             empresa_emitente=EMPRESA_EMITENTE,
+            estabelecimento_documento=ESTABELECIMENTO_DOCUMENTO,
+            identificacao_tecnologia=IDENTIFICACAO_TECNOLOGIA,
             **contexto,
         )

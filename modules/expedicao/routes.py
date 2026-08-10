@@ -5,6 +5,7 @@ from datetime import datetime
 from flask import flash, redirect, render_template, request, send_file, session, url_for
 from io import BytesIO
 
+from config import EMPRESA_EMITENTE, ESTABELECIMENTO_DOCUMENTO, IDENTIFICACAO_TECNOLOGIA
 from database import conectar, q
 from modules.auth.decorators import perfil_permitido
 from modules.producao.services import buscar_op_por_id
@@ -555,6 +556,9 @@ def register_expedicao_routes(app, integracoes=None):
             "romaneio_impressao.html",
             expedicao=expedicao,
             itens=itens,
+            empresa_emitente=EMPRESA_EMITENTE,
+            estabelecimento_documento=ESTABELECIMENTO_DOCUMENTO,
+            identificacao_tecnologia=IDENTIFICACAO_TECNOLOGIA,
             resumo=calcular_resumo_itens_expedicao(itens),
             tipo_descricao=TIPOS_SAIDA.get(expedicao["tipo_saida"], TIPOS_ROMANEIO.get(
                 expedicao["tipo_movimentacao"], expedicao["tipo_movimentacao"])),

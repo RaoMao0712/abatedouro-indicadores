@@ -2,7 +2,7 @@
 {% block conteudo %}
 <div class="sgi-page sgi-consolidado">
   <section class="sgi-header">
-    <div><span class="eyebrow">PRUMO · FRIGODATTA</span><h2>Consolidado mensal de verificacoes</h2><p>Visualizacao operacional adequada a impressao e assinatura.</p></div>
+    <div><span class="eyebrow">{{ estabelecimento_documento }}</span><h2>Consolidado mensal de verificacoes</h2><p>Visualizacao operacional adequada a impressao e assinatura.</p></div>
     <button class="sgi-btn secundario no-print" onclick="window.print()">Imprimir</button>
   </section>
   <form method="get" class="card sgi-filtros no-print">
@@ -29,5 +29,6 @@
   <p class="card">Nenhum registro na competencia e filtros selecionados.</p>
   {% endfor %}
   <div class="sgi-assinaturas"><span>Responsavel / Monitor</span><span>Qualidade / Verificador</span><span>Gerencia</span></div>
+  <div class="sgi-tecnologia">{{ identificacao_tecnologia }}</div>
 </div>
 {% endblock %}

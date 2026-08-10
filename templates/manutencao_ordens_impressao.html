@@ -13,6 +13,8 @@
         .cabecalho img { max-height: 58px; max-width: 72px; object-fit: contain; }
         h1 { margin: 0 0 4px; font-size: 20px; }
         .empresa { margin: 0; font-weight: 700; }
+        .emitente { margin: 2px 0 0; font-size: 9px; color: #444; }
+        .tecnologia { margin-top: 18px; color: #666; font-size: 8px; text-align: center; }
         .meta { text-align: right; line-height: 1.45; }
         .filtros { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px 8px; margin: 8px 0 10px; padding: 7px; border: 1px solid #777; }
         .filtros span { display: block; }
@@ -46,9 +48,10 @@
     </div>
 
     <header class="cabecalho">
-        <img src="{{ url_for('static', filename='imagens/logo.png') }}" alt="FrigoDatta">
+        <img src="{{ url_for('static', filename='imagens/logo.png') }}" alt="Logomarca do Abatedouro de Aves S&atilde;o Pedro">
         <div>
-            <p class="empresa">{{ empresa_emitente }}</p>
+            <p class="empresa">{{ estabelecimento_documento }}</p>
+            <p class="emitente"><strong>Empresa:</strong> {{ empresa_emitente }}</p>
             <h1>Relatorio de Ordens de Servico</h1>
             <span>Modulo de Manutencao</span>
         </div>
@@ -110,5 +113,6 @@
     {% else %}
     <div class="vazio">Nenhuma ordem encontrada para os filtros aplicados.</div>
     {% endif %}
+    <footer class="tecnologia">{{ identificacao_tecnologia }}</footer>
 </body>
 </html>

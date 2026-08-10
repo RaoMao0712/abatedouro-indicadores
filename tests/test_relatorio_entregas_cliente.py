@@ -7,7 +7,12 @@ from unittest.mock import patch
 from flask import Flask
 from pypdf import PdfReader
 
-from config import EMPRESA_EMITENTE, MARCA_SISTEMA
+from config import (
+    EMPRESA_EMITENTE,
+    ESTABELECIMENTO_DOCUMENTO,
+    IDENTIFICACAO_TECNOLOGIA,
+    MARCA_SISTEMA,
+)
 from modules.expedicao.relatorio_entregas import (
     _totais_unidades,
     gerar_relatorio_entregas_pdf,
@@ -98,7 +103,7 @@ def test_pdf_filtrado_traz_11_romaneios_sem_concatenar_cliente_e_destino():
     assert "5 pacotes" in texto
 
 
-def test_empresa_emitente_oficial_e_marca_frigodatta_ficam_separadas_no_pdf():
+def test_cabecalho_emitente_e_sistema_ficam_separados_no_pdf():
     with patch("modules.expedicao.relatorio_entregas.buscar_itens_expedicao", return_value=[_pacote()]):
         pdf = gerar_relatorio_entregas_pdf(
             [_romaneio()], FILTROS, cliente_selecionado="Liberaci Silva e Silva",
@@ -106,9 +111,15 @@ def test_empresa_emitente_oficial_e_marca_frigodatta_ficam_separadas_no_pdf():
         )
     texto = "\n".join(p.extract_text() or "" for p in PdfReader(BytesIO(pdf)).pages)
     assert EMPRESA_EMITENTE == "LF Boratto Abatedouro de Aves Ltda."
+    assert ESTABELECIMENTO_DOCUMENTO == "ABATEDOURO DE AVES SÃO PEDRO"
+    assert IDENTIFICACAO_TECNOLOGIA == "Documento gerado pelo FrigoDatta"
+    assert ESTABELECIMENTO_DOCUMENTO in texto
+    assert "DOCUMENTO OFICIAL" in texto
     assert EMPRESA_EMITENTE in texto
+    assert IDENTIFICACAO_TECNOLOGIA in texto
     assert "FrigoDatta Abatedouro" not in texto
-    assert "Frigo" in texto and "Datta" in texto
+    assert "ABATEDOURO - DOCUMENTO OFICIAL" not in texto
+    assert "Frigo Datta" not in texto
     assert MARCA_SISTEMA == "FrigoDatta"
 
 
@@ -120,11 +131,10 @@ def test_pdf_multipagina_repete_cabecalho_e_identificacao_de_pagina():
     assert len(leitor.pages) > 1
     for numero, pagina in enumerate(leitor.pages, 1):
         texto = pagina.extract_text() or ""
-        assert "Frigo" in texto
+        assert ESTABELECIMENTO_DOCUMENTO in texto
+        assert IDENTIFICACAO_TECNOLOGIA in texto
         assert f"Página {numero}" in texto
     assert sum((pagina.extract_text() or "").count("Romaneio") for pagina in leitor.pages) >= len(leitor.pages)
-
-
 def _app():
     app = Flask(__name__, template_folder=str(ROOT / "templates"), static_folder=str(ROOT / "static"))
     app.secret_key = "teste"
@@ -181,14 +191,20 @@ def test_relatorios_oficiais_usam_configuracao_central_da_empresa():
         ROOT / "templates" / "manutencao_ordem_impressao.html",
         ROOT / "templates" / "manutencao_ordens_impressao.html",
         ROOT / "templates" / "sgi_consolidado.html",
+        ROOT / "templates" / "sgi_plm01_print.html",
     ]
     for caminho in templates:
         conteudo = caminho.read_text(encoding="utf-8")
         assert "{{ empresa_emitente }}" in conteudo
+        assert "{{ estabelecimento_documento }}" in conteudo
+        assert "{{ identificacao_tecnologia }}" in conteudo
         assert "FrigoDatta Abatedouro" not in conteudo
+        assert "PRUMO · FRIGODATTA" not in conteudo
 
     relatorio = (ROOT / "modules" / "expedicao" / "relatorio_entregas.py").read_text(encoding="utf-8")
-    assert "from config import EMPRESA_EMITENTE" in relatorio
+    assert "EMPRESA_EMITENTE" in relatorio
+    assert "ESTABELECIMENTO_DOCUMENTO" in relatorio
+    assert "IDENTIFICACAO_TECNOLOGIA" in relatorio
     assert "FrigoDatta Abatedouro" not in relatorio
 
     repositorio_sgi = (ROOT / "modules" / "qualidade" / "repositories.py").read_text(encoding="utf-8")

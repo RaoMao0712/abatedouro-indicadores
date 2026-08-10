@@ -2,7 +2,7 @@
 {% block conteudo %}
 <div class="sgi-page sgi-plm01-page sgi-plm01-print">
   <section class="sgi-header no-print"><div><span class="eyebrow">PLM 01</span><h2>{{ titulo }}</h2><p>{{ competencia_formatada }}</p></div><button class="sgi-btn" onclick="window.print()">Imprimir</button></section>
-  <div class="sgi-print-title"><strong>Formulario:</strong> PLM 01 · <strong>Titulo:</strong> {{ titulo }} · <strong>Competencia:</strong> {{ competencia_formatada }}</div>
+  <div class="sgi-print-title"><strong>{{ estabelecimento_documento }}</strong> · <strong>Empresa:</strong> {{ empresa_emitente }} · <strong>Formulario:</strong> PLM 01 · <strong>Titulo:</strong> {{ titulo }} · <strong>Competencia:</strong> {{ competencia_formatada }}</div>
   <div class="sgi-plm01-alcance">{{ alcance }}</div>
   <table class="sgi-plm01-table">
     <thead><tr><th>N.</th><th>Data</th><th>Setor</th><th>Instalacoes ou Equipamentos</th><th>Descricao das atividades</th><th>Higienizacao apos reparo</th><th>Condicao final</th></tr></thead>
@@ -13,5 +13,6 @@
   </table>
   <p class="sgi-plm01-legenda">Legenda: C - Conforme · NC - Nao Conforme.</p>
   <div class="sgi-assinaturas"><span>Responsavel / Monitor</span><span>Qualidade / Verificador</span><span>Gerencia</span></div>
+  <div class="sgi-tecnologia">{{ identificacao_tecnologia }}</div>
 </div>
 {% endblock %}

@@ -13,7 +13,7 @@ from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.platypus import KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
-from config import EMPRESA_EMITENTE
+from config import EMPRESA_EMITENTE, ESTABELECIMENTO_DOCUMENTO, IDENTIFICACAO_TECNOLOGIA
 from modules.auth.services import nome_usuario_atual
 
 from .estoque_service import TIPOS_ROMANEIO, TIPOS_SAIDA
@@ -21,7 +21,6 @@ from .services import buscar_itens_expedicao, calcular_resumo_expedicao
 
 
 AZUL = colors.HexColor("#184d69")
-LARANJA = colors.HexColor("#ed6f1c")
 TINTA = colors.HexColor("#26343a")
 CINZA = colors.HexColor("#607078")
 LINHA = colors.HexColor("#cbd5d9")
@@ -113,20 +112,21 @@ class _Documento(SimpleDocTemplate):
         if self.logo and Path(self.logo).exists():
             canvas.drawImage(self.logo, 10 * mm, 188 * mm, width=14 * mm, height=14 * mm, preserveAspectRatio=True, mask="auto")
         canvas.setFillColor(AZUL)
-        canvas.setFont("Helvetica-Bold", 12)
-        canvas.drawString(27 * mm, 197 * mm, "Frigo")
-        canvas.setFillColor(LARANJA)
-        canvas.drawString(39.5 * mm, 197 * mm, "Datta")
+        canvas.setFont("Helvetica-Bold", 9.5)
+        canvas.drawString(27 * mm, 197 * mm, ESTABELECIMENTO_DOCUMENTO)
         canvas.setFillColor(CINZA)
         canvas.setFont("Helvetica", 7.5)
-        canvas.drawString(27 * mm, 192.5 * mm, "ABATEDOURO - DOCUMENTO OFICIAL")
+        canvas.drawString(27 * mm, 192.5 * mm, "DOCUMENTO OFICIAL")
         canvas.setStrokeColor(AZUL)
         canvas.setLineWidth(1.2)
         canvas.line(10 * mm, 187 * mm, 287 * mm, 187 * mm)
         canvas.setFillColor(CINZA)
         canvas.setFont("Helvetica", 7)
         canvas.drawString(10 * mm, 6.5 * mm, f"Emitido em {self.emissao} - horário de Manaus")
-        canvas.drawCentredString(148.5 * mm, 6.5 * mm, f"Emitido por: {self.usuario}")
+        canvas.drawCentredString(
+            148.5 * mm, 6.5 * mm,
+            f"{IDENTIFICACAO_TECNOLOGIA} | Emitido por: {self.usuario}",
+        )
         canvas.drawRightString(287 * mm, 6.5 * mm, f"Página {canvas.getPageNumber()}")
         canvas.restoreState()
 

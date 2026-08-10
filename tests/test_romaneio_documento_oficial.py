@@ -25,6 +25,16 @@ def test_logo_titulo_numero_status_e_emissao_estao_no_cabecalho():
     assert "emissao_formatada" in TEMPLATE
 
 
+def test_hierarquia_visual_preserva_estabelecimento_e_restringe_sistema_ao_rodape():
+    assert "{{ estabelecimento_documento }}" in TEMPLATE
+    assert "{{ empresa_emitente }}" in TEMPLATE
+    assert "DOCUMENTO OFICIAL" in TEMPLATE
+    assert "{{ identificacao_tecnologia }}" in TEMPLATE
+    assert "FRIGO<span>DATTA</span>" not in TEMPLATE
+    assert "FrigoDatta" not in TEMPLATE
+    assert "Documento FrigoDatta" not in BASE
+
+
 def test_dados_pessoais_e_datas_usam_valores_pre_formatados():
     assert "documento_cliente_formatado" in TEMPLATE
     assert "data_romaneio_formatada" in TEMPLATE

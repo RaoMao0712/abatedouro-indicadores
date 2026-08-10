@@ -1,5 +1,5 @@
 {% extends "base_impressao.html" %}
-{% block titulo %}{{ expedicao.numero_romaneio }} | FrigoDatta{% endblock %}
+{% block titulo %}{{ expedicao.numero_romaneio }} | {{ estabelecimento_documento|title }}{% endblock %}
 {% block conteudo %}
 {% set is_mz = expedicao.tipo_movimentacao == "HISTORICO_MARCO_ZERO" %}
 {% set is_venda = expedicao.tipo_saida == "VENDA_DIRETA" %}
@@ -21,7 +21,7 @@
                 <header class="rom-doc-header">
                     <div class="rom-doc-brand">
                         <img src="{{ url_for('static', filename='imagens/logo.png') }}" alt="Logo oficial do Abatedouro S&atilde;o Pedro">
-                        <div><strong>FRIGO<span>DATTA</span></strong><small>Abatedouro S&atilde;o Pedro</small></div>
+                        <div><strong>{{ estabelecimento_documento }}</strong><small>DOCUMENTO OFICIAL</small></div>
                     </div>
                     <div class="rom-doc-title">
                         <span>Documento operacional</span>
@@ -38,7 +38,7 @@
         <tfoot>
             <tr><td>
                 <footer class="rom-doc-footer">
-                    <span>FrigoDatta &middot; {{ expedicao.numero_romaneio }}</span>
+                    <span>{{ identificacao_tecnologia }}</span>
                     <span>Gerado em {{ emissao_formatada }}</span>
                     <span class="rom-doc-pagination">Documento oficial</span>
                 </footer>
@@ -56,6 +56,7 @@
                 <section class="rom-doc-operation">
                     <h2>Identifica&ccedil;&atilde;o da opera&ccedil;&atilde;o</h2>
                     <div class="rom-doc-meta-grid">
+                        <div class="span-2"><small>Empresa / emitente</small><strong>{{ empresa_emitente }}</strong></div>
                         <div><small>Data do romaneio</small><strong>{{ data_romaneio_formatada }}</strong></div>
                         <div><small>Origem</small><strong>{{ expedicao.origem or "Abatedouro" }}</strong></div>
                         <div><small>Tipo de sa&iacute;da</small><strong>{{ tipo_descricao }}</strong></div>

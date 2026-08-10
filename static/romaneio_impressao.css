@@ -9,11 +9,11 @@ html,body{margin:0;padding:0;background:#eef2f3;color:var(--rom-ink);font-family
 .rom-doc{width:297mm;min-height:210mm;margin:0 auto 18px;padding:10mm 11mm;background:#fff;box-shadow:0 4px 22px #18354122;font-size:10.5pt;line-height:1.35}
 .rom-doc-shell{width:100%;border:0;border-collapse:collapse;table-layout:fixed}
 .rom-doc-shell>thead>tr>td,.rom-doc-shell>tbody>tr>td,.rom-doc-shell>tfoot>tr>td{padding:0;border:0;vertical-align:top}
-.rom-doc-header{display:grid;grid-template-columns:45mm minmax(0,1fr) 45mm;align-items:center;gap:4mm;padding:0 0 3mm;border-bottom:2px solid var(--rom-blue)}
+.rom-doc-header{display:grid;grid-template-columns:62mm minmax(0,1fr) 45mm;align-items:center;gap:4mm;padding:0 0 3mm;border-bottom:2px solid var(--rom-blue)}
 .rom-doc-brand{display:flex;align-items:center;gap:7px;min-width:0}
 .rom-doc-brand img{width:13mm;height:13mm;object-fit:contain}
 .rom-doc-brand div{display:grid;min-width:0}
-.rom-doc-brand strong{color:var(--rom-blue);font-size:13pt;letter-spacing:.04em}.rom-doc-brand strong span{color:var(--rom-orange)}
+.rom-doc-brand strong{color:var(--rom-blue);font-size:9.5pt;line-height:1.18;letter-spacing:.025em}
 .rom-doc-brand small{color:var(--rom-muted);font-size:8.5pt;line-height:1.25}
 .rom-doc-title{text-align:center}.rom-doc-title span{color:var(--rom-orange);font-size:8.5pt;font-weight:800;letter-spacing:.15em;text-transform:uppercase}
 .rom-doc-title h1{margin:1mm 0 0;color:var(--rom-blue);font-size:16pt;line-height:1.18;letter-spacing:.025em}

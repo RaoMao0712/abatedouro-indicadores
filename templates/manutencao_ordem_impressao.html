@@ -14,6 +14,8 @@
         h1 { margin: 0 0 4px; font-size: 22px; }
         h2 { margin: 14px 0 7px; font-size: 13px; border-bottom: 1px solid #777; padding-bottom: 3px; text-transform: uppercase; }
         .empresa { margin: 0; font-weight: 700; }
+        .emitente { margin: 2px 0 0; font-size: 9px; color: #444; }
+        .tecnologia { margin-top: 18px; color: #666; font-size: 8px; text-align: center; }
         .meta { text-align: right; line-height: 1.45; }
         .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px 8px; }
         .campo { border: 1px solid #777; padding: 5px 6px; min-height: 30px; break-inside: avoid; }
@@ -42,9 +44,10 @@
     </div>
 
     <header class="cabecalho">
-        <img src="{{ url_for('static', filename='imagens/logo.png') }}" alt="FrigoDatta">
+        <img src="{{ url_for('static', filename='imagens/logo.png') }}" alt="Logomarca do Abatedouro de Aves S&atilde;o Pedro">
         <div>
-            <p class="empresa">{{ empresa_emitente }}</p>
+            <p class="empresa">{{ estabelecimento_documento }}</p>
+            <p class="emitente"><strong>Empresa:</strong> {{ empresa_emitente }}</p>
             <h1>Ordem de Servico</h1>
             <span>OS #{{ ordem.id }}</span>
         </div>
@@ -143,5 +146,6 @@
         <span>Solicitante</span>
         <span>Responsavel</span>
     </div>
+    <footer class="tecnologia">{{ identificacao_tecnologia }}</footer>
 </body>
 </html>
