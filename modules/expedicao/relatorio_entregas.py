@@ -17,7 +17,7 @@ from config import EMPRESA_EMITENTE, ESTABELECIMENTO_DOCUMENTO, IDENTIFICACAO_TE
 from modules.auth.services import nome_usuario_atual
 
 from .estoque_service import TIPOS_ROMANEIO, TIPOS_SAIDA
-from .services import buscar_itens_expedicao, calcular_resumo_expedicao
+from .services import buscar_itens_expedicao
 
 
 AZUL = colors.HexColor("#184d69")
@@ -25,6 +25,8 @@ TINTA = colors.HexColor("#26343a")
 CINZA = colors.HexColor("#607078")
 LINHA = colors.HexColor("#cbd5d9")
 FUNDO = colors.HexColor("#eef3f5")
+AGRUPAMENTO_ROMANEIO = "ROMANEIO"
+AGRUPAMENTO_OP = "OP"
 
 
 def _texto(valor, padrao="Não informado"):
@@ -71,17 +73,58 @@ def _quantidade_item(item):
         return float(item.get("quantidade_caixas") or (1 if item.get("caixa_id") else item.get("quantidade_unidades") or 0))
     if unidade == "bandejas":
         return float(item.get("quantidade_bandejas") or item.get("quantidade_unidades") or 0)
+    if unidade == "quilogramas":
+        return float(item.get("quantidade_kg") or 0)
     return float(item.get("quantidade_unidades") or 0)
 
 
 def _totais_unidades(itens):
     totais = defaultdict(float)
     for item in itens:
-        totais[_unidade(item)] += _quantidade_item(item)
+        unidade = _unidade(item)
+        if unidade != "quilogramas":
+            totais[unidade] += _quantidade_item(item)
+        bandejas = float(item.get("quantidade_bandejas") or 0)
+        if bandejas and unidade != "bandejas":
+            totais["bandejas"] += bandejas
         galinhas = float(item.get("quantidade_galinhas") or 0)
         if galinhas:
             totais["galinhas"] += galinhas
-    return dict(totais)
+    return {unidade: total for unidade, total in totais.items() if total}
+
+
+def _normalizar_agrupamento(valor):
+    return AGRUPAMENTO_OP if str(valor or "").strip().upper() == AGRUPAMENTO_OP else AGRUPAMENTO_ROMANEIO
+
+
+def _expedicoes_unicas(expedicoes):
+    unicas = {}
+    for expedicao in expedicoes:
+        unicas.setdefault(expedicao["id"], expedicao)
+    return list(unicas.values())
+
+
+def _peso_itens(itens):
+    return sum(float(item.get("quantidade_kg") or 0) for item in itens)
+
+
+def _rotulo_unidade(unidade, total):
+    singular = {"caixas": "caixa", "bandejas": "bandeja", "pacotes": "pacote", "unidades": "unidade", "galinhas": "galinha"}
+    return singular.get(unidade, unidade) if total == 1 else unidade
+
+
+def _resumo_quantidades(itens):
+    ordem = ("caixas", "bandejas", "pacotes", "unidades", "galinhas")
+    totais = _totais_unidades(itens)
+    partes = [
+        f"{_numero(totais[unidade], 0 if totais[unidade].is_integer() else 2)} {_rotulo_unidade(unidade, totais[unidade])}"
+        for unidade in ordem if totais.get(unidade)
+    ]
+    partes.extend(
+        f"{_numero(total, 0 if total.is_integer() else 2)} {unidade}"
+        for unidade, total in sorted(totais.items()) if unidade not in ordem
+    )
+    return "; ".join(partes) or "sem quantidade informada"
 
 
 def _p(texto, estilo):
@@ -131,8 +174,10 @@ class _Documento(SimpleDocTemplate):
         canvas.restoreState()
 
 
-def gerar_relatorio_entregas_pdf(expedicoes, filtros, cliente_selecionado=None, emissao=None, usuario=None, logo=None):
-    """Gera bytes do PDF sem efetuar qualquer escrita operacional ou evento."""
+def gerar_relatorio_entregas_pdf(expedicoes, filtros, cliente_selecionado=None, emissao=None, usuario=None, logo=None, agrupamento=None):
+    """Gera as visoes comercial ou analitica sem alterar dados operacionais."""
+    agrupamento = _normalizar_agrupamento(agrupamento or filtros.get("agrupamento"))
+    expedicoes = _expedicoes_unicas(expedicoes)
     emissao = emissao or datetime.now().strftime("%d/%m/%Y às %H:%M")
     usuario = _texto(usuario or nome_usuario_atual(), "Usuário não identificado")
     logo = logo or str(Path(__file__).resolve().parents[2] / "static" / "imagens" / "logo.png")
@@ -143,13 +188,17 @@ def gerar_relatorio_entregas_pdf(expedicoes, filtros, cliente_selecionado=None, 
     subtitulo = ParagraphStyle("subtitulo", parent=estilos["Normal"], fontSize=8.5, leading=11, textColor=CINZA, alignment=TA_CENTER, spaceAfter=3 * mm)
     normal = ParagraphStyle("normal", parent=estilos["Normal"], fontSize=7.2, leading=9, textColor=TINTA)
     pequeno = ParagraphStyle("pequeno", parent=normal, fontSize=6.4, leading=7.6)
+    analitico = ParagraphStyle("analitico", parent=normal, fontSize=5.8, leading=7)
     cab = ParagraphStyle("cab", parent=pequeno, fontName="Helvetica-Bold", textColor=colors.white, alignment=TA_CENTER)
+    cab_analitico = ParagraphStyle("cab_analitico", parent=analitico, fontName="Helvetica-Bold", textColor=colors.white, alignment=TA_CENTER)
     direita = ParagraphStyle("direita", parent=pequeno, alignment=TA_RIGHT)
+    direita_analitico = ParagraphStyle("direita_analitico", parent=analitico, alignment=TA_RIGHT)
     grupo = ParagraphStyle("grupo", parent=normal, fontName="Helvetica-Bold", fontSize=9, textColor=AZUL, spaceBefore=2 * mm, spaceAfter=1 * mm)
-    historia = [
-        Paragraph("RELATÓRIO DE ENTREGAS POR CLIENTE", titulo),
-        Paragraph("Romaneios e entregas realizadas no período selecionado", subtitulo),
-    ]
+
+    visao_op = agrupamento == AGRUPAMENTO_OP
+    titulo_texto = "RELATÓRIO ANALÍTICO DE ENTREGAS POR ORDEM DE PRODUÇÃO" if visao_op else "RELATÓRIO DE ENTREGAS POR CLIENTE"
+    agrupamento_texto = "Por Ordem de Produção - Visão analítica" if visao_op else "Por romaneio - Visão comercial"
+    historia = [Paragraph(titulo_texto, titulo), Paragraph(f"Agrupamento: {agrupamento_texto}", subtitulo)]
 
     cliente_filtro = _texto(cliente_selecionado, "Todos")
     tipo_codigo = filtros.get("tipo") or "Todos"
@@ -175,64 +224,98 @@ def gerar_relatorio_entregas_pdf(expedicoes, filtros, cliente_selecionado=None, 
         itens = [dict(item) for item in buscar_itens_expedicao(romaneio["id"])]
         itens_por_romaneio[romaneio["id"]] = itens
         todos_itens.extend(itens)
-    resumo = calcular_resumo_expedicao(expedicoes)
-    totais_unidades = _totais_unidades(todos_itens)
+
+    status = defaultdict(int)
+    for romaneio in expedicoes:
+        status[str(romaneio.get("status") or "").lower()] += 1
     indicadores = [
-        ("Total de romaneios", resumo["total_romaneios"]), ("Concluídos", resumo["concluidos"]),
-        ("Abertos", resumo["abertos"]), ("Cancelados", resumo["cancelados"]),
-        ("Estornados", resumo["estornados"]),
+        ("Total de romaneios", len(expedicoes)), ("Concluídos", status["concluído"]),
+        ("Cancelados", status["cancelado"]), ("Estornados", status["estornado"]),
     ]
-    for unidade, total in sorted(totais_unidades.items()):
-        indicadores.append((unidade.capitalize(), _numero(total, 0 if total.is_integer() else 2)))
-    peso = sum(float(item.get("quantidade_kg") or 0) for item in todos_itens)
+    totais_unidades = _totais_unidades(todos_itens)
+    for unidade in ("caixas", "bandejas", "pacotes", "unidades", "galinhas"):
+        total = totais_unidades.get(unidade)
+        if total:
+            indicadores.append((unidade.capitalize(), _numero(total, 0 if total.is_integer() else 2)))
+    peso = _peso_itens(todos_itens)
     if peso:
         indicadores.append(("Peso entregue", f"{_numero(peso, 3)} kg"))
-    cards = Table([[Paragraph(f"<font color='#607078'>{escape(str(rotulo))}</font><br/><b>{escape(str(valor))}</b>", normal) for rotulo, valor in indicadores]], colWidths=[277*mm/len(indicadores)]*len(indicadores))
-    cards.setStyle(TableStyle([("BOX",(0,0),(-1,-1),.5,LINHA),("INNERGRID",(0,0),(-1,-1),.35,LINHA),("BACKGROUND",(0,0),(-1,-1),colors.HexColor("#f7f9fa")),("ALIGN",(0,0),(-1,-1),"CENTER"),("VALIGN",(0,0),(-1,-1),"MIDDLE"),("TOPPADDING",(0,0),(-1,-1),6),("BOTTOMPADDING",(0,0),(-1,-1),6)]))
+    max_colunas = min(6, max(1, len(indicadores)))
+    linhas_cards = []
+    for inicio in range(0, len(indicadores), max_colunas):
+        linha = indicadores[inicio:inicio + max_colunas]
+        linha += [("", "")] * (max_colunas - len(linha))
+        linhas_cards.append([Paragraph(f"<font color='#607078'>{escape(str(rotulo))}</font><br/><b>{escape(str(valor))}</b>", normal) for rotulo, valor in linha])
+    cards = Table(linhas_cards, colWidths=[277*mm/max_colunas]*max_colunas)
+    cards.setStyle(TableStyle([("BOX",(0,0),(-1,-1),.5,LINHA),("INNERGRID",(0,0),(-1,-1),.35,LINHA),("BACKGROUND",(0,0),(-1,-1),colors.HexColor("#f7f9fa")),("ALIGN",(0,0),(-1,-1),"CENTER"),("VALIGN",(0,0),(-1,-1),"MIDDLE"),("TOPPADDING",(0,0),(-1,-1),5),("BOTTOMPADDING",(0,0),(-1,-1),5)]))
     historia += [cards, Spacer(1, 3 * mm)]
 
     grupos = defaultdict(list)
-    for item in sorted(expedicoes, key=lambda x: (str(x.get("cliente_nome") or x.get("destino") or ""), str(x.get("data") or ""), str(x.get("numero_romaneio") or ""))):
-        grupos[_cliente(item)].append(item)
-    colunas = ["Romaneio", "Data", "Tipo", "Cliente / destino", "Produto / apresentação", "OP / lote", "Quantidade", "Peso", "Responsável", "Status"]
-    larguras = [24, 15, 24, 40, 43, 27, 24, 19, 34, 27]
+    ordenadas = sorted(expedicoes, key=lambda x: (str(x.get("cliente_nome") or x.get("destino") or ""), str(x.get("data") or ""), str(x.get("numero_romaneio") or "")))
+    for expedicao in ordenadas:
+        grupos[_cliente(expedicao)].append(expedicao)
+
     for nome_cliente, romaneios in grupos.items():
-        linhas = [[Paragraph(c, cab) for c in colunas]]
         itens_cliente = []
-        for romaneio in romaneios:
-            itens = itens_por_romaneio[romaneio["id"]] or [{}]
-            itens_cliente.extend(i for i in itens if i)
-            for item in itens:
-                unidade = _unidade(item) if item else "-"
-                qtd = _quantidade_item(item) if item else 0
-                detalhe_pacote = ""
-                if item and unidade == "pacotes":
-                    detalhe_pacote = f"<br/><font color='#607078'>{int(item.get('galinhas_por_pacote') or 0)} por pacote; {int(item.get('quantidade_galinhas') or 0)} galinhas</font>"
+        historia.append(Paragraph(f"Cliente: {escape(nome_cliente)}", grupo))
+        if visao_op:
+            colunas = ["Romaneio", "OP / lote", "Produto / apresentação", "Quantidade", "Peso", "Cliente / destino", "Responsável", "Status"]
+            larguras = [25, 26, 48, 28, 20, 53, 48, 29]
+            linhas = [[Paragraph(c, cab_analitico) for c in colunas]]
+            for romaneio in romaneios:
+                itens = itens_por_romaneio[romaneio["id"]] or [{}]
+                itens_cliente.extend(item for item in itens if item)
+                for item in itens:
+                    unidade = _unidade(item) if item else "-"
+                    quantidade = _quantidade_item(item) if item else 0
+                    op_lote = f"<b>OP:</b> {escape(_texto(item.get('op_id') if item else None, '-'))}<br/><b>Lote:</b> {escape(_texto((item.get('lote') or item.get('codigo_caixa')) if item else None, '-'))}"
+                    produto = f"{escape(_texto(item.get('sku') if item else None))}<br/><font color='#607078'>{escape(_texto(item.get('apresentacao') if item else None, '-'))}</font>"
+                    cliente_destino = f"<b>Cliente:</b> {escape(_cliente(romaneio))}<br/><b>Destino:</b> {escape(_texto(romaneio.get('destino')))}"
+                    linhas.append([
+                        _p(romaneio.get("numero_romaneio"), analitico), Paragraph(op_lote, analitico), Paragraph(produto, analitico),
+                        Paragraph(f"{_numero(quantidade, 0 if quantidade.is_integer() else 2)} {escape(_rotulo_unidade(unidade, quantidade))}", direita_analitico),
+                        _p(f"{_numero(item.get('quantidade_kg'), 3)} kg" if item and item.get("quantidade_kg") else "-", direita_analitico),
+                        Paragraph(cliente_destino, analitico), _p(romaneio.get("responsavel") or romaneio.get("criado_por"), analitico), _p(romaneio.get("status"), analitico),
+                    ])
+        else:
+            colunas = ["Romaneio", "Data", "Cliente / destino", "Tipo", "Produtos / apresentações", "Quantidade entregue", "Peso", "Responsável", "Status"]
+            larguras = [25, 16, 39, 24, 59, 31, 19, 38, 26]
+            linhas = [[Paragraph(c, cab) for c in colunas]]
+            for romaneio in romaneios:
+                itens = itens_por_romaneio[romaneio["id"]]
+                itens_cliente.extend(itens)
+                apresentacoes = defaultdict(list)
+                for item in itens:
+                    apresentacoes[(_texto(item.get("sku")), _texto(item.get("apresentacao"), "-"))].append(item)
+                produtos = []
+                for (sku, apresentacao), itens_apresentacao in sorted(apresentacoes.items()):
+                    detalhe = _resumo_quantidades(itens_apresentacao)
+                    peso_apresentacao = _peso_itens(itens_apresentacao)
+                    if peso_apresentacao:
+                        detalhe += f"; {_numero(peso_apresentacao, 3)} kg"
+                    produtos.append(f"<b>{escape(sku)}</b> - {escape(apresentacao)}<br/><font color='#607078'>{escape(detalhe)}</font>")
                 cliente_destino = f"<b>Cliente:</b> {escape(_cliente(romaneio))}<br/><b>Destino:</b> {escape(_texto(romaneio.get('destino')))}"
-                produto = f"{escape(_texto(item.get('sku') if item else None))}<br/><font color='#607078'>{escape(_texto(item.get('apresentacao') if item else None, '-'))}</font>"
-                op_lote = f"{escape(_texto(item.get('op_id') if item else None, '-'))}<br/><font color='#607078'>{escape(_texto((item.get('lote') or item.get('codigo_caixa')) if item else None, '-'))}</font>"
+                peso_romaneio = _peso_itens(itens)
                 linhas.append([
-                    _p(romaneio.get("numero_romaneio"), pequeno), _p(_data_br(romaneio.get("data")), pequeno),
-                    _p(_tipo(romaneio), pequeno), Paragraph(cliente_destino, pequeno), Paragraph(produto, pequeno),
-                    Paragraph(op_lote, pequeno), Paragraph(f"{_numero(qtd, 0 if qtd.is_integer() else 2)} {escape(unidade)}{detalhe_pacote}", direita),
-                    _p(f"{_numero(item.get('quantidade_kg'), 3)} kg" if item and item.get("quantidade_kg") else "-", direita),
+                    _p(romaneio.get("numero_romaneio"), pequeno), _p(_data_br(romaneio.get("data")), pequeno), Paragraph(cliente_destino, pequeno),
+                    _p(_tipo(romaneio), pequeno), Paragraph("<br/>".join(produtos) if produtos else "Sem itens", pequeno),
+                    _p(_resumo_quantidades(itens), direita), _p(f"{_numero(peso_romaneio, 3)} kg" if peso_romaneio else "-", direita),
                     _p(romaneio.get("responsavel") or romaneio.get("criado_por"), pequeno), _p(romaneio.get("status"), pequeno),
                 ])
-        totais_cliente = _totais_unidades(itens_cliente)
-        peso_cliente = sum(float(i.get("quantidade_kg") or 0) for i in itens_cliente)
-        resumo_cliente = "; ".join(f"{_numero(v, 0 if v.is_integer() else 2)} {u}" for u, v in sorted(totais_cliente.items())) or "sem quantidade informada"
-        if peso_cliente:
-            resumo_cliente += f"; {_numero(peso_cliente, 3)} kg"
-        historia.append(Paragraph(f"Cliente: {escape(nome_cliente)}", grupo))
+
         tabela = Table(linhas, repeatRows=1, colWidths=[x*mm for x in larguras], hAlign="LEFT")
         tabela.setStyle(TableStyle([
             ("BACKGROUND",(0,0),(-1,0),AZUL),("GRID",(0,0),(-1,-1),.3,LINHA),("VALIGN",(0,0),(-1,-1),"TOP"),
             ("ROWBACKGROUNDS",(0,1),(-1,-1),[colors.white,colors.HexColor("#f8fafb")]),
             ("LEFTPADDING",(0,0),(-1,-1),3),("RIGHTPADDING",(0,0),(-1,-1),3),("TOPPADDING",(0,0),(-1,-1),3),("BOTTOMPADDING",(0,0),(-1,-1),3),
         ]))
+        peso_cliente = _peso_itens(itens_cliente)
+        resumo_cliente = _resumo_quantidades(itens_cliente)
+        if peso_cliente:
+            resumo_cliente += f"; {_numero(peso_cliente, 3)} kg"
         historia += [tabela, KeepTogether([Paragraph(f"Subtotal - {escape(nome_cliente)}: {escape(resumo_cliente)}", grupo), Spacer(1, 2*mm)])]
 
-    totais_gerais = "; ".join(f"{_numero(v, 0 if v.is_integer() else 2)} {u}" for u, v in sorted(totais_unidades.items())) or "sem quantidade informada"
+    totais_gerais = _resumo_quantidades(todos_itens)
     if peso:
         totais_gerais += f"; {_numero(peso, 3)} kg"
     geral = Table([[Paragraph("TOTAL GERAL", cab), Paragraph(escape(totais_gerais), normal)]], colWidths=[40*mm, 237*mm])

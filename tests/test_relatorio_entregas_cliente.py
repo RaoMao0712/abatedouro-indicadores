@@ -14,6 +14,8 @@ from config import (
     MARCA_SISTEMA,
 )
 from modules.expedicao.relatorio_entregas import (
+    AGRUPAMENTO_OP,
+    AGRUPAMENTO_ROMANEIO,
     _totais_unidades,
     gerar_relatorio_entregas_pdf,
 )
@@ -56,6 +58,22 @@ def _pacote(indice=1):
         "apresentacao": "Pacote com 2 galinhas",
         "op_id": 123,
         "lote": f"LOTE-{indice}",
+    }
+
+
+def _caixa(indice=1, op_id=321, bandejas=12, peso=18.5):
+    return {
+        "id": indice,
+        "caixa_id": indice,
+        "sku": "Galinha Cortada",
+        "unidade_estoque": "CAIXA",
+        "quantidade_unidades": 1,
+        "quantidade_caixas": 1,
+        "quantidade_bandejas": bandejas,
+        "quantidade_kg": peso,
+        "apresentacao": f"Caixa com {bandejas} bandejas",
+        "op_id": op_id,
+        "lote": f"CORTE-{indice}",
     }
 
 
@@ -103,6 +121,66 @@ def test_pdf_filtrado_traz_11_romaneios_sem_concatenar_cliente_e_destino():
     assert "5 pacotes" in texto
 
 
+def test_visao_comercial_consolida_varias_ops_e_apresentacoes_em_um_romaneio():
+    itens = [_pacote(1), {**_pacote(2), "op_id": 456, "apresentacao": "Pacote promocional com 2 galinhas"}, _caixa(3)]
+    with patch("modules.expedicao.relatorio_entregas.buscar_itens_expedicao", return_value=itens):
+        pdf = gerar_relatorio_entregas_pdf([_romaneio()], FILTROS, agrupamento=AGRUPAMENTO_ROMANEIO, usuario="PCP")
+    texto = "\n".join(p.extract_text() or "" for p in PdfReader(BytesIO(pdf)).pages)
+    assert "Agrupamento: Por romaneio - Visão comercial" in texto
+    assert texto.count("ROM-20260801") == 1
+    assert "Pacote com 2 galinhas" in texto
+    assert "Pacote promocional com 2 galinhas" in texto
+    assert "Caixa com 12 bandejas" in texto
+    assert "OP / lote" not in texto
+    assert "10 pacotes" in texto
+    assert "1 caixa" in texto
+    assert "12 bandejas" in texto
+    assert "20 galinhas" in texto
+    assert "18,500 kg" in texto
+
+
+def test_visao_analitica_repete_romaneio_por_item_e_preserva_op_e_lote():
+    itens = [_pacote(1), {**_pacote(2), "op_id": 456, "lote": "LOTE-OP-456"}]
+    with patch("modules.expedicao.relatorio_entregas.buscar_itens_expedicao", return_value=itens):
+        pdf = gerar_relatorio_entregas_pdf([_romaneio()], FILTROS, agrupamento=AGRUPAMENTO_OP, usuario="Qualidade")
+    texto = "\n".join(p.extract_text() or "" for p in PdfReader(BytesIO(pdf)).pages)
+    assert "RELATÓRIO ANALÍTICO DE ENTREGAS POR ORDEM DE PRODUÇÃO" in texto
+    assert "Agrupamento: Por Ordem de Produção - Visão analítica" in texto
+    assert texto.count("ROM-20260801") == 2
+    assert "OP: 123" in texto
+    assert "OP: 456" in texto
+    assert "Lote: LOTE-OP-456" in texto
+
+
+def test_contagem_comercial_usa_id_unico_e_nao_duplica_totais():
+    romaneio = _romaneio()
+    with patch("modules.expedicao.relatorio_entregas.buscar_itens_expedicao", return_value=[_pacote()]) as buscar:
+        pdf = gerar_relatorio_entregas_pdf([romaneio, dict(romaneio)], FILTROS, usuario="PCP")
+    texto = "\n".join(p.extract_text() or "" for p in PdfReader(BytesIO(pdf)).pages)
+    assert buscar.call_count == 1
+    assert texto.count("ROM-20260801") == 1
+    assert "Total de romaneios\n1" in texto
+    assert "5 pacotes" in texto
+    assert "10 pacotes" not in texto
+
+
+def test_peso_pacotes_caixas_e_bandejas_ficam_em_totais_separados_sem_zero_kg():
+    with patch("modules.expedicao.relatorio_entregas.buscar_itens_expedicao", return_value=[_pacote(), _caixa()]):
+        comercial = gerar_relatorio_entregas_pdf([_romaneio()], FILTROS, agrupamento="invalido", usuario="PCP")
+        analitico = gerar_relatorio_entregas_pdf([_romaneio()], FILTROS, agrupamento="OP", usuario="PCP")
+    texto_comercial = "\n".join(p.extract_text() or "" for p in PdfReader(BytesIO(comercial)).pages)
+    texto_analitico = "\n".join(p.extract_text() or "" for p in PdfReader(BytesIO(analitico)).pages)
+    for texto in (texto_comercial, texto_analitico):
+        assert "5 pacotes" in texto
+        assert "1 caixa" in texto
+        assert "12 bandejas" in texto
+        assert "10 galinhas" in texto
+        assert "18,500 kg" in texto
+        assert "0,000 kg" not in texto
+        assert "1 caixas" not in texto
+    assert "Por romaneio - Visão comercial" in texto_comercial
+
+
 def test_cabecalho_emitente_e_sistema_ficam_separados_no_pdf():
     with patch("modules.expedicao.relatorio_entregas.buscar_itens_expedicao", return_value=[_pacote()]):
         pdf = gerar_relatorio_entregas_pdf(
@@ -135,6 +213,28 @@ def test_pdf_multipagina_repete_cabecalho_e_identificacao_de_pagina():
         assert IDENTIFICACAO_TECNOLOGIA in texto
         assert f"Página {numero}" in texto
     assert sum((pagina.extract_text() or "").count("Romaneio") for pagina in leitor.pages) >= len(leitor.pages)
+
+
+def test_duas_visoes_multipagina_mantem_os_mesmos_totais_finais():
+    romaneios = [_romaneio(i) for i in range(1, 21)]
+    def itens(romaneio_id):
+        return [_pacote(romaneio_id), _caixa(romaneio_id + 100, op_id=500 + romaneio_id)]
+    with patch("modules.expedicao.relatorio_entregas.buscar_itens_expedicao", side_effect=itens):
+        comercial = gerar_relatorio_entregas_pdf(romaneios, FILTROS, agrupamento="ROMANEIO", usuario="PCP")
+    with patch("modules.expedicao.relatorio_entregas.buscar_itens_expedicao", side_effect=itens):
+        analitico = gerar_relatorio_entregas_pdf(romaneios, FILTROS, agrupamento="OP", usuario="PCP")
+    for pdf in (comercial, analitico):
+        leitor = PdfReader(BytesIO(pdf))
+        assert len(leitor.pages) > 1
+        texto = "\n".join(p.extract_text() or "" for p in leitor.pages)
+        for total in ("20 caixas", "240 bandejas", "100 pacotes", "200 galinhas", "370,000 kg"):
+            assert total in texto
+        for numero, pagina in enumerate(leitor.pages, 1):
+            pagina_texto = pagina.extract_text() or ""
+            assert ESTABELECIMENTO_DOCUMENTO in pagina_texto
+            assert f"Página {numero}" in pagina_texto
+
+
 def _app():
     app = Flask(__name__, template_folder=str(ROOT / "templates"), static_folder=str(ROOT / "static"))
     app.secret_key = "teste"
@@ -168,6 +268,21 @@ def test_endpoint_repassa_exatamente_os_oito_filtros_e_nao_muta_dados():
         "", "7", "Galinha", "Liberaci",
     )
     assert gerar.call_args.kwargs["cliente_selecionado"] == "Liberaci Silva e Silva"
+    assert gerar.call_args.kwargs["agrupamento"] == "ROMANEIO"
+
+
+def test_endpoint_seleciona_visao_por_op_sem_alterar_os_oito_filtros():
+    app = _app()
+    with (
+        patch("modules.expedicao.routes.buscar_expedicoes", return_value=[]) as buscar,
+        patch("modules.expedicao.routes.listar_clientes", return_value=[]),
+        patch("modules.expedicao.routes.gerar_relatorio_entregas_pdf", return_value=b"%PDF-1.4\n%%EOF\n") as gerar,
+    ):
+        resposta = _cliente(app).get("/expedicao/relatorio-entregas.pdf", query_string={**FILTROS, "agrupamento": "OP"})
+    assert resposta.status_code == 200
+    assert resposta.headers["Content-Disposition"].endswith("relatorio-entregas-por-op.pdf")
+    assert buscar.call_args.args == ("2026-08-01", "2026-08-10", "Concluído", "VENDA_DIRETA", "", "7", "Galinha", "Liberaci")
+    assert gerar.call_args.kwargs["agrupamento"] == "OP"
 
 
 def test_usuario_sem_permissao_nao_recebe_pdf():
@@ -181,6 +296,10 @@ def test_tela_envia_o_mesmo_formulario_e_separa_cliente_do_destino():
     template = (ROOT / "templates" / "expedicao.html").read_text(encoding="utf-8")
     assert 'formaction="{{ url_for(\'relatorio_entregas_expedicao\') }}"' in template
     assert 'formtarget="_blank"' in template
+    assert 'name="agrupamento"' in template
+    assert '<option value="ROMANEIO"' in template
+    assert '<option value="OP"' in template
+    assert 'agrupamento_relatorio != "OP"' in template
     assert "Cliente: {{ item.cliente_nome" in template
     assert "Destino: {{ item.destino" in template
     assert "|safe" not in template

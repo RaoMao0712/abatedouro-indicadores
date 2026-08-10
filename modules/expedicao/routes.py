@@ -326,6 +326,7 @@ def register_expedicao_routes(app, integracoes=None):
         numero = request.args.get("numero") or ""
         produto = request.args.get("produto") or ""
         destino = request.args.get("destino") or ""
+        agrupamento_relatorio = request.args.get("agrupamento") or "ROMANEIO"
 
         expedicoes = buscar_expedicoes(data_inicio, data_fim, status, tipo_movimentacao,
                                        numero, cliente_id, produto, destino)
@@ -344,6 +345,7 @@ def register_expedicao_routes(app, integracoes=None):
             tipos_saida=TIPOS_SAIDA,
             clientes=listar_clientes(somente_ativos=True), cliente_id=cliente_id,
             numero=numero, produto=produto, destino=destino,
+            agrupamento_relatorio=agrupamento_relatorio,
             status_opcoes=["Todos", "Aberto", "Concluído", "Cancelado", "Estornado"]
         )
 
@@ -586,6 +588,7 @@ def register_expedicao_routes(app, integracoes=None):
             "cliente_id": request.args.get("cliente_id") or None,
             "produto": request.args.get("produto") or "",
             "destino": request.args.get("destino") or "",
+            "agrupamento": request.args.get("agrupamento") or "ROMANEIO",
         }
         expedicoes = buscar_expedicoes(
             filtros["data_inicio"], filtros["data_fim"], filtros["status"], filtros["tipo"],
@@ -601,8 +604,10 @@ def register_expedicao_routes(app, integracoes=None):
         pdf = gerar_relatorio_entregas_pdf(
             expedicoes, filtros, cliente_selecionado=cliente_selecionado,
             usuario=session.get("nome") or "Usuário não identificado",
+            agrupamento=filtros["agrupamento"],
         )
+        nome_arquivo = "relatorio-entregas-por-op.pdf" if filtros["agrupamento"].upper() == "OP" else "relatorio-entregas-por-romaneio.pdf"
         return send_file(
             BytesIO(pdf), mimetype="application/pdf", as_attachment=False,
-            download_name="relatorio-entregas-por-cliente.pdf",
+            download_name=nome_arquivo,
         )

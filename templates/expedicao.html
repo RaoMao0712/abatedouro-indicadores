@@ -39,6 +39,12 @@
         <label>Cliente<select name="cliente_id"><option value="">Todos</option>{% for cliente in clientes %}<option value="{{ cliente.id }}" {% if cliente_id|string == cliente.id|string %}selected{% endif %}>{{ cliente.razao_social }}</option>{% endfor %}</select></label>
         <label>Produto<input name="produto" value="{{ produto }}"></label>
         <label>Destino<input name="destino" value="{{ destino }}"></label>
+        <label>Agrupar relat&oacute;rio por
+            <select name="agrupamento">
+                <option value="ROMANEIO" {% if agrupamento_relatorio != "OP" %}selected{% endif %}>Romaneio - Vis&atilde;o comercial</option>
+                <option value="OP" {% if agrupamento_relatorio == "OP" %}selected{% endif %}>Ordem de Produ&ccedil;&atilde;o - Vis&atilde;o anal&iacute;tica</option>
+            </select>
+        </label>
         <button type="submit" class="romaneio-btn romaneio-btn-filter">Aplicar filtros</button>
         <button type="submit" class="romaneio-btn romaneio-btn-primary" formaction="{{ url_for('relatorio_entregas_expedicao') }}" formtarget="_blank">Gerar relat&oacute;rio</button>
     </form>
