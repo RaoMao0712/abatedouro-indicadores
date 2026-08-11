@@ -1,6 +1,7 @@
 import sqlite3
 from datetime import datetime
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 
@@ -54,13 +55,13 @@ def medir(conectar, inicio="2026-08-10T08:00", fim="2026-08-10T16:00"):
 
 
 def parada(conectar, inicio, fim, *, data="2026-08-10", data_fim=None, op_id=1,
-           afeta=1, setor="Corte"):
+           afeta=1, setor="Corte", natureza="NAO_PLANEJADA"):
     conn = conectar()
     conn.execute("""INSERT INTO apontamentos_paradas
         (op_id,data,data_fim,setor,motivo,hora_inicio,hora_fim,horas_paradas,
          afeta_linha_abate,natureza_disponibilidade)
-        VALUES (?,?,?,?,?,?,?,?,?,'NAO_PLANEJADA')""",
-        (op_id, data, data_fim, setor, "Falha", inicio, fim, 1, afeta))
+        VALUES (?,?,?,?,?,?,?,?,?,?)""",
+        (op_id, data, data_fim, setor, "Falha", inicio, fim, 1, afeta, natureza))
     conn.commit()
     conn.close()
 
@@ -237,3 +238,139 @@ def test_corretiva_nao_pode_virar_preventiva_programada(banco):
             }],
             perfil="admin", usuario="Admin", justificativa="Revisao posterior",
         )
+
+
+def test_parada_fechada_sem_classificacao_torna_resultado_inconsistente(banco):
+    programar(); medir(banco); parada(banco, "10:00", "11:00", afeta=None)
+    r = resultado()
+    assert r["situacao"] == "INCONSISTENTE"
+    assert r["disponibilidade"] is None
+    assert r["tempo_operacional_minutos"] is None
+    assert r["inconsistencias"] == [{
+        "codigo": "PARADA_SEM_CLASSIFICACAO_IMPACTO", "parada_id": 1,
+    }]
+    assert "reclassificacao administrativa" in r["alertas"][0]
+
+
+def test_parada_aberta_sem_classificacao_torna_resultado_inconsistente(banco):
+    programar(); medir(banco); parada(banco, "10:00", "", afeta=None)
+    r = resultado()
+    assert r["situacao"] == "INCONSISTENTE"
+    assert r["disponibilidade"] is None
+
+
+def test_parada_com_impacto_e_natureza_ausente_e_inconsistente(banco):
+    programar(); medir(banco); parada(banco, "10:00", "11:00", natureza=None)
+    r = resultado()
+    assert r["situacao"] == "INCONSISTENTE"
+    assert r["disponibilidade"] is None
+    assert r["inconsistencias"][0]["codigo"] == "PARADA_COM_NATUREZA_INVALIDA"
+
+
+def test_parada_explicitamente_sem_impacto_nao_bloqueia_calculo(banco):
+    programar(); medir(banco)
+    parada(banco, "10:00", "11:00", afeta=0, natureza=None)
+    r = resultado()
+    assert r["situacao"] == "CALCULAVEL"
+    assert r["disponibilidade"] == Decimal("100")
+    assert r["paradas_nao_planejadas_minutos"] == Decimal("0")
+
+
+def test_parada_sem_classificacao_totalmente_fora_da_janela_nao_bloqueia(banco):
+    programar(); medir(banco); parada(banco, "17:00", "18:00", afeta=None)
+    r = resultado()
+    assert r["situacao"] == "CALCULAVEL"
+    assert r["disponibilidade"] == Decimal("100")
+
+
+def test_parada_sem_classificacao_parcialmente_sobreposta_bloqueia(banco):
+    programar(); medir(banco); parada(banco, "07:30", "08:30", afeta=None)
+    r = resultado()
+    assert r["situacao"] == "INCONSISTENTE"
+    assert r["disponibilidade"] is None
+
+
+def test_uma_parada_sem_classificacao_bloqueia_entre_multiplas(banco):
+    programar(); medir(banco)
+    parada(banco, "10:00", "11:00")
+    parada(banco, "13:00", "13:30", afeta=None, setor="Embalagem")
+    r = resultado()
+    assert r["situacao"] == "INCONSISTENTE"
+    assert r["disponibilidade"] is None
+    assert r["paradas_nao_planejadas_minutos"] == Decimal("60.0")
+
+
+def test_multiplas_inconsistencias_sao_acumuladas_sem_inspecao_de_texto(banco):
+    programar(); medir(banco)
+    parada(banco, "10:00", "", afeta=1, natureza=None)
+    r = resultado()
+    assert [item["codigo"] for item in r["inconsistencias"]] == [
+        "PARADA_COM_NATUREZA_INVALIDA",
+        "PARADA_ABERTA_OU_INTERVALO_INVALIDO",
+    ]
+    assert len(r["alertas"]) == 2
+    assert r["disponibilidade"] is None
+
+
+def test_calculo_nao_faz_backfill_em_registro_historico(banco):
+    programar(); medir(banco); parada(banco, "10:00", "11:00", afeta=None, natureza=None)
+    resultado()
+    conn = banco()
+    registro = conn.execute(
+        "SELECT afeta_linha_abate,natureza_disponibilidade FROM apontamentos_paradas WHERE id=1"
+    ).fetchone()
+    auditorias = conn.execute(
+        "SELECT COUNT(*) FROM linha_abate_auditoria WHERE entidade='PARADA'"
+    ).fetchone()[0]
+    conn.close()
+    assert registro["afeta_linha_abate"] is None
+    assert registro["natureza_disponibilidade"] is None
+    assert auditorias == 0
+
+
+def test_parada_nao_classificada_permanece_visivel_no_historico(banco):
+    parada(banco, "10:00", "11:00", afeta=None, natureza=None)
+    itens = disp.consultar_historico_paradas({"afeta": "NAO_CLASSIFICADA"})
+    assert len(itens) == 1
+    assert itens[0]["id"] == 1
+    assert itens[0]["afeta_linha_abate"] is None
+
+
+def test_reclassificacao_administrativa_regulariza_e_retorna_calculavel(banco):
+    programar(); medir(banco); parada(banco, "10:00", "11:00", afeta=None, natureza=None)
+    assert resultado()["situacao"] == "INCONSISTENTE"
+    disp.reclassificar_parada(
+        1, "sim", "Impacto confirmado", perfil="admin", usuario="Admin", usuario_id=9,
+    )
+    r = resultado()
+    assert r["situacao"] == "CALCULAVEL"
+    assert r["disponibilidade"] == Decimal("87.500")
+    conn = banco()
+    auditoria = conn.execute(
+        "SELECT * FROM linha_abate_auditoria WHERE acao='RECLASSIFICACAO_PARADA'"
+    ).fetchone()
+    conn.close()
+    assert auditoria["justificativa"] == "Impacto confirmado"
+    assert auditoria["usuario"] == "Admin"
+
+
+def test_estados_principais_permanecem_compativeis(banco):
+    assert resultado()["situacao"] == "NAO_CALCULAVEL"
+    programar()
+    disp.registrar_inicio_linha(
+        1, perfil="producao", agora=datetime.fromisoformat("2026-08-10T08:00-04:00")
+    )
+    assert resultado()["situacao"] == "EM_ANDAMENTO"
+    disp.registrar_fim_linha(
+        1, perfil="producao", agora=datetime.fromisoformat("2026-08-10T16:00-04:00")
+    )
+    assert resultado()["situacao"] == "CALCULAVEL"
+
+
+def test_template_nao_exibe_percentual_oficial_com_resultado_inconsistente():
+    conteudo = (Path(__file__).parents[1] / "templates" / "consultar_op.html").read_text(
+        encoding="utf-8"
+    )
+    assert "situacao-{{ disponibilidade_linha.situacao|lower }}" in conteudo
+    assert "disponibilidade_linha.disponibilidade is not none" in conteudo
+    assert "Percentual oficial indispon&iacute;vel" in conteudo

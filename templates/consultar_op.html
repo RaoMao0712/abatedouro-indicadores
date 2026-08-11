@@ -194,6 +194,7 @@
     <p class="obs">Disponibilidade n&atilde;o calcul&aacute;vel: a OP n&atilde;o possui programa&ccedil;&atilde;o oficial.</p>
     {% endif %}
     {% for motivo in disponibilidade_linha.motivos %}<p class="obs">{{ motivo }}</p>{% endfor %}
+    {% if disponibilidade_linha.situacao == 'INCONSISTENTE' %}<p class="alerta-operacional"><strong>Percentual oficial indispon&iacute;vel.</strong> Regularize as inconsist&ecirc;ncias indicadas antes de utilizar a Disponibilidade.</p>{% endif %}
     {% for alerta in disponibilidade_linha.alertas %}<p class="alerta-operacional">{{ alerta }}</p>{% endfor %}
     <div class="acoes-op-topo">
         {% if disponibilidade_linha.inicio_programado and not disponibilidade_linha.inicio_real and session.get('perfil') in ['admin','producao'] %}<form method="POST" action="{{ url_for('iniciar_linha_abate',op_id=op.id) }}"><button type="submit">Iniciar Linha</button></form>{% endif %}
