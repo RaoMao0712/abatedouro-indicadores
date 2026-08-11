@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block conteudo %}
+<div class="operational-page">
+<section class="hero-dashboard operational-hero">
+  <div><span class="eyebrow">Linha de Abate</span><h2>Velocidades Ideais</h2>
+  <div class="hero-resumo-inline"><span><strong>Unidade:</strong> aves por hora</span><span><strong>Uso:</strong> snapshot imut&aacute;vel por OP</span></div></div>
+</section>
+
+{% if session.get('perfil') in ['admin','pcp','gerencia'] %}
+<div class="card">
+  <h2>Propor refer&ecirc;ncia t&eacute;cnica</h2>
+  <form method="POST" action="{{ url_for('propor_velocidade_linha') }}">
+    <div class="form-grid">
+      <div><label>Configura&ccedil;&atilde;o / processo</label><input name="configuracao" placeholder="Ex.: PADRAO" required></div>
+      <div><label>SKU relacionado (quando aplic&aacute;vel)</label><select name="sku"><option value="">Todos / gen&eacute;rico</option>{% for sku in skus %}<option value="{{ sku }}">{{ sku }}</option>{% endfor %}</select></div>
+      <div><label>Velocidade ideal (aves/h)</label><input type="number" min="0.01" step="0.01" name="velocidade_aves_hora" required></div>
+      <div><label>In&iacute;cio da vig&ecirc;ncia</label><input type="date" name="vigencia_inicio" required></div>
+    </div>
+    <label>Justificativa t&eacute;cnica</label><textarea name="justificativa_tecnica" required></textarea>
+    <button type="submit">Enviar proposta</button>
+  </form>
+</div>
+{% endif %}
+
+<div class="card">
+  <h2>Refer&ecirc;ncias e hist&oacute;rico</h2>
+  <form method="GET" class="form-grid">
+    <div><label>Status</label><select name="status"><option value="">Todos</option>{% for item in ['PROPOSTA','APROVADA','ATIVA','ENCERRADA','REJEITADA'] %}<option value="{{ item }}" {% if filtros.status==item %}selected{% endif %}>{{ item }}</option>{% endfor %}</select></div>
+    <div><label>Configura&ccedil;&atilde;o</label><input name="configuracao" value="{{ filtros.configuracao }}"></div>
+    <div><label>SKU</label><input name="sku" value="{{ filtros.sku }}"></div>
+    <div><button type="submit">Filtrar</button></div>
+  </form>
+  <div class="table-responsive"><table><thead><tr><th>ID</th><th>Configura&ccedil;&atilde;o</th><th>SKU</th><th>Velocidade</th><th>Vig&ecirc;ncia</th><th>Status</th><th>Governan&ccedil;a</th><th>A&ccedil;&otilde;es</th></tr></thead>
+  <tbody>{% for item in velocidades %}<tr>
+    <td>#{{ item.id }}</td><td>{{ item.configuracao }}</td><td>{{ item.sku or 'Gen&eacute;rica' }}</td>
+    <td>{{ item.velocidade_aves_hora|br_numero(2) }} aves/h</td><td>{{ item.vigencia_inicio }} &ndash; {{ item.vigencia_fim or 'aberta' }}</td>
+    <td><strong>{{ item.status }}</strong></td>
+    <td>Proposta por {{ item.proposto_por }} em {{ item.proposto_em }}{% if item.aprovado_por %}<br>Aprovada por {{ item.aprovado_por }}{% endif %}{% if item.rejeitado_por %}<br>Rejeitada por {{ item.rejeitado_por }}{% endif %}{% if item.encerrado_por %}<br>Encerrada por {{ item.encerrado_por }}{% endif %}</td>
+    <td>{% if session.get('perfil')=='admin' %}<form method="POST" action="{{ url_for('decidir_velocidade_linha',velocidade_id=item.id) }}">
+      <label>Justificativa</label><input name="justificativa" required>
+      {% if item.status=='ATIVA' %}<label>T&eacute;rmino</label><input type="date" name="vigencia_fim">{% endif %}
+      <div class="acoes-op-topo">
+      {% if item.status=='PROPOSTA' %}<button name="acao" value="APROVAR">Aprovar</button><button name="acao" value="REJEITAR">Rejeitar</button>{% endif %}
+      {% if item.status=='APROVADA' %}<button name="acao" value="ATIVAR">Ativar</button><button name="acao" value="REJEITAR">Rejeitar</button>{% endif %}
+      {% if item.status=='ATIVA' %}<button name="acao" value="ENCERRAR">Encerrar vig&ecirc;ncia</button>{% endif %}
+      </div></form>{% else %}&mdash;{% endif %}</td>
+  </tr>{% else %}<tr><td colspan="8">Nenhuma refer&ecirc;ncia encontrada.</td></tr>{% endfor %}</tbody></table></div>
+</div>
+</div>
+{% endblock %}

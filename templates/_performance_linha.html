@@ -1,0 +1,57 @@
+{% if performance_linha %}
+<section class="card situacao-{{ performance_linha.situacao|lower }}">
+  <div class="titulo-com-status"><h2>Performance da Linha</h2><strong>{{ performance_linha.situacao|replace('_',' ') }}</strong></div>
+  <div class="kpi-grid">
+    <div class="kpi-card"><span>Aves processadas</span><strong>{{ performance_linha.aves_processadas|br_numero(0) if performance_linha.aves_processadas is not none else '-' }}</strong></div>
+    <div class="kpi-card"><span>Reprocessos v&aacute;lidos</span><strong>{{ performance_linha.reprocessos_validos|br_numero(0) if performance_linha.reprocessos_validos is not none else '-' }}</strong></div>
+    <div class="kpi-card"><span>Velocidade ideal</span><strong>{{ performance_linha.velocidade_ideal_aves_hora|br_numero(2) if performance_linha.velocidade_ideal_aves_hora is not none else '-' }} aves/h</strong></div>
+    <div class="kpi-card"><span>Tempo operacional</span><strong>{{ performance_linha.tempo_operacional_minutos|br_numero(0) if performance_linha.tempo_operacional_minutos is not none else '-' }} min</strong></div>
+    <div class="kpi-card"><span>Produ&ccedil;&atilde;o te&oacute;rica</span><strong>{{ performance_linha.producao_teorica|br_numero(2) if performance_linha.producao_teorica is not none else '-' }} aves</strong></div>
+    <div class="kpi-card"><span>Performance</span><strong>{% if performance_linha.performance is not none %}{{ performance_linha.performance|br_numero(2) }}%{% else %}N&atilde;o calcul&aacute;vel{% endif %}</strong></div>
+  </div>
+  <p class="obs">Situa&ccedil;&atilde;o do snapshot: <strong>{{ performance_linha.snapshot_situacao|replace('_',' ') }}</strong>.</p>
+  {% if performance_linha.configuracao %}<p class="obs">Snapshot v{{ performance_linha.snapshot_versao }}: {{ performance_linha.configuracao }}{% if performance_linha.sku %} / {{ performance_linha.sku }}{% endif %} &mdash; vig&ecirc;ncia {{ performance_linha.vigencia_inicio }} a {{ performance_linha.vigencia_fim or 'aberta' }}.</p>{% endif %}
+  {% for motivo in performance_linha.motivos %}<p class="obs">{{ motivo }}</p>{% endfor %}
+  {% for alerta in performance_linha.alertas %}<p class="alerta-operacional">{{ alerta }}</p>{% endfor %}
+  {% for item in performance_linha.inconsistencias %}<p class="alerta-operacional">Inconsist&ecirc;ncia: {{ item.codigo }}</p>{% endfor %}
+  <div class="acoes-op-topo"><a class="botao-editar" href="{{ url_for('velocidades_ideais_linha') }}">Consultar velocidades</a></div>
+
+  {% if session.get('perfil') in ['admin','producao'] and sugestao_contagem_performance and not sugestao_contagem_performance.inconsistente %}
+  <details><summary>Confirmar contagem oficial</summary>
+    <form method="POST" action="{{ url_for('confirmar_contagem_performance',op_id=op.id) }}" class="form-grid">
+      <div><label>Aves recebidas</label><input name="aves_recebidas" value="{{ sugestao_contagem_performance.aves_recebidas }}" readonly></div>
+      <div><label>Mortes antes da pendura</label><input name="mortes_antes_pendura" value="{{ sugestao_contagem_performance.mortes_antes_pendura }}" readonly></div>
+      <div><label>Aves processadas</label><input name="aves_processadas" value="{{ sugestao_contagem_performance.aves_processadas }}" readonly></div>
+      <div><label>Observa&ccedil;&atilde;o</label><input name="observacao"></div>
+      {% if session.get('perfil')=='admin' %}<div><label>Justificativa de eventual corre&ccedil;&atilde;o</label><input name="justificativa"></div>{% endif %}
+      <div><button type="submit">Confirmar com auditoria</button></div>
+    </form>
+  </details>
+  {% endif %}
+
+  {% if session.get('perfil')=='admin' and velocidades_ativas_performance %}
+  <details><summary>Corre&ccedil;&atilde;o administrativa do snapshot</summary>
+    <form method="POST" action="{{ url_for('corrigir_snapshot_performance',op_id=op.id) }}" class="form-grid">
+      <div><label>Velocidade ativa</label><select name="velocidade_id" required>{% for item in velocidades_ativas_performance %}<option value="{{ item.id }}">#{{ item.id }} &mdash; {{ item.configuracao }} / {{ item.sku or 'gen&eacute;rica' }} &mdash; {{ item.velocidade_aves_hora }} aves/h</option>{% endfor %}</select></div>
+      <div><label>Justificativa</label><input name="justificativa" required></div><div><button type="submit">Corrigir com auditoria</button></div>
+    </form>
+  </details>
+  {% endif %}
+
+  {% if session.get('perfil') in ['admin','producao'] %}
+  <details><summary>Registrar evento de reprocesso</summary>
+    <form method="POST" action="{{ url_for('registrar_reprocesso_performance',op_id=op.id) }}" class="form-grid">
+      <div><label>Quantidade (aves)</label><input type="number" min="1" step="1" name="quantidade_aves" required></div>
+      <div><label>Atravessou novamente a Linha?</label><select name="atravessou_linha" required><option value="Sim">Sim</option><option value="Nao">N&atilde;o</option></select></div>
+      <div><label>Data e hora</label><input type="datetime-local" name="data_hora" required></div>
+      <div><label>Execu&ccedil;&atilde;o original</label><input name="execucao_original" required></div>
+      <div><label>Motivo</label><input name="motivo" required></div>
+      <div><label>Chave idempotente</label><input name="chave_idempotencia"></div>
+      <div><button type="submit">Registrar evento</button></div>
+    </form>
+  </details>
+  {% endif %}
+
+  {% if historico_performance_linha %}<details><summary>Trilha de auditoria da Performance</summary><div class="table-responsive"><table><thead><tr><th>Quando</th><th>A&ccedil;&atilde;o</th><th>Usu&aacute;rio</th><th>Perfil</th><th>Justificativa</th></tr></thead><tbody>{% for item in historico_performance_linha %}<tr><td>{{ item.criado_em }}</td><td>{{ item.acao }}</td><td>{{ item.usuario }}</td><td>{{ item.perfil }}</td><td>{{ item.justificativa or '-' }}</td></tr>{% endfor %}</tbody></table></div></details>{% endif %}
+</section>
+{% endif %}

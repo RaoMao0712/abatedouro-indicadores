@@ -43,6 +43,20 @@ from .disponibilidade import (
     registrar_inicio_linha,
     salvar_programacao,
 )
+from .performance import (
+    calcular_performance,
+    confirmar_contagem,
+    corrigir_snapshot,
+    decidir_velocidade,
+    historico_performance,
+    invalidar_por_reabertura,
+    listar_skus_operacionais,
+    listar_velocidades,
+    preparar_snapshot_inicio,
+    propor_velocidade,
+    registrar_reprocesso,
+    sugerir_contagem,
+)
 
 _INTEGRACOES = {}
 
@@ -229,11 +243,110 @@ def register_producao_routes(app, integracoes=None):
     @perfil_permitido("producao")
     def iniciar_linha_abate(op_id):
         try:
+            preparar_snapshot_inicio(
+                op_id, usuario=session.get("nome") or "Usuario",
+                usuario_id=session.get("usuario_id"), perfil=session.get("perfil"),
+            )
             registrar_inicio_linha(
                 op_id, usuario=session.get("nome") or "Usuario",
                 usuario_id=session.get("usuario_id"), perfil=session.get("perfil"),
             )
             flash("Inicio real da Linha de Abate registrado.")
+        except (ValueError, PermissionError) as erro:
+            flash(str(erro))
+        return redirect(url_for("consultar_op", op_id=op_id))
+
+
+    @app.route("/linha-abate/velocidades")
+    @perfil_permitido("pcp", "gerencia", "producao", "qualidade")
+    def velocidades_ideais_linha():
+        filtros = {campo: request.args.get(campo, "") for campo in ("status", "configuracao", "sku")}
+        return render_template(
+            "velocidades_ideais_linha.html",
+            velocidades=listar_velocidades(filtros), filtros=filtros,
+            skus=listar_skus_operacionais(),
+        )
+
+
+    @app.post("/linha-abate/velocidades/propor")
+    @perfil_permitido("pcp", "gerencia")
+    def propor_velocidade_linha():
+        try:
+            propor_velocidade(
+                request.form.get("configuracao"), request.form.get("sku"),
+                request.form.get("velocidade_aves_hora"), request.form.get("vigencia_inicio"),
+                request.form.get("justificativa_tecnica"),
+                usuario=session.get("nome") or "Usuario", usuario_id=session.get("usuario_id"),
+                perfil=session.get("perfil"),
+            )
+            flash("Velocidade ideal proposta e enviada para aprovacao.")
+        except (ValueError, PermissionError) as erro:
+            flash(str(erro))
+        return redirect(url_for("velocidades_ideais_linha"))
+
+
+    @app.post("/linha-abate/velocidades/<int:velocidade_id>/decidir")
+    @perfil_permitido("admin")
+    def decidir_velocidade_linha(velocidade_id):
+        try:
+            decidir_velocidade(
+                velocidade_id, request.form.get("acao"), request.form.get("justificativa"),
+                vigencia_fim=request.form.get("vigencia_fim"),
+                usuario=session.get("nome") or "Usuario", usuario_id=session.get("usuario_id"),
+                perfil=session.get("perfil"),
+            )
+            flash("Decisao da velocidade registrada com auditoria.")
+        except (ValueError, PermissionError) as erro:
+            flash(str(erro))
+        return redirect(url_for("velocidades_ideais_linha"))
+
+
+    @app.post("/op/<int:op_id>/performance/confirmar-contagem")
+    @perfil_permitido("producao")
+    def confirmar_contagem_performance(op_id):
+        try:
+            confirmar_contagem(
+                op_id, request.form.get("aves_recebidas"),
+                request.form.get("mortes_antes_pendura"), request.form.get("aves_processadas"),
+                observacao=request.form.get("observacao"),
+                justificativa=request.form.get("justificativa"),
+                usuario=session.get("nome") or "Usuario", usuario_id=session.get("usuario_id"),
+                perfil=session.get("perfil"),
+            )
+            flash("Contagem oficial da Linha de Abate confirmada com auditoria.")
+        except (ValueError, PermissionError) as erro:
+            flash(str(erro))
+        return redirect(url_for("consultar_op", op_id=op_id))
+
+
+    @app.post("/op/<int:op_id>/performance/corrigir-snapshot")
+    @perfil_permitido("admin")
+    def corrigir_snapshot_performance(op_id):
+        try:
+            corrigir_snapshot(
+                op_id, int(request.form.get("velocidade_id") or 0),
+                request.form.get("justificativa"), usuario=session.get("nome") or "Usuario",
+                usuario_id=session.get("usuario_id"), perfil=session.get("perfil"),
+            )
+            flash("Snapshot de velocidade corrigido com auditoria.")
+        except (ValueError, PermissionError) as erro:
+            flash(str(erro))
+        return redirect(url_for("consultar_op", op_id=op_id))
+
+
+    @app.post("/op/<int:op_id>/performance/reprocesso")
+    @perfil_permitido("producao")
+    def registrar_reprocesso_performance(op_id):
+        try:
+            registrar_reprocesso(
+                op_id, request.form.get("quantidade_aves"),
+                request.form.get("atravessou_linha"), request.form.get("data_hora"),
+                request.form.get("motivo"), request.form.get("execucao_original"),
+                request.form.get("chave_idempotencia"),
+                usuario=session.get("nome") or "Usuario", usuario_id=session.get("usuario_id"),
+                perfil=session.get("perfil"),
+            )
+            flash("Evento de reprocesso registrado com auditoria.")
         except (ValueError, PermissionError) as erro:
             flash(str(erro))
         return redirect(url_for("consultar_op", op_id=op_id))
@@ -1010,6 +1123,11 @@ def register_producao_routes(app, integracoes=None):
         WHERE id = ?
         """), ("Aberta", op_id))
 
+        invalidar_por_reabertura(
+            op_id, cursor=cursor, usuario=session.get("nome") or "Usuario",
+            usuario_id=session.get("usuario_id"), perfil=session.get("perfil"),
+        )
+
         conn.commit()
         conn.close()
 
@@ -1032,6 +1150,9 @@ def register_producao_routes(app, integracoes=None):
         resumo = None
         correcoes_administrativas = []
         disponibilidade_linha = None
+        performance_linha = None
+        sugestao_contagem_performance = None
+        historico_performance_linha = []
 
         if op_id:
             conn = conectar()
@@ -1059,6 +1180,16 @@ def register_producao_routes(app, integracoes=None):
                 resumo = calcular_resumo_op(op, producoes, descartes)
                 correcoes_administrativas = buscar_correcoes_op(op_id)
                 disponibilidade_linha = calcular_disponibilidade(op_id, conn=conn)
+                performance_linha = calcular_performance(
+                    op_id, conn=conn, disponibilidade=disponibilidade_linha,
+                )
+                sugestao_contagem_performance = sugerir_contagem(op_id, conn=conn)
+                cursor.execute("SELECT * FROM linha_abate_velocidades_ideais WHERE status='ATIVA' AND ativo_logico=1 ORDER BY configuracao,sku,id DESC")
+                velocidades_ativas_performance = cursor.fetchall()
+                cursor.execute(q("SELECT * FROM linha_performance_auditoria WHERE op_id=? ORDER BY criado_em DESC,id DESC"), (op_id,))
+                historico_performance_linha = cursor.fetchall()
+            else:
+                velocidades_ativas_performance = []
 
             conn.close()
 
@@ -1074,6 +1205,10 @@ def register_producao_routes(app, integracoes=None):
             resumo=resumo,
             correcoes_administrativas=correcoes_administrativas,
             disponibilidade_linha=disponibilidade_linha,
+            performance_linha=performance_linha,
+            sugestao_contagem_performance=sugestao_contagem_performance,
+            velocidades_ativas_performance=velocidades_ativas_performance if op else [],
+            historico_performance_linha=historico_performance_linha,
         )
 
     @app.route("/op/<int:op_id>/corrigir-peso-entrada", methods=["POST"])
