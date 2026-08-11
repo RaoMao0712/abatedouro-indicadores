@@ -23,6 +23,7 @@ CATEGORIAS_PAUSA = {
     "MANUTENCAO_PREVENTIVA_PROGRAMADA",
 }
 SITUACOES = {"CALCULAVEL", "EM_ANDAMENTO", "NAO_CALCULAVEL", "INCONSISTENTE"}
+NATUREZAS_PARADA_LINHA = {"NAO_PLANEJADA"}
 
 
 def agora_manaus():
@@ -472,11 +473,44 @@ def _intervalo_parada(parada, janela_inicio):
     return (inicio, fim) if fim > inicio else None
 
 
+def _parada_intercepta_janela(parada, janela):
+    """Decide relevancia temporal sem presumir o impacto operacional."""
+    try:
+        intervalo = _intervalo_parada(parada, janela[0])
+    except (TypeError, ValueError):
+        intervalo = None
+    if intervalo:
+        return _recortar(intervalo, janela) is not None
+
+    chaves = set(parada.keys())
+    data = parada["data"] if "data" in chaves else None
+    try:
+        inicio = _parse_data_hora(
+            parada["hora_inicio"],
+            data_base=data or janela[0].date().isoformat(),
+        )
+    except (TypeError, ValueError):
+        inicio = None
+
+    if inicio:
+        # Sem termino valido, a parada permanece aberta a partir do inicio.
+        return inicio < janela[1]
+
+    # Um registro sem horario dentro dos dias da medicao nao pode ser provado
+    # como externo; por seguranca de dominio ele exige regularizacao.
+    try:
+        data_registro = datetime.fromisoformat(str(data)).date()
+    except (TypeError, ValueError):
+        return False
+    return janela[0].date() <= data_registro <= janela[1].date()
+
+
 def calcular_disponibilidade(op_id, *, agora=None, conn=None):
     propria = conn is None
     conn = conn or conectar()
     motivos = []
     alertas = []
+    inconsistencias = []
     try:
         cursor = conn.cursor()
         programacao, pausas = obter_programacao(op_id, conn=conn)
@@ -489,6 +523,7 @@ def calcular_disponibilidade(op_id, *, agora=None, conn=None):
             "paradas_nao_planejadas_minutos": None,
             "tempo_operacional_minutos": None, "disponibilidade": None,
             "situacao": "NAO_CALCULAVEL", "motivos": motivos, "alertas": alertas,
+            "inconsistencias": inconsistencias,
             "pausas_planejadas": pausas, "auditoria": [],
         }
         if not programacao:
@@ -547,19 +582,51 @@ def calcular_disponibilidade(op_id, *, agora=None, conn=None):
         paradas = cursor.fetchall()
         perdas = []
         for parada in paradas:
+            if not _parada_intercepta_janela(parada, (inicio_p, fim_p)):
+                continue
+
             if parada["afeta_linha_abate"] is None:
-                alertas.append(f"Parada #{parada['id']} sem classificacao de impacto na Linha de Abate.")
+                inconsistencias.append({
+                    "codigo": "PARADA_SEM_CLASSIFICACAO_IMPACTO",
+                    "parada_id": parada["id"],
+                })
+                alertas.append(
+                    f"Parada #{parada['id']} intercepta a janela e esta pendente de "
+                    "classificacao de impacto na Linha de Abate. Regularize por "
+                    "reclassificacao administrativa com justificativa e auditoria."
+                )
                 continue
             if int(parada["afeta_linha_abate"] or 0) != 1:
                 continue
-            intervalo = _intervalo_parada(parada, inicio_p)
+
+            natureza = str(parada["natureza_disponibilidade"] or "").strip().upper()
+            natureza_valida = natureza in NATUREZAS_PARADA_LINHA
+            if not natureza_valida:
+                inconsistencias.append({
+                    "codigo": "PARADA_COM_NATUREZA_INVALIDA",
+                    "parada_id": parada["id"],
+                })
+                alertas.append(
+                    f"Parada #{parada['id']} afeta a Linha de Abate, mas possui natureza "
+                    "de disponibilidade ausente ou invalida. Regularize por reclassificacao "
+                    "administrativa com justificativa e auditoria."
+                )
+
+            try:
+                intervalo = _intervalo_parada(parada, inicio_p)
+            except (TypeError, ValueError):
+                intervalo = None
             if not intervalo:
-                base["situacao"] = "INCONSISTENTE"
+                inconsistencias.append({
+                    "codigo": "PARADA_ABERTA_OU_INTERVALO_INVALIDO",
+                    "parada_id": parada["id"],
+                })
                 alertas.append(f"Parada #{parada['id']} que afeta a linha esta aberta ou possui horario invalido.")
                 continue
-            recortado = _recortar(intervalo, (inicio_p, fim_p))
-            if recortado:
-                perdas.append(recortado)
+            if natureza_valida:
+                recortado = _recortar(intervalo, (inicio_p, fim_p))
+                if recortado:
+                    perdas.append(recortado)
         atrasos_liquidos = _subtrair([atraso_intervalo] if atraso_intervalo else [], intervalos_pausa)
         antecipados_liquidos = _subtrair([antecipado_intervalo] if antecipado_intervalo else [], intervalos_pausa)
         paradas_liquidas = _subtrair(perdas, intervalos_pausa)
@@ -567,12 +634,14 @@ def calcular_disponibilidade(op_id, *, agora=None, conn=None):
         perda_total = sum((_minutos(i, f) for i, f in perdas_unidas), Decimal("0"))
         operacional = max(Decimal("0"), liquido - perda_total)
         disponibilidade = min(Decimal("100"), max(Decimal("0"), operacional / liquido * Decimal("100")))
+        inconsistente = bool(inconsistencias)
         base.update({
             "atraso_inicio_minutos": sum((_minutos(i, f) for i, f in atrasos_liquidos), Decimal("0")),
             "encerramento_antecipado_minutos": sum((_minutos(i, f) for i, f in antecipados_liquidos), Decimal("0")),
             "paradas_nao_planejadas_minutos": sum((_minutos(i, f) for i, f in _unir_intervalos(paradas_liquidas)), Decimal("0")),
-            "tempo_operacional_minutos": operacional, "disponibilidade": disponibilidade,
-            "situacao": "INCONSISTENTE" if any("aberta ou" in a for a in alertas) else "CALCULAVEL",
+            "tempo_operacional_minutos": None if inconsistente else operacional,
+            "disponibilidade": None if inconsistente else disponibilidade,
+            "situacao": "INCONSISTENTE" if inconsistente else "CALCULAVEL",
         })
         cursor.execute(q("SELECT * FROM linha_abate_auditoria WHERE op_id=? ORDER BY criado_em DESC,id DESC"), (op_id,))
         base["auditoria"] = cursor.fetchall()
