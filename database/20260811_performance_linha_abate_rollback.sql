@@ -1,0 +1,13 @@
+BEGIN;
+DROP INDEX IF EXISTS ux_performance_reprocesso_chave;
+DROP INDEX IF EXISTS idx_performance_auditoria;
+DROP INDEX IF EXISTS idx_performance_reprocesso_op;
+DROP INDEX IF EXISTS idx_performance_contagem_op;
+DROP INDEX IF EXISTS idx_performance_snapshot_op;
+DROP INDEX IF EXISTS idx_velocidade_resolucao;
+DROP TABLE IF EXISTS linha_performance_auditoria;
+DROP TABLE IF EXISTS linha_performance_reprocessos;
+DROP TABLE IF EXISTS linha_performance_contagens;
+DROP TABLE IF EXISTS linha_performance_snapshots_op;
+DROP TABLE IF EXISTS linha_abate_velocidades_ideais;
+COMMIT;

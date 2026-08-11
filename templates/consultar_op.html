@@ -207,6 +207,8 @@
 </section>
 {% endif %}
 
+{% include "_performance_linha.html" %}
+
 {% if op.status == "Encerrada" and session.get("perfil") in ["admin", "gerencia"] %}
 <dialog id="modal-correcao-op" class="modal-correcao-op">
     <form method="POST" action="{{ url_for('corrigir_peso_entrada', op_id=op.id) }}">

@@ -61,6 +61,16 @@ NAVEGACAO = [
                     "editar_descartes_lote",
                 ),
             },
+            {
+                "titulo": "Velocidades Ideais",
+                "grupo": "Linha de Abate",
+                "endpoint": "velocidades_ideais_linha",
+                "perfis": ("admin", "pcp", "producao", "qualidade", "gerencia"),
+                "active_endpoints": (
+                    "velocidades_ideais_linha", "propor_velocidade_linha",
+                    "decidir_velocidade_linha",
+                ),
+            },
             {"titulo": "Mão de Obra", "grupo": "Apontamentos", "endpoint": "apontamento_mao_obra", "perfis": ("admin", "producao")},
             {"titulo": "Paradas", "grupo": "Apontamentos", "endpoint": "apontamento_paradas", "perfis": ("admin", "producao")},
             {"titulo": "Embalagem Primária", "endpoint": "embalagem_primaria", "perfis": ("admin", "pcp", "producao"), "principal": True},
