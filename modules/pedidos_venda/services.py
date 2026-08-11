@@ -748,15 +748,19 @@ def _item_romaneio_compativel(item_pedido, item_romaneio):
     return _chave_apresentacao(item_pedido.get("apresentacao_snapshot")) == _chave_apresentacao(item_romaneio["apresentacao"])
 
 
-def _mapear_itens_romaneio_cursor(cursor, pedido_id, expedicao_id):
+def _mapear_itens_romaneio_cursor(cursor, pedido_id, expedicao_id, estado_saldos=None):
     itens_pedido = _itens_pedido_para_vinculo(cursor, pedido_id)
     cursor.execute(q("SELECT * FROM expedicao_itens WHERE expedicao_id=? ORDER BY id"), (expedicao_id,))
     itens_romaneio = cursor.fetchall()
     if not itens_romaneio:
         raise ValueError("Romaneio concluído não possui itens para vinculação.")
-    saldos = {item["id"]: item["quantidade_operacional_mil"] - item["quantidade_entregue_mil"]
-              for item in itens_pedido}
-    entregues = {item["id"]: item["quantidade_entregue_mil"] for item in itens_pedido}
+    if estado_saldos is None:
+        saldos = {item["id"]: item["quantidade_operacional_mil"] - item["quantidade_entregue_mil"]
+                  for item in itens_pedido}
+        entregues = {item["id"]: item["quantidade_entregue_mil"] for item in itens_pedido}
+    else:
+        saldos = estado_saldos["saldos"]
+        entregues = estado_saldos["entregues"]
     mapeamento = []
     for linha in itens_romaneio:
         dados = _dados_comerciais_item_romaneio(linha)
@@ -766,6 +770,15 @@ def _mapear_itens_romaneio_cursor(cursor, pedido_id, expedicao_id):
         item = candidatos[0]
         saldo_anterior = saldos[item["id"]]
         if dados["quantidade_operacional_mil"] > saldo_anterior:
+            excedente_operacional = dados["quantidade_operacional_mil"] - saldo_anterior
+            excedente_comercial = excedente_operacional * int(item.get("fator_aves") or 1)
+            unidade_excedente = item["unidade_comercial"]
+            if estado_saldos is not None:
+                rotulo_excedente = "aves" if unidade_excedente == "AVE" else unidade_excedente.lower()
+                raise ValueError(
+                    f"A seleção supera o saldo e excede em {decimal_milesimos(excedente_comercial)} "
+                    f"{rotulo_excedente}."
+                )
             raise ValueError(
                 f"Quantidade do romaneio para {dados['sku']} ({decimal_milesimos(dados['quantidade_operacional_mil'])} "
                 f"{dados['unidade_operacional']}) supera o saldo do pedido "
@@ -784,7 +797,8 @@ def _mapear_itens_romaneio_cursor(cursor, pedido_id, expedicao_id):
 
 
 def _analisar_romaneio_existente_cursor(cursor, pedido, expedicao_id, *, confirmar_destino=False,
-                                         permitir_confirmacao=False, bloquear=False):
+                                         permitir_confirmacao=False, bloquear=False,
+                                         estado_saldos=None):
     sufixo = " FOR UPDATE" if DATABASE_URL and bloquear else ""
     cursor.execute(q(f"SELECT * FROM expedicoes WHERE id=?{sufixo}"), (expedicao_id,))
     romaneio = cursor.fetchone()
@@ -822,7 +836,8 @@ def _analisar_romaneio_existente_cursor(cursor, pedido, expedicao_id, *, confirm
             raise ValueError("Confirme o destino genérico do romaneio antes de vincular.")
     elif destino_romaneio != destino_pedido:
         raise ValueError("Destino do romaneio é incompatível com o pedido.")
-    mapeamento = _mapear_itens_romaneio_cursor(cursor, pedido["id"], expedicao_id)
+    mapeamento = _mapear_itens_romaneio_cursor(
+        cursor, pedido["id"], expedicao_id, estado_saldos=estado_saldos)
     return romaneio, mapeamento, requer_confirmacao
 
 
@@ -851,6 +866,19 @@ def listar_romaneios_elegiveis(pedido_id):
                 romaneio, mapeamento, requer = _analisar_romaneio_existente_cursor(
                     cursor, pedido, linha["id"], permitir_confirmacao=True)
                 romaneio["quantidades_resumo"] = _resumo_mapeamento(mapeamento)
+                totais = {}
+                peso_mil_kg = 0
+                itens_resumo = []
+                for item in mapeamento:
+                    unidade = item["unidade_comercial"]
+                    totais[unidade] = totais.get(unidade, 0) + item["quantidade_comercial_mil"]
+                    peso_mil_kg += int(item.get("peso_mil_kg") or 0)
+                    itens_resumo.append(
+                        f"{item['sku']} / {item.get('apresentacao') or 'sem apresentação'}"
+                    )
+                romaneio["totais_comerciais"] = totais
+                romaneio["peso_mil_kg"] = peso_mil_kg
+                romaneio["itens_resumo"] = " | ".join(dict.fromkeys(itens_resumo))
                 romaneio["requer_confirmacao_destino"] = requer
                 elegiveis.append(romaneio)
             except ValueError:
@@ -860,7 +888,7 @@ def listar_romaneios_elegiveis(pedido_id):
         conn.close()
 
 
-def _registrar_vinculo_negado(pedido_id, expedicao_id, motivo, chave, usuario, perfil):
+def _registrar_vinculo_negado(pedido_id, expedicao_ids, motivo, chave, usuario, perfil):
     try:
         with transaction() as conn:
             cursor = conn.cursor()
@@ -868,7 +896,7 @@ def _registrar_vinculo_negado(pedido_id, expedicao_id, motivo, chave, usuario, p
             pedido = cursor.fetchone()
             if pedido:
                 _evento(cursor, pedido_id, "VINCULO_ROMANEIO_NEGADO", dict(pedido),
-                        {"expedicao_id": expedicao_id, "motivo": str(motivo)},
+                        {"expedicao_ids": list(expedicao_ids), "motivo": str(motivo)},
                         justificativa=str(motivo), origem="vinculo_romaneio_existente",
                         idempotency_key=f"NEGADO-{chave}", usuario=usuario, perfil=perfil)
     except Exception:
@@ -882,13 +910,46 @@ def _vinculo_por_chave(cursor, chave):
     return dict(linha) if linha else None
 
 
-def vincular_romaneio_existente(pedido_id, expedicao_id, idempotency_key, *,
-                                 confirmar_destino=False, usuario=None, perfil=None):
+def _normalizar_romaneio_ids(expedicao_ids):
+    try:
+        ids = [int(expedicao_id) for expedicao_id in expedicao_ids]
+    except (TypeError, ValueError) as erro:
+        raise ValueError("Lista de romaneios inválida.") from erro
+    if not ids or any(expedicao_id <= 0 for expedicao_id in ids):
+        raise ValueError("Selecione ao menos um romaneio.")
+    if len(ids) != len(set(ids)):
+        raise ValueError("A seleção contém romaneio repetido.")
+    return sorted(ids)
+
+
+def _chave_vinculo_lote(chave, expedicao_id, indice):
+    return chave if indice == 0 else f"{chave}:{expedicao_id}"
+
+
+def _vinculos_lote_repetido(cursor, pedido_id, expedicao_ids, chave):
+    primeiro = _vinculo_por_chave(cursor, chave)
+    if not primeiro:
+        return None
+    vinculos = []
+    for indice, expedicao_id in enumerate(expedicao_ids):
+        cursor.execute(q("""SELECT id,pedido_id,expedicao_id FROM pedido_venda_vinculos
+            WHERE idempotency_key=?"""), (_chave_vinculo_lote(chave, expedicao_id, indice),))
+        vinculo = cursor.fetchone()
+        if (not vinculo or int(vinculo["pedido_id"]) != int(pedido_id)
+                or int(vinculo["expedicao_id"]) != expedicao_id):
+            raise ValueError("Chave idempotente já foi usada em outra vinculação.")
+        vinculos.append(vinculo["id"])
+    return vinculos
+
+
+def vincular_romaneios_existentes(pedido_id, expedicao_ids, idempotency_key, *,
+                                   confirmar_destino=False, usuario=None, perfil=None):
     criar_tabelas_pedidos_venda()
     usuario, perfil = _identidade(usuario, perfil)
     chave = str(idempotency_key or "").strip()
     if not chave or len(chave) > 128:
         raise ValueError("Chave idempotente da vinculação é inválida.")
+    ids = _normalizar_romaneio_ids(expedicao_ids)
     try:
         with transaction() as conn:
             cursor = conn.cursor()
@@ -899,86 +960,118 @@ def vincular_romaneio_existente(pedido_id, expedicao_id, idempotency_key, *,
                 raise ValueError("Pedido não encontrado.")
             pedido = dict(pedido)
             _autorizar(cursor, pedido_id, PERFIS_OPERACAO, "VINCULAR_ROMANEIO_EXISTENTE", usuario, perfil)
-            repetido = _vinculo_por_chave(cursor, chave)
+            repetido = _vinculos_lote_repetido(cursor, pedido_id, ids, chave)
             if repetido:
-                if (int(repetido["pedido_id"]) == int(pedido_id)
-                        and int(repetido["expedicao_id"]) == int(expedicao_id)):
-                    return repetido["id"]
-                raise ValueError("Chave idempotente já foi usada em outro vínculo.")
+                return repetido
             cursor.execute(q("""UPDATE pedidos_venda SET versao=versao+1
                 WHERE id=? AND versao=?"""), (pedido_id, pedido["versao"]))
             if cursor.rowcount != 1:
                 raise ValueError("Pedido foi atualizado por outra vinculação; recarregue a página.")
-            romaneio, mapeamento, _ = _analisar_romaneio_existente_cursor(
-                cursor, pedido, expedicao_id, confirmar_destino=confirmar_destino, bloquear=True)
             if pedido["status"] not in {"CONFIRMADO", "PARCIALMENTE_ATENDIDO"}:
                 raise ValueError("Pedido não está disponível para receber romaneio.")
-            cursor.execute(q("""UPDATE expedicoes SET pedido_venda_id=?,pedido_destino_entrega=?
-                WHERE id=? AND pedido_venda_id IS NULL AND status='Concluído'"""),
-                (pedido_id, pedido["destino"], expedicao_id))
-            if cursor.rowcount != 1:
-                raise ValueError("Romaneio já vinculado ou alterado por outra operação.")
-            campos_vinculo = (pedido_id, expedicao_id, "ROMANEIO_EXISTENTE", chave,
-                              usuario, perfil, _agora())
-            sql = """INSERT INTO pedido_venda_vinculos
-                (pedido_id,expedicao_id,origem,idempotency_key,usuario,perfil,criado_em)
-                VALUES (?,?,?,?,?,?,?)"""
-            if DATABASE_URL:
-                cursor.execute(q(sql + " RETURNING id"), campos_vinculo)
-                vinculo_id = cursor.fetchone()["id"]
-            else:
-                cursor.execute(q(sql), campos_vinculo)
-                vinculo_id = cursor.lastrowid
-            agrupado = {}
-            for item in mapeamento:
-                agrupado[item["pedido_item_id"]] = agrupado.get(item["pedido_item_id"], 0) + item["quantidade_operacional_mil"]
-                cursor.execute(q("""INSERT INTO pedido_venda_atendimentos
-                    (pedido_id,pedido_item_id,expedicao_id,expedicao_item_id,quantidade_atendida_mil,
-                     unidade,peso_atendido_mil_kg,status,criado_por,criado_em,atualizado_em)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?)"""),
-                    (pedido_id, item["pedido_item_id"], expedicao_id, item["expedicao_item_id"],
-                     item["quantidade_operacional_mil"], item["unidade_operacional"], item["peso_mil_kg"],
-                     "ENTREGUE", usuario, _agora(), _agora()))
-                cursor.execute(q("""INSERT INTO pedido_venda_vinculo_itens
-                    (vinculo_id,pedido_item_id,expedicao_item_id,sku,apresentacao_snapshot,
-                     quantidade_operacional_mil,unidade_operacional,aves_por_unidade_operacional,
-                     quantidade_comercial_mil,unidade_comercial,peso_mil_kg,
-                     quantidade_entregue_anterior_mil,saldo_anterior_mil,saldo_posterior_mil,criado_em)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"""),
-                    (vinculo_id, item["pedido_item_id"], item["expedicao_item_id"], item["sku"],
-                     item["apresentacao"], item["quantidade_operacional_mil"], item["unidade_operacional"],
-                     item["fator_aves"], item["quantidade_comercial_mil"], item["unidade_comercial"],
-                     item["peso_mil_kg"], item["quantidade_entregue_anterior_mil"],
-                     item["saldo_anterior_mil"], item["saldo_posterior_mil"], _agora()))
-            for pedido_item_id, quantidade in agrupado.items():
-                cursor.execute(q("""INSERT INTO pedido_venda_romaneio_itens
-                    (pedido_id,pedido_item_id,expedicao_id,quantidade_planejada_mil,unidade,criado_por,criado_em)
-                    SELECT ?,?,?,?,COALESCE(unidade_operacional,unidade_comercial),?,?
-                    FROM pedido_venda_itens WHERE id=?"""),
-                    (pedido_id, pedido_item_id, expedicao_id, quantidade, usuario, _agora(), pedido_item_id))
-            _recalcular_status_cursor(cursor, pedido_id, "STATUS_APOS_VINCULO_EXISTENTE", expedicao_id)
+            itens_pedido = _itens_pedido_para_vinculo(cursor, pedido_id)
+            estado_saldos = {
+                "saldos": {item["id"]: item["quantidade_operacional_mil"] - item["quantidade_entregue_mil"]
+                           for item in itens_pedido},
+                "entregues": {item["id"]: item["quantidade_entregue_mil"] for item in itens_pedido},
+            }
+            saldos_anteriores = dict(estado_saldos["saldos"])
+            analisados = []
+            for expedicao_id in ids:
+                try:
+                    analisados.append(_analisar_romaneio_existente_cursor(
+                        cursor, pedido, expedicao_id, confirmar_destino=confirmar_destino,
+                        bloquear=True, estado_saldos=estado_saldos))
+                except ValueError as erro:
+                    cursor.execute(q("SELECT numero_romaneio FROM expedicoes WHERE id=?"), (expedicao_id,))
+                    linha = cursor.fetchone()
+                    documento = linha["numero_romaneio"] if linha else f"ID {expedicao_id}"
+                    raise ValueError(f"Romaneio {documento} rejeitado: {erro}") from erro
+
+            vinculo_ids = []
+            auditoria_romaneios = []
+            for indice, (expedicao_id, analisado) in enumerate(zip(ids, analisados)):
+                romaneio, mapeamento, _ = analisado
+                cursor.execute(q("""UPDATE expedicoes SET pedido_venda_id=?,pedido_destino_entrega=?
+                    WHERE id=? AND pedido_venda_id IS NULL AND status='Concluído'"""),
+                    (pedido_id, pedido["destino"], expedicao_id))
+                if cursor.rowcount != 1:
+                    raise ValueError(f"Romaneio {romaneio['numero_romaneio']} já vinculado ou alterado por outra operação.")
+                campos_vinculo = (
+                    pedido_id, expedicao_id, "ROMANEIO_EXISTENTE",
+                    _chave_vinculo_lote(chave, expedicao_id, indice), usuario, perfil, _agora())
+                sql = """INSERT INTO pedido_venda_vinculos
+                    (pedido_id,expedicao_id,origem,idempotency_key,usuario,perfil,criado_em)
+                    VALUES (?,?,?,?,?,?,?)"""
+                if DATABASE_URL:
+                    cursor.execute(q(sql + " RETURNING id"), campos_vinculo)
+                    vinculo_id = cursor.fetchone()["id"]
+                else:
+                    cursor.execute(q(sql), campos_vinculo)
+                    vinculo_id = cursor.lastrowid
+                vinculo_ids.append(vinculo_id)
+                agrupado = {}
+                for item in mapeamento:
+                    agrupado[item["pedido_item_id"]] = agrupado.get(item["pedido_item_id"], 0) + item["quantidade_operacional_mil"]
+                    cursor.execute(q("""INSERT INTO pedido_venda_atendimentos
+                        (pedido_id,pedido_item_id,expedicao_id,expedicao_item_id,quantidade_atendida_mil,
+                         unidade,peso_atendido_mil_kg,status,criado_por,criado_em,atualizado_em)
+                        VALUES (?,?,?,?,?,?,?,?,?,?,?)"""),
+                        (pedido_id, item["pedido_item_id"], expedicao_id, item["expedicao_item_id"],
+                         item["quantidade_operacional_mil"], item["unidade_operacional"], item["peso_mil_kg"],
+                         "ENTREGUE", usuario, _agora(), _agora()))
+                    cursor.execute(q("""INSERT INTO pedido_venda_vinculo_itens
+                        (vinculo_id,pedido_item_id,expedicao_item_id,sku,apresentacao_snapshot,
+                         quantidade_operacional_mil,unidade_operacional,aves_por_unidade_operacional,
+                         quantidade_comercial_mil,unidade_comercial,peso_mil_kg,
+                         quantidade_entregue_anterior_mil,saldo_anterior_mil,saldo_posterior_mil,criado_em)
+                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"""),
+                        (vinculo_id, item["pedido_item_id"], item["expedicao_item_id"], item["sku"],
+                         item["apresentacao"], item["quantidade_operacional_mil"], item["unidade_operacional"],
+                         item["fator_aves"], item["quantidade_comercial_mil"], item["unidade_comercial"],
+                         item["peso_mil_kg"], item["quantidade_entregue_anterior_mil"],
+                         item["saldo_anterior_mil"], item["saldo_posterior_mil"], _agora()))
+                for pedido_item_id, quantidade in agrupado.items():
+                    cursor.execute(q("""INSERT INTO pedido_venda_romaneio_itens
+                        (pedido_id,pedido_item_id,expedicao_id,quantidade_planejada_mil,unidade,criado_por,criado_em)
+                        SELECT ?,?,?,?,COALESCE(unidade_operacional,unidade_comercial),?,?
+                        FROM pedido_venda_itens WHERE id=?"""),
+                        (pedido_id, pedido_item_id, expedicao_id, quantidade, usuario, _agora(), pedido_item_id))
+                auditoria_romaneios.append({
+                    "id": expedicao_id, "numero": romaneio["numero_romaneio"], "itens": mapeamento})
+
+            _recalcular_status_cursor(cursor, pedido_id, "STATUS_APOS_VINCULO_EXISTENTE", ids[-1])
             cursor.execute(q("SELECT * FROM pedidos_venda WHERE id=?"), (pedido_id,))
             depois = dict(cursor.fetchone())
             _evento(cursor, pedido_id, "ROMANEIO_EXISTENTE_VINCULADO", pedido, depois,
-                    justificativa=_json({"expedicao_id": expedicao_id, "numero": romaneio["numero_romaneio"],
-                                         "itens": mapeamento}), origem="vinculo_romaneio_existente",
+                    justificativa=_json({"romaneios": auditoria_romaneios,
+                                         "saldos_anteriores": saldos_anteriores,
+                                         "saldos_posteriores": estado_saldos["saldos"]}),
+                    origem="vinculo_romaneio_existente",
                     idempotency_key=f"VINCULO-{chave}", usuario=usuario, perfil=perfil)
-            return vinculo_id
+            return vinculo_ids
     except PermissionError:
         raise
     except Exception as erro:
         conn_consulta = conectar()
         try:
-            repetido = _vinculo_por_chave(conn_consulta.cursor(), chave)
-            if (repetido and int(repetido["pedido_id"]) == int(pedido_id)
-                    and int(repetido["expedicao_id"]) == int(expedicao_id)):
-                return repetido["id"]
+            repetido = _vinculos_lote_repetido(conn_consulta.cursor(), pedido_id, ids, chave)
+            if repetido:
+                return repetido
         finally:
             conn_consulta.close()
-        _registrar_vinculo_negado(pedido_id, expedicao_id, erro, chave, usuario, perfil)
+        _registrar_vinculo_negado(pedido_id, ids, erro, chave, usuario, perfil)
         if isinstance(erro, ValueError):
             raise
         raise ValueError("Vinculação rejeitada por concorrência ou repetição de requisição.") from erro
+
+
+def vincular_romaneio_existente(pedido_id, expedicao_id, idempotency_key, *,
+                                 confirmar_destino=False, usuario=None, perfil=None):
+    """Compatibilidade para integrações que ainda vinculam um único romaneio."""
+    return vincular_romaneios_existentes(
+        pedido_id, [expedicao_id], idempotency_key,
+        confirmar_destino=confirmar_destino, usuario=usuario, perfil=perfil)[0]
 
 
 def _resumo_romaneio_vinculado_cursor(cursor, expedicao_id):

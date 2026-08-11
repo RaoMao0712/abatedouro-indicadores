@@ -13,7 +13,7 @@ from .pdf import gerar_pdf_pedido
 from .services import (CONDICOES_PAGAMENTO, FORMAS_PAGAMENTO, STATUS, UNIDADES,
     buscar_pedido, cancelar_pedido, catalogo_produtos_venda, confirmar_pedido, decimal_centavos, decimal_milesimos,
     gerar_romaneio_pedido, listar_pedidos, listar_romaneios_elegiveis, resumo_pedidos, salvar_pedido,
-    vincular_romaneio_existente)
+    vincular_romaneios_existentes)
 
 
 def _dados_formulario(pedido=None):
@@ -92,19 +92,26 @@ def register_pedidos_venda_routes(app):
                     flash(f"Romaneio {numero} criado. Reserve os itens físicos para concluir.")
                     return redirect(url_for("detalhe_romaneio_expedicao",expedicao_id=expedicao_id))
                 elif acao=="vincular_romaneio_existente":
-                    vincular_romaneio_existente(
-                        pedido_id, int(request.form.get("expedicao_id") or 0),
+                    romaneio_ids = request.form.getlist("romaneio_ids[]")
+                    vincular_romaneios_existentes(
+                        pedido_id, romaneio_ids,
                         request.form.get("idempotency_key"),
                         confirmar_destino=request.form.get("confirmar_destino") == "1")
-                    flash("Romaneio existente vinculado sem nova movimentação de estoque.")
+                    quantidade = len(romaneio_ids)
+                    flash(f"{quantidade} romaneio(s) vinculado(s) sem nova movimentação de estoque.")
                 else: raise ValueError("Ação inválida.")
             except (ValueError,PermissionError) as erro: flash(str(erro))
             return redirect(url_for("detalhe_pedido_venda",pedido_id=pedido_id))
         pedido=buscar_pedido(pedido_id)
         if not pedido: flash("Pedido não encontrado."); return redirect(url_for("pedidos_venda"))
+        saldos_selecao = {}
+        for item in pedido["itens"]:
+            unidade = "AVE" if item.get("aves_por_unidade_operacional") else item["unidade_comercial"]
+            saldos_selecao[unidade] = saldos_selecao.get(unidade, 0) + int(item["saldo_pendente_exibicao_mil"])
         return render_template("pedido_venda_detalhe.html",pedido=pedido,status_descricoes=STATUS,
             hoje=datetime.now().strftime("%Y-%m-%d"),pode_cancelar=session.get("perfil") in {"admin","gerencia"},
             romaneios_elegiveis=listar_romaneios_elegiveis(pedido_id),
+            saldos_selecao=saldos_selecao,
             vinculo_idempotency_key=secrets.token_urlsafe(24))
 
     @app.route("/pedidos-venda/<int:pedido_id>/imprimir")

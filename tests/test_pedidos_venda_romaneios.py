@@ -728,3 +728,120 @@ def test_contrato_visual_mantem_geracao_e_adiciona_vinculo_existente():
     assert "Vincular romaneio existente" in template
     assert 'name="idempotency_key"' in template
     assert "Esta ação não movimenta estoque" in template
+
+
+def test_vinculo_multiplo_e_idempotente_ocorre_em_transacao_unica(base):
+    pedido_id, caixas = _preparar_pedido_leg2_duas_apresentacoes(base)
+    primeiro = _criar_romaneio_pronto(base, "ROM-LOTE-A", [
+        (caixas[1], "Pacote com 2 galinhas inteiras", 2, 500)])
+    segundo = _criar_romaneio_pronto(base, "ROM-LOTE-B", [
+        (caixas[1], "Pacote com 2 galinhas inteiras", 2, 1364),
+        (caixas[0], "Pacote com 1 galinha inteira", 1, 500)])
+    antes = _fotografia_estoque(base)
+
+    vinculos = pedidos.vincular_romaneios_existentes(
+        pedido_id, [segundo, primeiro], "lote-integral-001", confirmar_destino=True,
+        usuario="Comercial", perfil="pcp")
+
+    assert len(vinculos) == 2
+    assert antes == _fotografia_estoque(base)
+    pedido = pedidos.buscar_pedido(pedido_id)
+    assert pedido["status"] == "ATENDIDO"
+    assert {item["id"] for item in pedido["romaneios"]} == {primeiro, segundo}
+    assert all(item["saldo_pendente_mil"] == 0 for item in pedido["itens"])
+    assert pedidos.vincular_romaneios_existentes(
+        pedido_id, [primeiro, segundo], "lote-integral-001", confirmar_destino=True,
+        usuario="Comercial", perfil="pcp") == vinculos
+    conn = sqlite3.connect(base)
+    assert conn.execute("SELECT COUNT(*) FROM pedido_venda_vinculos").fetchone()[0] == 2
+    assert conn.execute("""SELECT COUNT(*) FROM pedido_venda_eventos
+        WHERE acao='ROMANEIO_EXISTENTE_VINCULADO'""").fetchone()[0] == 1
+    auditoria = conn.execute("""SELECT justificativa FROM pedido_venda_eventos
+        WHERE acao='ROMANEIO_EXISTENTE_VINCULADO'""").fetchone()[0]
+    conn.close()
+    assert "ROM-LOTE-A" in auditoria and "ROM-LOTE-B" in auditoria
+    assert "saldos_anteriores" in auditoria and "saldos_posteriores" in auditoria
+
+
+def test_selecao_agregada_que_excede_saldo_reverte_todo_o_lote(base):
+    pedido_id, caixas = _preparar_pedido_leg2_duas_apresentacoes(base)
+    primeiro = _criar_romaneio_pronto(base, "ROM-AGREGADO-A", [
+        (caixas[1], "Pacote com 2 galinhas inteiras", 2, 1000)])
+    segundo = _criar_romaneio_pronto(base, "ROM-AGREGADO-B", [
+        (caixas[1], "Pacote com 2 galinhas inteiras", 2, 900)])
+    antes = _fotografia_estoque(base)
+
+    with pytest.raises(ValueError, match=r"ROM-AGREGADO-B.*excede em 72.000 aves"):
+        pedidos.vincular_romaneios_existentes(
+            pedido_id, [primeiro, segundo], "lote-excede-001", confirmar_destino=True,
+            usuario="Comercial", perfil="pcp")
+
+    assert antes == _fotografia_estoque(base)
+    conn = sqlite3.connect(base)
+    assert conn.execute("SELECT COUNT(*) FROM pedido_venda_vinculos").fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM pedido_venda_atendimentos").fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM expedicoes WHERE pedido_venda_id=?", (pedido_id,)).fetchone()[0] == 0
+    conn.close()
+
+
+def test_um_romaneio_invalido_reverte_os_validos_do_mesmo_lote(base):
+    pedido_id, caixas = _preparar_pedido_leg2_duas_apresentacoes(base)
+    valido = _criar_romaneio_pronto(base, "ROM-VALIDO-LOTE", [
+        (caixas[1], "Pacote com 2 galinhas inteiras", 2, 100)])
+    invalido = _criar_romaneio_pronto(base, "ROM-DESTINO-LOTE", [
+        (caixas[1], "Pacote com 2 galinhas inteiras", 2, 100)], destino="Destino divergente")
+
+    with pytest.raises(ValueError, match=r"ROM-DESTINO-LOTE.*Destino.*incompatível"):
+        pedidos.vincular_romaneios_existentes(
+            pedido_id, [valido, invalido], "lote-invalido-001", confirmar_destino=True,
+            usuario="Comercial", perfil="pcp")
+
+    conn = sqlite3.connect(base)
+    assert conn.execute("SELECT pedido_venda_id FROM expedicoes WHERE id=?", (valido,)).fetchone()[0] is None
+    assert conn.execute("SELECT COUNT(*) FROM pedido_venda_vinculos").fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM pedido_venda_atendimentos").fetchone()[0] == 0
+    conn.close()
+
+
+def test_contrato_ux_selecao_multipla_e_resumo_por_unidade():
+    from pathlib import Path
+    template = (Path(__file__).parents[1] / "templates" / "pedido_venda_detalhe.html").read_text(encoding="utf-8")
+    assert 'name="romaneio_ids[]"' in template
+    assert "Selecionar todos os elegíveis" in template
+    assert "Limpar seleção" in template
+    assert "VINCULAR ROMANEIO(S) SELECIONADO(S)" in template
+    assert 'type="submit" disabled' in template
+    assert "Romaneios selecionados:" in template
+    assert "Aves selecionadas:" in template
+    assert "Peso total selecionado:" in template
+    assert "Saldo atual:" in template and "Saldo após vinculação:" in template
+    assert "CONFIRMO QUE OS DESTINOS EXIBIDOS CORRESPONDEM A ESTA ENTREGA." in template
+    assert "totais[u]=(totais[u]||0)+Number(v)" in template
+    assert "botao.disabled=marcados.length===0||!confirmacao.checked" in template
+
+
+def test_rota_envia_lista_de_ids_e_confirmacao_unica(monkeypatch):
+    from flask import Flask
+    import modules.pedidos_venda.routes as rotas
+
+    aplicacao = Flask(__name__)
+    aplicacao.secret_key = "teste-lista-romaneios"
+    chamada = {}
+
+    def vincular(pedido_id, ids, chave, **opcoes):
+        chamada.update({"pedido_id": pedido_id, "ids": ids, "chave": chave, **opcoes})
+
+    monkeypatch.setattr(rotas, "vincular_romaneios_existentes", vincular)
+    rotas.register_pedidos_venda_routes(aplicacao)
+    cliente = aplicacao.test_client()
+    with cliente.session_transaction() as sessao:
+        sessao.update({"usuario_id": 1, "nome": "Administrador", "perfil": "admin"})
+    resposta = cliente.post("/pedidos-venda/77", data=MultiDict([
+        ("acao", "vincular_romaneio_existente"),
+        ("romaneio_ids[]", "31"), ("romaneio_ids[]", "44"),
+        ("idempotency_key", "rota-lote-001"), ("confirmar_destino", "1"),
+    ]))
+
+    assert resposta.status_code == 302
+    assert chamada == {"pedido_id": 77, "ids": ["31", "44"], "chave": "rota-lote-001",
+                       "confirmar_destino": True}
