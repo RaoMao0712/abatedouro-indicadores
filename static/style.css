@@ -894,6 +894,93 @@ button:hover {
     }
 }
 
+/* Relatório executivo de produtos não conformes */
+.nc-relatorio-filtros,
+.nc-selecao {
+    display: grid;
+    gap: 1rem;
+}
+
+.nc-filtros-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(150px, 1fr));
+    gap: .8rem;
+    align-items: end;
+}
+
+.nc-filtros-grid label {
+    display: grid;
+    gap: .35rem;
+    color: #334155;
+    font-size: .82rem;
+    font-weight: 700;
+}
+
+.nc-filtros-grid select,
+.nc-filtros-grid input {
+    width: 100%;
+}
+
+.nc-busca {
+    grid-column: span 2;
+}
+
+.nc-filtros-acoes,
+.nc-selecao-cabecalho,
+.nc-relatorio-acoes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .6rem;
+    align-items: center;
+    justify-content: flex-end;
+}
+
+.nc-selecao-cabecalho {
+    justify-content: space-between;
+}
+
+.nc-selecao-tabela input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    accent-color: #1d4ed8;
+}
+
+.nc-previa {
+    display: grid;
+    gap: .3rem;
+    padding: .85rem 1rem;
+    border: 1px solid #bfdbfe;
+    border-radius: 10px;
+    background: #eff6ff;
+    color: #1e3a8a;
+}
+
+@media (max-width: 900px) {
+    .nc-filtros-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 560px) {
+    .nc-filtros-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .nc-busca {
+        grid-column: auto;
+    }
+
+    .nc-filtros-acoes,
+    .nc-relatorio-acoes {
+        justify-content: stretch;
+    }
+
+    .nc-filtros-acoes > *,
+    .nc-relatorio-acoes > * {
+        flex: 1 1 100%;
+    }
+}
+
 
 /* RELATÓRIOS GERENCIAIS */
 

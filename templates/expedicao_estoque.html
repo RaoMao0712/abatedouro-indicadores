@@ -63,7 +63,7 @@
         </table></div>
     </section>
     <dialog class="estoque-relatorio-modal" data-modal-relatorio-estoque>
-        <form method="GET" action="{{ url_for('relatorio_consolidado_estoque_expedicao') }}" target="_blank">
+        <form method="GET" action="{{ url_for('imprimir_consolidado_estoque_expedicao') }}" target="_blank">
             <header><div><span class="eyebrow">Relatório oficial</span><h3>Posição Consolidada do Estoque da Câmara</h3></div><button type="button" aria-label="Fechar" data-fechar-relatorio-estoque>&times;</button></header>
             <p>O PDF representa a posição atual no momento da geração e não movimenta estoque.</p>
             <label class="estoque-relatorio-opcao"><input type="checkbox" name="incluir_nao_conforme" value="1"> <span><strong>Incluir estoque não conforme</strong><small>Adiciona, em seção separada, os saldos bloqueados, em reprocessamento e aguardando liberação.</small></span></label>

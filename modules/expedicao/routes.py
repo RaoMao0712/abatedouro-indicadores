@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from flask import flash, redirect, render_template, request, send_file, session, url_for
+from flask import flash, jsonify, redirect, render_template, request, send_file, session, url_for
 from io import BytesIO
 
 from config import EMPRESA_EMITENTE, ESTABELECIMENTO_DOCUMENTO, IDENTIFICACAO_TECNOLOGIA
@@ -69,8 +69,13 @@ from modules.qualidade.liberacoes import (
 )
 from modules.clientes.services import listar_clientes
 from .relatorio_entregas import gerar_relatorio_entregas_pdf
-from .consolidado_estoque import consolidar_estoque_camara
+from .consolidado_estoque import ROTULOS_SITUACOES, consolidar_estoque_camara
 from .relatorio_estoque import gerar_relatorio_estoque_pdf
+from .relatorio_nc_pdf import gerar_relatorio_nc_pdf
+from .relatorio_nc_service import (
+    consolidar_selecao, emitir_relatorio_nc, listar_relatorios_nc,
+    listar_saldos_nc, obter_relatorio_nc,
+)
 from modules.pedidos_venda.services import plano_romaneio
 
 
@@ -509,7 +514,7 @@ def register_expedicao_routes(app, integracoes=None):
 
     @app.route("/expedicao/estoque/relatorio-consolidado.pdf")
     @perfil_permitido("pcp", "qualidade")
-    def relatorio_consolidado_estoque_expedicao():
+    def imprimir_consolidado_estoque_expedicao():
         incluir_parametro = request.args.get("incluir_nao_conforme", "0")
         if incluir_parametro not in {"0", "1"}:
             flash("A opção de estoque não conforme é inválida.")
@@ -528,13 +533,77 @@ def register_expedicao_routes(app, integracoes=None):
         return resposta
 
     @app.route("/expedicao/nao-conformes")
-    @perfil_permitido("pcp", "qualidade")
+    @perfil_permitido("pcp", "qualidade", "gerencia")
     def nao_conformes_expedicao():
+        filtros = {nome: request.args.get(nome, "") for nome in (
+            "produto", "apresentacao", "caracteristica", "situacao", "busca",
+        )}
+        saldos, opcoes, filtros = listar_saldos_nc(filtros)
         itens, _ = buscar_estoque_operacional()
         return render_template(
             "expedicao_nao_conformes.html",
+            saldos=saldos, opcoes=opcoes, filtros=filtros,
+            rotulos_situacoes=ROTULOS_SITUACOES,
+            relatorios=listar_relatorios_nc(),
             itens=[item for item in itens if item["condicao"] == "NAO_CONFORME"],
         )
+
+    @app.post("/expedicao/nao-conformes/relatorio/previa")
+    @perfil_permitido("pcp", "qualidade", "gerencia")
+    def previa_verificacao_nc_expedicao():
+        try:
+            previa = consolidar_selecao(request.form.getlist("saldo_id"))
+            return jsonify({
+                "token": previa["token"],
+                "quantidade_registros": previa["quantidade_registros"],
+                "secoes": [{
+                    "produto": secao["produto"], "apresentacao": secao["apresentacao"],
+                    "unidades": secao["unidades"],
+                    "totais": {k: str(v) for k, v in secao["totais"].items()},
+                } for secao in previa["secoes"]],
+            })
+        except ValueError as erro:
+            return jsonify({"erro": str(erro)}), 409
+
+    @app.post("/expedicao/nao-conformes/relatorio/gerar")
+    @perfil_permitido("pcp", "qualidade", "gerencia")
+    def gerar_verificacao_nc_expedicao():
+        filtros = {nome: request.form.get(nome, "") for nome in (
+            "produto", "apresentacao", "caracteristica", "situacao", "busca",
+        )}
+        try:
+            relatorio = emitir_relatorio_nc(
+                request.form.getlist("saldo_id"), request.form.get("snapshot_token"), filtros,
+                usuario=session.get("nome") or "Usuário não identificado",
+                perfil=session.get("perfil") or "não identificado",
+            )
+        except ValueError as erro:
+            flash(str(erro))
+            return redirect(url_for("nao_conformes_expedicao", **filtros))
+        resposta = send_file(
+            BytesIO(gerar_relatorio_nc_pdf(relatorio)), mimetype="application/pdf",
+            as_attachment=False, download_name=f"{relatorio['numero']}.pdf",
+        )
+        resposta.headers["Cache-Control"] = "no-store, private"
+        return resposta
+
+    @app.get("/expedicao/nao-conformes/relatorio/<int:relatorio_id>.pdf")
+    @perfil_permitido("pcp", "qualidade", "gerencia")
+    def reimprimir_verificacao_nc_expedicao(relatorio_id):
+        try:
+            relatorio = obter_relatorio_nc(relatorio_id)
+        except ValueError as erro:
+            flash(str(erro))
+            return redirect(url_for("nao_conformes_expedicao"))
+        if not relatorio:
+            flash("Relatório de verificação não encontrado.")
+            return redirect(url_for("nao_conformes_expedicao"))
+        resposta = send_file(
+            BytesIO(gerar_relatorio_nc_pdf(relatorio)), mimetype="application/pdf",
+            as_attachment=False, download_name=f"{relatorio['numero']}.pdf",
+        )
+        resposta.headers["Cache-Control"] = "no-store, private"
+        return resposta
 
     @app.route("/expedicao/estoque/<int:caixa_id>/bloquear", methods=["POST"])
     @perfil_permitido("pcp", "qualidade")
