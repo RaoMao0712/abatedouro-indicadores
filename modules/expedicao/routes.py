@@ -69,6 +69,8 @@ from modules.qualidade.liberacoes import (
 )
 from modules.clientes.services import listar_clientes
 from .relatorio_entregas import gerar_relatorio_entregas_pdf
+from .consolidado_estoque import consolidar_estoque_camara
+from .relatorio_estoque import gerar_relatorio_estoque_pdf
 from modules.pedidos_venda.services import plano_romaneio
 
 
@@ -494,14 +496,36 @@ def register_expedicao_routes(app, integracoes=None):
         inventario_fisico = inventario_legado_fisico()
         resumo_legado = resumo_inventario_legado_fisico(inventario_fisico)
         resumo = integrar_resumo_inventario_legado(resumo, resumo_legado)
+        consolidado = consolidar_estoque_camara(incluir_nao_conforme=True)
         return render_template(
             "expedicao_estoque.html",
             itens=itens,
             resumo=resumo,
+            consolidado=consolidado,
             saldos_legados=saldos_legados,
             inventario_fisico=inventario_fisico,
             marco=obter_marco_zero(),
         )
+
+    @app.route("/expedicao/estoque/relatorio-consolidado.pdf")
+    @perfil_permitido("pcp", "qualidade")
+    def relatorio_consolidado_estoque_expedicao():
+        incluir_parametro = request.args.get("incluir_nao_conforme", "0")
+        if incluir_parametro not in {"0", "1"}:
+            flash("A opção de estoque não conforme é inválida.")
+            return redirect(url_for("estoque_camara_expedicao"))
+        consolidado = consolidar_estoque_camara(
+            incluir_nao_conforme=incluir_parametro == "1")
+        pdf = gerar_relatorio_estoque_pdf(
+            consolidado,
+            usuario=session.get("nome") or "Usuário não identificado",
+        )
+        resposta = send_file(
+            BytesIO(pdf), mimetype="application/pdf", as_attachment=False,
+            download_name="posicao-consolidada-estoque-camara.pdf",
+        )
+        resposta.headers["Cache-Control"] = "no-store, private"
+        return resposta
 
     @app.route("/expedicao/nao-conformes")
     @perfil_permitido("pcp", "qualidade")

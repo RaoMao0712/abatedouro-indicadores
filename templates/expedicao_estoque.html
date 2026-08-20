@@ -3,6 +3,7 @@
 <div class="expedicao-page">
     <section class="card expedicao-cabecalho-compacto">
         <div><span class="eyebrow">Expedição</span><h2>Estoque da Câmara</h2><small>Visão física e disponibilidade operacional posterior ao marco zero</small></div>
+        <button class="romaneio-btn romaneio-btn-primary no-print" type="button" data-abrir-relatorio-estoque>Gerar relatório consolidado</button>
     </section>
     <nav class="romaneio-tabs no-print"><a href="{{ url_for('expedicao') }}">Romaneios</a><a class="ativo" href="{{ url_for('estoque_camara_expedicao') }}">Estoque da Câmara</a><a href="{{ url_for('nao_conformes_expedicao') }}">Produtos Não Conformes</a><a href="{{ url_for('historico_estoque_expedicao') }}">Histórico</a></nav>
     <section class="expedicao-kpis">
@@ -13,6 +14,30 @@
         <div class="card expedicao-kpi vermelho"><span>Não conforme bloqueado</span><strong>{{ resumo.unidades_bloqueadas|br_numero(0) }}</strong><small>{{ resumo.peso_bloqueado|br_numero(3) }} kg aplicáveis</small></div>
         <div class="card expedicao-kpi"><span>Em reprocessamento</span><strong>{{ resumo.unidades_reprocessamento|br_numero(0) }}</strong><small>{{ resumo.peso_reprocessamento|br_numero(3) }} kg aplicáveis</small></div>
         <div class="card expedicao-kpi"><span>Aguardando liberação</span><strong>{{ resumo.unidades_outras_condicoes|br_numero(0) }}</strong><small>{{ resumo.peso_outras_condicoes|br_numero(3) }} kg &middot; fisicamente bloqueado</small></div>
+    </section>
+    <section class="card estoque-consolidado" aria-labelledby="titulo-consolidado-produto">
+        <header class="estoque-consolidado-cabecalho">
+            <div><span class="eyebrow">Posição atual</span><h3 id="titulo-consolidado-produto">Consolidado por Produto</h3><small>Posição física e disponibilidade atual da câmara</small></div>
+            <small>Atualizado em {{ consolidado.gerado_em_formatado }} · {{ consolidado.fuso_horario }}</small>
+        </header>
+        <div class="estoque-consolidado-grid">
+            {% for grupo in consolidado.grupos %}
+            <article class="estoque-produto-card{% if not grupo.classificado %} estoque-produto-nao-classificado{% endif %}" data-grupo-estoque="{{ grupo.chave }}">
+                <header><div><strong>{{ grupo.produto }}</strong><span>{{ grupo.apresentacao }}</span></div>{% if grupo.sku_codigo %}<small>{{ grupo.sku_codigo }}</small>{% endif %}</header>
+                <div class="estoque-situacoes">
+                    {% for situacao in ['disponivel','reservado','nao_conforme_bloqueado','reprocessamento','aguardando_liberacao'] %}
+                    {% set linha = grupo.situacoes[situacao] %}
+                    <div class="estoque-situacao estoque-situacao-{{ situacao|replace('_','-') }}">
+                        <span>{{ linha.rotulo }}</span>
+                        <strong>{% for unidade in grupo.unidades %}{% if not loop.first %}<i>·</i>{% endif %}{% if unidade == 'peso_kg' %}{{ linha.quantidades[unidade]|br_numero(3) }} kg{% else %}{{ linha.quantidades[unidade]|br_numero(0) }} {{ unidade }}{% endif %}{% endfor %}</strong>
+                    </div>
+                    {% endfor %}
+                </div>
+                <footer><span>Total físico</span><strong>{% for unidade in grupo.unidades %}{% if not loop.first %}<i>·</i>{% endif %}{% if unidade == 'peso_kg' %}{{ grupo.total_fisico[unidade]|br_numero(3) }} kg{% else %}{{ grupo.total_fisico[unidade]|br_numero(0) }} {{ unidade }}{% endif %}{% endfor %}</strong></footer>
+            </article>
+            {% endfor %}
+        </div>
+        {% if consolidado.alertas_tecnicos %}<details class="estoque-alertas"><summary>Apresentações que exigem revisão cadastral ({{ consolidado.alertas_tecnicos|length }})</summary><ul>{% for alerta in consolidado.alertas_tecnicos %}<li>{{ alerta }}</li>{% endfor %}</ul></details>{% endif %}
     </section>
     {% if inventario_fisico %}
     <section class="card"><h3>Invent&aacute;rio legado f&iacute;sico</h3><div class="tabela-responsiva tabela-executiva"><table>
@@ -37,5 +62,27 @@
             {% else %}<tr><td colspan="11">Nenhuma caixa individualizada no estoque operacional.</td></tr>{% endfor %}</tbody>
         </table></div>
     </section>
+    <dialog class="estoque-relatorio-modal" data-modal-relatorio-estoque>
+        <form method="GET" action="{{ url_for('relatorio_consolidado_estoque_expedicao') }}" target="_blank">
+            <header><div><span class="eyebrow">Relatório oficial</span><h3>Posição Consolidada do Estoque da Câmara</h3></div><button type="button" aria-label="Fechar" data-fechar-relatorio-estoque>&times;</button></header>
+            <p>O PDF representa a posição atual no momento da geração e não movimenta estoque.</p>
+            <label class="estoque-relatorio-opcao"><input type="checkbox" name="incluir_nao_conforme" value="1"> <span><strong>Incluir estoque não conforme</strong><small>Adiciona, em seção separada, os saldos bloqueados, em reprocessamento e aguardando liberação.</small></span></label>
+            <footer><button type="button" class="romaneio-btn" data-fechar-relatorio-estoque>Cancelar</button><button type="submit" class="romaneio-btn romaneio-btn-primary">Gerar PDF</button></footer>
+        </form>
+    </dialog>
 </div>
+<script>
+(() => {
+    const modal = document.querySelector('[data-modal-relatorio-estoque]');
+    const abrir = document.querySelector('[data-abrir-relatorio-estoque]');
+    if (!modal || !abrir) return;
+    abrir.addEventListener('click', () => modal.showModal());
+    modal.querySelectorAll('[data-fechar-relatorio-estoque]').forEach(botao => {
+        botao.addEventListener('click', () => modal.close());
+    });
+    modal.addEventListener('click', evento => {
+        if (evento.target === modal) modal.close();
+    });
+})();
+</script>
 {% endblock %}
