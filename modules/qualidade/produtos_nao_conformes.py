@@ -9,12 +9,13 @@ from database import DATABASE_URL, conectar, q, transaction
 
 STATUS = {
     "BLOQUEADO", "EM_AVALIACAO", "LIBERADO", "RETRABALHO",
-    "REPROCESSO", "DESCARTE", "MANTIDO_BLOQUEADO",
+    "REPROCESSO", "DESCARTE", "DESCARTE_PARCIAL", "DESCARTADO", "MANTIDO_BLOQUEADO",
 }
 STATUS_LABELS = {
     "BLOQUEADO": "Bloqueado", "EM_AVALIACAO": "Em avaliação",
     "LIBERADO": "Liberado", "RETRABALHO": "Destinado a retrabalho",
     "REPROCESSO": "Destinado a reprocesso", "DESCARTE": "Destinado a descarte",
+    "DESCARTE_PARCIAL": "Parcialmente descartado", "DESCARTADO": "Descartado",
     "MANTIDO_BLOQUEADO": "Mantido bloqueado",
 }
 MOTIVOS = (
@@ -449,7 +450,7 @@ def indicadores(registros):
         "liberados": sum(r["status"] == "LIBERADO" for r in registros),
         "retrabalho": sum(r["status"] == "RETRABALHO" for r in registros),
         "reprocesso": sum(r["status"] == "REPROCESSO" for r in registros),
-        "descarte": sum(r["status"] == "DESCARTE" for r in registros),
+        "descarte": sum(r["status"] in {"DESCARTE", "DESCARTE_PARCIAL", "DESCARTADO"} for r in registros),
         "tempo_medio_horas": sum(tempos) / len(tempos) if tempos else 0,
         "fisico_total_kg": round(sum(
             int(r["saldo_inicial_g"] or 0) / 1000

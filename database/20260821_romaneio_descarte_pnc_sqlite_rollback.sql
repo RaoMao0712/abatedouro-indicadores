@@ -1,0 +1,13 @@
+BEGIN;
+DROP TRIGGER IF EXISTS trg_pnc_romaneio_descarte_itens_delete_imutavel;
+DROP TRIGGER IF EXISTS trg_pnc_romaneio_descarte_itens_update_imutavel;
+DROP TRIGGER IF EXISTS trg_pnc_movimentos_descarte_delete_imutavel;
+DROP TRIGGER IF EXISTS trg_pnc_movimentos_descarte_update_imutavel;
+DROP TABLE IF EXISTS pnc_movimentos_descarte;
+DROP TABLE IF EXISTS pnc_romaneio_descarte_itens;
+DROP TABLE IF EXISTS pnc_romaneios_descarte;
+DROP TABLE IF EXISTS pnc_romaneio_numeracoes;
+ALTER TABLE pa_nao_conforme_solicitacoes DROP COLUMN romaneio_descarte_id;
+ALTER TABLE pa_nao_conformes DROP COLUMN pacotes_bloqueados;
+ALTER TABLE pa_nao_conformes DROP COLUMN galinhas_bloqueadas;
+COMMIT;

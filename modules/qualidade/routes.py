@@ -5,8 +5,10 @@ import csv
 import io
 import json
 import click
+import secrets
 
-from flask import Response, flash, redirect, render_template, request, session, url_for
+from flask import Response, abort, current_app, flash, redirect, render_template, request, send_file, session, url_for
+from io import BytesIO
 
 from database import conectar, q
 from modules.auth.decorators import perfil_permitido
@@ -24,6 +26,11 @@ from .liberacoes import (
     solicitar as solicitar_liberacao, solicitacoes_do_registro,
     validar as validar_liberacao,
 )
+from .descarte_pnc import (
+    cancelar_romaneio_descarte, estornar_romaneio_descarte, listar_romaneios_descarte, obter_romaneio_descarte,
+    previa_saida_descarte_pnc, registrar_saida_descarte_pnc,
+)
+from .descarte_pnc_pdf import gerar_romaneio_descarte_pdf
 
 _CRIAR_BANCO = None
 
@@ -32,6 +39,17 @@ def register_qualidade_routes(app, integracoes=None):
     global _CRIAR_BANCO
     integracoes = integracoes or {}
     _CRIAR_BANCO = integracoes.get("criar_banco")
+
+    def descarte_habilitado():
+        return bool(current_app.config.get("PNC_DISCARD_WAYBILL_ENABLED", False))
+
+    def token_descarte():
+        return session.setdefault("csrf_descarte_pnc", secrets.token_urlsafe(32))
+
+    def validar_csrf_descarte():
+        recebido = request.form.get("csrf_token", "")
+        if not recebido or not secrets.compare_digest(recebido, session.get("csrf_descarte_pnc", "")):
+            abort(400, description="Token CSRF inválido.")
 
     @app.cli.command("carga-inventario-nc-20260730")
     @click.option("--confirmar", is_flag=True, help="Persiste a carga; sem a flag apenas simula.")
@@ -85,7 +103,112 @@ def register_qualidade_routes(app, integracoes=None):
             return redirect(url_for("produtos_nao_conformes"))
         return render_template("produto_nao_conforme_detalhe.html", registro=registro,
                                eventos=eventos, solicitacoes=solicitacoes_do_registro(pa_nc_id),
-                               status_labels=STATUS_LABELS)
+                               status_labels=STATUS_LABELS, descarte_pnc_habilitado=descarte_habilitado())
+
+    @app.get("/qualidade/produtos-nao-conformes/<int:pa_nc_id>/romaneio-descarte")
+    @perfil_permitido("pcp", "qualidade", "gerencia")
+    def novo_romaneio_descarte_pnc(pa_nc_id):
+        if not descarte_habilitado():
+            abort(404)
+        registro, _ = obter_detalhe_pa_nc(pa_nc_id)
+        if not registro:
+            abort(404)
+        try:
+            previa = previa_saida_descarte_pnc(registro, {"modalidade": "INTEGRAL"})
+        except ValueError as erro:
+            flash(str(erro)); return redirect(url_for("detalhe_produto_nao_conforme", pa_nc_id=pa_nc_id))
+        return render_template("romaneio_descarte_pnc_form.html", registro=registro, previa=previa,
+                               dados={}, csrf_token=token_descarte(), confirmar=False)
+
+    @app.post("/qualidade/produtos-nao-conformes/<int:pa_nc_id>/romaneio-descarte/previa")
+    @perfil_permitido("pcp", "qualidade", "gerencia")
+    def prever_romaneio_descarte_pnc(pa_nc_id):
+        if not descarte_habilitado(): abort(404)
+        validar_csrf_descarte()
+        registro, _ = obter_detalhe_pa_nc(pa_nc_id)
+        if not registro: abort(404)
+        dados = request.form.to_dict()
+        try:
+            previa = previa_saida_descarte_pnc(registro, dados)
+        except ValueError as erro:
+            flash(str(erro)); previa = previa_saida_descarte_pnc(registro, {"modalidade":"INTEGRAL"})
+            return render_template("romaneio_descarte_pnc_form.html", registro=registro, previa=previa,
+                                   dados=dados, csrf_token=token_descarte(), confirmar=False), 400
+        from .descarte_pnc import _validar_campos
+        try:
+            _validar_campos(dados)
+            pronto_confirmar, pendencia = True, None
+        except ValueError as erro:
+            # A prévia quantitativa é somente leitura e pode ser auditada antes
+            # do preenchimento dos dados operacionais. A confirmação continua
+            # bloqueada até que todos os campos obrigatórios sejam válidos.
+            pronto_confirmar, pendencia = False, str(erro)
+        dados["idempotency_key"] = dados.get("idempotency_key") or f"WEB-DESC-{pa_nc_id}-{secrets.token_hex(16)}"
+        return render_template("romaneio_descarte_pnc_form.html", registro=registro, previa=previa,
+                               dados=dados, csrf_token=token_descarte(), confirmar=True,
+                               pronto_confirmar=pronto_confirmar, pendencia=pendencia)
+
+    @app.post("/qualidade/produtos-nao-conformes/<int:pa_nc_id>/romaneio-descarte/confirmar")
+    @perfil_permitido("pcp", "qualidade", "gerencia")
+    def confirmar_romaneio_descarte_pnc(pa_nc_id):
+        if not descarte_habilitado(): abort(404)
+        validar_csrf_descarte()
+        try:
+            romaneio = registrar_saida_descarte_pnc(pa_nc_id, request.form.to_dict())
+            flash("Saída para descarte confirmada; somente o saldo bloqueado foi baixado.")
+            return redirect(url_for("visualizar_romaneio_descarte_pnc", romaneio_id=romaneio["id"]))
+        except (ValueError, PermissionError) as erro:
+            flash(str(erro)); return redirect(url_for("novo_romaneio_descarte_pnc", pa_nc_id=pa_nc_id))
+
+    @app.get("/expedicao/romaneios/descarte")
+    @perfil_permitido("pcp", "qualidade", "gerencia")
+    def romaneios_descarte_pnc():
+        if not descarte_habilitado(): abort(404)
+        return render_template("romaneios_descarte_pnc.html", romaneios=listar_romaneios_descarte())
+
+    @app.get("/expedicao/romaneios/descarte/<int:romaneio_id>")
+    @perfil_permitido("pcp", "qualidade", "gerencia")
+    def visualizar_romaneio_descarte_pnc(romaneio_id):
+        if not descarte_habilitado(): abort(404)
+        romaneio = obter_romaneio_descarte(romaneio_id)
+        if not romaneio: abort(404)
+        return render_template("romaneio_descarte_pnc_detalhe.html", romaneio=romaneio,
+                               csrf_token=token_descarte())
+
+    @app.get("/expedicao/romaneios/descarte/<int:romaneio_id>.pdf")
+    @perfil_permitido("pcp", "qualidade", "gerencia")
+    def imprimir_romaneio_descarte_pnc(romaneio_id):
+        if not descarte_habilitado(): abort(404)
+        romaneio = obter_romaneio_descarte(romaneio_id)
+        if not romaneio: abort(404)
+        resposta = send_file(BytesIO(gerar_romaneio_descarte_pdf(romaneio["snapshot"])),
+            mimetype="application/pdf", as_attachment=False, download_name=f"{romaneio['numero']}.pdf")
+        resposta.headers["Cache-Control"] = "no-store, private"
+        return resposta
+
+    @app.post("/expedicao/romaneios/descarte/<int:romaneio_id>/estornar")
+    @perfil_permitido("gerencia")
+    def estornar_saida_romaneio_descarte_pnc(romaneio_id):
+        if not descarte_habilitado(): abort(404)
+        validar_csrf_descarte()
+        try:
+            estornar_romaneio_descarte(romaneio_id, request.form.get("justificativa"))
+            flash("Romaneio estornado por movimento inverso; o saldo voltou somente ao estoque bloqueado.")
+        except (ValueError, PermissionError) as erro:
+            flash(str(erro))
+        return redirect(url_for("visualizar_romaneio_descarte_pnc", romaneio_id=romaneio_id))
+
+    @app.post("/expedicao/romaneios/descarte/<int:romaneio_id>/cancelar")
+    @perfil_permitido("pcp", "qualidade", "gerencia")
+    def cancelar_saida_romaneio_descarte_pnc(romaneio_id):
+        if not descarte_habilitado(): abort(404)
+        validar_csrf_descarte()
+        try:
+            cancelar_romaneio_descarte(romaneio_id, request.form.get("justificativa"))
+            flash("Rascunho cancelado sem movimentação de estoque.")
+        except (ValueError, PermissionError) as erro:
+            flash(str(erro))
+        return redirect(url_for("visualizar_romaneio_descarte_pnc", romaneio_id=romaneio_id))
 
     @app.post("/qualidade/produtos-nao-conformes/<int:pa_nc_id>/solicitar-liberacao")
     @perfil_permitido("qualidade")

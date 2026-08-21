@@ -242,6 +242,8 @@ def solicitar(registro_id, peso, caixas, bandejas, justificativa, observacoes=""
         registro = cursor.fetchone()
         if not registro:
             raise ValueError("Produto Nao Conforme nao encontrado.")
+        if registro["status"] in {"DESCARTE", "DESCARTE_PARCIAL", "DESCARTADO"}:
+            raise ValueError("Produto destinado a descarte não pode receber solicitação de liberação comercial.")
         cursor.execute(q("SELECT id FROM pa_nao_conforme_solicitacoes WHERE idempotency_key=?"), (chave,))
         existente = cursor.fetchone()
         if existente:
@@ -317,6 +319,8 @@ def validar(solicitacao_id, decisao, justificativa, *, usuario=None, perfil=None
             raise ValueError("Solicitacao de liberacao nao encontrada.")
         if solicitacao["status"] != PENDENTE:
             raise ValueError("Esta solicitacao ja foi validada.")
+        if solicitacao["nc_status"] in {"DESCARTE", "DESCARTE_PARCIAL", "DESCARTADO"}:
+            raise ValueError("Solicitação superada: produto destinado a descarte não pode ser liberado.")
         if _mesma_identidade(solicitacao, usuario, usuario_id):
             registro_autoaprovacao = solicitacao["pa_nao_conforme_id"]
         else:

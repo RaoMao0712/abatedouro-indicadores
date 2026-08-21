@@ -1,0 +1,16 @@
+BEGIN;
+ALTER TABLE pa_nao_conformes ADD COLUMN galinhas_bloqueadas INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE pa_nao_conformes ADD COLUMN pacotes_bloqueados INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE pa_nao_conforme_solicitacoes ADD COLUMN romaneio_descarte_id INTEGER;
+CREATE TABLE pnc_romaneios_descarte (id INTEGER PRIMARY KEY AUTOINCREMENT,numero TEXT NOT NULL UNIQUE,pa_nao_conforme_id INTEGER NOT NULL,status TEXT NOT NULL,idempotency_key TEXT NOT NULL UNIQUE,saida_fisica_em TEXT NOT NULL,lancado_em TEXT NOT NULL,saida_ja_realizada INTEGER NOT NULL DEFAULT 0,destino TEXT NOT NULL,motorista TEXT NOT NULL,motorista_cpf TEXT,placa TEXT NOT NULL,responsavel_entrega TEXT NOT NULL,responsavel_recebimento TEXT,observacoes TEXT,referencia_manual TEXT,usuario_emissor TEXT NOT NULL,perfil_emissor TEXT NOT NULL,snapshot_json TEXT NOT NULL,justificativa_estorno TEXT,estornado_por TEXT,estornado_em TEXT,criado_em TEXT NOT NULL);
+CREATE TABLE pnc_romaneio_descarte_itens (id INTEGER PRIMARY KEY AUTOINCREMENT,romaneio_id INTEGER NOT NULL UNIQUE,pa_nao_conforme_id INTEGER NOT NULL,produto TEXT NOT NULL,apresentacao TEXT,motivo TEXT,caixas INTEGER NOT NULL DEFAULT 0,bandejas INTEGER NOT NULL DEFAULT 0,galinhas INTEGER NOT NULL DEFAULT 0,pacotes INTEGER NOT NULL DEFAULT 0,peso_g INTEGER NOT NULL DEFAULT 0,snapshot_json TEXT NOT NULL);
+CREATE TABLE pnc_movimentos_descarte (id INTEGER PRIMARY KEY AUTOINCREMENT,pa_nao_conforme_id INTEGER NOT NULL,romaneio_id INTEGER NOT NULL,movimento_origem_id INTEGER,tipo TEXT NOT NULL,idempotency_key TEXT NOT NULL UNIQUE,produto TEXT NOT NULL,caixas INTEGER NOT NULL DEFAULT 0,bandejas INTEGER NOT NULL DEFAULT 0,galinhas INTEGER NOT NULL DEFAULT 0,pacotes INTEGER NOT NULL DEFAULT 0,peso_g INTEGER NOT NULL DEFAULT 0,usuario TEXT NOT NULL,perfil TEXT NOT NULL,saida_fisica_em TEXT NOT NULL,lancado_em TEXT NOT NULL,destino TEXT NOT NULL,justificativa TEXT NOT NULL,criado_em TEXT NOT NULL);
+CREATE TABLE pnc_romaneio_numeracoes(data_chave TEXT PRIMARY KEY,ultimo_numero INTEGER NOT NULL);
+CREATE INDEX idx_pnc_rom_descarte_pnc ON pnc_romaneios_descarte(pa_nao_conforme_id,criado_em);
+CREATE INDEX idx_pnc_rom_descarte_saida ON pnc_romaneios_descarte(saida_fisica_em,status);
+CREATE INDEX idx_pnc_mov_descarte_pnc ON pnc_movimentos_descarte(pa_nao_conforme_id,criado_em);
+CREATE TRIGGER trg_pnc_movimentos_descarte_update_imutavel BEFORE UPDATE ON pnc_movimentos_descarte BEGIN SELECT RAISE(ABORT,'Movimento de descarte e imutavel'); END;
+CREATE TRIGGER trg_pnc_movimentos_descarte_delete_imutavel BEFORE DELETE ON pnc_movimentos_descarte BEGIN SELECT RAISE(ABORT,'Movimento de descarte e imutavel'); END;
+CREATE TRIGGER trg_pnc_romaneio_descarte_itens_update_imutavel BEFORE UPDATE ON pnc_romaneio_descarte_itens BEGIN SELECT RAISE(ABORT,'Snapshot de descarte e imutavel'); END;
+CREATE TRIGGER trg_pnc_romaneio_descarte_itens_delete_imutavel BEFORE DELETE ON pnc_romaneio_descarte_itens BEGIN SELECT RAISE(ABORT,'Snapshot de descarte e imutavel'); END;
+COMMIT;
