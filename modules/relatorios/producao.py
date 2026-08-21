@@ -263,7 +263,7 @@ def cte_ops_agregadas(filtros, somente_encerradas=False):
             COALESCE(SUM(cx.peso_bruto), 0) AS peso_bruto_pa
         FROM pa_caixa_composicao comp
         INNER JOIN pa_caixas cx ON cx.id = comp.caixa_id
-        WHERE COALESCE(cx.status, '') <> 'Cancelada'
+        WHERE UPPER(COALESCE(cx.status, '')) NOT IN ('CANCELADA','CANCELADO','ESTORNADA','ESTORNADO')
         GROUP BY comp.op_id
     ),
     perdas AS (
@@ -837,7 +837,7 @@ def buscar_eficiencia_dados(filtros):
             COALESCE(SUM(cx.peso_liquido), 0) AS peso_liquido_pa
         FROM pa_caixa_composicao comp
         INNER JOIN pa_caixas cx ON cx.id = comp.caixa_id
-        WHERE COALESCE(cx.status, '') <> 'Cancelada'
+        WHERE UPPER(COALESCE(cx.status, '')) NOT IN ('CANCELADA','CANCELADO','ESTORNADA','ESTORNADO')
         GROUP BY comp.op_id
     ),
     tempos AS (

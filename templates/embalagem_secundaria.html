@@ -185,6 +185,7 @@
         onsubmit="return confirm('Confirmar encerramento industrial desta OP?')"
         style="margin-top: 1rem;"
     >
+        <input type="hidden" name="conferencia_hash" value="{{ conferencia_op.hash if conferencia_op else '' }}">
         <section class="pa-nc-encerramento">
             <div class="section-title-row"><div><span class="eyebrow">Segregação controlada</span><h3>Produtos Acabados Não Conformes</h3><p class="obs">Opcional. Marque zero ou várias caixas. Cada item marcado nascerá bloqueado e fora do estoque comercial.</p></div></div>
             <div class="tabela-responsiva tabela-executiva"><table>
@@ -198,32 +199,36 @@
                 </tr>{% else %}<tr><td colspan="5">Nenhuma caixa ativa vinculada.</td></tr>{% endfor %}</tbody>
             </table></div>
         </section>
-        <button type="submit" class="botao-principal" {% if not fechamento_op.pode_encerrar %}disabled{% endif %}>
+        <button type="submit" class="botao-principal" {% if not fechamento_op.pode_encerrar or not conferencia_op or not conferencia_op.confirmacao_valida %}disabled{% endif %}>
             Finalizar Embalagem Secundária e Encerrar OP
         </button>
+        {% if not conferencia_op or not conferencia_op.confirmacao_valida %}
+        <p class="obs">Antes de encerrar, confira as caixas na seção abaixo e registre a confirmação explícita.</p>
+        {% endif %}
     </form>
 
-    {% if fechamento_op.op.status != "Encerrada" %}
+    {% if estorno_habilitado and pode_estornar_caixa %}
     <div class="obs" style="margin-top: 1.5rem; border: 1px solid #f1c6c6; background: #fff7f7; padding: 1rem; border-radius: 12px;">
-        <strong>Reset operacional da OP</strong>
+        <strong>Estorno integral da OP</strong>
         <p style="margin: 0.4rem 0 0.8rem;">
-            Use apenas para desfazer testes ou lançamentos incorretos antes do encerramento.
-            Esta ação remove Embalagem Primária, PI, caixas PA e devolve a OP para Aberta.
+            Esta ação estorna logicamente todas as caixas e seus movimentos, preservando o histórico.
+            Se qualquer caixa possuir vínculo posterior, nenhuma alteração será aplicada.
         </p>
         <form
             method="post"
-            action="{{ url_for('resetar_embalagem_secundaria_op', op_id=op_selecionada.op_id) }}"
-            onsubmit="return confirm('Esta ação vai remover todos os lançamentos PI/PA desta OP e voltar a OP para Aberta. Confirmar reset?')"
+            action="{{ url_for('estornar_embalagem_secundaria_op', op_id=op_selecionada.op_id) }}"
+            onsubmit="return confirm('Confirmar o estorno integral e auditável da OP #{{ op_selecionada.op_id }}?')"
             class="form-grid"
         >
+            <input type="hidden" name="csrf_token" value="{{ csrf_estorno }}">
+            <input type="hidden" name="idempotency_key" value="{{ chave_estorno_op }}">
             <div>
-                <label>Confirmação</label>
-                <input type="text" name="confirmacao_reset" placeholder="Digite RESETAR" required>
-                <small class="obs">Digite RESETAR para liberar a ação.</small>
+                <label>Justificativa do estorno integral</label>
+                <textarea name="justificativa" rows="2" required minlength="5" placeholder="Explique por que toda a OP deve ser estornada"></textarea>
             </div>
             <div>
                 <button type="submit" class="botao-dre-exportar" style="background: #b42318; color: #fff; border-color: #b42318;">
-                    Resetar OP
+                    Estornar OP
                 </button>
             </div>
         </form>
@@ -255,8 +260,9 @@ document.addEventListener("DOMContentLoaded", function () {
         </div>
     </div>
 
-    {% if not fechamento_op or (fechamento_op.saldo_pi > 0 and fechamento_op.op.status != "Encerrada") %}
+    {% if not fechamento_op or (fechamento_op.saldo_pi > 0 and fechamento_op.op.status == "Aberta") %}
     <form method="post" class="form-grid" id="form-caixa-individual">
+        <input type="hidden" name="idempotency_key" value="{{ chave_inclusao_individual }}">
         <input type="hidden" name="op_principal" value="{{ op_selecionada.op_id }}">
         <input type="hidden" name="op_complementar" value="">
         <input type="hidden" name="bandejas_complementar" value="0">
@@ -321,6 +327,7 @@ document.addEventListener("DOMContentLoaded", function () {
     </div>
 
     <form method="post" class="form-grid" id="form-caixa-lote">
+        <input type="hidden" name="idempotency_key" value="{{ chave_inclusao_lote }}">
         <input type="hidden" name="op_principal" value="{{ op_selecionada.op_id }}">
         <input type="hidden" name="op_complementar" value="">
         <input type="hidden" name="bandejas_complementar" value="0">
@@ -386,31 +393,92 @@ document.addEventListener("DOMContentLoaded", function () {
 <div class="card expedicao-card">
     <div class="section-title-row">
         <div>
-            <span class="eyebrow">OP selecionada</span>
-            <h2>Caixas lançadas para a OP #{{ op_selecionada.op_id }}</h2>
+            <span class="eyebrow">Conferência operacional e auditável</span>
+            <h2>Conferência de Caixas da OP #{{ op_selecionada.op_id }}</h2>
         </div>
     </div>
+
+    {% if conferencia_op %}
+    <div class="hero-resumo-inline" style="margin-bottom:1rem;">
+        <span><strong>Ativas:</strong> {{ conferencia_op.totais.caixas_ativas }}</span>
+        <span><strong>Estornadas:</strong> {{ conferencia_op.totais.caixas_estornadas }}</span>
+        <span><strong>Bandejas ativas:</strong> {{ conferencia_op.totais.bandejas|br_numero }}</span>
+        <span><strong>Bruto:</strong> {{ conferencia_op.totais.peso_bruto|br_numero(3) }} kg</span>
+        <span><strong>Líquido:</strong> {{ conferencia_op.totais.peso_liquido|br_numero(3) }} kg</span>
+        <span><strong>Possíveis duplicidades:</strong> {{ conferencia_op.duplicidades|length }}</span>
+    </div>
+    <p class="obs">“Possível duplicidade” compara dados equivalentes lançados em até {{ conferencia_op.janela_duplicidade_segundos }} segundos. É apenas um alerta: nenhuma caixa é selecionada ou removida automaticamente.</p>
+    <form method="get" action="{{ url_for('embalagem_secundaria') }}" class="form-grid" style="margin:1rem 0;">
+        <input type="hidden" name="op_id" value="{{ op_selecionada.op_id }}">
+        <div><label>Localizar caixa, peso, bandejas, usuário ou horário</label><input name="busca" value="{{ request.args.get('busca','') }}" placeholder="Ex.: CX-001, 12,760 ou 08:15"></div>
+        <div><label>Situação</label><select name="situacao"><option value="ativas" {% if request.args.get('situacao','ativas') == 'ativas' %}selected{% endif %}>Somente caixas ativas</option><option value="estornadas" {% if request.args.get('situacao') == 'estornadas' %}selected{% endif %}>Somente caixas estornadas</option><option value="todas" {% if request.args.get('situacao') == 'todas' %}selected{% endif %}>Todas</option></select></div>
+        <div><label><input type="checkbox" name="duplicadas" value="1" {% if request.args.get('duplicadas') %}checked{% endif %}> Somente possíveis duplicidades</label></div>
+        <div><button class="botao-dre-exportar" type="submit">Aplicar filtros</button> <a class="botao-dre-exportar" href="{{ url_for('embalagem_secundaria', op_id=op_selecionada.op_id) }}">Limpar</a></div>
+    </form>
+    {% endif %}
 
     {% if caixas_op %}
     <div class="tabela-responsiva tabela-executiva expedicao-tabela">
         <table>
             <thead>
                 <tr>
+                    <th>Selecionar</th>
                     <th>Código</th>
+                    <th>Peso bruto</th>
                     <th>Bandejas</th>
                     <th>Peso líquido</th>
-                    <th>Tipo</th>
+                    <th>Fabricação / validade</th>
+                    <th>Lote / lançamento</th>
                     <th>Status</th>
+                    <th>Alerta</th>
+                    <th>Ação</th>
                 </tr>
             </thead>
             <tbody>
                 {% for caixa in caixas_op %}
-                <tr>
+                <tr {% if caixa.status|upper in ['ESTORNADA','ESTORNADO','CANCELADA','CANCELADO'] %}style="opacity:.62;background:#f4f4f4;"{% endif %}>
+                    <td><input type="checkbox" name="caixa_ids[]" value="{{ caixa.id }}" form="form-estorno-lote" data-caixa-selecao data-bandejas="{{ caixa.quantidade_bandejas }}" data-bruto="{{ caixa.peso_bruto }}" data-liquido="{{ caixa.peso_liquido }}" data-codigo="{{ caixa.codigo_caixa }}" {% if not caixa.selecionavel %}disabled{% endif %}></td>
                     <td><strong>{{ caixa.codigo_caixa }}</strong></td>
+                    <td>{{ caixa.peso_bruto|br_numero(3) }} kg</td>
                     <td>{{ caixa.quantidade_bandejas|br_numero }}</td>
-                    <td>{{ caixa.peso_liquido|br_numero }}</td>
-                    <td>{% if caixa.quantidade_bandejas < bandejas_por_caixa %}Parcial{% else %}Padrão{% endif %}</td>
-                    <td>{{ caixa.status }}</td>
+                    <td>{{ caixa.peso_liquido|br_numero(3) }} kg</td>
+                    <td>{{ caixa.data_fabricacao or '-' }}<br>{{ caixa.data_validade or '-' }}</td>
+                    <td>{{ caixa.codigo_caixa }}<br><small>{{ caixa.criado_em or '-' }} · {{ caixa.usuario_lancamento or '-' }}</small></td>
+                    <td><strong>{{ caixa.status }}</strong>{% if caixa.bloqueios %}<br><small>{{ caixa.bloqueios|join(' ') }}</small>{% endif %}</td>
+                    <td>{% if caixa.possivel_duplicidade %}<strong style="color:#b54708;">Possível duplicidade</strong>{% else %}<span class="obs">—</span>{% endif %}</td>
+                    <td>
+                    {% if estorno_habilitado and pode_estornar_caixa and caixa.status|upper not in ['ESTORNADA','ESTORNADO','CANCELADA','CANCELADO'] %}
+                        <details>
+                            <summary class="botao-dre-exportar" style="cursor:pointer;">Estornar caixa</summary>
+                            <form method="post"
+                                  action="{{ url_for('estornar_caixa_embalagem_secundaria_rota', op_id=op_selecionada.op_id, caixa_id=caixa.id) }}"
+                                  onsubmit="return confirm('Confirmar estorno da caixa {{ caixa.codigo_caixa }}? Bruto: {{ caixa.peso_bruto|br_numero(3) }} kg; líquido: {{ caixa.peso_liquido|br_numero(3) }} kg; bandejas: {{ caixa.quantidade_bandejas|br_numero }}.');"
+                                  style="min-width: 260px; margin-top: .6rem;">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_estorno }}">
+                                <input type="hidden" name="idempotency_key" value="{{ chaves_estorno[caixa.id] }}">
+                                <p class="obs">OP #{{ op_selecionada.op_id }} · {{ caixa.codigo_caixa }}<br>
+                                    Fab. {{ caixa.data_fabricacao or '-' }} · Val. {{ caixa.data_validade or '-' }}<br>
+                                    O PA será retirado e {{ caixa.quantidade_bandejas|br_numero }} bandejas retornarão ao PI.</p>
+                                <label>Motivo</label>
+                                <select name="motivo" required>
+                                    <option value="">Selecione</option>
+                                    <option>Peso bruto informado incorretamente</option>
+                                    <option>Peso líquido informado incorretamente</option>
+                                    <option>Quantidade de bandejas incorreta</option>
+                                    <option>Lançamento duplicado</option>
+                                    <option>Caixa física desfeita</option>
+                                    <option>Data incorreta</option>
+                                    <option>Outro</option>
+                                </select>
+                                <label>Detalhes</label>
+                                <textarea name="detalhes" rows="2" placeholder="Obrigatório para Outro"></textarea>
+                                <button type="submit" class="botao-dre-exportar" style="background:#b42318;color:#fff;">Confirmar estorno desta caixa</button>
+                            </form>
+                        </details>
+                    {% else %}
+                        <span class="obs">Indisponível</span>
+                    {% endif %}
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -418,6 +486,28 @@ document.addEventListener("DOMContentLoaded", function () {
     </div>
     {% else %}
         <p class="obs">Nenhuma caixa registrada para esta OP ainda.</p>
+    {% endif %}
+
+    {% if estorno_habilitado and pode_estornar_caixa %}
+    <form method="post" id="form-estorno-lote" action="{{ url_for('estornar_caixas_embalagem_secundaria_lote_rota', op_id=op_selecionada.op_id) }}" class="form-grid" style="margin-top:1rem; border-top:1px solid #ddd; padding-top:1rem;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_estorno }}">
+        <input type="hidden" name="idempotency_key" value="{{ chave_estorno_lote }}">
+        <div class="form-span-2"><label><input type="checkbox" data-selecionar-todas> Selecionar todas as caixas ativas exibidas pelo filtro</label> <button type="button" class="botao-dre-exportar" data-limpar-selecao>Limpar seleção</button></div>
+        <div class="form-span-2" data-resumo-selecao><strong>0 caixas selecionadas</strong><br>0 bandejas · Bruto 0,000 kg · Líquido 0,000 kg</div>
+        <div><label>Motivo</label><select name="motivo" required><option value="">Selecione</option><option>Lançamentos em duplicidade</option><option>Pesos informados incorretamente</option><option>Quantidades de bandejas incorretas</option><option>Caixas físicas desfeitas</option><option>Seleção lançada na OP errada</option><option>Outro</option></select></div>
+        <div><label>Detalhes</label><textarea name="detalhes" rows="2" placeholder="Obrigatório para Outro"></textarea></div>
+        <div class="form-span-2"><button type="submit" class="botao-principal" data-confirmar-lote disabled>Confirmar estorno das caixas selecionadas</button></div>
+    </form>
+    {% endif %}
+
+    {% if conferencia_op %}
+    <form method="post" action="{{ url_for('confirmar_conferencia_embalagem_secundaria', op_id=op_selecionada.op_id) }}" style="margin-top:1.5rem; padding:1rem; border:1px solid #d0d5dd; border-radius:12px;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_estorno }}">
+        <input type="hidden" name="conferencia_hash" value="{{ conferencia_op.hash }}">
+        <label><input type="checkbox" required> <strong>Conferi os lançamentos da Embalagem Secundária desta OP.</strong></label>
+        <button type="submit" class="botao-principal" style="margin-top:.8rem;">Registrar conferência para encerramento</button>
+        {% if conferencia_op.confirmacao_valida %}<p><strong>Conferência válida e registrada.</strong> Qualquer inclusão ou estorno invalidará esta confirmação.</p>{% endif %}
+    </form>
     {% endif %}
 </div>
 {% endif %}
@@ -593,6 +683,48 @@ document.addEventListener("DOMContentLoaded", function () {
             });
         }
     });
+
+    ["form-caixa-individual", "form-caixa-lote"].forEach(function (id) {
+        const form = document.getElementById(id);
+        if (!form) return;
+        form.addEventListener("submit", function () {
+            const botao = form.querySelector("button[type=submit]");
+            if (botao && !botao.disabled) {
+                botao.disabled = true;
+                botao.textContent = "Registrando...";
+            }
+        });
+    });
+
+    const selecoes = Array.from(document.querySelectorAll("[data-caixa-selecao]"));
+    const marcarTodas = document.querySelector("[data-selecionar-todas]");
+    const limpar = document.querySelector("[data-limpar-selecao]");
+    const resumoSelecao = document.querySelector("[data-resumo-selecao]");
+    const confirmarLote = document.querySelector("[data-confirmar-lote]");
+    const formLoteEstorno = document.getElementById("form-estorno-lote");
+
+    function numero(valor) { return Number(String(valor || 0).replace(",", ".")) || 0; }
+    function br(valor, casas) { return valor.toLocaleString("pt-BR", {minimumFractionDigits: casas, maximumFractionDigits: casas}); }
+    function atualizarSelecao() {
+        const marcadas = selecoes.filter(function (item) { return item.checked; });
+        const bandejas = marcadas.reduce(function (s, item) { return s + numero(item.dataset.bandejas); }, 0);
+        const bruto = marcadas.reduce(function (s, item) { return s + numero(item.dataset.bruto); }, 0);
+        const liquido = marcadas.reduce(function (s, item) { return s + numero(item.dataset.liquido); }, 0);
+        if (resumoSelecao) resumoSelecao.innerHTML = "<strong>" + marcadas.length + " caixas selecionadas</strong><br>" + br(bandejas, 0) + " bandejas · Bruto " + br(bruto, 3) + " kg · Líquido " + br(liquido, 3) + " kg";
+        if (confirmarLote) confirmarLote.disabled = marcadas.length === 0;
+        if (marcarTodas) marcarTodas.checked = marcadas.length > 0 && marcadas.length === selecoes.filter(function (i) { return !i.disabled; }).length;
+    }
+    selecoes.forEach(function (item) { item.addEventListener("change", atualizarSelecao); });
+    if (marcarTodas) marcarTodas.addEventListener("change", function () { selecoes.forEach(function (item) { if (!item.disabled) item.checked = marcarTodas.checked; }); atualizarSelecao(); });
+    if (limpar) limpar.addEventListener("click", function () { selecoes.forEach(function (item) { item.checked = false; }); if (marcarTodas) marcarTodas.checked = false; atualizarSelecao(); });
+    if (formLoteEstorno) formLoteEstorno.addEventListener("submit", function (evento) {
+        const marcadas = selecoes.filter(function (item) { return item.checked; });
+        if (!marcadas.length || !window.confirm("Confirmar o estorno somente das " + marcadas.length + " caixas selecionadas?")) {
+            evento.preventDefault(); return;
+        }
+        if (confirmarLote) { confirmarLote.disabled = true; confirmarLote.textContent = "Estornando..."; }
+    });
+    atualizarSelecao();
 })();
 </script>
 

@@ -1,6 +1,8 @@
 """Rotas de Expedicao, Embalagem e estoques PI/PA."""
 
 from datetime import datetime
+import secrets
+import uuid
 
 from flask import flash, jsonify, redirect, render_template, request, send_file, session, url_for
 from io import BytesIO
@@ -37,9 +39,15 @@ from .services import (
     registrar_apontamento_embalagem_primaria,
     registrar_caixa_pa_manual,
     registrar_caixas_pa_lote,
-    resetar_processamento_op,
     salvar_romaneio_expedicao,
 )
+from .estornos_embalagem import (
+    estornar_caixa_embalagem_secundaria,
+    estornar_caixas_embalagem_secundaria_em_lote,
+    estornar_op_embalagem_secundaria,
+    funcionalidade_estorno_habilitada,
+)
+from .conferencia_embalagem import confirmar_conferencia_op, obter_conferencia_op
 from .estoque_service import (
     DESTINOS_CONTROLADOS,
     TIPOS_ROMANEIO,
@@ -208,7 +216,9 @@ def register_expedicao_routes(app, integracoes=None):
     def finalizar_embalagem_secundaria(op_id):
         try:
             fechamento = finalizar_embalagem_secundaria_op(
-                op_id, nao_conformes=_itens_nc_caixas(request.form)
+                op_id, nao_conformes=_itens_nc_caixas(request.form),
+                conferencia_hash=request.form.get("conferencia_hash"),
+                exigir_conferencia=True,
             )
             flash(
                 "OP encerrada com sucesso. "
@@ -222,20 +232,115 @@ def register_expedicao_routes(app, integracoes=None):
         return redirect(url_for("embalagem_secundaria", op_id=op_id))
 
 
-    @app.route("/embalagem-secundaria/<int:op_id>/resetar", methods=["POST"])
+    @app.route("/embalagem-secundaria/<int:op_id>/estornar", methods=["POST"])
     @perfil_permitido("pcp")
-    def resetar_embalagem_secundaria_op(op_id):
+    def estornar_embalagem_secundaria_op(op_id):
         try:
-            resultado = resetar_processamento_op(op_id, request.form.get("confirmacao_reset"))
-            flash(
-                "OP resetada com sucesso. "
-                f"Caixas removidas: {resultado['caixas_removidas']}. "
-                "A OP voltou para Aberta e pode ser reapontada desde a Embalagem Primária."
+            if not secrets.compare_digest(
+                str(request.form.get("csrf_token") or ""),
+                str(session.get("estorno_embalagem_csrf") or ""),
+            ):
+                raise PermissionError("Sessão de confirmação expirada. Atualize a página e tente novamente.")
+            resultado = estornar_op_embalagem_secundaria(
+                op_id,
+                usuario=session.get("nome") or "Usuário",
+                perfil=session.get("perfil"),
+                justificativa=request.form.get("justificativa"),
+                idempotency_key=request.form.get("idempotency_key"),
+                ip_origem=request.access_route[0] if request.access_route else request.remote_addr,
             )
-            return redirect(url_for("embalagem_primaria", op_id=op_id))
-        except ValueError as erro:
+            flash(
+                "OP estornada com sucesso, sem exclusão de histórico. "
+                f"Caixas estornadas: {resultado['caixas_estornadas']}."
+            )
+        except (ValueError, PermissionError) as erro:
             flash(str(erro))
-            return redirect(url_for("embalagem_secundaria", op_id=op_id))
+        return redirect(url_for("embalagem_secundaria", op_id=op_id))
+
+
+    @app.route("/embalagem-secundaria/<int:op_id>/conferencia/confirmar", methods=["POST"])
+    @perfil_permitido("pcp", "producao")
+    def confirmar_conferencia_embalagem_secundaria(op_id):
+        try:
+            if not secrets.compare_digest(
+                str(request.form.get("csrf_token") or ""),
+                str(session.get("estorno_embalagem_csrf") or ""),
+            ):
+                raise PermissionError("Sessão de confirmação expirada. Atualize a página e tente novamente.")
+            confirmar_conferencia_op(
+                op_id, usuario=session.get("nome") or "Usuário",
+                perfil=session.get("perfil") or "", hash_informado=request.form.get("conferencia_hash"),
+            )
+            flash("Conferência registrada. O encerramento está liberado enquanto as caixas permanecerem inalteradas.")
+        except (ValueError, PermissionError) as erro:
+            flash(str(erro))
+        return redirect(url_for("embalagem_secundaria", op_id=op_id, conferencia="1"))
+
+
+    @app.route("/embalagem-secundaria/<int:op_id>/caixas/<int:caixa_id>/estornar", methods=["POST"])
+    @perfil_permitido("pcp")
+    def estornar_caixa_embalagem_secundaria_rota(op_id, caixa_id):
+        try:
+            if not secrets.compare_digest(
+                str(request.form.get("csrf_token") or ""),
+                str(session.get("estorno_embalagem_csrf") or ""),
+            ):
+                raise PermissionError("Sessão de confirmação expirada. Atualize a página e tente novamente.")
+            motivo = str(request.form.get("motivo") or "").strip()
+            detalhes = str(request.form.get("detalhes") or "").strip()
+            if not motivo:
+                raise ValueError("Selecione o motivo do estorno.")
+            if motivo == "Outro" and not detalhes:
+                raise ValueError("Descreva o motivo quando selecionar Outro.")
+            justificativa = motivo if not detalhes else f"{motivo}: {detalhes}"
+            resultado = estornar_caixa_embalagem_secundaria(
+                op_id, caixa_id,
+                usuario=session.get("nome") or "Usuário",
+                perfil=session.get("perfil"),
+                justificativa=justificativa,
+                idempotency_key=request.form.get("idempotency_key"),
+                ip_origem=request.access_route[0] if request.access_route else request.remote_addr,
+            )
+            flash(
+                f"Caixa {resultado['codigo_caixa']} estornada. "
+                "As demais caixas foram preservadas e as bandejas retornaram ao saldo da OP."
+            )
+        except (ValueError, PermissionError) as erro:
+            flash(str(erro))
+        return redirect(url_for("embalagem_secundaria", op_id=op_id))
+
+
+    @app.route("/embalagem-secundaria/<int:op_id>/caixas/estornar-lote", methods=["POST"])
+    @perfil_permitido("pcp")
+    def estornar_caixas_embalagem_secundaria_lote_rota(op_id):
+        try:
+            if not secrets.compare_digest(
+                str(request.form.get("csrf_token") or ""),
+                str(session.get("estorno_embalagem_csrf") or ""),
+            ):
+                raise PermissionError("Sessão de confirmação expirada. Atualize a página e tente novamente.")
+            motivo = str(request.form.get("motivo") or "").strip()
+            detalhes = str(request.form.get("detalhes") or "").strip()
+            if not motivo:
+                raise ValueError("Selecione o motivo do estorno.")
+            if motivo == "Outro" and not detalhes:
+                raise ValueError("Descreva o motivo quando selecionar Outro.")
+            justificativa = motivo if not detalhes else f"{motivo}: {detalhes}"
+            resultado = estornar_caixas_embalagem_secundaria_em_lote(
+                op_id, request.form.getlist("caixa_ids[]"),
+                usuario=session.get("nome") or "Usuário", perfil=session.get("perfil"),
+                justificativa=justificativa, idempotency_key=request.form.get("idempotency_key"),
+                ip_origem=request.access_route[0] if request.access_route else request.remote_addr,
+            )
+            impacto = resultado["impacto"]
+            flash(
+                f"{resultado['caixas_estornadas']} caixas estornadas com sucesso. "
+                f"{impacto['bandejas']} bandejas, {impacto['peso_bruto']} kg brutos e "
+                f"{impacto['peso_liquido']} kg líquidos foram revertidos."
+            )
+        except (ValueError, PermissionError) as erro:
+            flash(str(erro))
+        return redirect(url_for("embalagem_secundaria", op_id=op_id, conferencia="1"))
 
 
     @app.route("/embalagem-secundaria", methods=["GET", "POST"])
@@ -245,10 +350,10 @@ def register_expedicao_routes(app, integracoes=None):
         if request.method == "POST":
             try:
                 if request.form.get("modo_lancamento") == "lote":
-                    codigos = registrar_caixas_pa_lote(request.form)
+                    codigos = registrar_caixas_pa_lote(request.form, usuario=session.get("nome"))
                     flash(f"{len(codigos)} caixas registradas no Estoque PA com sucesso.")
                 else:
-                    codigo_caixa = registrar_caixa_pa_manual(request.form)
+                    codigo_caixa = registrar_caixa_pa_manual(request.form, usuario=session.get("nome"))
                     flash(f"Caixa {codigo_caixa} registrada no Estoque PA com sucesso.")
             except ValueError as erro:
                 flash(str(erro))
@@ -262,6 +367,7 @@ def register_expedicao_routes(app, integracoes=None):
         op_selecionada = None
         caixas_op = []
         fechamento_op = None
+        conferencia_op = None
 
         if op_id_selecionada:
             try:
@@ -281,7 +387,9 @@ def register_expedicao_routes(app, integracoes=None):
 
                 # Quando o saldo PI chega a zero, a OP deixa de aparecer em saldos_pi.
                 # Ainda assim ela precisa permanecer carregada para conferência e encerramento.
-                if op_selecionada is None and fechamento_op:
+                if (op_selecionada is None and fechamento_op
+                        and str(fechamento_op["op"]["status"] or "").upper()
+                        not in {"ESTORNADA", "ESTORNADO", "CANCELADA", "CANCELADO"}):
                     op_base = fechamento_op["op"]
                     op_selecionada = {
                         "op_id": op_id_int,
@@ -291,20 +399,15 @@ def register_expedicao_routes(app, integracoes=None):
                     }
 
                 try:
-                    conn = conectar()
-                    cursor = conn.cursor()
-                    cursor.execute(q("""
-                    SELECT cx.*
-                    FROM pa_caixas cx
-                    INNER JOIN pa_caixa_composicao comp ON comp.caixa_id = cx.id
-                    WHERE comp.op_id = ?
-                    ORDER BY cx.id DESC
-                    LIMIT 80
-                    """), (op_id_int,))
-                    caixas_op = cursor.fetchall()
-                    conn.close()
+                    conferencia_op = obter_conferencia_op(op_id_int, request.args)
+                    caixas_op = conferencia_op["caixas_exibidas"]
                 except Exception:
                     caixas_op = []
+
+        estorno_habilitado = funcionalidade_estorno_habilitada()
+        csrf_estorno = session.get("estorno_embalagem_csrf") or secrets.token_urlsafe(32)
+        session["estorno_embalagem_csrf"] = csrf_estorno
+        chaves_estorno = {int(caixa["id"]): str(uuid.uuid4()) for caixa in caixas_op}
 
         return render_template(
             "embalagem_secundaria.html",
@@ -319,6 +422,15 @@ def register_expedicao_routes(app, integracoes=None):
             fechamento_op=fechamento_op,
             locais_segregacao=listar_locais_segregacao(),
             motivos_nc=MOTIVOS,
+            estorno_habilitado=estorno_habilitado,
+            pode_estornar_caixa=session.get("perfil") in {"admin", "pcp"},
+            csrf_estorno=csrf_estorno,
+            chaves_estorno=chaves_estorno,
+            chave_estorno_op=str(uuid.uuid4()),
+            chave_estorno_lote=str(uuid.uuid4()),
+            chave_inclusao_individual=str(uuid.uuid4()),
+            chave_inclusao_lote=str(uuid.uuid4()),
+            conferencia_op=conferencia_op,
         )
 
     @app.route("/expedicao")
