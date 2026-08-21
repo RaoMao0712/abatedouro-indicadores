@@ -261,6 +261,14 @@ def test_feature_flag_e_csrf_da_rota(monkeypatch):
     app.config["PNC_DISCARD_WAYBILL_ENABLED"] = True
     assert cliente.get(url).status_code == 200
     assert cliente.post(url+"/previa",data={}).status_code == 400
+    with cliente.session_transaction() as sess:
+        token = sess["csrf_descarte_pnc"]
+    resposta = cliente.post(url+"/previa", data={"csrf_token": token, "modalidade": "INTEGRAL"})
+    assert resposta.status_code == 200
+    conteudo = resposta.get_data(as_text=True)
+    assert "1.000 kg" in conteudo
+    assert "Nenhuma saída foi registrada" in conteudo
+    assert "CONFIRMAR SAÍDA PARA DESCARTE" not in conteudo
 
 
 def test_duas_baixas_simultaneas_nao_consumem_o_mesmo_saldo(banco, monkeypatch):

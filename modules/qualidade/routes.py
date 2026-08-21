@@ -130,16 +130,23 @@ def register_qualidade_routes(app, integracoes=None):
         dados = request.form.to_dict()
         try:
             previa = previa_saida_descarte_pnc(registro, dados)
-            # valida também os campos operacionais antes de apresentar a confirmação.
-            from .descarte_pnc import _validar_campos
-            _validar_campos(dados)
         except ValueError as erro:
             flash(str(erro)); previa = previa_saida_descarte_pnc(registro, {"modalidade":"INTEGRAL"})
             return render_template("romaneio_descarte_pnc_form.html", registro=registro, previa=previa,
                                    dados=dados, csrf_token=token_descarte(), confirmar=False), 400
+        from .descarte_pnc import _validar_campos
+        try:
+            _validar_campos(dados)
+            pronto_confirmar, pendencia = True, None
+        except ValueError as erro:
+            # A prévia quantitativa é somente leitura e pode ser auditada antes
+            # do preenchimento dos dados operacionais. A confirmação continua
+            # bloqueada até que todos os campos obrigatórios sejam válidos.
+            pronto_confirmar, pendencia = False, str(erro)
         dados["idempotency_key"] = dados.get("idempotency_key") or f"WEB-DESC-{pa_nc_id}-{secrets.token_hex(16)}"
         return render_template("romaneio_descarte_pnc_form.html", registro=registro, previa=previa,
-                               dados=dados, csrf_token=token_descarte(), confirmar=True)
+                               dados=dados, csrf_token=token_descarte(), confirmar=True,
+                               pronto_confirmar=pronto_confirmar, pendencia=pendencia)
 
     @app.post("/qualidade/produtos-nao-conformes/<int:pa_nc_id>/romaneio-descarte/confirmar")
     @perfil_permitido("pcp", "qualidade", "gerencia")
