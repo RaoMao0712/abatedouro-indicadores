@@ -54,6 +54,9 @@ from modules.manutencao import services as manutencao_service
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "segredo")
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = int(os.getenv("STATIC_CACHE_SECONDS", "86400"))
+app.config["PNC_DISCARD_WAYBILL_ENABLED"] = os.getenv(
+    "PNC_DISCARD_WAYBILL_ENABLED", "false"
+).strip().lower() in {"1", "true", "yes", "on", "sim"}
 
 
 # ============================================================

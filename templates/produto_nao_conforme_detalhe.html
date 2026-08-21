@@ -30,6 +30,13 @@
   <section class="card"><h3>4 &mdash; Valida&ccedil;&otilde;es</h3><p><strong>Qualidade:</strong> {{ registro.validacao_qualidade or '-' }}</p><p><strong>Ger&ecirc;ncia:</strong> {{ registro.validacao_gerencia or '-' }}</p><p><strong>Observa&ccedil;&otilde;es:</strong> {{ registro.observacoes or '-' }}</p></section>
 </div>
 
+{% if descarte_pnc_habilitado and registro.status in ['DESCARTE', 'DESCARTE_PARCIAL'] and (registro.saldo_bloqueado_g > 0 or registro.peso or registro.caixas_bloqueadas > 0 or registro.bandejas_bloqueadas > 0) and session.get('perfil') in ['admin','pcp','gerencia','qualidade'] %}
+<section class="card"><h3>Romaneio de descarte</h3>
+  <p class="obs">A saída baixa exclusivamente o estoque bloqueado. O produto não será liberado para venda nem transferido ao Estoque Operacional.</p>
+  <a class="botao-principal" href="{{ url_for('novo_romaneio_descarte_pnc', pa_nc_id=registro.id) }}">GERAR ROMANEIO DE DESCARTE</a>
+</section>
+{% endif %}
+
 {% if session.get('perfil') in ['qualidade', 'admin'] and registro.status in ['BLOQUEADO', 'EM_AVALIACAO', 'MANTIDO_BLOQUEADO'] %}
 <section class="card"><h3>Solicitar libera&ccedil;&atilde;o</h3>
   <p class="obs">A solicita&ccedil;&atilde;o reserva o peso; a entrada no estoque operacional s&oacute; ocorre ap&oacute;s aprova&ccedil;&atilde;o da Ger&ecirc;ncia.</p>

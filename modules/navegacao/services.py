@@ -2,7 +2,7 @@
 
 from copy import deepcopy
 
-from flask import url_for
+from flask import current_app, url_for
 
 
 PERFIS_CONHECIDOS = ("admin", "pcp", "producao", "qualidade", "manutencao", "gerencia")
@@ -177,6 +177,7 @@ NAVEGACAO = [
             {"titulo": "Novo Romaneio", "endpoint": "novo_romaneio_expedicao", "perfis": ("admin", "pcp", "qualidade")},
             {"titulo": "Estoque Operacional", "endpoint": "estoque_camara_expedicao", "perfis": ("admin", "pcp", "qualidade")},
             {"titulo": "Não Conformes", "endpoint": "produtos_nao_conformes", "perfis": ("admin", "pcp", "qualidade")},
+            {"titulo": "Romaneios de Descarte", "endpoint": "romaneios_descarte_pnc", "perfis": ("admin", "pcp", "qualidade"), "feature_flag": "PNC_DISCARD_WAYBILL_ENABLED"},
             {"titulo": "Histórico", "endpoint": "historico_estoque_expedicao", "perfis": ("admin", "pcp", "qualidade")},
         ],
     },
@@ -279,6 +280,8 @@ def montar_navegacao(perfil, endpoint_atual="", view_args=None):
 
         itens = []
         for item_definicao in dominio.get("itens", []):
+            if item_definicao.get("feature_flag") and not current_app.config.get(item_definicao["feature_flag"], False):
+                continue
             if not perfil_autorizado(perfil, item_definicao["perfis"]):
                 continue
             item = deepcopy(item_definicao)

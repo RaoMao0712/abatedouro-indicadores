@@ -20,3 +20,6 @@ class Config:
     SECONDARY_PACKAGING_BOX_REVERSAL_ENABLED = os.getenv(
         "SECONDARY_PACKAGING_BOX_REVERSAL_ENABLED", "false"
     ).strip().lower() in {"1", "true", "yes", "on", "sim"}
+    PNC_DISCARD_WAYBILL_ENABLED = os.getenv(
+        "PNC_DISCARD_WAYBILL_ENABLED", "false"
+    ).strip().lower() in {"1", "true", "yes", "on", "sim"}
