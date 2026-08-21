@@ -1,1 +1,46 @@
-{% extends "base.html" %}{% block conteudo %}<section class="hero-dashboard expedicao-hero"><div><span class="eyebrow">Expedição · Romaneios</span><h2>Descarte de Produtos Não Conformes</h2></div></section><section class="card"><div class="tabela-responsiva tabela-executiva"><table><thead><tr><th>Número</th><th>Saída</th><th>PNC</th><th>Produto / característica</th><th>Destino</th><th>Motorista</th><th>Caixas</th><th>Bandejas</th><th>Peso</th><th>Status</th><th>Emissor</th><th>Ações</th></tr></thead><tbody>{% for r in romaneios %}<tr><td>{{ r.numero }}</td><td>{{ r.saida_fisica_em }}</td><td>{{ r.pnc_numero }}</td><td>{{ r.produto }}<br><small>{{ r.motivo }}</small></td><td>{{ r.destino }}</td><td>{{ r.motorista }}</td><td>{{ r.caixas }}</td><td>{{ r.bandejas }}</td><td>{{ (r.peso_g/1000)|br_numero(3) }} kg</td><td>{{ r.status }}</td><td>{{ r.usuario_emissor }}</td><td><a href="{{ url_for('visualizar_romaneio_descarte_pnc',romaneio_id=r.id) }}">Visualizar</a> · <a href="{{ url_for('imprimir_romaneio_descarte_pnc',romaneio_id=r.id) }}" target="_blank">Reimprimir</a></td></tr>{% else %}<tr><td colspan="12">Nenhum romaneio de descarte emitido.</td></tr>{% endfor %}</tbody></table></div></section>{% endblock %}
+{% extends "base.html" %}
+{% block conteudo %}
+<div class="expedicao-page romaneios-page">
+  <header class="romaneios-header"><div><span class="eyebrow">Expedição · Romaneios</span><h2>Descarte de Produtos Não Conformes</h2><p>Consulta histórica e relatório gerencial somente leitura.</p></div></header>
+
+  <form method="get" class="card expedicao-filtro-form romaneio-filtros">
+    <label>Data inicial<input type="date" name="data_inicio" value="{{ filtros.data_inicio }}"></label>
+    <label>Data final<input type="date" name="data_fim" value="{{ filtros.data_fim }}"></label>
+    <label>Data utilizada<select name="tipo_data">{% for codigo,item in tipos_data.items() %}<option value="{{ codigo }}" {% if filtros.tipo_data == codigo %}selected{% endif %}>{{ item[1] }}</option>{% endfor %}</select></label>
+    <label>Número do romaneio<input name="numero" value="{{ filtros.numero }}" placeholder="RDPNC-"></label>
+    <label>Produto<select name="produto" multiple size="3"><option value="">Todos</option>{% for item in opcoes.produtos %}<option value="{{ item }}" {% if item in filtros.produto %}selected{% endif %}>{{ item }}</option>{% endfor %}</select></label>
+    <label>Apresentação<select name="apresentacao"><option value="">Todas</option>{% for item in opcoes.apresentacoes %}<option value="{{ item }}" {% if filtros.apresentacao == item %}selected{% endif %}>{{ item }}</option>{% endfor %}</select></label>
+    <label>Característica<select name="motivo" multiple size="3"><option value="">Todas</option>{% for item in opcoes.motivos %}<option value="{{ item }}" {% if item in filtros.motivo %}selected{% endif %}>{{ item }}</option>{% endfor %}</select></label>
+    <label>Destino<select name="destino" multiple size="3"><option value="">Todos</option>{% for item in opcoes.destinos %}<option value="{{ item }}" {% if item in filtros.destino %}selected{% endif %}>{{ item }}</option>{% endfor %}</select></label>
+    <label>Motorista<input name="motorista" value="{{ filtros.motorista }}"></label>
+    <label>Placa<input name="placa" value="{{ filtros.placa }}"></label>
+    <label>Usuário emissor<input name="usuario_emissor" value="{{ filtros.usuario_emissor }}"></label>
+    <fieldset class="form-span-2"><legend>Status</legend>{% for item in status_opcoes %}<label class="filtro-check"><input type="checkbox" name="status" value="{{ item }}" {% if item in filtros.status %}checked{% endif %}> {{ item|title }}</label>{% endfor %}</fieldset>
+    <label>Modalidade do PDF<select name="modalidade">{% for codigo,rotulo in modalidades.items() %}<option value="{{ codigo }}" {% if filtros.modalidade == codigo %}selected{% endif %}>{{ rotulo }}</option>{% endfor %}</select></label>
+    <button class="romaneio-btn romaneio-btn-filter" type="submit">Aplicar filtros</button>
+    <button class="romaneio-btn romaneio-btn-primary" type="submit" formaction="{{ url_for('relatorio_romaneios_descarte_pnc') }}" formtarget="_blank">Gerar relatório PDF</button>
+  </form>
+
+  <section class="expedicao-kpis romaneio-kpis" aria-label="Resumo físico confirmado">
+    <div class="card expedicao-kpi azul"><span>Romaneios confirmados</span><strong>{{ relatorio.resumo.romaneios_confirmados }}</strong></div>
+    {% if relatorio.resumo.caixas %}<div class="card expedicao-kpi"><span>Caixas</span><strong>{{ relatorio.resumo.caixas|br_numero(0) }}</strong></div>{% endif %}
+    {% if relatorio.resumo.bandejas %}<div class="card expedicao-kpi"><span>Bandejas</span><strong>{{ relatorio.resumo.bandejas|br_numero(0) }}</strong></div>{% endif %}
+    {% if relatorio.resumo.peso_g %}<div class="card expedicao-kpi verde"><span>Peso descartado</span><strong>{{ (relatorio.resumo.peso_g/1000)|br_numero(3) }} kg</strong></div>{% endif %}
+    {% if relatorio.resumo.galinhas %}<div class="card expedicao-kpi"><span>Galinhas</span><strong>{{ relatorio.resumo.galinhas|br_numero(0) }}</strong></div>{% endif %}
+    {% if relatorio.resumo.pacotes %}<div class="card expedicao-kpi"><span>Pacotes</span><strong>{{ relatorio.resumo.pacotes|br_numero(0) }}</strong></div>{% endif %}
+  </section>
+
+  {% if relatorio.excecoes %}<section class="card"><strong>Documentos sem efeito no total físico:</strong> {{ relatorio.excecoes|length }}. Rascunhos, cancelados e estornados são exibidos apenas quando selecionados e nunca compõem os cards acima.</section>{% endif %}
+
+  <section class="card romaneio-lista-card"><div class="tabela-responsiva tabela-executiva expedicao-tabela"><table>
+    <thead><tr><th>Número</th><th>Saída</th><th>PNC</th><th>Produto / apresentação / característica</th><th>Destino</th><th>Motorista / placa</th><th>Quantidades</th><th>Status</th><th>Emissor</th><th>Ações</th></tr></thead>
+    <tbody>{% for r in romaneios %}<tr>
+      <td>{{ r.numero }}</td><td>{{ r.saida_fisica_em }}</td><td>{{ r.pnc_numero }}</td>
+      <td>{{ r.produto }}<br><small>{{ r.apresentacao }} · {{ r.motivo }}</small></td><td>{{ r.destino }}</td><td>{{ r.motorista }}<br><small>{{ r.placa }}</small></td>
+      <td>{% if r.tipo_unidade == 'INTEIRA' %}{{ r.galinhas }} galinhas · {{ r.pacotes }} pacotes{% else %}{{ r.caixas }} caixas · {{ r.bandejas }} bandejas · {{ (r.peso_g/1000)|br_numero(3) }} kg{% endif %}</td>
+      <td>{{ r.status }}{% if not r.efetivo %}<br><small>Fora do total físico</small>{% endif %}</td><td>{{ r.usuario_emissor }}</td>
+      <td><a href="{{ url_for('visualizar_romaneio_descarte_pnc',romaneio_id=r.id) }}">Visualizar</a> · <a href="{{ url_for('imprimir_romaneio_descarte_pnc',romaneio_id=r.id) }}" target="_blank">Reimprimir</a></td>
+    </tr>{% else %}<tr><td colspan="10">Nenhum romaneio de descarte encontrado para os filtros selecionados.</td></tr>{% endfor %}</tbody>
+  </table></div></section>
+</div>
+{% endblock %}

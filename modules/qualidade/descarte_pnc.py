@@ -101,6 +101,11 @@ def criar_tabelas_descarte_pnc():
             "CREATE INDEX IF NOT EXISTS idx_pnc_rom_descarte_pnc ON pnc_romaneios_descarte(pa_nao_conforme_id, criado_em)",
             "CREATE INDEX IF NOT EXISTS idx_pnc_rom_descarte_saida ON pnc_romaneios_descarte(saida_fisica_em, status)",
             "CREATE INDEX IF NOT EXISTS idx_pnc_mov_descarte_pnc ON pnc_movimentos_descarte(pa_nao_conforme_id, criado_em)",
+            "CREATE INDEX IF NOT EXISTS idx_pnc_rom_descarte_status_saida ON pnc_romaneios_descarte(status, saida_fisica_em)",
+            "CREATE INDEX IF NOT EXISTS idx_pnc_rom_descarte_lancamento_status ON pnc_romaneios_descarte(status, lancado_em)",
+            "CREATE INDEX IF NOT EXISTS idx_pnc_rom_descarte_emissao_status ON pnc_romaneios_descarte(status, criado_em)",
+            "CREATE INDEX IF NOT EXISTS idx_pnc_rom_descarte_destino ON pnc_romaneios_descarte(destino)",
+            "CREATE INDEX IF NOT EXISTS idx_pnc_rom_descarte_item_classificacao ON pnc_romaneio_descarte_itens(produto, apresentacao, motivo)",
         ):
             cursor.execute(comando)
         colunas = ("galinhas_bloqueadas INTEGER NOT NULL DEFAULT 0", "pacotes_bloqueados INTEGER NOT NULL DEFAULT 0")

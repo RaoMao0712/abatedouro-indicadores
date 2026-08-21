@@ -27,10 +27,15 @@ from .liberacoes import (
     validar as validar_liberacao,
 )
 from .descarte_pnc import (
-    cancelar_romaneio_descarte, estornar_romaneio_descarte, listar_romaneios_descarte, obter_romaneio_descarte,
+    cancelar_romaneio_descarte, estornar_romaneio_descarte, obter_romaneio_descarte,
     previa_saida_descarte_pnc, registrar_saida_descarte_pnc,
 )
 from .descarte_pnc_pdf import gerar_romaneio_descarte_pdf
+from .descarte_pnc_relatorio import (
+    MODALIDADES, STATUS_DOCUMENTO, TIPOS_DATA, consultar_romaneios_descarte,
+    normalizar_filtros, opcoes_filtros_relatorio,
+)
+from .descarte_pnc_relatorio_pdf import gerar_relatorio_consolidado_descarte_pdf
 
 _CRIAR_BANCO = None
 
@@ -50,6 +55,23 @@ def register_qualidade_routes(app, integracoes=None):
         recebido = request.form.get("csrf_token", "")
         if not recebido or not secrets.compare_digest(recebido, session.get("csrf_descarte_pnc", "")):
             abort(400, description="Token CSRF inválido.")
+
+    def filtros_relatorio_descarte():
+        return normalizar_filtros({
+            "data_inicio": request.args.get("data_inicio"),
+            "data_fim": request.args.get("data_fim"),
+            "tipo_data": request.args.get("tipo_data"),
+            "numero": request.args.get("numero"),
+            "status": request.args.getlist("status"),
+            "produto": request.args.getlist("produto"),
+            "apresentacao": request.args.get("apresentacao"),
+            "motivo": request.args.getlist("motivo"),
+            "destino": request.args.getlist("destino"),
+            "motorista": request.args.get("motorista"),
+            "placa": request.args.get("placa"),
+            "usuario_emissor": request.args.get("usuario_emissor"),
+            "modalidade": request.args.get("modalidade"),
+        })
 
     @app.cli.command("carga-inventario-nc-20260730")
     @click.option("--confirmar", is_flag=True, help="Persiste a carga; sem a flag apenas simula.")
@@ -164,7 +186,27 @@ def register_qualidade_routes(app, integracoes=None):
     @perfil_permitido("pcp", "qualidade", "gerencia")
     def romaneios_descarte_pnc():
         if not descarte_habilitado(): abort(404)
-        return render_template("romaneios_descarte_pnc.html", romaneios=listar_romaneios_descarte())
+        filtros = filtros_relatorio_descarte()
+        relatorio = consultar_romaneios_descarte(filtros)
+        return render_template("romaneios_descarte_pnc.html", romaneios=relatorio["registros"],
+                               relatorio=relatorio, filtros=filtros,
+                               opcoes=opcoes_filtros_relatorio(), status_opcoes=STATUS_DOCUMENTO,
+                               tipos_data=TIPOS_DATA, modalidades=MODALIDADES)
+
+    @app.get("/expedicao/romaneios/descarte/relatorio.pdf")
+    @perfil_permitido("pcp", "qualidade", "gerencia")
+    def relatorio_romaneios_descarte_pnc():
+        if not descarte_habilitado(): abort(404)
+        filtros = filtros_relatorio_descarte()
+        relatorio = consultar_romaneios_descarte(filtros)
+        pdf = gerar_relatorio_consolidado_descarte_pdf(
+            relatorio, usuario=session.get("nome") or "Usuário não identificado")
+        nome = ("relatorio-romaneios-descarte-sintetico.pdf" if filtros["modalidade"] == "SINTETICO"
+                else "relatorio-romaneios-descarte-por-caracteristica.pdf")
+        resposta = send_file(BytesIO(pdf), mimetype="application/pdf", as_attachment=False,
+                             download_name=nome)
+        resposta.headers["Cache-Control"] = "no-store, private"
+        return resposta
 
     @app.get("/expedicao/romaneios/descarte/<int:romaneio_id>")
     @perfil_permitido("pcp", "qualidade", "gerencia")
