@@ -1177,8 +1177,29 @@ def inserir_caixa_pa(cursor, codigo_caixa, sku, data_fabricacao, data_validade, 
     return caixa_id
 
 
-def registrar_caixa_pa_manual(form):
+def _resultado_requisicao_embalagem(cursor, chave):
+    if not chave:
+        return None
+    cursor.execute(q("SELECT resultado_json FROM embalagem_secundaria_requisicoes WHERE idempotency_key=?"), (chave,))
+    linha = cursor.fetchone()
+    return json.loads(linha["resultado_json"]) if linha else None
+
+
+def _registrar_requisicao_embalagem(cursor, op_id, acao, chave, resultado, usuario):
+    if not chave:
+        return
+    cursor.execute(q("""INSERT INTO embalagem_secundaria_requisicoes(
+        op_id,acao,idempotency_key,resultado_json,usuario,criado_em)
+        VALUES(?,?,?,?,?,?)"""), (
+        op_id, acao, chave, json.dumps(resultado, ensure_ascii=False), usuario,
+        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    ))
+
+
+def registrar_caixa_pa_manual(form, usuario=None):
     criar_tabelas_estoque_pi_pa()
+    from .conferencia_embalagem import criar_tabelas_conferencia_embalagem
+    criar_tabelas_conferencia_embalagem()
 
     composicao, total_bandejas, sku = preparar_composicao_caixa(form)
     validar_saldo_pi_para_composicoes([composicao])
@@ -1198,30 +1219,31 @@ def registrar_caixa_pa_manual(form):
         raise ValueError("A validade da Galinha Cortada deve seguir a regra vigente de um ano.")
     codigo_caixa = form.get("codigo_caixa") or gerar_codigo_caixa()
 
-    conn = conectar()
-    cursor = conn.cursor()
-
-    inserir_caixa_pa(
-        cursor,
-        codigo_caixa,
-        sku,
-        data_fabricacao,
-        data_validade,
-        peso_bruto,
-        peso_liquido,
-        total_bandejas,
-        form.get("observacoes") or "",
-        composicao
-    )
-
-    conn.commit()
-    conn.close()
+    chave = str(form.get("idempotency_key") or "").strip()
+    with transaction() as conn:
+        cursor = conn.cursor()
+        existente = _resultado_requisicao_embalagem(cursor, chave)
+        if existente:
+            return existente["codigo_caixa"]
+        caixa_id = inserir_caixa_pa(
+            cursor, codigo_caixa, sku, data_fabricacao, data_validade,
+            peso_bruto, peso_liquido, total_bandejas,
+            form.get("observacoes") or "", composicao
+        )
+        if usuario:
+            cursor.execute(q("UPDATE pa_caixas SET usuario_pesagem=? WHERE id=?"), (usuario, caixa_id))
+        _registrar_requisicao_embalagem(
+            cursor, composicao[0][0], "INCLUSAO_INDIVIDUAL", chave,
+            {"codigo_caixa": codigo_caixa}, usuario,
+        )
 
     return codigo_caixa
 
 
-def registrar_caixas_pa_lote(form):
+def registrar_caixas_pa_lote(form, usuario=None):
     criar_tabelas_estoque_pi_pa()
+    from .conferencia_embalagem import criar_tabelas_conferencia_embalagem
+    criar_tabelas_conferencia_embalagem()
 
     composicao, total_bandejas, sku = preparar_composicao_caixa(form)
     linhas = [linha.strip() for linha in (form.get("pesos_brutos_lote") or "").splitlines() if linha.strip()]
@@ -1259,28 +1281,26 @@ def registrar_caixas_pa_lote(form):
         prefixo_codigo = f"CX-{datetime.now().strftime('%Y%m%d')}"
         sequencia_codigo = 1
 
-    conn = conectar()
-    cursor = conn.cursor()
-
-    for peso_bruto, peso_liquido in zip(pesos_brutos, pesos_liquidos):
-        codigo_caixa = f"{prefixo_codigo}-{sequencia_codigo:03d}"
-        sequencia_codigo += 1
-        inserir_caixa_pa(
-            cursor,
-            codigo_caixa,
-            sku,
-            data_fabricacao,
-            data_validade,
-            peso_bruto,
-            peso_liquido,
-            total_bandejas,
-            observacoes,
-            composicao
+    chave = str(form.get("idempotency_key") or "").strip()
+    with transaction() as conn:
+        cursor = conn.cursor()
+        existente = _resultado_requisicao_embalagem(cursor, chave)
+        if existente:
+            return existente["codigos"]
+        for peso_bruto, peso_liquido in zip(pesos_brutos, pesos_liquidos):
+            codigo_caixa = f"{prefixo_codigo}-{sequencia_codigo:03d}"
+            sequencia_codigo += 1
+            caixa_id = inserir_caixa_pa(
+                cursor, codigo_caixa, sku, data_fabricacao, data_validade,
+                peso_bruto, peso_liquido, total_bandejas, observacoes, composicao
+            )
+            if usuario:
+                cursor.execute(q("UPDATE pa_caixas SET usuario_pesagem=? WHERE id=?"), (usuario, caixa_id))
+            codigos.append(codigo_caixa)
+        _registrar_requisicao_embalagem(
+            cursor, composicao[0][0], "INCLUSAO_LOTE", chave,
+            {"codigos": codigos}, usuario,
         )
-        codigos.append(codigo_caixa)
-
-    conn.commit()
-    conn.close()
 
     return codigos
 
@@ -1423,14 +1443,21 @@ def calcular_fechamento_industrial_op(op_id, conn=None):
     }
 
 
-def finalizar_embalagem_secundaria_op(op_id, checkpoint=None, nao_conformes=None):
+def finalizar_embalagem_secundaria_op(op_id, checkpoint=None, nao_conformes=None,
+                                      conferencia_hash=None, exigir_conferencia=False):
     """Valida, gera producao, encerra a OP e forma estoque em uma transacao."""
     from .estoque_service import ativar_estoque_op_encerrada, criar_tabelas_estoque_confiavel
 
     garantir_schema_producao()
     criar_tabelas_estoque_pi_pa()
     criar_tabelas_estoque_confiavel()
+    if exigir_conferencia:
+        from .conferencia_embalagem import criar_tabelas_conferencia_embalagem
+        criar_tabelas_conferencia_embalagem()
     with transaction() as conn:
+        if exigir_conferencia:
+            from .conferencia_embalagem import validar_conferencia_para_encerramento
+            validar_conferencia_para_encerramento(conn.cursor(), op_id, conferencia_hash)
         fechamento = calcular_fechamento_industrial_op(op_id, conn=conn)
         if not fechamento["pode_encerrar"]:
             raise ValueError("Nao foi possivel encerrar a OP: " + " ".join(fechamento["pendencias"]))

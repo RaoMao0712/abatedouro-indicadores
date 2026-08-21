@@ -319,6 +319,76 @@ def estornar_caixa_embalagem_secundaria(op_id, caixa_id, *, usuario, perfil,
                                       justificativa, idempotency_key, ip_origem)
 
 
+def estornar_caixas_embalagem_secundaria_em_lote(op_id, caixa_ids, *, usuario, perfil,
+                                                  justificativa, idempotency_key,
+                                                  ip_origem=None):
+    """Estorna um conjunto explicito de caixas em uma unica transacao."""
+    _validar_entrada(usuario, perfil, justificativa, idempotency_key)
+    try:
+        ids = [int(item) for item in caixa_ids]
+    except (TypeError, ValueError):
+        raise ValueError("A seleção contém uma caixa inválida.")
+    if not ids:
+        raise ValueError("Selecione ao menos uma caixa para estornar.")
+    if len(ids) != len(set(ids)):
+        raise ValueError("A mesma caixa foi informada mais de uma vez.")
+    ids = sorted(ids)
+    criar_tabelas_estornos_embalagem()
+    with transaction() as conn:
+        cursor = conn.cursor()
+        existente = _resultado_idempotente(cursor, idempotency_key)
+        if existente:
+            return existente
+        cursor.execute(q("SELECT * FROM ordens_producao WHERE id=?" + _bloqueio_sql()), (op_id,))
+        op = cursor.fetchone()
+        if not op:
+            raise ValueError("OP não encontrada.")
+        # Preflight integral antes da primeira mutacao.
+        caixas = []
+        for caixa_id in ids:
+            _, caixa, composicoes = _carregar_contexto(cursor, op_id, caixa_id)
+            bloqueios = _buscar_bloqueios(cursor, caixa)
+            if bloqueios:
+                raise ValueError(f"A caixa {caixa['codigo_caixa']} bloqueou o lote: " + " ".join(bloqueios))
+            _movimentos_pi_originais(cursor, op_id, caixa_id, composicoes)
+            caixas.append(caixa)
+        antes = _totais_op(cursor, op_id)
+        resultados = []
+        for indice, caixa_id in enumerate(ids, start=1):
+            resultados.append(_estornar_caixa_cursor(
+                cursor, op_id, caixa_id, usuario, perfil, justificativa,
+                f"{idempotency_key}:CAIXA:{indice}", ip_origem, ajustar_op=False))
+        status_posterior = op["status"]
+        if str(op["status"] or "") == "Encerrada":
+            status_posterior = "Aberta"
+            cursor.execute(q("UPDATE ordens_producao SET status='Aberta' WHERE id=? AND status='Encerrada'"), (op_id,))
+            if cursor.rowcount != 1:
+                raise ValueError("A OP foi alterada concorrentemente; o lote foi cancelado.")
+            cursor.execute(q("""DELETE FROM apontamentos_producao WHERE op_id=? AND (
+                observacoes LIKE 'Gerado automaticamente no encerramento da OP%%'
+                OR observacoes LIKE 'Produção final informada no encerramento da OP%%')"""), (op_id,))
+        depois = _totais_op(cursor, op_id)
+        resultado = {
+            "sucesso": True, "op_id": int(op_id), "caixas_estornadas": len(ids),
+            "caixa_ids": ids, "status_op_anterior": op["status"],
+            "status_op_posterior": status_posterior, "totais_antes": antes,
+            "totais_depois": depois, "caixas": resultados,
+            "impacto": {
+                "bandejas": str(_decimal(antes["bandejas"]) - _decimal(depois["bandejas"])),
+                "peso_bruto": str(_decimal(antes["peso_bruto"]) - _decimal(depois["peso_bruto"])),
+                "peso_liquido": str(_decimal(antes["peso_liquido"]) - _decimal(depois["peso_liquido"])),
+            },
+        }
+        cursor.execute(q("""INSERT INTO embalagem_secundaria_estornos(
+            tipo,op_id,caixa_id,idempotency_key,usuario,perfil,justificativa,status_anterior,
+            status_posterior,snapshot_json,movimentos_json,totais_antes_json,totais_depois_json,
+            resultado_json,ip_origem,criado_em) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"""),
+            ("LOTE", op_id, None, idempotency_key, usuario, perfil, justificativa.strip(),
+             op["status"], status_posterior, _json({"caixa_ids": ids}), _json(resultados),
+             _json(antes), _json(depois), _json(resultado), ip_origem, _agora()))
+        return resultado
+
+
 def estornar_op_embalagem_secundaria(op_id, *, usuario, perfil, justificativa,
                                      idempotency_key, ip_origem=None):
     _validar_entrada(usuario, perfil, justificativa, idempotency_key)

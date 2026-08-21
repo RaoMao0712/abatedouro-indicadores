@@ -57,3 +57,39 @@ Os dois fluxos usam o mesmo núcleo transacional e a mesma validação de víncu
 
 Nenhuma migration, escrita, estorno ou teste foi executado em produção durante
 esta etapa. A integração Zebra permaneceu intocada.
+
+## Complemento urgente — conferência e estorno múltiplo
+
+A tela da Embalagem Secundária agora contém a **Conferência de Caixas da OP**,
+com caixas ativas e estornadas, filtros, seleção múltipla, totais recalculados
+no navegador e confirmação transacional no servidor. O alerta de possível
+duplicidade compara pesos, bandejas, datas, lote e usuário dentro de uma janela
+centralizada de 120 segundos. O alerta nunca seleciona ou estorna sozinho.
+
+O endpoint `POST /embalagem-secundaria/<op_id>/caixas/estornar-lote` recebe
+somente IDs internos, faz preflight de todas as caixas e executa o conjunto em
+uma única transação. Uma falha bloqueia integralmente o lote. A chave de
+idempotência do lote impede novos movimentos em reenvios.
+
+As inclusões individual e em lote também possuem identidade de requisição e
+registram o usuário da pesagem. O botão é bloqueado após o primeiro envio e a
+mesma chave retorna o resultado já concluído.
+
+Antes de encerrar, o usuário deve registrar a conferência. O snapshot persiste
+IDs ativos, totais, usuário, perfil, duplicidades e hash. Inclusão, estorno ou
+qualquer alteração relevante muda o hash e bloqueia o encerramento até nova
+conferência.
+
+### Homologação
+
+- testes focados: 88 aprovados;
+- suíte ampla: 415 aprovados, 1 falha e 56 erros preexistentes de isolamento;
+- cenário: 5 caixas / 58 bandejas / 61,780 kg brutos / 59,280 kg líquidos;
+- após estornar 2 selecionadas: 3 caixas / 34 bandejas / 36,260 kg brutos /
+  34,760 kg líquidos;
+- PostgreSQL 16.15 descartável: upgrade, serviço em lote, idempotência,
+  downgrade e novo upgrade aprovados;
+- tempos observados: upgrade 122 ms, downgrade 75 ms e reupgrade entre 88 e
+  191 ms;
+- registro histórico preservado em todos os ciclos;
+- Zebra ZD220 e NiceLabel permaneceram fora do escopo.

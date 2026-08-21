@@ -7,6 +7,7 @@ import pytest
 
 from modules.expedicao import estornos_embalagem as estornos
 from modules.expedicao import services as expedicao_services
+from modules.expedicao import conferencia_embalagem as conferencia
 
 
 @pytest.fixture()
@@ -264,3 +265,137 @@ def test_migration_sqlite_upgrade_e_downgrade_sao_reversiveis(tmp_path):
     assert not conn.execute("SELECT name FROM sqlite_master WHERE name='embalagem_secundaria_estornos'").fetchone()
     assert "estornada_em" not in {item[1] for item in conn.execute("PRAGMA table_info(pa_caixas)")}
     conn.close()
+
+
+def test_estorno_lote_atomico_preserva_caixas_nao_selecionadas(banco):
+    resultado = estornos.estornar_caixas_embalagem_secundaria_em_lote(
+        7, [1, 2], usuario="Supervisora", perfil="pcp",
+        justificativa="Lançamentos em duplicidade", idempotency_key="LOTE-1")
+    conn = banco()
+    assert resultado["caixas_estornadas"] == 2
+    assert resultado["impacto"] == {"bandejas": "22.0", "peso_bruto": "23.26", "peso_liquido": "22.26"}
+    assert [(r["id"], r["status"]) for r in conn.execute("SELECT id,status FROM pa_caixas ORDER BY id")] == [
+        (1, "Estornada"), (2, "Estornada"), (3, "Em estoque")]
+    assert conn.execute("SELECT COUNT(*) FROM embalagem_secundaria_estornos WHERE tipo='LOTE'").fetchone()[0] == 1
+    conn.close()
+
+
+def test_estorno_lote_idempotente_nao_repete_movimentos(banco):
+    argumentos = dict(usuario="Supervisora", perfil="pcp", justificativa="Duplicidade confirmada", idempotency_key="LOTE-IDEM")
+    primeiro = estornos.estornar_caixas_embalagem_secundaria_em_lote(7, [1, 2], **argumentos)
+    segundo = estornos.estornar_caixas_embalagem_secundaria_em_lote(7, [2, 1], **argumentos)
+    assert segundo == primeiro
+    conn = banco()
+    assert conn.execute("SELECT COUNT(*) FROM estoque_produto_intermediario WHERE tipo='ENTRADA_ESTORNO_CAIXA'").fetchone()[0] == 2
+    conn.close()
+
+
+@pytest.mark.parametrize("ids,mensagem", [([], "ao menos uma"), ([1, 1], "mais de uma vez"), ([1, 999], "Caixa não encontrada")])
+def test_estorno_lote_rejeita_payload_invalido_sem_efeito(banco, ids, mensagem):
+    with pytest.raises(ValueError, match=mensagem):
+        estornos.estornar_caixas_embalagem_secundaria_em_lote(
+            7, ids, usuario="Supervisora", perfil="pcp", justificativa="Correção operacional",
+            idempotency_key="LOTE-INVALIDO")
+    conn = banco()
+    assert conn.execute("SELECT COUNT(*) FROM pa_caixas WHERE status='Estornada'").fetchone()[0] == 0
+    conn.close()
+
+
+def test_estorno_lote_faz_rollback_quando_uma_caixa_esta_bloqueada(banco):
+    conn = banco()
+    conn.executescript("INSERT INTO expedicoes VALUES(1,'ROM-X','Aberto'); INSERT INTO expedicao_itens VALUES(1,1,2);")
+    conn.commit(); conn.close()
+    with pytest.raises(ValueError, match="CX-002"):
+        estornos.estornar_caixas_embalagem_secundaria_em_lote(
+            7, [1, 2], usuario="Supervisora", perfil="pcp", justificativa="Correção operacional",
+            idempotency_key="LOTE-BLOQ")
+    conn = banco()
+    assert conn.execute("SELECT COUNT(*) FROM pa_caixas WHERE status='Estornada'").fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM estoque_produto_intermediario WHERE tipo='ENTRADA_ESTORNO_CAIXA'").fetchone()[0] == 0
+    conn.close()
+
+
+@pytest.fixture()
+def conferencia_banco(banco, monkeypatch):
+    monkeypatch.setattr(conferencia, "conectar", banco)
+    monkeypatch.setattr(conferencia, "transaction", estornos.transaction)
+    monkeypatch.setattr(conferencia, "DATABASE_URL", None)
+    conferencia.criar_tabelas_conferencia_embalagem()
+    return banco
+
+
+def test_conferencia_lista_estornadas_fora_dos_totais_e_filtra(conferencia_banco):
+    conn = conferencia_banco()
+    conn.execute("UPDATE pa_caixas SET status='Estornada' WHERE id=3")
+    conn.commit(); conn.close()
+    painel = conferencia.obter_conferencia_op(7, {"situacao": "ativas", "busca": "CX-002"})
+    assert painel["totais"]["caixas_ativas"] == 2
+    assert painel["totais"]["caixas_estornadas"] == 1
+    assert [c["codigo_caixa"] for c in painel["caixas_exibidas"]] == ["CX-002"]
+    assert [c["codigo_caixa"] for c in painel["caixas"]] == ["CX-003", "CX-002", "CX-001"]
+
+
+def test_alerta_duplicidade_nao_estorna_nem_seleciona(conferencia_banco):
+    conn = conferencia_banco()
+    conn.execute("""UPDATE pa_caixas SET peso_bruto=12.760,peso_liquido=12.260,
+        quantidade_bandejas=12,data_fabricacao='2026-08-21',data_validade='2027-08-21',
+        criado_em='2026-08-21 08:01:00' WHERE id=2""")
+    conn.commit(); conn.close()
+    painel = conferencia.obter_conferencia_op(7, {"situacao": "todas", "duplicadas": "1"})
+    assert painel["duplicidades"] == [1, 2]
+    assert all(c["status"] == "Em estoque" for c in painel["caixas"])
+    assert all(c["selecionavel"] for c in painel["caixas_exibidas"])
+
+
+def test_conferencia_persistida_e_invalidada_por_alteracao(conferencia_banco):
+    painel = conferencia.obter_conferencia_op(7)
+    registro = conferencia.confirmar_conferencia_op(
+        7, usuario="Operadora", perfil="producao", hash_informado=painel["hash"])
+    assert registro["caixas_ativas"] == 3
+    assert conferencia.obter_conferencia_op(7)["confirmacao_valida"] is True
+    conn = conferencia_banco()
+    conn.execute("UPDATE pa_caixas SET peso_bruto=peso_bruto+0.001 WHERE id=1")
+    conn.commit(); conn.close()
+    assert conferencia.obter_conferencia_op(7)["confirmacao_valida"] is False
+
+
+def test_template_expoe_selecao_resumo_filtros_e_portao_de_encerramento():
+    template = open("templates/embalagem_secundaria.html", encoding="utf-8").read()
+    rotas = open("modules/expedicao/routes.py", encoding="utf-8").read()
+    assert "Conferência de Caixas da OP" in template
+    assert 'name="caixa_ids[]"' in template and "data-resumo-selecao" in template
+    assert "Somente possíveis duplicidades" in template and "Conferi os lançamentos" in template
+    assert "caixas/estornar-lote" in rotas and "exigir_conferencia=True" in rotas
+
+
+def test_homologacao_cinco_caixas_estorna_duas_preserva_tres_e_invalida_ao_continuar(conferencia_banco):
+    conn = conferencia_banco()
+    conn.executescript("""
+        INSERT INTO pa_caixas VALUES
+          (4,'CX-DUP-1','Galinha Cortada','2026-08-21','2027-08-21',12.760,.5,12.260,12,'Em estoque','Embalagem Secundária','',1,'2026-08-21 08:10:00',0,'CONFORME','PENDENTE_OP',NULL,0,NULL,NULL,NULL,NULL,0,NULL),
+          (5,'CX-DUP-2','Galinha Cortada','2026-08-21','2027-08-21',12.760,.5,12.260,12,'Em estoque','Embalagem Secundária','',1,'2026-08-21 08:11:00',0,'CONFORME','PENDENTE_OP',NULL,0,NULL,NULL,NULL,NULL,0,NULL);
+        INSERT INTO pa_caixa_composicao(caixa_id,op_id,quantidade_bandejas) VALUES(4,7,12),(5,7,12);
+        INSERT INTO estoque_produto_intermediario(data_movimentacao,tipo,op_id,sku,quantidade_bandejas,origem,observacoes,caixa_id,idempotency_key)
+        VALUES('2026-08-21','SAIDA_EMBALAGEM_SECUNDARIA',7,'Galinha Cortada',12,'Embalagem Secundária','Bandejas consumidas na formação da caixa PA #4.',4,'SAIDA-4'),
+              ('2026-08-21','SAIDA_EMBALAGEM_SECUNDARIA',7,'Galinha Cortada',12,'Embalagem Secundária','Bandejas consumidas na formação da caixa PA #5.',5,'SAIDA-5');
+    """)
+    conn.commit(); conn.close()
+    resultado = estornos.estornar_caixas_embalagem_secundaria_em_lote(
+        7, [4, 5], usuario="Supervisora", perfil="pcp",
+        justificativa="Lançamentos em duplicidade", idempotency_key="HOMOLOG-5-2")
+    assert resultado["totais_antes"] == {"caixas": 5, "bandejas": "58.0", "peso_bruto": "61.78", "peso_liquido": "59.28"}
+    assert resultado["totais_depois"] == {"caixas": 3, "bandejas": "34.0", "peso_bruto": "36.26", "peso_liquido": "34.76"}
+    painel = conferencia.obter_conferencia_op(7)
+    conferencia.confirmar_conferencia_op(7, usuario="Supervisora", perfil="pcp", hash_informado=painel["hash"])
+    assert conferencia.obter_conferencia_op(7)["confirmacao_valida"] is True
+    conn = conferencia_banco()
+    conn.execute("""INSERT INTO pa_caixas(
+        id,codigo_caixa,sku,data_fabricacao,data_validade,peso_bruto,peso_tara,peso_liquido,
+        quantidade_bandejas,status,origem,criado_em,estoque_operacional,condicao,disponibilidade)
+        VALUES(6,'CX-NOVA','Galinha Cortada','2026-08-21','2027-08-21',11.5,.5,11,12,
+        'Em estoque','Embalagem Secundária','2026-08-21 08:20:00',0,'CONFORME','PENDENTE_OP')""")
+    conn.execute("INSERT INTO pa_caixa_composicao(caixa_id,op_id,quantidade_bandejas) VALUES(6,7,12)")
+    conn.commit(); conn.close()
+    painel_final = conferencia.obter_conferencia_op(7)
+    assert painel_final["totais"]["caixas_ativas"] == 4
+    assert painel_final["confirmacao_valida"] is False

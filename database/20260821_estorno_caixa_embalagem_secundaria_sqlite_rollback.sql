@@ -1,4 +1,8 @@
 BEGIN;
+DROP INDEX IF EXISTS idx_conf_emb_op_data;
+DROP TABLE IF EXISTS embalagem_secundaria_conferencias;
+DROP INDEX IF EXISTS idx_req_emb_op_data;
+DROP TABLE IF EXISTS embalagem_secundaria_requisicoes;
 DROP INDEX IF EXISTS uq_pi_estorno_idempotencia;
 DROP INDEX IF EXISTS idx_pi_caixa_tipo;
 DROP INDEX IF EXISTS idx_estorno_op_data;
@@ -9,6 +13,7 @@ ALTER TABLE estoque_produto_intermediario DROP COLUMN idempotency_key;
 ALTER TABLE estoque_produto_intermediario DROP COLUMN movimento_origem_id;
 ALTER TABLE estoque_produto_intermediario DROP COLUMN caixa_id;
 ALTER TABLE pa_caixas DROP COLUMN versao;
+ALTER TABLE pa_caixas DROP COLUMN usuario_pesagem;
 ALTER TABLE pa_caixas DROP COLUMN estorno_evento_id;
 ALTER TABLE pa_caixas DROP COLUMN estorno_motivo;
 ALTER TABLE pa_caixas DROP COLUMN estornada_por;

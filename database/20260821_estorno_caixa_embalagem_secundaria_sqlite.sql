@@ -4,6 +4,7 @@ ALTER TABLE pa_caixas ADD COLUMN estornada_por TEXT;
 ALTER TABLE pa_caixas ADD COLUMN estorno_motivo TEXT;
 ALTER TABLE pa_caixas ADD COLUMN estorno_evento_id INTEGER;
 ALTER TABLE pa_caixas ADD COLUMN versao INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE pa_caixas ADD COLUMN usuario_pesagem TEXT;
 ALTER TABLE estoque_produto_intermediario ADD COLUMN caixa_id INTEGER;
 ALTER TABLE estoque_produto_intermediario ADD COLUMN movimento_origem_id INTEGER;
 ALTER TABLE estoque_produto_intermediario ADD COLUMN idempotency_key TEXT;
@@ -21,4 +22,19 @@ CREATE INDEX idx_estorno_op_data ON embalagem_secundaria_estornos(op_id, criado_
 CREATE INDEX idx_pi_caixa_tipo ON estoque_produto_intermediario(caixa_id, tipo);
 CREATE UNIQUE INDEX uq_pi_estorno_idempotencia ON estoque_produto_intermediario(idempotency_key)
     WHERE idempotency_key IS NOT NULL;
+CREATE TABLE embalagem_secundaria_requisicoes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, op_id INTEGER NOT NULL, acao TEXT NOT NULL,
+    idempotency_key TEXT NOT NULL UNIQUE, resultado_json TEXT NOT NULL,
+    usuario TEXT, criado_em TEXT NOT NULL
+);
+CREATE INDEX idx_req_emb_op_data ON embalagem_secundaria_requisicoes(op_id, criado_em);
+CREATE TABLE embalagem_secundaria_conferencias (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, op_id INTEGER NOT NULL,
+    usuario TEXT NOT NULL, perfil TEXT NOT NULL, confirmado_em TEXT NOT NULL,
+    caixas_ativas INTEGER NOT NULL, caixas_estornadas INTEGER NOT NULL,
+    total_bandejas TEXT NOT NULL, peso_bruto TEXT NOT NULL, peso_liquido TEXT NOT NULL,
+    caixas_ativas_json TEXT NOT NULL, duplicidades_json TEXT NOT NULL,
+    hash_conferencia TEXT NOT NULL, confirmada INTEGER NOT NULL DEFAULT 1
+);
+CREATE INDEX idx_conf_emb_op_data ON embalagem_secundaria_conferencias(op_id, confirmado_em);
 COMMIT;

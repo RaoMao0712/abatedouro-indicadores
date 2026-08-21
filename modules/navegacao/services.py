@@ -78,7 +78,7 @@ NAVEGACAO = [
                 "titulo": "Embalagem Secundária",
                 "endpoint": "embalagem_secundaria",
                 "perfis": ("admin", "pcp", "producao"),
-                "active_endpoints": ("embalagem_secundaria", "finalizar_embalagem_secundaria", "estornar_embalagem_secundaria_op", "estornar_caixa_embalagem_secundaria_rota"),
+                "active_endpoints": ("embalagem_secundaria", "finalizar_embalagem_secundaria", "confirmar_conferencia_embalagem_secundaria", "estornar_embalagem_secundaria_op", "estornar_caixa_embalagem_secundaria_rota", "estornar_caixas_embalagem_secundaria_lote_rota"),
             },
             {"titulo": "Estoque PI/PA", "endpoint": "estoque_produtos", "perfis": ("admin", "pcp", "qualidade"), "principal": True},
             {"titulo": "Produtos Não Conformes", "endpoint": "produtos_nao_conformes", "perfis": ("admin", "pcp", "producao", "qualidade")},

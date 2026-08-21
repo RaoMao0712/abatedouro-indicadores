@@ -32,6 +32,10 @@ from modules.expedicao.estoque_service import (  # noqa: E402
     reservar_itens,
 )
 from modules.expedicao.routes import register_expedicao_routes  # noqa: E402
+from modules.expedicao.conferencia_embalagem import (  # noqa: E402
+    confirmar_conferencia_op,
+    obter_conferencia_op,
+)
 from modules.expedicao.services import (  # noqa: E402
     buscar_expedicao_por_id,
     buscar_itens_expedicao,
@@ -343,6 +347,22 @@ class ExpedicaoCorretivaTest(unittest.TestCase):
             )
             self.assertEqual(
                 consultar_um("SELECT status FROM ordens_producao WHERE id = ?", (op_id,))["status"],
+                "Aberta",
+            )
+            conferencia = obter_conferencia_op(op_id)
+            confirmar_conferencia_op(
+                op_id, usuario=perfil, perfil=perfil,
+                hash_informado=conferencia["hash"],
+            )
+            self.assertEqual(
+                cliente.post(
+                    f"/embalagem-secundaria/{op_id}/finalizar",
+                    data={"conferencia_hash": conferencia["hash"]},
+                ).status_code,
+                302,
+            )
+            self.assertEqual(
+                consultar_um("SELECT status FROM ordens_producao WHERE id = ?", (op_id,))["status"],
                 "Encerrada",
             )
         op_bloqueada, _ = self.preparar_cortada("CX-PERFIL-BLOQ")
@@ -561,6 +581,39 @@ class ExpedicaoCorretivaTest(unittest.TestCase):
             "SELECT COUNT(*) total FROM estoque_eventos WHERE idempotency_key = ?",
             (f"FORMACAO-PA-{caixa_id}",),
         )["total"], 1)
+
+    def test_13_idempotencia_da_inclusao_individual_usa_identidade_da_requisicao(self):
+        self.contexto("pcp")
+        op_id = self.criar_op("Galinha Cortada", 24)
+        executar("""INSERT INTO embalagem_primaria_apontamentos(
+            op_id,data_apontamento,sku,quantidade_bandejas)
+            VALUES(?,'2026-07-25','Galinha Cortada',24)""", (op_id,))
+        executar("""INSERT INTO estoque_produto_intermediario(
+            data_movimentacao,tipo,op_id,sku,quantidade_bandejas,origem)
+            VALUES('2026-07-25','ENTRADA_EMBALAGEM_PRIMARIA',?,'Galinha Cortada',24,'Teste')""", (op_id,))
+        formulario = {
+            "op_principal": str(op_id), "bandejas_principal": "12",
+            "peso_bruto": "10.500", "data_fabricacao": "2026-07-25",
+            "data_validade": "2027-07-25", "idempotency_key": "INCLUSAO-IDEM-1",
+        }
+        primeiro = registrar_caixa_pa_manual(formulario, usuario="pcp")
+        segundo = registrar_caixa_pa_manual(formulario, usuario="pcp")
+        self.assertEqual(segundo, primeiro)
+        self.assertEqual(consultar_um(
+            "SELECT usuario_pesagem FROM pa_caixas WHERE codigo_caixa=?", (primeiro,)
+        )["usuario_pesagem"], "pcp")
+        self.assertEqual(consultar_um(
+            "SELECT COUNT(*) total FROM pa_caixa_composicao WHERE op_id=?", (op_id,)
+        )["total"], 1)
+        self.assertEqual(consultar_um(
+            "SELECT COUNT(*) total FROM estoque_produto_intermediario WHERE op_id=? AND tipo='SAIDA_EMBALAGEM_SECUNDARIA'", (op_id,)
+        )["total"], 1)
+        cliente = self.app.test_client()
+        with cliente.session_transaction() as sessao:
+            sessao.update({"usuario_id": 1, "nome": "pcp", "perfil": "pcp"})
+        resposta = cliente.get(f"/embalagem-secundaria?op_id={op_id}")
+        self.assertEqual(resposta.status_code, 200)
+        self.assertIn("Conferência de Caixas da OP", resposta.get_data(as_text=True))
 
         op_parcial = self.criar_op("Galinha Cortada", 6)
         executar("""

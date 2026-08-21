@@ -1,0 +1,220 @@
+"""Conferencia auditavel das caixas da Embalagem Secundaria."""
+
+from datetime import datetime
+from decimal import Decimal
+import hashlib
+import json
+
+from database import DATABASE_URL, conectar, q, transaction
+
+from .estornos_embalagem import (
+    STATUS_INATIVOS,
+    _buscar_bloqueios,
+    criar_tabelas_estornos_embalagem,
+)
+
+
+JANELA_DUPLICIDADE_SEGUNDOS = 120
+
+
+def _decimal(valor):
+    return Decimal(str(valor or 0))
+
+
+def _agora():
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _parse_data(valor):
+    if not valor:
+        return None
+    texto = str(valor).replace("T", " ")[:19]
+    try:
+        return datetime.strptime(texto, "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return None
+
+
+def criar_tabelas_conferencia_embalagem():
+    criar_tabelas_estornos_embalagem()
+    conn = conectar()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("ALTER TABLE pa_caixas ADD COLUMN IF NOT EXISTS usuario_pesagem TEXT" if DATABASE_URL
+                       else "ALTER TABLE pa_caixas ADD COLUMN usuario_pesagem TEXT")
+    except Exception as erro:
+        if DATABASE_URL or "duplicate column" not in str(erro).lower():
+            conn.rollback()
+            conn.close()
+            raise
+    pk = "SERIAL PRIMARY KEY" if DATABASE_URL else "INTEGER PRIMARY KEY AUTOINCREMENT"
+    timestamp = "TIMESTAMP" if DATABASE_URL else "TEXT"
+    cursor.execute(f"""
+        CREATE TABLE IF NOT EXISTS embalagem_secundaria_conferencias (
+            id {pk}, op_id INTEGER NOT NULL, usuario TEXT NOT NULL, perfil TEXT NOT NULL,
+            confirmado_em {timestamp} NOT NULL, caixas_ativas INTEGER NOT NULL,
+            caixas_estornadas INTEGER NOT NULL, total_bandejas TEXT NOT NULL,
+            peso_bruto TEXT NOT NULL, peso_liquido TEXT NOT NULL,
+            caixas_ativas_json TEXT NOT NULL, duplicidades_json TEXT NOT NULL,
+            hash_conferencia TEXT NOT NULL, confirmada INTEGER NOT NULL DEFAULT 1
+        )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_conf_emb_op_data ON embalagem_secundaria_conferencias(op_id, confirmado_em)")
+    cursor.execute(f"""
+        CREATE TABLE IF NOT EXISTS embalagem_secundaria_requisicoes (
+            id {pk}, op_id INTEGER NOT NULL, acao TEXT NOT NULL,
+            idempotency_key TEXT NOT NULL UNIQUE, resultado_json TEXT NOT NULL,
+            usuario TEXT, criado_em {timestamp} NOT NULL
+        )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_req_emb_op_data ON embalagem_secundaria_requisicoes(op_id, criado_em)")
+    conn.commit()
+    conn.close()
+
+
+def _linhas_op(cursor, op_id):
+    cursor.execute(q("""
+        SELECT cx.*
+        FROM pa_caixas cx
+        WHERE EXISTS (
+            SELECT 1 FROM pa_caixa_composicao comp
+            WHERE comp.caixa_id=cx.id AND comp.op_id=?
+        )
+        ORDER BY cx.criado_em DESC, cx.id DESC
+    """), (op_id,))
+    return [dict(item) for item in cursor.fetchall()]
+
+
+def _usuario_caixa(caixa):
+    return caixa.get("formado_por") or caixa.get("usuario_pesagem") or caixa.get("usuario") or "-"
+
+
+def _chave_semantica(caixa):
+    return (
+        str(_decimal(caixa.get("peso_bruto")).quantize(Decimal("0.001"))),
+        str(_decimal(caixa.get("peso_liquido")).quantize(Decimal("0.001"))),
+        str(_decimal(caixa.get("quantidade_bandejas")).normalize()),
+        str(caixa.get("data_fabricacao") or ""),
+        str(caixa.get("data_validade") or ""),
+        str(caixa.get("lote") or caixa.get("codigo_lote") or ""),
+        _usuario_caixa(caixa),
+    )
+
+
+def _marcar_duplicidades(caixas):
+    ativas = [c for c in caixas if str(c.get("status") or "").upper() not in STATUS_INATIVOS]
+    grupos = {}
+    for caixa in ativas:
+        grupos.setdefault(_chave_semantica(caixa), []).append(caixa)
+    duplicadas = set()
+    for grupo in grupos.values():
+        grupo.sort(key=lambda c: (_parse_data(c.get("criado_em")) or datetime.min, c["id"]))
+        for anterior, atual in zip(grupo, grupo[1:]):
+            data_a = _parse_data(anterior.get("criado_em"))
+            data_b = _parse_data(atual.get("criado_em"))
+            if data_a and data_b and (data_b - data_a).total_seconds() <= JANELA_DUPLICIDADE_SEGUNDOS:
+                duplicadas.update((int(anterior["id"]), int(atual["id"])))
+    for caixa in caixas:
+        caixa["usuario_lancamento"] = _usuario_caixa(caixa)
+        caixa["possivel_duplicidade"] = int(caixa["id"]) in duplicadas
+    return duplicadas
+
+
+def _totais(caixas):
+    ativas = [c for c in caixas if str(c.get("status") or "").upper() not in STATUS_INATIVOS]
+    return {
+        "caixas_ativas": len(ativas),
+        "caixas_estornadas": len(caixas) - len(ativas),
+        "bandejas": sum((_decimal(c.get("quantidade_bandejas")) for c in ativas), Decimal("0")),
+        "peso_bruto": sum((_decimal(c.get("peso_bruto")) for c in ativas), Decimal("0")),
+        "peso_liquido": sum((_decimal(c.get("peso_liquido")) for c in ativas), Decimal("0")),
+    }
+
+
+def _hash(caixas):
+    dados = [{
+        "id": int(c["id"]), "versao": int(c.get("versao") or 0),
+        "status": str(c.get("status") or ""),
+        "bandejas": str(_decimal(c.get("quantidade_bandejas"))),
+        "bruto": str(_decimal(c.get("peso_bruto"))),
+        "liquido": str(_decimal(c.get("peso_liquido"))),
+    } for c in caixas if str(c.get("status") or "").upper() not in STATUS_INATIVOS]
+    dados.sort(key=lambda item: item["id"])
+    return hashlib.sha256(json.dumps(dados, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+def obter_conferencia_op(op_id, filtros=None):
+    criar_tabelas_conferencia_embalagem()
+    conn = conectar()
+    cursor = conn.cursor()
+    caixas = _linhas_op(cursor, int(op_id))
+    duplicadas = _marcar_duplicidades(caixas)
+    for caixa in caixas:
+        caixa["bloqueios"] = _buscar_bloqueios(cursor, caixa) if str(caixa.get("status") or "").upper() not in STATUS_INATIVOS else []
+        caixa["selecionavel"] = not caixa["bloqueios"] and str(caixa.get("status") or "").upper() not in STATUS_INATIVOS
+    totais = _totais(caixas)
+    hash_atual = _hash(caixas)
+    cursor.execute(q("""SELECT * FROM embalagem_secundaria_conferencias
+        WHERE op_id=? ORDER BY id DESC LIMIT 1"""), (op_id,))
+    ultima = cursor.fetchone()
+    confirmacao_valida = bool(ultima and ultima["confirmada"] and ultima["hash_conferencia"] == hash_atual)
+    conn.close()
+
+    filtros = filtros or {}
+    situacao = str(filtros.get("situacao") or "ativas").lower()
+    busca = str(filtros.get("busca") or "").strip().lower()
+    somente_duplicadas = str(filtros.get("duplicadas") or "").lower() in {"1", "true", "on"}
+    exibidas = []
+    for caixa in caixas:
+        inativa = str(caixa.get("status") or "").upper() in STATUS_INATIVOS
+        if situacao == "ativas" and inativa or situacao == "estornadas" and not inativa:
+            continue
+        texto = " ".join(str(caixa.get(c) or "") for c in (
+            "codigo_caixa", "peso_bruto", "peso_liquido", "quantidade_bandejas",
+            "usuario_lancamento", "criado_em", "status"))
+        if busca and busca not in texto.lower():
+            continue
+        if somente_duplicadas and not caixa["possivel_duplicidade"]:
+            continue
+        exibidas.append(caixa)
+    return {
+        "caixas": caixas, "caixas_exibidas": exibidas, "totais": totais,
+        "hash": hash_atual, "duplicidades": sorted(duplicadas),
+        "confirmacao_valida": confirmacao_valida, "ultima_conferencia": dict(ultima) if ultima else None,
+        "janela_duplicidade_segundos": JANELA_DUPLICIDADE_SEGUNDOS,
+    }
+
+
+def confirmar_conferencia_op(op_id, *, usuario, perfil, hash_informado):
+    criar_tabelas_conferencia_embalagem()
+    with transaction() as conn:
+        cursor = conn.cursor()
+        caixas = _linhas_op(cursor, int(op_id))
+        duplicadas = _marcar_duplicidades(caixas)
+        hash_atual = _hash(caixas)
+        if not hash_informado or hash_informado != hash_atual:
+            raise ValueError("A relação de caixas mudou. Atualize a conferência antes de confirmar.")
+        totais = _totais(caixas)
+        ids_ativas = [int(c["id"]) for c in caixas if str(c.get("status") or "").upper() not in STATUS_INATIVOS]
+        cursor.execute(q("""INSERT INTO embalagem_secundaria_conferencias(
+            op_id,usuario,perfil,confirmado_em,caixas_ativas,caixas_estornadas,total_bandejas,
+            peso_bruto,peso_liquido,caixas_ativas_json,duplicidades_json,hash_conferencia,confirmada)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,1)"""), (
+            op_id, usuario, perfil, _agora(), totais["caixas_ativas"], totais["caixas_estornadas"],
+            str(totais["bandejas"]), str(totais["peso_bruto"]), str(totais["peso_liquido"]),
+            json.dumps(ids_ativas), json.dumps(sorted(duplicadas)), hash_atual,
+        ))
+    return {**totais, "hash": hash_atual, "usuario": usuario}
+
+
+def validar_conferencia_para_encerramento(cursor, op_id, hash_informado):
+    caixas = _linhas_op(cursor, int(op_id))
+    hash_atual = _hash(caixas)
+    cursor.execute(q("""SELECT * FROM embalagem_secundaria_conferencias
+        WHERE op_id=? ORDER BY id DESC LIMIT 1"""), (op_id,))
+    registro = cursor.fetchone()
+    if not registro or not registro["confirmada"]:
+        raise ValueError("Confirme a Conferência de Caixas da OP antes do encerramento.")
+    if not hash_informado or registro["hash_conferencia"] != hash_informado or hash_atual != hash_informado:
+        raise ValueError("A conferência está desatualizada. Confira novamente as caixas antes de encerrar.")
+    return dict(registro)
