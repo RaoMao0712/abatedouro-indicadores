@@ -266,6 +266,9 @@ def criar_tabelas_estoque_pi_pa():
                 quantidade_bandejas REAL DEFAULT 0,
                 origem TEXT,
                 observacoes TEXT,
+                caixa_id INTEGER,
+                movimento_origem_id INTEGER,
+                idempotency_key TEXT,
                 criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
             """)
@@ -331,6 +334,9 @@ def criar_tabelas_estoque_pi_pa():
                 quantidade_bandejas REAL DEFAULT 0,
                 origem TEXT,
                 observacoes TEXT,
+                caixa_id INTEGER,
+                movimento_origem_id INTEGER,
+                idempotency_key TEXT,
                 criado_em TEXT DEFAULT CURRENT_TIMESTAMP
             )
             """)
@@ -379,6 +385,20 @@ def criar_tabelas_estoque_pi_pa():
             except Exception:
                 pass
 
+        for postgres_col, sqlite_col in [
+            ("caixa_id INTEGER", "caixa_id INTEGER"),
+            ("movimento_origem_id INTEGER", "movimento_origem_id INTEGER"),
+            ("idempotency_key TEXT", "idempotency_key TEXT"),
+        ]:
+            try:
+                if DATABASE_URL:
+                    cursor.execute(f"ALTER TABLE estoque_produto_intermediario ADD COLUMN IF NOT EXISTS {postgres_col}")
+                else:
+                    cursor.execute(f"ALTER TABLE estoque_produto_intermediario ADD COLUMN {sqlite_col}")
+            except Exception:
+                if DATABASE_URL:
+                    raise
+
         local_abatedouro_id = inicializar_locais_estoque(cursor)
         cursor.execute(q("""
         UPDATE pa_caixas
@@ -398,6 +418,10 @@ def criar_tabelas_estoque_pi_pa():
         cursor.execute("""
         CREATE INDEX IF NOT EXISTS idx_estoque_pi_op_sku
         ON estoque_produto_intermediario (op_id, sku)
+        """)
+        cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_estoque_pi_caixa_tipo
+        ON estoque_produto_intermediario (caixa_id, tipo)
         """)
         cursor.execute("""
         CREATE INDEX IF NOT EXISTS idx_estoque_pi_data_id
@@ -856,6 +880,7 @@ def buscar_saldos_estoque_pi():
         ), 0) AS saldo_bandejas
     FROM estoque_produto_intermediario pi
     LEFT JOIN ordens_producao op ON op.id = pi.op_id
+    WHERE UPPER(COALESCE(op.status, '')) NOT IN ('ESTORNADA', 'ESTORNADO', 'CANCELADA', 'CANCELADO')
     GROUP BY pi.op_id, op.data, pi.sku
     HAVING COALESCE(SUM(
             CASE
@@ -962,16 +987,20 @@ def registrar_saida_pi_por_caixa(cursor, op_id, sku, bandejas, caixa_id):
         sku,
         quantidade_bandejas,
         origem,
-        observacoes
-    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        observacoes,
+        caixa_id,
+        idempotency_key
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     """), (
         datetime.now().strftime("%Y-%m-%d"),
         "SAIDA_EMBALAGEM_SECUNDARIA",
         op_id,
         sku,
-        float(bandejas or 0),
+        str(bandejas or 0),
         "Embalagem Secundária",
-        f"Bandejas consumidas na formação da caixa PA #{caixa_id}."
+        f"Bandejas consumidas na formação da caixa PA #{caixa_id}.",
+        caixa_id,
+        f"SAIDA-PI-CAIXA-{caixa_id}-OP-{op_id}",
     ))
 
 
@@ -1329,7 +1358,7 @@ def calcular_fechamento_industrial_op(op_id, conn=None):
     FROM pa_caixa_composicao comp
     INNER JOIN pa_caixas cx ON cx.id = comp.caixa_id
     WHERE comp.op_id = ?
-      AND COALESCE(cx.status, '') <> 'Cancelada'
+      AND UPPER(COALESCE(cx.status, '')) NOT IN ('CANCELADA', 'CANCELADO', 'ESTORNADA', 'ESTORNADO')
     """), (op_id,))
     caixas = cursor.fetchone()
 
@@ -1351,7 +1380,7 @@ def calcular_fechamento_industrial_op(op_id, conn=None):
     aves_ok = abs(saldo_aves) <= tolerancia
     pi_ok = abs(saldo_pi) <= tolerancia
     possui_peso = peso_liquido_total > 0 and caixas_qtd > 0
-    pode_encerrar = aves_ok and pi_ok and possui_peso and op["status"] != "Encerrada"
+    pode_encerrar = aves_ok and pi_ok and possui_peso and op["status"] == "Aberta"
 
     pendencias = []
     if not aves_ok:
@@ -1369,8 +1398,8 @@ def calcular_fechamento_industrial_op(op_id, conn=None):
             )
     if not possui_peso:
         pendencias.append("Nenhuma caixa com peso líquido foi registrada para esta OP.")
-    if op["status"] == "Encerrada":
-        pendencias.append("Esta OP já está encerrada.")
+    if op["status"] != "Aberta":
+        pendencias.append(f"Esta OP está em situação {op['status']} e não pode ser encerrada novamente.")
 
     return {
         "op": op,
@@ -1498,55 +1527,16 @@ def validar_reset_processamento_op(op_id):
 
 
 def resetar_processamento_op(op_id, confirmacao):
-    if str(confirmacao or "").strip().upper() != "RESETAR":
-        raise ValueError("Digite RESETAR para confirmar o reset da OP.")
+    """Bloqueia o reset destrutivo legado.
 
-    op, caixas_ids = validar_reset_processamento_op(op_id)
-
-    conn = conectar()
-    cursor = conn.cursor()
-
-    try:
-        if caixas_ids:
-            placeholders = ",".join(["?"] * len(caixas_ids))
-
-            cursor.execute(q(f"""
-            DELETE FROM pa_caixa_composicao
-            WHERE caixa_id IN ({placeholders})
-            """), tuple(caixas_ids))
-
-            cursor.execute(q(f"""
-            DELETE FROM pa_caixas
-            WHERE id IN ({placeholders})
-            """), tuple(caixas_ids))
-
-        cursor.execute(q("""
-        DELETE FROM estoque_produto_intermediario
-        WHERE op_id = ?
-        """), (op_id,))
-
-        cursor.execute(q("""
-        DELETE FROM embalagem_primaria_apontamentos
-        WHERE op_id = ?
-        """), (op_id,))
-
-        cursor.execute(q("""
-        UPDATE ordens_producao
-        SET status = ?
-        WHERE id = ?
-        """), ("Aberta", op_id))
-
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
-
-    return {
-        "op": op,
-        "caixas_removidas": len(caixas_ids),
-    }
+    A implementacao anterior validava em outra conexao e apagava fisicamente
+    caixas, composicoes, todo o ledger de PI e a Embalagem Primaria. O endpoint
+    foi substituido pelo estorno auditavel em ``estornos_embalagem``.
+    """
+    raise ValueError(
+        "O reset destrutivo foi desativado. Utilize Estornar caixa ou Estornar OP, "
+        "com justificativa e feature flag autorizada."
+    )
 
 
 def buscar_resumo_pa_completo():
