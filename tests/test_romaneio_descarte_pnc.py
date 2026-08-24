@@ -284,3 +284,150 @@ def test_duas_baixas_simultaneas_nao_consumem_o_mesmo_saldo(banco, monkeypatch):
         resultados=list(pool.map(executar,("CONC-1","CONC-2")))
     assert sum(item is not None for item in resultados) == 1
     assert linha(banco,"SELECT COUNT(*) total FROM pnc_movimentos_descarte WHERE tipo='SAIDA_DESCARTE_PNC'")["total"] == 1
+
+
+def test_visao_operacional_saldo_cards_filtros_paginacao_e_historico(banco):
+    ativo = criar_pnc(
+        banco, status="BLOQUEADO", peso=200000, caixas=2, bandejas=20,
+        numero="PNC-ATIVO-PRODUTO-ALFA",
+    )
+    parcial = criar_pnc(
+        banco, peso=1000000, caixas=10, bandejas=100,
+        numero="PNC-PARCIAL-PRODUTO-BETA",
+    )
+    finalizado = criar_pnc(
+        banco, peso=300000, caixas=3, bandejas=30,
+        numero="PNC-FINAL-PRODUTO-GAMA",
+    )
+    conn = banco()
+    conn.execute("UPDATE pa_nao_conformes SET produto='Produto Alfa',motivo='Motivo Alfa' WHERE id=?", (ativo,))
+    conn.execute("UPDATE pa_nao_conformes SET produto='Produto Beta',motivo='Motivo Beta' WHERE id=?", (parcial,))
+    conn.execute("UPDATE pa_nao_conformes SET produto='Produto Gama',motivo='Motivo Gama' WHERE id=?", (finalizado,))
+    conn.commit(); conn.close()
+
+    descarte.registrar_saida_descarte_pnc(
+        parcial,
+        dados("VIS-PARCIAL", "PARCIAL", caixas=4, bandejas=40, peso="400", pacotes=0, galinhas=0),
+        usuario="Qualidade", perfil="qualidade",
+    )
+    romaneio = descarte.registrar_saida_descarte_pnc(
+        finalizado, dados("VIS-FINAL"), usuario="Admin", perfil="admin",
+    )
+
+    antes = linha(banco, "SELECT saldo_bloqueado_g,caixas_bloqueadas,bandejas_bloqueadas FROM pa_nao_conformes WHERE id=?", (parcial,))
+    movimentos_antes = linha(banco, "SELECT COUNT(*) total FROM pnc_movimentos_descarte")["total"]
+    ativos = nc.consultar()
+    ids_ativos = {item["id"] for item in ativos}
+    assert ids_ativos == {ativo, parcial}
+    item_parcial = next(item for item in ativos if item["id"] == parcial)
+    assert item_parcial["status"] == "DESCARTE_PARCIAL"
+    assert item_parcial["saldo_fisico"] == {
+        "peso_g": 600000, "caixas": 6, "bandejas": 60,
+        "pacotes": 0, "galinhas": 0, "tem_saldo": True, "ativo": True,
+    }
+
+    cards = nc.indicadores(ativos + nc.consultar({"situacao": "FINALIZADOS"}))
+    assert cards["peso_bloqueado"] == 800
+    assert cards["caixas_bloqueadas"] == 8
+    assert cards["bandejas_bloqueadas"] == 80
+    assert cards["fisico_total_kg"] == 800
+
+    finalizados = nc.consultar({"situacao": "FINALIZADOS"})
+    assert {item["id"] for item in finalizados} == {finalizado}
+    historico = finalizados[0]
+    assert historico["romaneio_descarte_id"] == romaneio["id"]
+    assert historico["romaneio_descarte_numero"] == romaneio["numero"]
+    assert historico["descartado_peso_g"] == 300000
+    assert historico["saldo_fisico"]["peso_g"] == 0
+    assert nc.consultar({"situacao": "DESCARTADOS"})[0]["id"] == finalizado
+    assert {item["id"] for item in nc.consultar({"situacao": "TODOS"})} == {ativo, parcial, finalizado}
+    assert [item["id"] for item in nc.consultar({"produto": "BETA"})] == [parcial]
+    assert [item["id"] for item in nc.consultar({"motivo": "alfa"})] == [ativo]
+    assert [item["id"] for item in nc.consultar({"status": "DESCARTE_PARCIAL"})] == [parcial]
+
+    pagina_1, meta_1 = nc.consultar({"por_pagina": 1, "pagina": 1}, paginar=True)
+    pagina_2, meta_2 = nc.consultar({"por_pagina": 1, "pagina": 2}, paginar=True)
+    assert len(pagina_1) == len(pagina_2) == 1
+    assert pagina_1[0]["id"] != pagina_2[0]["id"]
+    assert meta_1["total"] == meta_2["total"] == 2
+    assert meta_1["tem_proxima"] and meta_2["tem_anterior"]
+
+    depois = linha(banco, "SELECT saldo_bloqueado_g,caixas_bloqueadas,bandejas_bloqueadas FROM pa_nao_conformes WHERE id=?", (parcial,))
+    assert tuple(antes) == tuple(depois) == (600000, 6, 60)
+    assert linha(banco, "SELECT COUNT(*) total FROM pnc_movimentos_descarte")["total"] == movimentos_antes
+
+
+def test_estorno_reabre_ativo_e_novo_descarte_finaliza_sem_perder_historico(banco):
+    registro_id = criar_pnc(banco, peso=500000, caixas=5, bandejas=50, numero="PNC-CICLO")
+    primeiro = descarte.registrar_saida_descarte_pnc(
+        registro_id, dados("CICLO-SAIDA-1"), usuario="Admin", perfil="admin",
+    )
+    assert not nc.consultar({"status": "DESCARTADO"})
+    assert nc.consultar({"situacao": "FINALIZADOS"})[0]["id"] == registro_id
+
+    descarte.estornar_romaneio_descarte(
+        primeiro["id"], "Saída física cancelada", usuario="Gerente", perfil="gerencia",
+    )
+    reaberto = nc.consultar()
+    assert [item["id"] for item in reaberto] == [registro_id]
+    assert reaberto[0]["saldo_fisico"]["peso_g"] == 500000
+    assert nc.indicadores(reaberto)["peso_bloqueado"] == 500
+
+    segundo = descarte.registrar_saida_descarte_pnc(
+        registro_id, dados("CICLO-SAIDA-2"), usuario="Qualidade", perfil="qualidade",
+    )
+    assert segundo["id"] != primeiro["id"]
+    assert nc.consultar() == []
+    final = nc.consultar({"situacao": "FINALIZADOS"})[0]
+    assert final["romaneio_descarte_id"] == segundo["id"]
+    conn = banco()
+    eventos = conn.execute("SELECT acao FROM pa_nao_conforme_eventos WHERE pa_nao_conforme_id=? ORDER BY id", (registro_id,)).fetchall()
+    romaneios = conn.execute("SELECT COUNT(*) FROM pnc_romaneios_descarte WHERE pa_nao_conforme_id=?", (registro_id,)).fetchone()[0]
+    movimentos = conn.execute("SELECT tipo FROM pnc_movimentos_descarte WHERE pa_nao_conforme_id=? ORDER BY id", (registro_id,)).fetchall()
+    conn.close()
+    assert romaneios == 2
+    assert [item["tipo"] for item in movimentos] == [
+        "SAIDA_DESCARTE_PNC", "ESTORNO_SAIDA_DESCARTE_PNC", "SAIDA_DESCARTE_PNC",
+    ]
+    assert "ESTORNO_SAIDA_DESCARTE_PNC" in [item["acao"] for item in eventos]
+
+
+def test_csv_respeita_situacao_ativos_finalizados_e_todos(banco, monkeypatch):
+    ativo = criar_pnc(banco, status="BLOQUEADO", peso=100000, caixas=1, bandejas=10, numero="PNC-CSV-ATIVO")
+    finalizado = criar_pnc(banco, peso=200000, caixas=2, bandejas=20, numero="PNC-CSV-FINAL")
+    descarte.registrar_saida_descarte_pnc(
+        finalizado, dados("CSV-FINAL"), usuario="Admin", perfil="admin",
+    )
+
+    from modules.qualidade import routes
+    from flask import Flask
+    raiz = __import__('pathlib').Path(__file__).resolve().parents[1]
+    app = Flask(__name__, template_folder=str(raiz / "templates")); app.secret_key = "teste"
+    app.jinja_env.filters["br_numero"] = lambda valor, casas=2: f"{float(valor or 0):.{casas}f}"
+    @app.get("/login")
+    def login(): return "login"
+    @app.get("/dashboard")
+    def dashboard(): return "dashboard"
+    @app.get("/")
+    def inicio(): return "inicio"
+    @app.get("/sair")
+    def sair(): return "sair"
+    routes.register_qualidade_routes(app)
+    with app.test_client() as cliente:
+        with cliente.session_transaction() as sessao:
+            sessao.update(usuario_id=1, perfil="qualidade", nome="Qualidade")
+        pagina_ativos = cliente.get("/qualidade/produtos-nao-conformes")
+        pagina_finalizados = cliente.get("/qualidade/produtos-nao-conformes?situacao=FINALIZADOS")
+        csv_ativos = cliente.get("/qualidade/produtos-nao-conformes/exportar.csv?situacao=ATIVOS").get_data(as_text=True)
+        csv_final = cliente.get("/qualidade/produtos-nao-conformes/exportar.csv?situacao=FINALIZADOS").get_data(as_text=True)
+        csv_todos = cliente.get("/qualidade/produtos-nao-conformes/exportar.csv?situacao=TODOS").get_data(as_text=True)
+    assert pagina_ativos.status_code == pagina_finalizados.status_code == 200
+    html_ativos = pagina_ativos.get_data(as_text=True)
+    html_finalizados = pagina_finalizados.get_data(as_text=True)
+    assert 'name="situacao"' in html_ativos
+    assert "PNC-CSV-ATIVO" in html_ativos and "PNC-CSV-FINAL" not in html_ativos
+    assert "PNC-CSV-FINAL" in html_finalizados and "PNC-CSV-ATIVO" not in html_finalizados
+    assert "RDPNC-" in html_finalizados
+    assert "PNC-CSV-ATIVO" in csv_ativos and "PNC-CSV-FINAL" not in csv_ativos
+    assert "PNC-CSV-FINAL" in csv_final and "PNC-CSV-ATIVO" not in csv_final
+    assert "PNC-CSV-ATIVO" in csv_todos and "PNC-CSV-FINAL" in csv_todos

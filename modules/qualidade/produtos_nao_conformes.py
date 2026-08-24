@@ -9,14 +9,24 @@ from database import DATABASE_URL, conectar, q, transaction
 
 STATUS = {
     "BLOQUEADO", "EM_AVALIACAO", "LIBERADO", "RETRABALHO",
-    "REPROCESSO", "DESCARTE", "DESCARTE_PARCIAL", "DESCARTADO", "MANTIDO_BLOQUEADO",
+    "REPROCESSO", "DESCARTE", "DESCARTE_PARCIAL", "DESCARTADO",
+    "MANTIDO_BLOQUEADO", "CANCELADO",
 }
 STATUS_LABELS = {
     "BLOQUEADO": "Bloqueado", "EM_AVALIACAO": "Em avaliação",
     "LIBERADO": "Liberado", "RETRABALHO": "Destinado a retrabalho",
     "REPROCESSO": "Destinado a reprocesso", "DESCARTE": "Destinado a descarte",
     "DESCARTE_PARCIAL": "Parcialmente descartado", "DESCARTADO": "Descartado",
-    "MANTIDO_BLOQUEADO": "Mantido bloqueado",
+    "MANTIDO_BLOQUEADO": "Mantido bloqueado", "CANCELADO": "Cancelado",
+}
+STATUS_TERMINAIS = {
+    "LIBERADO", "RETRABALHO", "REPROCESSO", "DESCARTADO", "CANCELADO",
+    "CANCELADA", "ESTORNADO",
+}
+SITUACOES = {
+    "ATIVOS": "Ativos", "FINALIZADOS": "Finalizados", "TODOS": "Todos",
+    "DESCARTADOS": "Descartados", "LIBERADOS": "Liberados",
+    "CANCELADOS": "Cancelados",
 }
 MOTIVOS = (
     "Embalagem danificada", "Rotulagem incorreta", "Peso fora do padrão",
@@ -371,13 +381,103 @@ def iniciar_avaliacao(pa_nc_id, *, usuario=None, perfil=None, origem=None):
                 "EM_AVALIACAO", usuario, perfil, origem)
 
 
-def consultar(filtros=None):
+def _inteiro_saldo(valor):
+    try:
+        return max(0, int(valor or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _valor(registro, chave, padrao=None):
+    try:
+        valor = registro[chave]
+    except (KeyError, IndexError, TypeError):
+        return padrao
+    return padrao if valor is None else valor
+
+
+def _gramas_saldo(valor):
+    try:
+        return max(0, int(round(float(valor or 0) * 1000)))
+    except (TypeError, ValueError):
+        return 0
+
+
+def saldo_fisico_remanescente(registro):
+    """Fonte unica de leitura do saldo atual, sem alterar estoque ou historico.
+
+    O inventario agregado e as baixas parciais usam os campos consolidados que
+    o fluxo de descarte mantem na mesma transacao dos movimentos. Para uma
+    caixa rastreada ainda sem baixa, a posicao fisica corrente de ``pa_caixas``
+    prevalece sobre o snapshot original do PNC.
+    """
+    tipo = str(_valor(registro, "tipo_registro", "") or "")
+    status = str(_valor(registro, "status", "") or "").upper()
+    consolidado = tipo == TIPO_LEGADO or status in {"DESCARTE_PARCIAL", "DESCARTADO"}
+    if consolidado:
+        saldo = {
+            "peso_g": _inteiro_saldo(_valor(registro, "saldo_bloqueado_g")),
+            "caixas": _inteiro_saldo(_valor(registro, "caixas_bloqueadas")),
+            "bandejas": _inteiro_saldo(_valor(registro, "bandejas_bloqueadas")),
+            "pacotes": _inteiro_saldo(_valor(registro, "pacotes_bloqueados")),
+            "galinhas": _inteiro_saldo(_valor(registro, "galinhas_bloqueadas")),
+        }
+    elif _valor(registro, "caixa_id"):
+        unidade = str(_valor(registro, "cx_unidade_estoque") or _valor(registro, "unidade") or "").upper()
+        if unidade == "PACOTE":
+            saldo = {
+                "peso_g": 0, "caixas": 0, "bandejas": 0,
+                "pacotes": _inteiro_saldo(_valor(registro, "cx_quantidade_pacotes")),
+                "galinhas": _inteiro_saldo(_valor(registro, "cx_quantidade_galinhas")),
+            }
+        else:
+            peso_g = _gramas_saldo(_valor(registro, "cx_peso_liquido"))
+            bandejas = _inteiro_saldo(_valor(registro, "cx_quantidade_bandejas"))
+            saldo = {
+                "peso_g": peso_g,
+                "caixas": 1 if peso_g > 0 or bandejas > 0 else 0,
+                "bandejas": bandejas, "pacotes": 0, "galinhas": 0,
+            }
+    else:
+        # Compatibilidade defensiva para registros historicos sem posicao.
+        saldo = {
+            "peso_g": _inteiro_saldo(_valor(registro, "saldo_bloqueado_g")),
+            "caixas": _inteiro_saldo(_valor(registro, "caixas_bloqueadas")),
+            "bandejas": _inteiro_saldo(_valor(registro, "bandejas_bloqueadas")),
+            "pacotes": _inteiro_saldo(_valor(registro, "pacotes_bloqueados")),
+            "galinhas": _inteiro_saldo(_valor(registro, "galinhas_bloqueadas")),
+        }
+    saldo["tem_saldo"] = any(saldo[chave] > 0 for chave in (
+        "peso_g", "caixas", "bandejas", "pacotes", "galinhas"
+    ))
+    saldo["ativo"] = saldo["tem_saldo"] and status not in STATUS_TERMINAIS
+    return saldo
+
+
+def _situacao_aceita(registro, situacao):
+    situacao = str(situacao or "ATIVOS").upper()
+    status = str(_valor(registro, "status", "") or "").upper()
+    ativo = bool(registro["saldo_fisico"]["ativo"])
+    if situacao == "TODOS":
+        return True
+    if situacao == "FINALIZADOS":
+        return not ativo
+    if situacao == "DESCARTADOS":
+        return not ativo and status in {"DESCARTE", "DESCARTADO"}
+    if situacao == "LIBERADOS":
+        return not ativo and status == "LIBERADO"
+    if situacao == "CANCELADOS":
+        return not ativo and status in {"CANCELADO", "CANCELADA"}
+    return ativo
+
+
+def consultar(filtros=None, *, paginar=False):
     criar_tabelas_pa_nao_conforme()
     filtros = filtros or {}
     clausulas, params = ["1=1"], []
     mapa = {
-        "op": "CAST(nc.op_id AS TEXT)", "lote": "nc.lote", "produto": "nc.produto",
-        "motivo": "nc.motivo", "status": "nc.status", "responsavel": "nc.registrado_por",
+        "op": "CAST(nc.op_id AS TEXT)", "lote": "nc.lote",
+        "status": "nc.status", "responsavel": "nc.registrado_por",
         "destinacao": "nc.decisao",
     }
     for nome, coluna in mapa.items():
@@ -385,6 +485,11 @@ def consultar(filtros=None):
         if valor:
             clausulas.append(f"{coluna} = ?")
             params.append(valor)
+    for nome, coluna in (("produto", "nc.produto"), ("motivo", "nc.motivo")):
+        valor = str(filtros.get(nome) or "").strip()
+        if valor:
+            clausulas.append(f"LOWER({coluna}) LIKE LOWER(?)")
+            params.append(f"%{valor}%")
     if filtros.get("local"):
         clausulas.append("nc.local_estoque_id = ?")
         params.append(int(filtros["local"]))
@@ -397,16 +502,92 @@ def consultar(filtros=None):
     conn = conectar()
     try:
         cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute("SELECT 1 FROM information_schema.tables WHERE table_name='pnc_movimentos_descarte'")
+            colunas_caixa = {
+                "unidade_estoque", "peso_liquido", "quantidade_bandejas",
+                "quantidade_pacotes", "quantidade_galinhas",
+            }
+        else:
+            cursor.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='pnc_movimentos_descarte'")
+            cursor_colunas = conn.cursor()
+            cursor_colunas.execute("PRAGMA table_info(pa_caixas)")
+            colunas_caixa = {linha[1] for linha in cursor_colunas.fetchall()}
+        possui_historico_descarte = cursor.fetchone() is not None
+        def coluna_caixa(nome):
+            return f"cx.{nome}" if nome in colunas_caixa else "NULL"
+        if possui_historico_descarte:
+            historico_sql = """
+                   (SELECT COALESCE(SUM(CASE WHEN mov.tipo='SAIDA_DESCARTE_PNC' THEN mov.peso_g ELSE -mov.peso_g END),0)
+                      FROM pnc_movimentos_descarte mov WHERE mov.pa_nao_conforme_id=nc.id) AS descartado_peso_g,
+                   (SELECT COALESCE(SUM(CASE WHEN mov.tipo='SAIDA_DESCARTE_PNC' THEN mov.caixas ELSE -mov.caixas END),0)
+                      FROM pnc_movimentos_descarte mov WHERE mov.pa_nao_conforme_id=nc.id) AS descartado_caixas,
+                   (SELECT COALESCE(SUM(CASE WHEN mov.tipo='SAIDA_DESCARTE_PNC' THEN mov.bandejas ELSE -mov.bandejas END),0)
+                      FROM pnc_movimentos_descarte mov WHERE mov.pa_nao_conforme_id=nc.id) AS descartado_bandejas,
+                   (SELECT COALESCE(SUM(CASE WHEN mov.tipo='SAIDA_DESCARTE_PNC' THEN mov.pacotes ELSE -mov.pacotes END),0)
+                      FROM pnc_movimentos_descarte mov WHERE mov.pa_nao_conforme_id=nc.id) AS descartado_pacotes,
+                   (SELECT COALESCE(SUM(CASE WHEN mov.tipo='SAIDA_DESCARTE_PNC' THEN mov.galinhas ELSE -mov.galinhas END),0)
+                      FROM pnc_movimentos_descarte mov WHERE mov.pa_nao_conforme_id=nc.id) AS descartado_galinhas,
+                   (SELECT rom.id FROM pnc_romaneios_descarte rom
+                      WHERE rom.pa_nao_conforme_id=nc.id AND rom.status='CONFIRMADO'
+                      ORDER BY rom.saida_fisica_em DESC, rom.id DESC LIMIT 1) AS romaneio_descarte_id,
+                   (SELECT rom.numero FROM pnc_romaneios_descarte rom
+                      WHERE rom.pa_nao_conforme_id=nc.id AND rom.status='CONFIRMADO'
+                      ORDER BY rom.saida_fisica_em DESC, rom.id DESC LIMIT 1) AS romaneio_descarte_numero,
+                   (SELECT rom.saida_fisica_em FROM pnc_romaneios_descarte rom
+                      WHERE rom.pa_nao_conforme_id=nc.id AND rom.status='CONFIRMADO'
+                      ORDER BY rom.saida_fisica_em DESC, rom.id DESC LIMIT 1) AS descarte_finalizado_em,
+                   (SELECT rom.usuario_emissor FROM pnc_romaneios_descarte rom
+                      WHERE rom.pa_nao_conforme_id=nc.id AND rom.status='CONFIRMADO'
+                      ORDER BY rom.saida_fisica_em DESC, rom.id DESC LIMIT 1) AS descarte_responsavel
+            """
+        else:
+            historico_sql = """
+                   0 AS descartado_peso_g, 0 AS descartado_caixas,
+                   0 AS descartado_bandejas, 0 AS descartado_pacotes,
+                   0 AS descartado_galinhas, NULL AS romaneio_descarte_id,
+                   NULL AS romaneio_descarte_numero, NULL AS descarte_finalizado_em,
+                   NULL AS descarte_responsavel
+            """
         cursor.execute(q(f"""
             SELECT nc.*, le.nome AS local_nome, cx.codigo_caixa,
-                   cx.condicao, cx.disponibilidade
+                   cx.condicao, cx.disponibilidade,
+                   {coluna_caixa('unidade_estoque')} AS cx_unidade_estoque,
+                   {coluna_caixa('peso_liquido')} AS cx_peso_liquido,
+                   {coluna_caixa('quantidade_bandejas')} AS cx_quantidade_bandejas,
+                   {coluna_caixa('quantidade_pacotes')} AS cx_quantidade_pacotes,
+                   {coluna_caixa('quantidade_galinhas')} AS cx_quantidade_galinhas,
+                   {historico_sql}
             FROM pa_nao_conformes nc
             LEFT JOIN pa_caixas cx ON cx.id=nc.caixa_id
             JOIN locais_estoque le ON le.id=nc.local_estoque_id
             WHERE {' AND '.join(clausulas)}
             ORDER BY nc.registrado_em DESC, nc.id DESC
         """), tuple(params))
-        return cursor.fetchall()
+        registros = []
+        for linha in cursor.fetchall():
+            registro = dict(linha)
+            registro["saldo_fisico"] = saldo_fisico_remanescente(registro)
+            if _situacao_aceita(registro, filtros.get("situacao")):
+                registros.append(registro)
+        if not paginar:
+            return registros
+        try:
+            pagina = max(1, int(filtros.get("pagina") or 1))
+        except (TypeError, ValueError):
+            pagina = 1
+        try:
+            por_pagina = min(100, max(1, int(filtros.get("por_pagina") or 25)))
+        except (TypeError, ValueError):
+            por_pagina = 25
+        total = len(registros)
+        paginas = max(1, (total + por_pagina - 1) // por_pagina)
+        pagina = min(pagina, paginas)
+        inicio = (pagina - 1) * por_pagina
+        return registros[inicio:inicio + por_pagina], {
+            "pagina": pagina, "por_pagina": por_pagina, "total": total,
+            "paginas": paginas, "tem_anterior": pagina > 1, "tem_proxima": pagina < paginas,
+        }
     finally:
         conn.close()
 
@@ -430,7 +611,10 @@ def obter_detalhe(pa_nc_id):
 
 
 def indicadores(registros):
-    bloqueados = [r for r in registros if r["status"] in {"BLOQUEADO", "EM_AVALIACAO", "MANTIDO_BLOQUEADO"}]
+    ativos = [r for r in registros if saldo_fisico_remanescente(r)["ativo"]]
+    bloqueados = [r for r in ativos if r["status"] in {
+        "BLOQUEADO", "EM_AVALIACAO", "MANTIDO_BLOQUEADO", "DESCARTE", "DESCARTE_PARCIAL"
+    }]
     tempos = []
     for r in registros:
         if r["decidido_em"]:
@@ -440,26 +624,37 @@ def indicadores(registros):
                 pass
     return {
         "registros_bloqueados": len(bloqueados),
-        "peso_bloqueado": sum(
-            int(r["saldo_bloqueado_g"] or 0) / 1000
-            if r["tipo_registro"] == TIPO_LEGADO else float(r["peso"] or 0)
+        "peso_bloqueado": sum(saldo_fisico_remanescente(r)["peso_g"] / 1000 for r in bloqueados),
+        "quantidade_bloqueada": sum(
+            saldo_fisico_remanescente(r)["bandejas"] + saldo_fisico_remanescente(r)["pacotes"]
             for r in bloqueados
         ),
-        "quantidade_bloqueada": sum(float(r["quantidade"] or 0) for r in bloqueados),
-        "aguardando_avaliacao": sum(r["status"] == "BLOQUEADO" for r in registros),
+        "caixas_bloqueadas": sum(saldo_fisico_remanescente(r)["caixas"] for r in bloqueados),
+        "bandejas_bloqueadas": sum(saldo_fisico_remanescente(r)["bandejas"] for r in bloqueados),
+        "pacotes_bloqueados": sum(saldo_fisico_remanescente(r)["pacotes"] for r in bloqueados),
+        "galinhas_bloqueadas": sum(saldo_fisico_remanescente(r)["galinhas"] for r in bloqueados),
+        "aguardando_avaliacao": sum(r["status"] == "BLOQUEADO" for r in ativos),
         "liberados": sum(r["status"] == "LIBERADO" for r in registros),
         "retrabalho": sum(r["status"] == "RETRABALHO" for r in registros),
         "reprocesso": sum(r["status"] == "REPROCESSO" for r in registros),
         "descarte": sum(r["status"] in {"DESCARTE", "DESCARTE_PARCIAL", "DESCARTADO"} for r in registros),
         "tempo_medio_horas": sum(tempos) / len(tempos) if tempos else 0,
-        "fisico_total_kg": round(sum(
-            int(r["saldo_inicial_g"] or 0) / 1000
-            if r["tipo_registro"] == TIPO_LEGADO else float(r["peso"] or 0)
-            for r in registros
+        "fisico_total_kg": round(sum(saldo_fisico_remanescente(r)["peso_g"] / 1000 for r in ativos), 3),
+        "caixas_informativas": sum(saldo_fisico_remanescente(r)["caixas"] for r in ativos),
+        "nao_conforme_bloqueado_kg": round(sum(
+            saldo_fisico_remanescente(r)["peso_g"] / 1000 for r in ativos
+            if r["condicao_inicial"] == "NAO_CONFORME"
         ), 3),
-        "caixas_informativas": sum(int(r["caixas_iniciais"] or 0) for r in registros if r["tipo_registro"] == TIPO_LEGADO),
-        "nao_conforme_bloqueado_kg": round(sum(int(r["saldo_bloqueado_g"] or 0) / 1000 for r in registros if r["tipo_registro"] == TIPO_LEGADO and r["condicao_inicial"] == "NAO_CONFORME"), 3),
-        "aguardando_liberacao_kg": round(sum(int(r["saldo_bloqueado_g"] or 0) / 1000 for r in registros if r["tipo_registro"] == TIPO_LEGADO and r["condicao_inicial"] == "CONFORME_AGUARDANDO_LIBERACAO"), 3),
-        "pendente_gerencia_kg": round(sum(int(r["saldo_pendente_g"] or 0) / 1000 for r in registros), 3),
-        "disponivel_kg": round(sum(int(r["saldo_operacional_g"] or 0) / 1000 for r in registros), 3),
+        "aguardando_liberacao_kg": round(sum(
+            saldo_fisico_remanescente(r)["peso_g"] / 1000 for r in ativos
+            if r["condicao_inicial"] == "CONFORME_AGUARDANDO_LIBERACAO"
+        ), 3),
+        "pendente_gerencia_kg": round(sum(
+            min(int(r["saldo_pendente_g"] or 0), saldo_fisico_remanescente(r)["peso_g"]) / 1000
+            for r in ativos
+        ), 3),
+        "disponivel_kg": round(sum(
+            min(int(r["saldo_operacional_g"] or 0), saldo_fisico_remanescente(r)["peso_g"]) / 1000
+            for r in ativos
+        ), 3),
     }

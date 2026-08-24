@@ -17,7 +17,7 @@ from modules.producao.services import buscar_fornecedores, contexto_apontamento
 from .services import salvar_apontamento_descarte, salvar_apontamentos_descartes_lote
 from . import services as qualidade_service
 from .produtos_nao_conformes import (
-    MOTIVOS, STATUS, STATUS_LABELS, consultar as consultar_pa_nc, decidir as decidir_pa_nc,
+    MOTIVOS, SITUACOES, STATUS, STATUS_LABELS, consultar as consultar_pa_nc, decidir as decidir_pa_nc,
     indicadores as indicadores_pa_nc, iniciar_avaliacao, listar_locais_segregacao,
     obter_detalhe as obter_detalhe_pa_nc,
 )
@@ -85,12 +85,27 @@ def register_qualidade_routes(app, integracoes=None):
     def produtos_nao_conformes():
         filtros = {nome: request.args.get(nome, "") for nome in (
             "inicio", "fim", "op", "lote", "produto", "motivo", "status",
-            "local", "responsavel", "destinacao",
+            "local", "responsavel", "destinacao", "situacao", "pagina", "por_pagina",
         )}
-        registros = consultar_pa_nc(filtros)
+        filtros["situacao"] = filtros["situacao"] or "ATIVOS"
+        registros, paginacao = consultar_pa_nc(filtros, paginar=True)
+        registros_indicadores = consultar_pa_nc({**filtros, "pagina": ""})
+        args_paginacao = request.args.to_dict()
+        args_paginacao["situacao"] = filtros["situacao"]
+        url_anterior = url_proxima = None
+        if paginacao["tem_anterior"]:
+            url_anterior = url_for("produtos_nao_conformes", **{
+                **args_paginacao, "pagina": paginacao["pagina"] - 1,
+            })
+        if paginacao["tem_proxima"]:
+            url_proxima = url_for("produtos_nao_conformes", **{
+                **args_paginacao, "pagina": paginacao["pagina"] + 1,
+            })
         return render_template(
             "produtos_nao_conformes.html", registros=registros,
-            indicadores=indicadores_pa_nc(registros), filtros=filtros,
+            indicadores=indicadores_pa_nc(registros_indicadores), filtros=filtros,
+            paginacao=paginacao, situacoes=SITUACOES,
+            url_anterior=url_anterior, url_proxima=url_proxima,
             motivos=MOTIVOS, status_opcoes=sorted(STATUS),
             status_labels=STATUS_LABELS,
             locais=listar_locais_segregacao(),
@@ -101,18 +116,23 @@ def register_qualidade_routes(app, integracoes=None):
     def exportar_produtos_nao_conformes():
         filtros = {nome: request.args.get(nome, "") for nome in (
             "inicio", "fim", "op", "lote", "produto", "motivo", "status",
-            "local", "responsavel", "destinacao",
+            "local", "responsavel", "destinacao", "situacao",
         )}
+        filtros["situacao"] = filtros["situacao"] or "ATIVOS"
         saida = io.StringIO()
         escritor = csv.writer(saida, delimiter=";")
         escritor.writerow(("Número", "Data", "OP", "Lote", "Produto", "Apresentação",
-                           "Quantidade", "Peso", "Unidade", "Motivo", "Status", "Local",
-                           "Responsável", "Destinação", "Data da decisão"))
+                           "Saldo remanescente", "Peso remanescente", "Unidade", "Motivo",
+                           "Status", "Local", "Responsável", "Destinação", "Data da decisão",
+                           "Romaneio de descarte", "Data da finalização"))
         for item in consultar_pa_nc(filtros):
+            saldo = item["saldo_fisico"]
+            quantidade = saldo["pacotes"] if str(item["unidade"]).upper() == "PACOTE" else saldo["bandejas"]
             escritor.writerow((item["numero"], item["registrado_em"], item["op_id"], item["lote"],
-                               item["produto"], item["apresentacao"], item["quantidade"], item["peso"],
+                               item["produto"], item["apresentacao"], quantidade, saldo["peso_g"] / 1000,
                                item["unidade"], item["motivo"], item["status"], item["local_nome"],
-                               item["registrado_por"], item["decisao"], item["decidido_em"]))
+                               item["registrado_por"], item["decisao"], item["decidido_em"],
+                               item["romaneio_descarte_numero"], item["descarte_finalizado_em"] or item["decidido_em"]))
         return Response("\ufeff" + saida.getvalue(), mimetype="text/csv",
                         headers={"Content-Disposition": "attachment; filename=produtos-nao-conformes.csv"})
 
