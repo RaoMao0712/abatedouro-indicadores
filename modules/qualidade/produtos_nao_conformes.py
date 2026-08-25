@@ -1,6 +1,7 @@
 """Governanca do Produto Acabado Nao Conforme ligado ao estoque fisico de PA."""
 
 from datetime import datetime
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 from flask import has_request_context, request, session
 
@@ -9,26 +10,31 @@ from database import DATABASE_URL, conectar, q, transaction
 
 STATUS = {
     "BLOQUEADO", "EM_AVALIACAO", "LIBERADO", "RETRABALHO",
-    "REPROCESSO", "DESCARTE", "DESCARTE_PARCIAL", "DESCARTADO",
+    "REPROCESSO", "REPROCESSADO", "DESCARTE", "DESCARTE_PARCIAL", "DESCARTADO",
     "MANTIDO_BLOQUEADO", "CANCELADO",
 }
 STATUS_LABELS = {
     "BLOQUEADO": "Bloqueado", "EM_AVALIACAO": "Em avaliação",
     "LIBERADO": "Liberado", "RETRABALHO": "Destinado a retrabalho",
     "REPROCESSO": "Destinado a reprocesso", "DESCARTE": "Destinado a descarte",
+    "REPROCESSADO": "Reprocessado",
     "DESCARTE_PARCIAL": "Parcialmente descartado", "DESCARTADO": "Descartado",
     "MANTIDO_BLOQUEADO": "Mantido bloqueado", "CANCELADO": "Cancelado",
 }
 STATUS_TERMINAIS = {
-    "LIBERADO", "RETRABALHO", "REPROCESSO", "DESCARTADO", "CANCELADO",
+    "LIBERADO", "RETRABALHO", "REPROCESSADO", "DESCARTADO", "CANCELADO",
     "CANCELADA", "ESTORNADO",
 }
 SITUACOES = {
     "ATIVOS": "Ativos", "FINALIZADOS": "Finalizados", "TODOS": "Todos",
+    "BLOQUEADOS": "Bloqueados", "AGUARDANDO_AVALIACAO": "Aguardando avaliação",
+    "REPROCESSAMENTO": "Reprocessamento", "DESTINADOS_DESCARTE": "Destinados a descarte",
+    "DESCARTE_PARCIAL": "Descarte parcial",
     "DESCARTADOS": "Descartados", "LIBERADOS": "Liberados",
     "CANCELADOS": "Cancelados",
 }
 MOTIVOS = (
+    "Carne Escura", "Carcaça Incompleta", "Aguardando Liberação",
     "Embalagem danificada", "Rotulagem incorreta", "Peso fora do padrão",
     "Temperatura fora do padrão", "Falha de selagem", "Contaminação visível",
     "Aspecto inadequado", "Produto fora da especificação",
@@ -87,6 +93,8 @@ def criar_tabelas_pa_nao_conforme():
             bandejas_iniciais INTEGER NOT NULL DEFAULT 0,
             caixas_bloqueadas INTEGER NOT NULL DEFAULT 0,
             bandejas_bloqueadas INTEGER NOT NULL DEFAULT 0,
+            galinhas_bloqueadas INTEGER NOT NULL DEFAULT 0,
+            pacotes_bloqueados INTEGER NOT NULL DEFAULT 0,
             saldo_inicial_g INTEGER NOT NULL DEFAULT 0,
             saldo_bloqueado_g INTEGER NOT NULL DEFAULT 0,
             saldo_pendente_g INTEGER NOT NULL DEFAULT 0,
@@ -123,7 +131,8 @@ def criar_tabelas_pa_nao_conforme():
             "responsaveis_contagem TEXT", "validacao_qualidade TEXT", "validacao_gerencia TEXT",
             "condicao_inicial TEXT", "caixas_iniciais INTEGER NOT NULL DEFAULT 0",
             "bandejas_iniciais INTEGER NOT NULL DEFAULT 0", "caixas_bloqueadas INTEGER NOT NULL DEFAULT 0",
-            "bandejas_bloqueadas INTEGER NOT NULL DEFAULT 0", "saldo_inicial_g INTEGER NOT NULL DEFAULT 0",
+            "bandejas_bloqueadas INTEGER NOT NULL DEFAULT 0", "galinhas_bloqueadas INTEGER NOT NULL DEFAULT 0",
+            "pacotes_bloqueados INTEGER NOT NULL DEFAULT 0", "saldo_inicial_g INTEGER NOT NULL DEFAULT 0",
             "saldo_bloqueado_g INTEGER NOT NULL DEFAULT 0", "saldo_pendente_g INTEGER NOT NULL DEFAULT 0",
             "saldo_operacional_g INTEGER NOT NULL DEFAULT 0", "saldo_reservado_operacional_g INTEGER NOT NULL DEFAULT 0",
             "saldo_destinado_g INTEGER NOT NULL DEFAULT 0",
@@ -211,11 +220,11 @@ def impedir_fluxo_legado(caixa_ids, acao, *, somente_pendentes=False):
 def _validar_item(cursor, op_id, item):
     try:
         caixa_id = int(item.get("caixa_id") or 0)
-        quantidade = float(str(item.get("quantidade") or "0").replace(",", "."))
+        quantidade = Decimal(str(item.get("quantidade") or "0").replace(",", "."))
         peso_raw = item.get("peso")
-        peso = None if peso_raw in (None, "") else float(str(peso_raw).replace(",", "."))
+        peso = None if peso_raw in (None, "") else Decimal(str(peso_raw).replace(",", "."))
         local_id = int(item.get("local_estoque_id") or 0)
-    except (TypeError, ValueError):
+    except (InvalidOperation, TypeError, ValueError):
         raise ValueError("Quantidade, peso ou local inválido no Produto Não Conforme.")
     motivo = str(item.get("motivo") or "").strip()
     descricao = str(item.get("descricao") or "").strip()
@@ -247,16 +256,17 @@ def _validar_item(cursor, op_id, item):
         raise ValueError("A caixa já possui registro oficial de Produto Não Conforme.")
     unidade_fisica = "PACOTE" if caixa["unidade_estoque"] == "PACOTE" else "BANDEJA"
     quantidade_fisica = (
-        float(caixa["quantidade_pacotes"] or 0)
-        if unidade_fisica == "PACOTE" else float(caixa["quantidade_bandejas"] or 0)
+        Decimal(str(caixa["quantidade_pacotes"] or 0))
+        if unidade_fisica == "PACOTE" else Decimal(str(caixa["quantidade_bandejas"] or 0))
     )
-    peso_fisico = None if unidade_fisica == "PACOTE" else float(caixa["peso_liquido"] or 0)
+    peso_fisico = None if unidade_fisica == "PACOTE" else Decimal(str(caixa["peso_liquido"] or 0))
     if lote != caixa["codigo_caixa"]:
         raise ValueError("O lote informado não corresponde à caixa/posição da OP.")
-    if unidade != unidade_fisica or abs(quantidade - quantidade_fisica) > 0.0001:
+    tolerancia = Decimal("0.0001")
+    if unidade != unidade_fisica or abs(quantidade - quantidade_fisica) > tolerancia:
         raise ValueError("Quantidade ou unidade diverge do saldo físico da caixa/posição.")
     if (peso is None) != (peso_fisico is None) or (
-        peso is not None and abs(peso - peso_fisico) > 0.0001
+        peso is not None and abs(peso - peso_fisico) > tolerancia
     ):
         raise ValueError("O peso informado diverge do peso físico da caixa.")
     apresentacao_fisica = str(caixa["apresentacao"] or apresentacao).strip()
@@ -280,7 +290,8 @@ def registrar_itens_encerramento(cursor, op_id, itens, *, usuario=None, perfil=N
         numero = f"PNC-{int(op_id):06d}-{int(item['caixa_id']):06d}"
         parametros = (
             numero, op_id, item["caixa_id"], item["lote"], item["produto"],
-            item["apresentacao"], item["quantidade"], item["peso"], item["unidade"],
+            item["apresentacao"], str(item["quantidade"]),
+            None if item["peso"] is None else str(item["peso"]), item["unidade"],
             item["motivo"], item["descricao"], item["local_estoque_id"], usuario,
             perfil, agora, item["observacoes"], agora, agora,
         )
@@ -335,6 +346,13 @@ def decidir(pa_nc_id, destino, justificativa, observacoes="", *, usuario=None,
         _auditar_negacao(pa_nc_id, usuario, perfil, origem, justificativa,
                          "Perfil sem permissão para decidir.")
         raise PermissionError("Perfil sem permissão para decidir Produto Não Conforme.")
+    if destino == "REPROCESSO":
+        from .reprocessamento import iniciar_reprocessamento
+        return iniciar_reprocessamento(
+            pa_nc_id, {"modalidade": "INTEGRAL", "justificativa": justificativa,
+                       "observacoes": observacoes},
+            usuario=usuario, perfil=perfil, origem=origem,
+        )
     with transaction() as conn:
         cursor = conn.cursor()
         cursor.execute(q("SELECT * FROM pa_nao_conformes WHERE id = ?"), (pa_nc_id,))
@@ -398,8 +416,9 @@ def _valor(registro, chave, padrao=None):
 
 def _gramas_saldo(valor):
     try:
-        return max(0, int(round(float(valor or 0) * 1000)))
-    except (TypeError, ValueError):
+        decimal = Decimal(str(valor or 0))
+        return max(0, int((decimal * 1000).quantize(Decimal("1"), rounding=ROUND_HALF_UP)))
+    except (InvalidOperation, TypeError, ValueError):
         return 0
 
 
@@ -427,12 +446,16 @@ def saldo_fisico_remanescente(registro):
         if unidade == "PACOTE":
             saldo = {
                 "peso_g": 0, "caixas": 0, "bandejas": 0,
-                "pacotes": _inteiro_saldo(_valor(registro, "cx_quantidade_pacotes")),
+                "pacotes": _inteiro_saldo(_valor(
+                    registro, "cx_quantidade_pacotes", _valor(registro, "quantidade")
+                )),
                 "galinhas": _inteiro_saldo(_valor(registro, "cx_quantidade_galinhas")),
             }
         else:
-            peso_g = _gramas_saldo(_valor(registro, "cx_peso_liquido"))
-            bandejas = _inteiro_saldo(_valor(registro, "cx_quantidade_bandejas"))
+            peso_g = _gramas_saldo(_valor(registro, "cx_peso_liquido", _valor(registro, "peso")))
+            bandejas = _inteiro_saldo(_valor(
+                registro, "cx_quantidade_bandejas", _valor(registro, "quantidade")
+            ))
             saldo = {
                 "peso_g": peso_g,
                 "caixas": 1 if peso_g > 0 or bandejas > 0 else 0,
@@ -447,6 +470,22 @@ def saldo_fisico_remanescente(registro):
             "pacotes": _inteiro_saldo(_valor(registro, "pacotes_bloqueados")),
             "galinhas": _inteiro_saldo(_valor(registro, "galinhas_bloqueadas")),
         }
+    if status == "REPROCESSO":
+        # Durante a execução, o material saiu do bloqueio, mas continua sendo
+        # saldo físico do PNC até a conclusão documental do consumo.
+        if tipo != TIPO_LEGADO:
+            saldo = {"peso_g": 0, "caixas": 0, "bandejas": 0, "pacotes": 0, "galinhas": 0}
+        for chave, coluna in (
+            ("peso_g", "reprocessando_peso_g"), ("caixas", "reprocessando_caixas"),
+            ("bandejas", "reprocessando_bandejas"), ("pacotes", "reprocessando_pacotes"),
+            ("galinhas", "reprocessando_galinhas"),
+        ):
+            saldo[chave] += _inteiro_saldo(_valor(registro, coluna))
+    if status in STATUS_TERMINAIS:
+        # O saldo ainda pode existir na caixa ou no estoque operacional, mas já
+        # não pertence ao bloqueio físico deste PNC.
+        for chave in ("peso_g", "caixas", "bandejas", "pacotes", "galinhas"):
+            saldo[chave] = 0
     saldo["tem_saldo"] = any(saldo[chave] > 0 for chave in (
         "peso_g", "caixas", "bandejas", "pacotes", "galinhas"
     ))
@@ -462,6 +501,16 @@ def _situacao_aceita(registro, situacao):
         return True
     if situacao == "FINALIZADOS":
         return not ativo
+    if situacao == "BLOQUEADOS":
+        return ativo and status in {"BLOQUEADO", "MANTIDO_BLOQUEADO", "EM_AVALIACAO"}
+    if situacao == "AGUARDANDO_AVALIACAO":
+        return ativo and status == "BLOQUEADO"
+    if situacao == "REPROCESSAMENTO":
+        return ativo and status == "REPROCESSO"
+    if situacao == "DESTINADOS_DESCARTE":
+        return ativo and status == "DESCARTE"
+    if situacao == "DESCARTE_PARCIAL":
+        return ativo and status == "DESCARTE_PARCIAL"
     if situacao == "DESCARTADOS":
         return not ativo and status in {"DESCARTE", "DESCARTADO"}
     if situacao == "LIBERADOS":
@@ -514,6 +563,11 @@ def consultar(filtros=None, *, paginar=False):
             cursor_colunas.execute("PRAGMA table_info(pa_caixas)")
             colunas_caixa = {linha[1] for linha in cursor_colunas.fetchall()}
         possui_historico_descarte = cursor.fetchone() is not None
+        if DATABASE_URL:
+            cursor.execute("SELECT 1 FROM information_schema.tables WHERE table_name='pnc_reprocessamentos'")
+        else:
+            cursor.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='pnc_reprocessamentos'")
+        possui_reprocessamento = cursor.fetchone() is not None
         def coluna_caixa(nome):
             return f"cx.{nome}" if nome in colunas_caixa else "NULL"
         if possui_historico_descarte:
@@ -549,6 +603,23 @@ def consultar(filtros=None, *, paginar=False):
                    NULL AS romaneio_descarte_numero, NULL AS descarte_finalizado_em,
                    NULL AS descarte_responsavel
             """
+        if possui_reprocessamento:
+            reprocessamento_sql = """
+                   (SELECT COALESCE(SUM(r.peso_g),0) FROM pnc_reprocessamentos r
+                      WHERE r.pa_nao_conforme_id=nc.id AND r.status='EM_ANDAMENTO') AS reprocessando_peso_g,
+                   (SELECT COALESCE(SUM(r.caixas),0) FROM pnc_reprocessamentos r
+                      WHERE r.pa_nao_conforme_id=nc.id AND r.status='EM_ANDAMENTO') AS reprocessando_caixas,
+                   (SELECT COALESCE(SUM(r.bandejas),0) FROM pnc_reprocessamentos r
+                      WHERE r.pa_nao_conforme_id=nc.id AND r.status='EM_ANDAMENTO') AS reprocessando_bandejas,
+                   (SELECT COALESCE(SUM(r.pacotes),0) FROM pnc_reprocessamentos r
+                      WHERE r.pa_nao_conforme_id=nc.id AND r.status='EM_ANDAMENTO') AS reprocessando_pacotes,
+                   (SELECT COALESCE(SUM(r.galinhas),0) FROM pnc_reprocessamentos r
+                      WHERE r.pa_nao_conforme_id=nc.id AND r.status='EM_ANDAMENTO') AS reprocessando_galinhas
+            """
+        else:
+            reprocessamento_sql = """0 AS reprocessando_peso_g, 0 AS reprocessando_caixas,
+                   0 AS reprocessando_bandejas, 0 AS reprocessando_pacotes,
+                   0 AS reprocessando_galinhas"""
         cursor.execute(q(f"""
             SELECT nc.*, le.nome AS local_nome, cx.codigo_caixa,
                    cx.condicao, cx.disponibilidade,
@@ -557,7 +628,8 @@ def consultar(filtros=None, *, paginar=False):
                    {coluna_caixa('quantidade_bandejas')} AS cx_quantidade_bandejas,
                    {coluna_caixa('quantidade_pacotes')} AS cx_quantidade_pacotes,
                    {coluna_caixa('quantidade_galinhas')} AS cx_quantidade_galinhas,
-                   {historico_sql}
+                   {historico_sql},
+                   {reprocessamento_sql}
             FROM pa_nao_conformes nc
             LEFT JOIN pa_caixas cx ON cx.id=nc.caixa_id
             JOIN locais_estoque le ON le.id=nc.local_estoque_id
@@ -594,16 +666,31 @@ def consultar(filtros=None, *, paginar=False):
 
 def obter_detalhe(pa_nc_id):
     criar_tabelas_pa_nao_conforme()
+    from .reprocessamento import garantir_schema as garantir_schema_reprocessamento
+    garantir_schema_reprocessamento()
     conn = conectar()
     try:
         cursor = conn.cursor()
         cursor.execute(q("""
             SELECT nc.*, le.nome AS local_nome, cx.codigo_caixa,
-                   cx.condicao, cx.disponibilidade
+                   cx.condicao, cx.disponibilidade,
+                   (SELECT COALESCE(SUM(r.peso_g),0) FROM pnc_reprocessamentos r
+                     WHERE r.pa_nao_conforme_id=nc.id AND r.status='EM_ANDAMENTO') AS reprocessando_peso_g,
+                   (SELECT COALESCE(SUM(r.caixas),0) FROM pnc_reprocessamentos r
+                     WHERE r.pa_nao_conforme_id=nc.id AND r.status='EM_ANDAMENTO') AS reprocessando_caixas,
+                   (SELECT COALESCE(SUM(r.bandejas),0) FROM pnc_reprocessamentos r
+                     WHERE r.pa_nao_conforme_id=nc.id AND r.status='EM_ANDAMENTO') AS reprocessando_bandejas,
+                   (SELECT COALESCE(SUM(r.pacotes),0) FROM pnc_reprocessamentos r
+                     WHERE r.pa_nao_conforme_id=nc.id AND r.status='EM_ANDAMENTO') AS reprocessando_pacotes,
+                   (SELECT COALESCE(SUM(r.galinhas),0) FROM pnc_reprocessamentos r
+                     WHERE r.pa_nao_conforme_id=nc.id AND r.status='EM_ANDAMENTO') AS reprocessando_galinhas
             FROM pa_nao_conformes nc LEFT JOIN pa_caixas cx ON cx.id=nc.caixa_id
             JOIN locais_estoque le ON le.id=nc.local_estoque_id WHERE nc.id=?
         """), (pa_nc_id,))
-        registro = cursor.fetchone()
+        linha = cursor.fetchone()
+        registro = dict(linha) if linha else None
+        if registro:
+            registro["saldo_fisico"] = saldo_fisico_remanescente(registro)
         cursor.execute(q("SELECT * FROM pa_nao_conforme_eventos WHERE pa_nao_conforme_id=? ORDER BY criado_em DESC, id DESC"), (pa_nc_id,))
         return registro, cursor.fetchall()
     finally:
@@ -616,6 +703,8 @@ def indicadores(registros):
         "BLOQUEADO", "EM_AVALIACAO", "MANTIDO_BLOQUEADO", "DESCARTE", "DESCARTE_PARCIAL"
     }]
     tempos = []
+    mil = Decimal(1000)
+    zero = Decimal(0)
     for r in registros:
         if r["decidido_em"]:
             try:
@@ -624,7 +713,7 @@ def indicadores(registros):
                 pass
     return {
         "registros_bloqueados": len(bloqueados),
-        "peso_bloqueado": sum(saldo_fisico_remanescente(r)["peso_g"] / 1000 for r in bloqueados),
+        "peso_bloqueado": sum((Decimal(saldo_fisico_remanescente(r)["peso_g"]) / mil for r in bloqueados), zero),
         "quantidade_bloqueada": sum(
             saldo_fisico_remanescente(r)["bandejas"] + saldo_fisico_remanescente(r)["pacotes"]
             for r in bloqueados
@@ -635,26 +724,26 @@ def indicadores(registros):
         "galinhas_bloqueadas": sum(saldo_fisico_remanescente(r)["galinhas"] for r in bloqueados),
         "aguardando_avaliacao": sum(r["status"] == "BLOQUEADO" for r in ativos),
         "liberados": sum(r["status"] == "LIBERADO" for r in registros),
-        "retrabalho": sum(r["status"] == "RETRABALHO" for r in registros),
-        "reprocesso": sum(r["status"] == "REPROCESSO" for r in registros),
-        "descarte": sum(r["status"] in {"DESCARTE", "DESCARTE_PARCIAL", "DESCARTADO"} for r in registros),
+        "retrabalho": sum(r["status"] == "RETRABALHO" for r in ativos),
+        "reprocesso": sum(r["status"] == "REPROCESSO" for r in ativos),
+        "descarte": sum(r["status"] in {"DESCARTE", "DESCARTE_PARCIAL"} for r in ativos),
         "tempo_medio_horas": sum(tempos) / len(tempos) if tempos else 0,
-        "fisico_total_kg": round(sum(saldo_fisico_remanescente(r)["peso_g"] / 1000 for r in ativos), 3),
+        "fisico_total_kg": round(sum((Decimal(saldo_fisico_remanescente(r)["peso_g"]) / mil for r in ativos), zero), 3),
         "caixas_informativas": sum(saldo_fisico_remanescente(r)["caixas"] for r in ativos),
-        "nao_conforme_bloqueado_kg": round(sum(
-            saldo_fisico_remanescente(r)["peso_g"] / 1000 for r in ativos
+        "nao_conforme_bloqueado_kg": round(sum((
+            Decimal(saldo_fisico_remanescente(r)["peso_g"]) / mil for r in ativos
             if r["condicao_inicial"] == "NAO_CONFORME"
-        ), 3),
-        "aguardando_liberacao_kg": round(sum(
-            saldo_fisico_remanescente(r)["peso_g"] / 1000 for r in ativos
+        ), zero), 3),
+        "aguardando_liberacao_kg": round(sum((
+            Decimal(saldo_fisico_remanescente(r)["peso_g"]) / mil for r in ativos
             if r["condicao_inicial"] == "CONFORME_AGUARDANDO_LIBERACAO"
-        ), 3),
-        "pendente_gerencia_kg": round(sum(
-            min(int(r["saldo_pendente_g"] or 0), saldo_fisico_remanescente(r)["peso_g"]) / 1000
+        ), zero), 3),
+        "pendente_gerencia_kg": round(sum((
+            Decimal(min(int(r["saldo_pendente_g"] or 0), saldo_fisico_remanescente(r)["peso_g"])) / mil
             for r in ativos
-        ), 3),
-        "disponivel_kg": round(sum(
-            min(int(r["saldo_operacional_g"] or 0), saldo_fisico_remanescente(r)["peso_g"]) / 1000
+        ), zero), 3),
+        "disponivel_kg": round(sum((
+            Decimal(min(int(r["saldo_operacional_g"] or 0), saldo_fisico_remanescente(r)["peso_g"])) / mil
             for r in ativos
-        ), 3),
+        ), zero), 3),
     }

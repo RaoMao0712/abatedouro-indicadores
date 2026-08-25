@@ -1,6 +1,7 @@
 """Rotas do modulo de Qualidade."""
 
 from datetime import datetime
+from decimal import Decimal
 import csv
 import io
 import json
@@ -31,6 +32,10 @@ from .descarte_pnc import (
     previa_saida_descarte_pnc, registrar_saida_descarte_pnc,
 )
 from .descarte_pnc_pdf import gerar_romaneio_descarte_pdf
+from .reprocessamento import (
+    cancelar_reprocessamento, concluir_reprocessamento, iniciar_reprocessamento,
+    listar_reprocessamentos,
+)
 from .descarte_pnc_relatorio import (
     MODALIDADES, STATUS_DOCUMENTO, TIPOS_DATA, consultar_romaneios_descarte,
     normalizar_filtros, opcoes_filtros_relatorio,
@@ -129,7 +134,8 @@ def register_qualidade_routes(app, integracoes=None):
             saldo = item["saldo_fisico"]
             quantidade = saldo["pacotes"] if str(item["unidade"]).upper() == "PACOTE" else saldo["bandejas"]
             escritor.writerow((item["numero"], item["registrado_em"], item["op_id"], item["lote"],
-                               item["produto"], item["apresentacao"], quantidade, saldo["peso_g"] / 1000,
+                               item["produto"], item["apresentacao"], quantidade,
+                               Decimal(saldo["peso_g"]) / Decimal(1000),
                                item["unidade"], item["motivo"], item["status"], item["local_nome"],
                                item["registrado_por"], item["decisao"], item["decidido_em"],
                                item["romaneio_descarte_numero"], item["descarte_finalizado_em"] or item["decidido_em"]))
@@ -145,7 +151,42 @@ def register_qualidade_routes(app, integracoes=None):
             return redirect(url_for("produtos_nao_conformes"))
         return render_template("produto_nao_conforme_detalhe.html", registro=registro,
                                eventos=eventos, solicitacoes=solicitacoes_do_registro(pa_nc_id),
+                               reprocessamentos=listar_reprocessamentos(pa_nc_id),
                                status_labels=STATUS_LABELS, descarte_pnc_habilitado=descarte_habilitado())
+
+    @app.post("/qualidade/produtos-nao-conformes/<int:pa_nc_id>/reprocessar")
+    @perfil_permitido("qualidade", "gerencia")
+    def iniciar_reprocessamento_produto(pa_nc_id):
+        try:
+            iniciar_reprocessamento(pa_nc_id, request.form.to_dict())
+            flash("Reprocessamento iniciado; a quantidade informada saiu do saldo bloqueado.")
+        except (ValueError, PermissionError) as erro:
+            flash(str(erro))
+        return redirect(url_for("detalhe_produto_nao_conforme", pa_nc_id=pa_nc_id))
+
+    @app.post("/qualidade/reprocessamentos/<int:reprocessamento_id>/concluir")
+    @perfil_permitido("qualidade", "gerencia")
+    def concluir_reprocessamento_produto(reprocessamento_id):
+        try:
+            resultado = concluir_reprocessamento(
+                reprocessamento_id, request.form.get("justificativa"),
+                idempotency_key=request.form.get("idempotency_key"),
+            )
+            flash("Reprocessamento concluído; o remanescente voltou ao bloqueio." if resultado["pnc_status"] == "BLOQUEADO"
+                  else "Reprocessamento integral concluído e PNC finalizado.")
+        except (ValueError, PermissionError) as erro:
+            flash(str(erro))
+        return redirect(request.referrer or url_for("produtos_nao_conformes"))
+
+    @app.post("/qualidade/reprocessamentos/<int:reprocessamento_id>/cancelar")
+    @perfil_permitido("qualidade", "gerencia")
+    def cancelar_reprocessamento_produto(reprocessamento_id):
+        try:
+            cancelar_reprocessamento(reprocessamento_id, request.form.get("justificativa"))
+            flash("Reprocessamento cancelado; o saldo foi restaurado somente ao bloqueio.")
+        except (ValueError, PermissionError) as erro:
+            flash(str(erro))
+        return redirect(request.referrer or url_for("produtos_nao_conformes"))
 
     @app.get("/qualidade/produtos-nao-conformes/<int:pa_nc_id>/romaneio-descarte")
     @perfil_permitido("pcp", "qualidade", "gerencia")

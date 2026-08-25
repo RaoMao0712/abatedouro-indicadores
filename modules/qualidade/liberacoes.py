@@ -311,7 +311,8 @@ def validar(solicitacao_id, decisao, justificativa, *, usuario=None, perfil=None
         cursor = conn.cursor()
         bloqueio = " FOR UPDATE" if DATABASE_URL else ""
         cursor.execute(q("""SELECT s.*,nc.tipo_registro,nc.status AS nc_status,nc.caixa_id,
-            nc.saldo_bloqueado_g,nc.saldo_pendente_g,nc.saldo_operacional_g
+            nc.saldo_bloqueado_g,nc.saldo_pendente_g,nc.saldo_operacional_g,
+            nc.caixas_bloqueadas,nc.bandejas_bloqueadas
             FROM pa_nao_conforme_solicitacoes s JOIN pa_nao_conformes nc
             ON nc.id=s.pa_nao_conforme_id WHERE s.id=?""" + bloqueio), (solicitacao_id,))
         solicitacao = cursor.fetchone()
@@ -334,14 +335,28 @@ def validar(solicitacao_id, decisao, justificativa, *, usuario=None, perfil=None
             if cursor.rowcount != 1:
                 raise ValueError("A solicitacao foi validada simultaneamente por outro usuario.")
             peso_g = int(solicitacao["peso_g"])
+            novo_status_pnc = solicitacao["nc_status"]
             if solicitacao["tipo_registro"] == TIPO_LEGADO:
                 if decisao == "APROVAR":
+                    integral = (
+                        int(solicitacao["saldo_bloqueado_g"] or 0) == peso_g
+                        and int(solicitacao["caixas_bloqueadas"] or 0) == int(solicitacao["caixas"])
+                        and int(solicitacao["bandejas_bloqueadas"] or 0) == int(solicitacao["bandejas"])
+                    )
+                    novo_status_pnc = "LIBERADO" if integral else solicitacao["nc_status"]
                     cursor.execute(q("""UPDATE pa_nao_conformes SET saldo_bloqueado_g=saldo_bloqueado_g-?,
                         saldo_pendente_g=saldo_pendente_g-?,saldo_operacional_g=saldo_operacional_g+?,
                         caixas_bloqueadas=caixas_bloqueadas-?,bandejas_bloqueadas=bandejas_bloqueadas-?,
+                        status=?,decisao=CASE WHEN ?='LIBERADO' THEN 'LIBERAR' ELSE decisao END,
+                        decidido_por=CASE WHEN ?='LIBERADO' THEN ? ELSE decidido_por END,
+                        perfil_decisao=CASE WHEN ?='LIBERADO' THEN ? ELSE perfil_decisao END,
+                        decidido_em=CASE WHEN ?='LIBERADO' THEN ? ELSE decidido_em END,
+                        justificativa_destinacao=CASE WHEN ?='LIBERADO' THEN ? ELSE justificativa_destinacao END,
                         atualizado_em=? WHERE id=? AND saldo_bloqueado_g>=? AND saldo_pendente_g>=?
                         AND caixas_bloqueadas>=? AND bandejas_bloqueadas>=?"""),
                         (peso_g, peso_g, peso_g, solicitacao["caixas"], solicitacao["bandejas"],
+                         novo_status_pnc, novo_status_pnc, novo_status_pnc, usuario,
+                         novo_status_pnc, perfil, novo_status_pnc, agora, novo_status_pnc, justificativa,
                          agora, solicitacao["pa_nao_conforme_id"], peso_g, peso_g,
                          solicitacao["caixas"], solicitacao["bandejas"]))
                 else:
@@ -376,7 +391,7 @@ def validar(solicitacao_id, decisao, justificativa, *, usuario=None, perfil=None
                 depois["saldo_bloqueado_g"] -= peso_g
                 depois["saldo_operacional_g"] += peso_g
             _evento(cursor, solicitacao["pa_nao_conforme_id"], acao, solicitacao["nc_status"],
-                "LIBERADO" if decisao == "APROVAR" and solicitacao["tipo_registro"] != TIPO_LEGADO else solicitacao["nc_status"],
+                "LIBERADO" if decisao == "APROVAR" and solicitacao["tipo_registro"] != TIPO_LEGADO else novo_status_pnc,
                 usuario, perfil, origem, justificativa,
                 json.dumps({"solicitacao_id": solicitacao_id, "peso_g": peso_g,
                             "caixas": solicitacao["caixas"], "bandejas": solicitacao["bandejas"],

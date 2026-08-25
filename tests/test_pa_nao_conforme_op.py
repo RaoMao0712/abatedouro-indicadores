@@ -6,6 +6,7 @@ import pytest
 from modules.qualidade import produtos_nao_conformes as nc
 from modules.expedicao import estoque_service as estoque
 from modules.expedicao import services as expedicao_services
+from modules.producao import operacoes_op
 
 
 @pytest.fixture()
@@ -101,6 +102,9 @@ def _preparar_finalizador(monkeypatch, banco):
     monkeypatch.setattr(expedicao_services, "garantir_schema_producao", lambda: None)
     monkeypatch.setattr(expedicao_services, "criar_tabelas_estoque_pi_pa", lambda: None)
     monkeypatch.setattr(expedicao_services, "gerar_producao_automatica_setores", lambda **kwargs: None)
+    # O teste isola o encerramento; a migration de reabertura P0.2 possui sua
+    # própria suíte e depende de tabelas que não fazem parte deste fixture.
+    monkeypatch.setattr(operacoes_op, "criar_tabelas_operacoes_op", lambda: None)
 
     def fechamento(op_id, conn=None):
         op = conn.execute("SELECT * FROM ordens_producao WHERE id=?", (op_id,)).fetchone()

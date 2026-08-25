@@ -1,4 +1,5 @@
 from contextlib import contextmanager
+from decimal import Decimal
 import sqlite3
 
 import pytest
@@ -120,9 +121,9 @@ def test_simulacao_e_carga_idempotente_reconciliam_totais_oficiais(banco):
     assert all("LEG-1 (ID 1)" in item["observacoes"] for item in registros)
     assert all('"sku_id": 1' in item["detalhes"] for item in detalhes)
     indicadores = nc.indicadores(nc.consultar())
-    assert indicadores["fisico_total_kg"] == 10472.060
-    assert indicadores["nao_conforme_bloqueado_kg"] == 9876.560
-    assert indicadores["aguardando_liberacao_kg"] == 595.500
+    assert indicadores["fisico_total_kg"] == Decimal("10472.060")
+    assert indicadores["nao_conforme_bloqueado_kg"] == Decimal("9876.560")
+    assert indicadores["aguardando_liberacao_kg"] == Decimal("595.500")
     assert indicadores["disponivel_kg"] == 0
     fisicos = liberacoes.inventario_legado_fisico()
     resumo_fisico = liberacoes.resumo_inventario_legado_fisico(fisicos)
@@ -217,6 +218,11 @@ def test_aprovacao_parcial_e_total_movem_exatamente_o_mesmo_peso(banco):
     final = _registro(banco)
     assert (final["saldo_bloqueado_g"], final["saldo_pendente_g"],
             final["saldo_operacional_g"]) == (0, 0, 595500)
+    assert final["status"] == "LIBERADO"
+    assert registro["id"] not in {item["id"] for item in nc.consultar({"situacao": "ATIVOS"})}
+    finalizado = next(item for item in nc.consultar({"situacao": "FINALIZADOS"})
+                       if item["id"] == registro["id"])
+    assert finalizado["saldo_fisico"]["peso_g"] == 0
     with pytest.raises(ValueError, match="ja foi validada"):
         liberacoes.validar(restante, "APROVAR", "Repetir", usuario="Admin",
                            perfil="admin", origem="teste")
@@ -331,8 +337,8 @@ def test_reversao_administrativa_preserva_historico_e_reconcilia_inventario(banc
     assert contagem == 3
     assert romaneios == 0
     indicadores = nc.indicadores(nc.consultar())
-    assert indicadores["fisico_total_kg"] == 10472.060
-    assert indicadores["aguardando_liberacao_kg"] == 595.500
+    assert indicadores["fisico_total_kg"] == Decimal("10472.060")
+    assert indicadores["aguardando_liberacao_kg"] == Decimal("595.500")
     assert indicadores["disponivel_kg"] == 0
 
 

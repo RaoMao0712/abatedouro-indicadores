@@ -14,6 +14,9 @@
     <p><strong>Produto:</strong> {{ registro.produto }}</p><p><strong>Local:</strong> {{ registro.local_nome }}</p>
   </section>
   <section class="card"><h3>2 &mdash; F&iacute;sico</h3>
+    <p><strong>Saldo f&iacute;sico remanescente:</strong>
+      {% if registro.saldo_fisico.pacotes %}{{ registro.saldo_fisico.pacotes }} pacotes / {{ registro.saldo_fisico.galinhas }} galinhas
+      {% else %}{{ registro.saldo_fisico.caixas }} caixas / {{ registro.saldo_fisico.bandejas }} bandejas / {{ (registro.saldo_fisico.peso_g / 1000)|br_numero(3) }} kg{% endif %}</p>
     {% if registro.tipo_registro == 'INVENTARIO_LEGADO_AGREGADO' %}
     <p><strong>Saldo inicial:</strong> {{ (registro.saldo_inicial_g / 1000)|br_numero(3) }} kg</p>
     <p><strong>Saldo bloqueado:</strong> {{ (registro.saldo_bloqueado_g / 1000)|br_numero(3) }} kg</p>
@@ -37,6 +40,38 @@
 </section>
 {% endif %}
 
+{% if session.get('perfil') in ['qualidade', 'gerencia', 'admin'] and registro.status in ['BLOQUEADO', 'EM_AVALIACAO', 'MANTIDO_BLOQUEADO'] %}
+<section class="card"><h3>Reprocessamento</h3>
+  <p class="obs">Caixa rastreada &eacute; integral. O invent&aacute;rio agregado admite parcela controlada; a quantidade em processo deixa de compor o saldo bloqueado e pode ser restaurada por cancelamento.</p>
+  <form method="post" action="{{ url_for('iniciar_reprocessamento_produto', pa_nc_id=registro.id) }}" class="form-grid">
+    <input type="hidden" name="idempotency_key" value="WEB-REPROC-{{ registro.id }}-{{ registro.atualizado_em }}">
+    {% if registro.tipo_registro == 'INVENTARIO_LEGADO_AGREGADO' %}
+    <div><label>Modalidade</label><select name="modalidade"><option value="INTEGRAL">Integral</option><option value="PARCIAL">Parcial</option></select></div>
+    <div><label>Peso parcial (kg)</label><input name="peso" inputmode="decimal"></div>
+    <div><label>Caixas</label><input name="caixas" type="number" min="0" step="1"></div>
+    <div><label>Bandejas</label><input name="bandejas" type="number" min="0" step="1"></div>
+    <div><label>Pacotes</label><input name="pacotes" type="number" min="0" step="1"></div>
+    <div><label>Galinhas</label><input name="galinhas" type="number" min="0" step="1"></div>
+    {% else %}<input type="hidden" name="modalidade" value="INTEGRAL">{% endif %}
+    <div class="form-span-2"><label>Justificativa t&eacute;cnica</label><textarea name="justificativa" required></textarea></div>
+    <div class="form-span-2"><label>Observa&ccedil;&otilde;es</label><textarea name="observacoes"></textarea></div>
+    <div><button class="botao-principal">Iniciar reprocessamento</button></div>
+  </form>
+</section>
+{% endif %}
+
+{% if registro.status == 'REPROCESSO' %}
+<section class="card"><h3>Reprocessamento em andamento</h3>
+  {% for item in reprocessamentos if item.status == 'EM_ANDAMENTO' %}
+  <p><strong>In&iacute;cio:</strong> {{ item.iniciado_em }} por {{ item.iniciado_por }} &middot; <strong>Quantidade:</strong> {{ (item.peso_g / 1000)|br_numero(3) }} kg / {{ item.caixas }} caixas / {{ item.bandejas }} bandejas / {{ item.pacotes }} pacotes / {{ item.galinhas }} galinhas</p>
+  <div class="form-grid">
+    <form method="post" action="{{ url_for('concluir_reprocessamento_produto', reprocessamento_id=item.id) }}"><input type="hidden" name="idempotency_key" value="WEB-REPROC-CONCLUIR-{{ item.id }}"><label>Resultado da conclus&atilde;o</label><textarea name="justificativa" required></textarea><button class="botao-principal">Concluir</button></form>
+    <form method="post" action="{{ url_for('cancelar_reprocessamento_produto', reprocessamento_id=item.id) }}"><label>Motivo do cancelamento</label><textarea name="justificativa" required></textarea><button class="botao-dre-exportar">Cancelar e restaurar bloqueio</button></form>
+  </div>
+  {% endfor %}
+</section>
+{% endif %}
+
 {% if session.get('perfil') in ['qualidade', 'admin'] and registro.status in ['BLOQUEADO', 'EM_AVALIACAO', 'MANTIDO_BLOQUEADO'] %}
 <section class="card"><h3>Solicitar libera&ccedil;&atilde;o</h3>
   <p class="obs">A solicita&ccedil;&atilde;o reserva o peso; a entrada no estoque operacional s&oacute; ocorre ap&oacute;s aprova&ccedil;&atilde;o da Ger&ecirc;ncia.</p>
@@ -55,11 +90,12 @@
 
 {% if session.get('perfil') in ['qualidade', 'admin'] and registro.status in ['BLOQUEADO', 'EM_AVALIACAO', 'MANTIDO_BLOQUEADO'] %}
 <section class="card"><h3>Outras destina&ccedil;&otilde;es da Qualidade</h3><form method="post" action="{{ url_for('decidir_produto_nao_conforme', pa_nc_id=registro.id) }}" class="form-grid">
-  <div><label>Destina&ccedil;&atilde;o</label><select name="destino" required><option value="">Selecione</option><option value="RETRABALHO">Retrabalho</option><option value="REPROCESSO">Reprocesso</option><option value="DESCARTE">Descarte</option><option value="MANTER_BLOQUEADO">Manter bloqueado</option></select></div>
+  <div><label>Destina&ccedil;&atilde;o</label><select name="destino" required><option value="">Selecione</option><option value="RETRABALHO">Retrabalho</option><option value="DESCARTE">Descarte</option><option value="MANTER_BLOQUEADO">Manter bloqueado</option></select></div>
   <div class="form-span-2"><label>Justificativa</label><textarea name="justificativa" required></textarea></div><div class="form-span-2"><label>Observa&ccedil;&otilde;es</label><textarea name="observacoes"></textarea></div><div><button class="botao-principal">Registrar destina&ccedil;&atilde;o</button></div>
 </form></section>
 {% endif %}
 
 <section class="card"><h3>Solicita&ccedil;&otilde;es de libera&ccedil;&atilde;o</h3><div class="tabela-responsiva tabela-executiva"><table><thead><tr><th>Data</th><th>Peso</th><th>Caixas</th><th>Bandejas</th><th>Status</th><th>Solicitante</th><th>Decisor</th></tr></thead><tbody>{% for item in solicitacoes %}<tr><td>{{ item.solicitado_em }}</td><td>{{ (item.peso_g / 1000)|br_numero(3) }} kg</td><td>{{ item.caixas }}</td><td>{{ item.bandejas }}</td><td>{{ item.status|replace('_',' ') }}</td><td>{{ item.solicitado_por }}</td><td>{{ item.decidido_por or '-' }}</td></tr>{% else %}<tr><td colspan="7">Nenhuma solicita&ccedil;&atilde;o.</td></tr>{% endfor %}</tbody></table></div></section>
+<section class="card"><h3>Hist&oacute;rico de reprocessamento</h3><div class="tabela-responsiva tabela-executiva"><table><thead><tr><th>In&iacute;cio</th><th>Modalidade</th><th>Quantidade</th><th>Status</th><th>Respons&aacute;veis</th><th>Resultado</th></tr></thead><tbody>{% for item in reprocessamentos %}<tr><td>{{ item.iniciado_em }}</td><td>{{ item.modalidade }}</td><td>{{ (item.peso_g / 1000)|br_numero(3) }} kg / {{ item.caixas }} cx / {{ item.bandejas }} bdj / {{ item.pacotes }} pct / {{ item.galinhas }} aves</td><td>{{ item.status|replace('_',' ') }}</td><td>{{ item.iniciado_por }}{% if item.concluido_por %} / {{ item.concluido_por }}{% elif item.cancelado_por %} / {{ item.cancelado_por }}{% endif %}</td><td>{{ item.justificativa_fechamento or item.justificativa }}</td></tr>{% else %}<tr><td colspan="6">Nenhum reprocessamento.</td></tr>{% endfor %}</tbody></table></div></section>
 <section class="card"><h3>Hist&oacute;rico permanente</h3><div class="tabela-responsiva tabela-executiva"><table><thead><tr><th>Data</th><th>A&ccedil;&atilde;o</th><th>Estado anterior</th><th>Novo estado</th><th>Usu&aacute;rio</th><th>Justificativa/detalhes</th></tr></thead><tbody>{% for item in eventos %}<tr><td>{{ item.criado_em }}</td><td>{{ item.acao|replace('_',' ')|title }}</td><td>{{ item.status_anterior or '-' }}</td><td>{{ item.status_novo or '-' }}</td><td>{{ item.usuario }} ({{ item.perfil }})</td><td>{{ item.justificativa or item.detalhes or '-' }}</td></tr>{% endfor %}</tbody></table></div></section>
 {% endblock %}

@@ -33,6 +33,7 @@ from modules.producao.operacoes_op import criar_tabelas_operacoes_op
 from modules.qualidade.routes import register_qualidade_routes
 from modules.qualidade.services import criar_tabelas_sgi
 from modules.qualidade.produtos_nao_conformes import criar_tabelas_pa_nao_conforme
+from modules.qualidade.reprocessamento import garantir_schema as criar_tabelas_reprocessamento_pnc
 from modules.almoxarifado.routes import register_almoxarifado_routes
 from modules.navegacao import register_navegacao_routes
 from modules.expedicao.services import (
@@ -590,6 +591,7 @@ def inicializar_schema_aplicacao():
         remover_residuos_validacao_codex_manutencao,
         criar_tabelas_sgi,
         criar_tabelas_pa_nao_conforme,
+        criar_tabelas_reprocessamento_pnc,
         criar_tabelas_clientes,
         criar_tabelas_pedidos_venda,
         criar_tabelas_correcoes_administrativas_op,
