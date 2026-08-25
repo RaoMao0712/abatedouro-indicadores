@@ -16,7 +16,7 @@ from collections import OrderedDict
 from datetime import datetime
 from decimal import Decimal
 
-from database import conectar, q
+from database import DATABASE_URL, conectar, q
 from modules.qualidade.liberacoes import (
     APROVADA,
     PENDENTE,
@@ -324,7 +324,16 @@ def _linhas_pos_marco(cursor):
 
 
 def _linhas_legado(cursor):
-    cursor.execute(q("""SELECT nc.*,
+    if DATABASE_URL:
+        cursor.execute("""SELECT 1 FROM information_schema.columns
+            WHERE table_schema=current_schema() AND table_name='expedicao_itens'
+              AND column_name='ativo'""")
+        possui_ativo = bool(cursor.fetchone())
+    else:
+        cursor.execute("PRAGMA table_info(expedicao_itens)")
+        possui_ativo = any(linha[1] == "ativo" for linha in cursor.fetchall())
+    filtro_ativo = "AND COALESCE(i.ativo,1)=1" if possui_ativo else ""
+    cursor.execute(q(f"""SELECT nc.*,
             COALESCE(p.pendente_caixas,0) AS pendente_caixas,
             COALESCE(p.pendente_bandejas,0) AS pendente_bandejas,
             COALESCE(a.aprovadas_caixas,0) AS aprovadas_caixas,
@@ -354,6 +363,7 @@ def _linhas_legado(cursor):
                 SUM(CASE WHEN e.status='Concluído' THEN COALESCE(i.quantidade_bandejas,0) ELSE 0 END) AS destinadas_bandejas
             FROM expedicao_itens i JOIN expedicoes e ON e.id=i.expedicao_id
             WHERE i.pa_nao_conforme_id IS NOT NULL
+              {filtro_ativo}
               AND e.status IN ('Aberto','Concluído')
             GROUP BY i.pa_nao_conforme_id
         ) m ON m.pa_nao_conforme_id=nc.id

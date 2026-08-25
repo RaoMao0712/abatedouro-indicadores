@@ -274,6 +274,14 @@ def criar_tabelas_pedidos_venda():
                  "ALTER TABLE expedicoes ADD COLUMN pedido_destino_entrega TEXT")
         _alterar(cursor, "ALTER TABLE expedicao_itens ADD COLUMN IF NOT EXISTS pedido_item_id INTEGER",
                  "ALTER TABLE expedicao_itens ADD COLUMN pedido_item_id INTEGER")
+        for coluna in (
+            "ativo INTEGER NOT NULL DEFAULT 1",
+            "removido_em TEXT",
+            "removido_por TEXT",
+            "motivo_remocao TEXT",
+        ):
+            _alterar(cursor, f"ALTER TABLE expedicao_itens ADD COLUMN IF NOT EXISTS {coluna}",
+                     f"ALTER TABLE expedicao_itens ADD COLUMN {coluna}")
         for coluna, tipo in (
             ("quantidade_operacional_mil", "BIGINT"), ("unidade_operacional", "TEXT"),
             ("aves_por_unidade_operacional", "INTEGER"), ("quantidade_comercial_mil", "BIGINT"),
@@ -750,7 +758,8 @@ def _item_romaneio_compativel(item_pedido, item_romaneio):
 
 def _mapear_itens_romaneio_cursor(cursor, pedido_id, expedicao_id, estado_saldos=None):
     itens_pedido = _itens_pedido_para_vinculo(cursor, pedido_id)
-    cursor.execute(q("SELECT * FROM expedicao_itens WHERE expedicao_id=? ORDER BY id"), (expedicao_id,))
+    cursor.execute(q("""SELECT * FROM expedicao_itens
+        WHERE expedicao_id=? AND COALESCE(ativo,1)=1 ORDER BY id"""), (expedicao_id,))
     itens_romaneio = cursor.fetchall()
     if not itens_romaneio:
         raise ValueError("Romaneio concluído não possui itens para vinculação.")
@@ -819,7 +828,8 @@ def _analisar_romaneio_existente_cursor(cursor, pedido, expedicao_id, *, confirm
         COUNT(DISTINCT CASE WHEN ev.id IS NOT NULL THEN i.id END) movimentados
         FROM expedicao_itens i LEFT JOIN estoque_eventos ev
           ON ev.expedicao_id=i.expedicao_id AND ev.caixa_id=i.caixa_id AND ev.acao='VENDA_DIRETA'
-        WHERE i.expedicao_id=? AND i.caixa_id IS NOT NULL"""), (expedicao_id,))
+        WHERE i.expedicao_id=? AND i.caixa_id IS NOT NULL
+          AND COALESCE(i.ativo,1)=1"""), (expedicao_id,))
     movimento = cursor.fetchone()
     if not movimento or int(movimento["total"] or 0) == 0 or int(movimento["movimentados"] or 0) != int(movimento["total"] or 0):
         raise ValueError("Romaneio não possui baixa física integralmente concluída.")
@@ -1085,7 +1095,8 @@ def _resumo_romaneio_vinculado_cursor(cursor, expedicao_id):
             totais[linha["unidade_comercial"]] = totais.get(linha["unidade_comercial"], 0) + int(linha["quantidade_comercial_mil"] or 0)
             peso_mil += int(linha["peso_mil_kg"] or 0)
     else:
-        cursor.execute(q("SELECT * FROM expedicao_itens WHERE expedicao_id=? ORDER BY id"), (expedicao_id,))
+        cursor.execute(q("""SELECT * FROM expedicao_itens
+            WHERE expedicao_id=? AND COALESCE(ativo,1)=1 ORDER BY id"""), (expedicao_id,))
         for linha in cursor.fetchall():
             try:
                 dados = _dados_comerciais_item_romaneio(linha)
@@ -1123,7 +1134,41 @@ def buscar_pedido(pedido_id):
             item["quantidade_entregue_exibicao_mil"] = entregue_operacional * fator
             item["saldo_pendente_exibicao_mil"] = int(item["saldo_pendente_mil"]) * fator
             item["unidade_exibicao"] = snapshot.get("unidade_comercial_rotulo") or item["unidade_comercial"]
+            cursor.execute(q("""SELECT ei.* FROM expedicao_itens ei
+                JOIN expedicoes e ON e.id=ei.expedicao_id
+                WHERE ei.pedido_item_id=? AND e.status='Aberto'
+                  AND COALESCE(ei.ativo,1)=1 ORDER BY ei.id"""), (item["id"],))
+            reservado_operacional = 0
+            for reserva in cursor.fetchall():
+                reservado_operacional += _qtd_item_romaneio_mil(
+                    reserva, item["unidade_operacional"])
+            item["quantidade_reservada_mil"] = min(
+                max(0, reservado_operacional), max(0, int(item["saldo_pendente_mil"])))
+            item["quantidade_reservada_exibicao_mil"] = item["quantidade_reservada_mil"] * fator
             pedido["itens"].append(item)
+        saldos_comerciais = [
+            item for item in pedido["itens"] if int(item["saldo_pendente_mil"] or 0) > 0]
+        if pedido["status"] in {"RASCUNHO", "CANCELADO"}:
+            pedido["status_reserva"] = "NAO_APLICAVEL"
+            pedido["status_reserva_descricao"] = (
+                "Reserva disponível após a confirmação"
+                if pedido["status"] == "RASCUNHO" else "Reserva não aplicável"
+            )
+        elif not saldos_comerciais:
+            pedido["status_reserva"] = "SEM_SALDO_PENDENTE"
+            pedido["status_reserva_descricao"] = "Sem saldo pendente"
+        elif all(
+            int(item["quantidade_reservada_mil"] or 0) >= int(item["saldo_pendente_mil"] or 0)
+            for item in saldos_comerciais
+        ):
+            pedido["status_reserva"] = "TOTALMENTE_RESERVADO"
+            pedido["status_reserva_descricao"] = "Totalmente reservado"
+        elif any(int(item["quantidade_reservada_mil"] or 0) > 0 for item in saldos_comerciais):
+            pedido["status_reserva"] = "PARCIALMENTE_RESERVADO"
+            pedido["status_reserva_descricao"] = "Parcialmente reservado"
+        else:
+            pedido["status_reserva"] = "PENDENTE_ESTOQUE"
+            pedido["status_reserva_descricao"] = "Pendente de estoque"
         cursor.execute(q("""SELECT e.id,e.numero_romaneio,e.data,e.status,e.destino,e.cliente_snapshot,
             c.razao_social AS cliente_nome
             FROM expedicoes e LEFT JOIN clientes c ON c.id=e.cliente_id
@@ -1279,7 +1324,7 @@ def vincular_item_reservado_cursor(cursor, expedicao_id, expedicao_item_id):
         return  # banco legado ainda sem a migration; fluxo histórico permanece íntegro
     rom=cursor.fetchone()
     if not rom or not rom["pedido_venda_id"]: return
-    cursor.execute(q("SELECT * FROM expedicao_itens WHERE id=?"),(expedicao_item_id,)); item=cursor.fetchone()
+    cursor.execute(q("SELECT * FROM expedicao_itens WHERE id=? AND COALESCE(ativo,1)=1"),(expedicao_item_id,)); item=cursor.fetchone()
     cursor.execute(q("""SELECT pr.*,pi.sku,pi.produto_snapshot,pi.apresentacao_snapshot FROM pedido_venda_romaneio_itens pr
         JOIN pedido_venda_itens pi ON pi.id=pr.pedido_item_id WHERE pr.expedicao_id=? ORDER BY pr.id"""),(expedicao_id,))
     candidatos=[]
@@ -1297,7 +1342,8 @@ def vincular_item_reservado_cursor(cursor, expedicao_id, expedicao_item_id):
             ELSE COALESCE(ei.quantidade_unidades,0)*1000 END END),0) total
             FROM expedicao_itens ei JOIN pedido_venda_romaneio_itens pr2
               ON pr2.expedicao_id=ei.expedicao_id AND pr2.pedido_item_id=ei.pedido_item_id
-            WHERE ei.expedicao_id=? AND ei.pedido_item_id=?"""),(expedicao_item_id,expedicao_id,plano["pedido_item_id"]))
+            WHERE ei.expedicao_id=? AND ei.pedido_item_id=?
+              AND COALESCE(ei.ativo,1)=1"""),(expedicao_item_id,expedicao_id,plano["pedido_item_id"]))
         usado=int(cursor.fetchone()["total"] or 0)
         if usado+qtd <= int(plano["quantidade_planejada_mil"]): candidatos.append((plano,qtd))
     if len(candidatos)!=1:
@@ -1315,7 +1361,8 @@ def validar_e_registrar_atendimento_cursor(cursor, expedicao_id):
     pedido=cursor.fetchone()
     if not pedido or pedido["status"] not in {"CONFIRMADO","PARCIALMENTE_ATENDIDO"}:
         raise ValueError("Pedido vinculado não está disponível para atendimento.")
-    cursor.execute(q("SELECT * FROM expedicao_itens WHERE expedicao_id=? ORDER BY id"),(expedicao_id,))
+    cursor.execute(q("""SELECT * FROM expedicao_itens
+        WHERE expedicao_id=? AND COALESCE(ativo,1)=1 ORDER BY id"""),(expedicao_id,))
     itens=cursor.fetchall()
     if any(not i["pedido_item_id"] for i in itens): raise ValueError("Todo item do romaneio deve estar vinculado a um item do pedido.")
     for item in itens:
@@ -1348,9 +1395,13 @@ def estornar_atendimento_cursor(cursor, expedicao_id, justificativa):
         return
     rom=cursor.fetchone()
     if not rom or not rom["pedido_venda_id"]: return
+    pedido_id = rom["pedido_venda_id"]
     cursor.execute(q("""UPDATE pedido_venda_atendimentos SET status='ESTORNADO',atualizado_em=?
         WHERE expedicao_id=? AND status='ENTREGUE'"""),(_agora(),expedicao_id))
-    _recalcular_status_cursor(cursor,rom["pedido_venda_id"],"ESTORNO_ATENDIMENTO",expedicao_id,justificativa)
+    _recalcular_status_cursor(cursor,pedido_id,"ESTORNO_ATENDIMENTO",expedicao_id,justificativa)
+    cursor.execute(q("""UPDATE expedicoes
+        SET pedido_venda_id=NULL,pedido_destino_entrega=NULL,atualizado_em=?
+        WHERE id=? AND pedido_venda_id=?"""), (_agora(), expedicao_id, pedido_id))
 
 
 def _recalcular_status_cursor(cursor,pedido_id,acao,expedicao_id,justificativa=None):

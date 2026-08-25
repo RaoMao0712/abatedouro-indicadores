@@ -67,6 +67,10 @@ def criar_tabelas_expedicao():
                 sku TEXT NOT NULL,
                 quantidade_unidades REAL DEFAULT 0,
                 quantidade_kg REAL DEFAULT 0,
+                ativo INTEGER NOT NULL DEFAULT 1,
+                removido_em TEXT,
+                removido_por TEXT,
+                motivo_remocao TEXT,
                 criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
             """)
@@ -108,6 +112,10 @@ def criar_tabelas_expedicao():
                 sku TEXT NOT NULL,
                 quantidade_unidades REAL DEFAULT 0,
                 quantidade_kg REAL DEFAULT 0,
+                ativo INTEGER NOT NULL DEFAULT 1,
+                removido_em TEXT,
+                removido_por TEXT,
+                motivo_remocao TEXT,
                 criado_em TEXT DEFAULT CURRENT_TIMESTAMP
             )
             """)
@@ -1773,7 +1781,7 @@ def buscar_expedicoes(data_inicio=None, data_fim=None, status=None, tipo_movimen
         filtros.append("e.destino LIKE ?")
         parametros.append(f"%{destino.strip()}%")
     if produto:
-        filtros.append("EXISTS (SELECT 1 FROM expedicao_itens ip WHERE ip.expedicao_id=e.id AND ip.sku LIKE ?)")
+        filtros.append("EXISTS (SELECT 1 FROM expedicao_itens ip WHERE ip.expedicao_id=e.id AND COALESCE(ip.ativo,1)=1 AND ip.sku LIKE ?)")
         parametros.append(f"%{produto.strip()}%")
 
     where = ""
@@ -1788,9 +1796,9 @@ def buscar_expedicoes(data_inicio=None, data_fim=None, status=None, tipo_movimen
         (SELECT COALESCE(SUM(pa.quantidade_atendida_mil),0) FROM pedido_venda_atendimentos pa WHERE pa.pedido_id=p.id AND pa.status='ENTREGUE') AS pedido_quantidade_entregue_mil,
         c.razao_social AS cliente_nome,c.nome_fantasia AS cliente_fantasia,
         c.documento AS cliente_documento,
-        (SELECT COUNT(*) FROM expedicao_itens i WHERE i.expedicao_id = e.id) AS total_itens,
-        (SELECT COALESCE(SUM(i.quantidade_unidades), 0) FROM expedicao_itens i WHERE i.expedicao_id = e.id) AS total_unidades,
-        (SELECT COALESCE(SUM(i.quantidade_kg), 0) FROM expedicao_itens i WHERE i.expedicao_id = e.id) AS total_kg
+        (SELECT COUNT(*) FROM expedicao_itens i WHERE i.expedicao_id = e.id AND COALESCE(i.ativo,1)=1) AS total_itens,
+        (SELECT COALESCE(SUM(i.quantidade_unidades), 0) FROM expedicao_itens i WHERE i.expedicao_id = e.id AND COALESCE(i.ativo,1)=1) AS total_unidades,
+        (SELECT COALESCE(SUM(i.quantidade_kg), 0) FROM expedicao_itens i WHERE i.expedicao_id = e.id AND COALESCE(i.ativo,1)=1) AS total_kg
     FROM expedicoes e
     LEFT JOIN clientes c ON c.id=e.cliente_id
     LEFT JOIN pedidos_venda p ON p.id=e.pedido_venda_id
@@ -2070,7 +2078,7 @@ def buscar_itens_expedicao(expedicao_id):
     LEFT JOIN pa_movimentacoes mov ON mov.expedicao_id = i.expedicao_id
         AND mov.caixa_id = i.caixa_id
         AND mov.tipo = ?
-    WHERE i.expedicao_id = ?
+    WHERE i.expedicao_id = ? AND COALESCE(i.ativo,1)=1
     ORDER BY i.id ASC
     """), (LOCAL_ESTOQUE_ABATEDOURO, "TRANSFERENCIA", expedicao_id))
 

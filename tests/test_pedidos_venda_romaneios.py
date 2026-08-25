@@ -163,6 +163,11 @@ def test_entrega_parcial_multiplos_romaneios_e_estorno(base):
     pedido = pedidos.buscar_pedido(pedido_id)
     assert pedido["status"] == "PARCIALMENTE_ATENDIDO"
     assert pedido["itens"][0]["quantidade_entregue_mil"] == 4000
+    conn = sqlite3.connect(base)
+    assert conn.execute("SELECT pedido_venda_id FROM expedicoes WHERE id=?", (exp2,)).fetchone()[0] is None
+    assert conn.execute("""SELECT status FROM pedido_venda_atendimentos
+        WHERE expedicao_id=?""", (exp2,)).fetchone()[0] == "ESTORNADO"
+    conn.close()
 
 
 def test_saldo_e_item_do_pedido_sao_protegidos(base):
@@ -211,6 +216,9 @@ def test_reserva_oficial_do_romaneio_cria_vinculo_por_item(base):
     posicao = cursor.fetchone(); conn.close()
     assert vinculo["pedido_item_id"] == item["id"] and vinculo["quantidade_pacotes"] == 4
     assert posicao["quantidade_pacotes_reservados"] == 4
+    pedido_atual = pedidos.buscar_pedido(pedido_id)
+    assert pedido_atual["status_reserva"] == "PARCIALMENTE_RESERVADO"
+    assert pedido_atual["itens"][0]["quantidade_reservada_mil"] == 4000
     # Reserva parcial mantém a posição disponível para outro saldo, sem baixa física.
     assert posicao["disponibilidade"] == "DISPONIVEL"
 

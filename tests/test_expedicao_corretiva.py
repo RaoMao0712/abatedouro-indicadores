@@ -29,6 +29,7 @@ from modules.expedicao.estoque_service import (  # noqa: E402
     estornar_romaneio,
     registrar_emissao_romaneio,
     registrar_itens_historicos,
+    remover_item_reservado,
     reservar_itens,
 )
 from modules.expedicao.routes import register_expedicao_routes  # noqa: E402
@@ -709,6 +710,64 @@ class ExpedicaoCorretivaTest(unittest.TestCase):
         self.assertEqual(parcial["quantidade_bandejas"], 6)
         self.assertEqual(parcial["peso_tara"], 0.5)
         self.assertEqual(parcial["peso_liquido"], 5)
+
+    def test_16_bloqueado_conforme_falha_fechado_para_venda(self):
+        self.contexto("pcp")
+        op_id, caixa_id = self.preparar_cortada("CX-BLOQUEADA-P12")
+        finalizar_embalagem_secundaria_op(op_id)
+        executar("UPDATE pa_caixas SET disponibilidade='BLOQUEADO' WHERE id=?", (caixa_id,))
+        romaneio = self.criar_romaneio("VENDA_DIRETA", "Venda direta")
+        with self.assertRaisesRegex(ValueError, "conforme e disponivel"):
+            reservar_itens(romaneio, [caixa_id])
+        _, resumo = buscar_estoque_operacional()
+        self.assertGreaterEqual(resumo["unidades_outras_condicoes"], 1)
+        self.assertEqual(consultar_um(
+            "SELECT COUNT(*) total FROM expedicao_itens WHERE expedicao_id=?", (romaneio,)
+        )["total"], 0)
+
+    def test_17_pacotes_em_reprocessamento_nao_compoem_disponivel(self):
+        self.contexto("pcp")
+        _, resumo_antes = buscar_estoque_operacional()
+        caixa_id = executar("""
+        INSERT INTO pa_caixas (
+            codigo_caixa,sku,status,local_estoque_id,estoque_operacional,
+            unidade_estoque,apresentacao,galinhas_por_pacote,
+            quantidade_pacotes,quantidade_galinhas,quantidade_pacotes_reservados,
+            condicao,disponibilidade,zona_estoque
+        ) VALUES ('GI-REPROCESSO-P12','Galinha Inteira','Em estoque',?,1,
+            'PACOTE','Pacote com 1 ave',1,10,10,0,
+            'CONFORME','REPROCESSAMENTO','Produto Não Conforme')
+        """, (self.local_abatedouro,))
+        _, resumo = buscar_estoque_operacional()
+        self.assertEqual(
+            resumo["unidades_reprocessamento"] - resumo_antes["unidades_reprocessamento"], 10)
+        romaneio = self.criar_romaneio("VENDA_DIRETA", "Venda direta")
+        with self.assertRaisesRegex(ValueError, "conforme e disponivel"):
+            reservar_itens(romaneio, [caixa_id], {caixa_id: 1})
+        self.assertEqual(consultar_um(
+            "SELECT quantidade_pacotes_reservados FROM pa_caixas WHERE id=?", (caixa_id,)
+        )["quantidade_pacotes_reservados"], 0)
+
+    def test_18_remocao_de_reserva_preserva_item_inativo_e_auditoria(self):
+        self.contexto("pcp")
+        op_id, caixa_id = self.preparar_cortada("CX-SOFT-DELETE-P12")
+        finalizar_embalagem_secundaria_op(op_id)
+        romaneio = self.criar_romaneio()
+        reservar_itens(romaneio, [caixa_id])
+        item_id = consultar_um("""SELECT id FROM expedicao_itens
+            WHERE expedicao_id=? AND caixa_id=? AND COALESCE(ativo,1)=1""",
+            (romaneio, caixa_id))["id"]
+        remover_item_reservado(romaneio, caixa_id)
+        item = consultar_um("SELECT * FROM expedicao_itens WHERE id=?", (item_id,))
+        self.assertEqual(item["ativo"], 0)
+        self.assertTrue(item["removido_em"] and item["removido_por"] and item["motivo_remocao"])
+        self.assertEqual(buscar_itens_expedicao(romaneio), [])
+        self.assertEqual(consultar_um(
+            "SELECT disponibilidade FROM pa_caixas WHERE id=?", (caixa_id,)
+        )["disponibilidade"], "DISPONIVEL")
+        self.assertEqual(consultar_um("""SELECT COUNT(*) total FROM estoque_eventos
+            WHERE expedicao_id=? AND caixa_id=? AND acao='REMOCAO_RESERVA'""",
+            (romaneio, caixa_id))["total"], 1)
 
 
 if __name__ == "__main__":

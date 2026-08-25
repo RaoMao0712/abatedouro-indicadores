@@ -399,6 +399,10 @@ def criar_tabelas_estoque_confiavel():
             "quantidade_caixas INTEGER DEFAULT 0",
             "quantidade_bandejas INTEGER DEFAULT 0",
             "origem_tipo TEXT",
+            "ativo INTEGER NOT NULL DEFAULT 1",
+            "removido_em TEXT",
+            "removido_por TEXT",
+            "motivo_remocao TEXT",
         ]
         for coluna in colunas_item:
             _alterar_coluna(
@@ -607,11 +611,14 @@ def buscar_estoque_operacional():
             COALESCE(SUM(CASE WHEN unidade_estoque = 'PACOTE' THEN quantidade_pacotes ELSE 1 END), 0) AS unidades_fisicas,
             COALESCE(SUM(CASE
                 WHEN unidade_estoque = 'PACOTE' AND condicao = 'CONFORME'
+                    AND disponibilidade IN ('DISPONIVEL', 'RESERVADO')
                     THEN quantidade_pacotes - COALESCE(quantidade_pacotes_reservados, 0)
                 WHEN unidade_estoque <> 'PACOTE' AND disponibilidade = 'DISPONIVEL' AND condicao = 'CONFORME'
                     THEN 1 ELSE 0 END), 0) AS unidades_disponiveis,
             COALESCE(SUM(CASE
-                WHEN unidade_estoque = 'PACOTE' THEN COALESCE(quantidade_pacotes_reservados, 0)
+                WHEN unidade_estoque = 'PACOTE' AND condicao = 'CONFORME'
+                    AND disponibilidade IN ('DISPONIVEL', 'RESERVADO')
+                    THEN COALESCE(quantidade_pacotes_reservados, 0)
                 WHEN disponibilidade = 'RESERVADO' THEN 1 ELSE 0 END), 0) AS unidades_reservadas,
             COALESCE(SUM(CASE
                 WHEN condicao = 'NAO_CONFORME' AND disponibilidade = 'BLOQUEADO'
@@ -689,7 +696,8 @@ def reservar_itens(expedicao_id, caixa_ids, quantidades_pacotes=None):
         raise ValueError("Selecione itens distintos para reservar.")
     with transaction() as conn:
         cursor = conn.cursor()
-        cursor.execute(q("SELECT * FROM expedicoes WHERE id = ?"), (expedicao_id,))
+        sufixo_bloqueio = " FOR UPDATE" if DATABASE_URL else ""
+        cursor.execute(q(f"SELECT * FROM expedicoes WHERE id = ?{sufixo_bloqueio}"), (expedicao_id,))
         romaneio = cursor.fetchone()
         if not romaneio or romaneio["status"] != "Aberto":
             raise ValueError("Somente romaneios abertos podem receber itens.")
@@ -707,15 +715,17 @@ def reservar_itens(expedicao_id, caixa_ids, quantidades_pacotes=None):
                 raise ValueError("Item inexistente ou fora do estoque operacional.")
             cursor.execute(q("""
             SELECT COUNT(*) AS total FROM expedicao_itens
-            WHERE expedicao_id = ? AND caixa_id = ?
+            WHERE expedicao_id = ? AND caixa_id = ? AND COALESCE(ativo,1)=1
             """), (expedicao_id, caixa_id))
             if int(cursor.fetchone()["total"] or 0):
                 raise ValueError("O item ja esta incluido neste romaneio.")
             situacao_origem = caixa["disponibilidade"]
-            if tipo in {"TRANSFERENCIA", "VENDA_DIRETA"} and caixa["condicao"] != "CONFORME":
-                raise ValueError("Produto nao conforme nao pode entrar em romaneio normal.")
-            if tipo in {"DESCARTE", "DEVOLUCAO", "TRANSFERENCIA_AUTORIZADA"} and caixa["condicao"] != "NAO_CONFORME":
-                raise ValueError("Este tipo de romaneio e destinado a Produto Nao Conforme.")
+            if tipo in {"TRANSFERENCIA", "VENDA_DIRETA"}:
+                if caixa["condicao"] != "CONFORME" or situacao_origem != STATUS_DISPONIVEL:
+                    raise ValueError("Somente produto conforme e disponivel pode entrar em romaneio normal.")
+            elif tipo in {"DESCARTE", "DEVOLUCAO", "TRANSFERENCIA_AUTORIZADA"}:
+                if caixa["condicao"] != "NAO_CONFORME" or situacao_origem != STATUS_BLOQUEADO:
+                    raise ValueError("Somente Produto Nao Conforme bloqueado pode entrar neste romaneio.")
 
             if caixa["unidade_estoque"] == "PACOTE":
                 total_pacotes = int(caixa["quantidade_pacotes"] or 0)
@@ -762,8 +772,6 @@ def reservar_itens(expedicao_id, caixa_ids, quantidades_pacotes=None):
                 peso_evento = None
                 quantidade_evento = quantidade
             else:
-                if situacao_origem not in {STATUS_DISPONIVEL, STATUS_BLOQUEADO}:
-                    raise ValueError("O item nao esta disponivel para reserva.")
                 cursor.execute(q("""
                 UPDATE pa_caixas
                 SET disponibilidade = 'RESERVADO', reservado_expedicao_id = ?
@@ -788,7 +796,8 @@ def reservar_itens(expedicao_id, caixa_ids, quantidades_pacotes=None):
                 peso_evento = caixa["peso_liquido"]
                 quantidade_evento = caixa["quantidade_bandejas"]
             cursor.execute(q("""SELECT id FROM expedicao_itens
-                WHERE expedicao_id = ? AND caixa_id = ? ORDER BY id DESC LIMIT 1"""),
+                WHERE expedicao_id = ? AND caixa_id = ? AND COALESCE(ativo,1)=1
+                ORDER BY id DESC LIMIT 1"""),
                            (expedicao_id, caixa_id))
             expedicao_item_id = cursor.fetchone()["id"]
             from modules.pedidos_venda.services import vincular_item_reservado_cursor
@@ -811,13 +820,16 @@ def remover_item_reservado(expedicao_id, caixa_id):
     criar_tabelas_estoque_confiavel()
     with transaction() as conn:
         cursor = conn.cursor()
-        cursor.execute(q("""
+        sufixo_bloqueio = " FOR UPDATE" if DATABASE_URL else ""
+        cursor.execute(q(f"""
         SELECT i.*, cx.codigo_caixa, cx.quantidade_bandejas, cx.peso_liquido,
                cx.unidade_estoque AS unidade_atual
         FROM expedicao_itens i
         INNER JOIN expedicoes e ON e.id = i.expedicao_id
         INNER JOIN pa_caixas cx ON cx.id = i.caixa_id
         WHERE i.expedicao_id = ? AND i.caixa_id = ? AND e.status = 'Aberto'
+          AND COALESCE(i.ativo,1)=1
+        {sufixo_bloqueio}
         """), (expedicao_id, caixa_id))
         item = cursor.fetchone()
         if not item:
@@ -846,9 +858,10 @@ def remover_item_reservado(expedicao_id, caixa_id):
             SET disponibilidade = ?, reservado_expedicao_id = NULL
             WHERE id = ? AND reservado_expedicao_id = ?
             """), (item["situacao_anterior"] or STATUS_DISPONIVEL, caixa_id, expedicao_id))
-        cursor.execute(q("""
-        DELETE FROM expedicao_itens WHERE expedicao_id = ? AND caixa_id = ?
-        """), (expedicao_id, caixa_id))
+        cursor.execute(q("""UPDATE expedicao_itens
+            SET ativo=0,removido_em=?,removido_por=?,motivo_remocao=?
+            WHERE expedicao_id=? AND caixa_id=? AND COALESCE(ativo,1)=1"""),
+            (_agora(), _usuario(), "Reserva removida do romaneio aberto", expedicao_id, caixa_id))
         _inserir_evento(
             cursor,
             caixa_id=caixa_id,
@@ -885,7 +898,8 @@ def concluir_romaneio(expedicao_id):
     criar_tabelas_estoque_confiavel()
     with transaction() as conn:
         cursor = conn.cursor()
-        cursor.execute(q("SELECT * FROM expedicoes WHERE id = ?"), (expedicao_id,))
+        sufixo_bloqueio = " FOR UPDATE" if DATABASE_URL else ""
+        cursor.execute(q(f"SELECT * FROM expedicoes WHERE id = ?{sufixo_bloqueio}"), (expedicao_id,))
         romaneio = cursor.fetchone()
         if not romaneio or romaneio["status"] != "Aberto":
             raise ValueError("Somente romaneios abertos podem ser concluidos.")
@@ -907,7 +921,7 @@ def concluir_romaneio(expedicao_id):
                cx.quantidade_pacotes_reservados AS pacotes_reservados
         FROM expedicao_itens i
         LEFT JOIN pa_caixas cx ON cx.id = i.caixa_id
-        WHERE i.expedicao_id = ?
+        WHERE i.expedicao_id = ? AND COALESCE(i.ativo,1)=1
         ORDER BY i.id
         """), (expedicao_id,))
         itens = cursor.fetchall()
@@ -1063,7 +1077,8 @@ def cancelar_romaneio(expedicao_id, justificativa):
     criar_tabelas_estoque_confiavel()
     with transaction() as conn:
         cursor = conn.cursor()
-        cursor.execute(q("SELECT * FROM expedicoes WHERE id = ?"), (expedicao_id,))
+        sufixo_bloqueio = " FOR UPDATE" if DATABASE_URL else ""
+        cursor.execute(q(f"SELECT * FROM expedicoes WHERE id = ?{sufixo_bloqueio}"), (expedicao_id,))
         romaneio = cursor.fetchone()
         if not romaneio or romaneio["status"] != "Aberto":
             raise ValueError("Somente romaneios abertos podem ser cancelados.")
@@ -1072,7 +1087,7 @@ def cancelar_romaneio(expedicao_id, justificativa):
                cx.unidade_estoque AS unidade_atual
         FROM expedicao_itens i
         LEFT JOIN pa_caixas cx ON cx.id = i.caixa_id
-        WHERE i.expedicao_id = ?
+        WHERE i.expedicao_id = ? AND COALESCE(i.ativo,1)=1
         """), (expedicao_id,))
         for item in cursor.fetchall():
             if item["caixa_id"]:
@@ -1087,13 +1102,14 @@ def cancelar_romaneio(expedicao_id, justificativa):
                         disponibilidade = CASE
                             WHEN COALESCE(quantidade_pacotes_reservados, 0) - ? >= quantidade_pacotes
                             THEN 'RESERVADO' ELSE ? END
-                    WHERE id = ?
+                    WHERE id = ? AND COALESCE(quantidade_pacotes_reservados, 0) >= ?
                     """), (
                         quantidade,
                         quantidade,
                         quantidade,
                         item["situacao_anterior"] or STATUS_DISPONIVEL,
                         item["caixa_id"],
+                        quantidade,
                     ))
                 else:
                     cursor.execute(q("""
@@ -1101,6 +1117,8 @@ def cancelar_romaneio(expedicao_id, justificativa):
                     SET disponibilidade = ?, reservado_expedicao_id = NULL
                     WHERE id = ? AND reservado_expedicao_id = ?
                     """), (item["situacao_anterior"] or STATUS_DISPONIVEL, item["caixa_id"], expedicao_id))
+                if cursor.rowcount != 1:
+                    raise ValueError("A reserva do item nao esta integra para cancelamento.")
                 _inserir_evento(
                     cursor,
                     caixa_id=item["caixa_id"],
@@ -1141,7 +1159,8 @@ def estornar_romaneio(expedicao_id, justificativa):
     criar_tabelas_estoque_confiavel()
     with transaction() as conn:
         cursor = conn.cursor()
-        cursor.execute(q("SELECT * FROM expedicoes WHERE id = ?"), (expedicao_id,))
+        sufixo_bloqueio = " FOR UPDATE" if DATABASE_URL else ""
+        cursor.execute(q(f"SELECT * FROM expedicoes WHERE id = ?{sufixo_bloqueio}"), (expedicao_id,))
         romaneio = cursor.fetchone()
         if not romaneio or romaneio["status"] != "Concluído":
             raise ValueError("Somente romaneios concluídos podem ser estornados.")
@@ -1153,7 +1172,7 @@ def estornar_romaneio(expedicao_id, justificativa):
                cx.quantidade_pacotes_reservados AS pacotes_reservados_atuais
         FROM expedicao_itens i
         INNER JOIN pa_caixas cx ON cx.id = i.caixa_id
-        WHERE i.expedicao_id = ?
+        WHERE i.expedicao_id = ? AND COALESCE(i.ativo,1)=1
         """), (expedicao_id,))
         for item in cursor.fetchall():
             if item["unidade_atual"] == "PACOTE":
@@ -1348,7 +1367,7 @@ def registrar_itens_historicos(expedicao_id, linhas):
         cursor.execute(q("""
         SELECT sku, quantidade_unidades, quantidade_kg, apresentacao,
                quantidade_pacotes, galinhas_por_pacote, quantidade_galinhas
-        FROM expedicao_itens WHERE expedicao_id = ? ORDER BY id
+        FROM expedicao_itens WHERE expedicao_id = ? AND COALESCE(ativo,1)=1 ORDER BY id
         """), (expedicao_id,))
         anteriores = [dict(item) for item in cursor.fetchall()]
         validados = []
@@ -1421,7 +1440,10 @@ def registrar_itens_historicos(expedicao_id, linhas):
         if assinatura_anterior == assinatura_nova:
             return False
 
-        cursor.execute(q("DELETE FROM expedicao_itens WHERE expedicao_id = ?"), (expedicao_id,))
+        cursor.execute(q("""UPDATE expedicao_itens
+            SET ativo=0,removido_em=?,removido_por=?,motivo_remocao=?
+            WHERE expedicao_id=? AND COALESCE(ativo,1)=1"""),
+            (_agora(), _usuario(), "Totais historicos substituidos", expedicao_id))
         novos = []
         for item in validados:
             if item["sku"] == "Galinha Inteira":

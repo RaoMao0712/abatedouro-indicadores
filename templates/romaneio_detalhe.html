@@ -205,7 +205,7 @@
                     <tbody>
                     {% for item in itens %}
                     <tr>
-                        <td>{{ item.codigo_caixa or ("Invent&aacute;rio legado" if item.origem_tipo == "INVENTARIO_LEGADO_AGREGADO" else "Total declarado") }}</td><td>{{ item.sku }}</td><td>{{ item.apresentacao or ("Caixa" if item.sku == "Galinha Cortada" else "-") }}</td><td>{{ item.op_id or "N&atilde;o identificada" }}</td>
+                        <td>{{ item.codigo_caixa or ("Inventário legado" if item.origem_tipo == "INVENTARIO_LEGADO_AGREGADO" else "Total declarado") }}</td><td>{{ item.sku }}</td><td>{{ item.apresentacao or ("Caixa" if item.sku == "Galinha Cortada" else "-") }}</td><td>{{ item.op_id or "Não identificada" }}</td>
                         <td>{% if item.origem_tipo == "INVENTARIO_LEGADO_AGREGADO" %}{{ item.quantidade_caixas }} caixas / {{ item.quantidade_bandejas }} bandejas{% elif item.unidade_estoque == "PACOTE" %}{{ item.quantidade_pacotes|br_numero(0) }} pacotes{% else %}{{ item.quantidade_unidades|br_numero }}{% endif %}</td>
                         <td>{% if item.unidade_estoque == "PACOTE" %}{{ item.quantidade_galinhas|br_numero(0) }}{% else %}Não aplicável{% endif %}</td>
                         <td>{% if item.unidade_estoque == "PACOTE" %}Não aplicável{% else %}{{ item.quantidade_kg|br_numero(3) }} kg{% endif %}</td>

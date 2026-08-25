@@ -23,6 +23,7 @@ SKU_INVENTARIO_ID = 1
 SKU_INVENTARIO_CODIGO = "LEG-1"
 SKU_INVENTARIO_NOME = "Galinha Cortada"
 APRESENTACAO_INVENTARIO = "Congelada"
+_SCHEMA_AUDITORIA_ITENS_GARANTIDO = False
 
 INVENTARIO_OFICIAL = (
     {"chave": "INVENTARIO_NC_2026_07_30_CARNE_ESCURA", "motivo": "Carne Escura", "condicao": "NAO_CONFORME", "caixas": 689, "bandejas": 8268, "kg": "8340.430"},
@@ -115,6 +116,27 @@ def garantir_schema(*, criar_local=True):
         conn.commit()
     finally:
         conn.close()
+
+
+def _garantir_auditoria_itens_expedicao(cursor):
+    """Mantém o fluxo legado compatível quando executado fora do bootstrap da aplicação."""
+    global _SCHEMA_AUDITORIA_ITENS_GARANTIDO
+    if DATABASE_URL and _SCHEMA_AUDITORIA_ITENS_GARANTIDO:
+        return
+    for coluna in (
+        "ativo INTEGER NOT NULL DEFAULT 1",
+        "removido_em TEXT",
+        "removido_por TEXT",
+        "motivo_remocao TEXT",
+    ):
+        try:
+            prefixo = "IF NOT EXISTS " if DATABASE_URL else ""
+            cursor.execute(f"ALTER TABLE expedicao_itens ADD COLUMN {prefixo}{coluna}")
+        except Exception:
+            if DATABASE_URL:
+                raise
+    if DATABASE_URL:
+        _SCHEMA_AUDITORIA_ITENS_GARANTIDO = True
 
 
 def simular_carga():
@@ -309,6 +331,7 @@ def validar(solicitacao_id, decisao, justificativa, *, usuario=None, perfil=None
     registro_autoaprovacao = None
     with transaction() as conn:
         cursor = conn.cursor()
+        _garantir_auditoria_itens_expedicao(cursor)
         bloqueio = " FOR UPDATE" if DATABASE_URL else ""
         cursor.execute(q("""SELECT s.*,nc.tipo_registro,nc.status AS nc_status,nc.caixa_id,
             nc.saldo_bloqueado_g,nc.saldo_pendente_g,nc.saldo_operacional_g,
@@ -432,7 +455,7 @@ def reverter_liberacao_administrativa(solicitacao_id, *, usuario=None, perfil=No
             raise ValueError("Somente uma solicitacao aprovada pode ser revertida.")
         if solicitacao["tipo_registro"] != TIPO_LEGADO:
             raise ValueError("Esta reversao administrativa exige inventario legado agregado.")
-        cursor.execute(q("SELECT COUNT(*) AS total FROM expedicao_itens WHERE pa_nao_conforme_id=?"),
+        cursor.execute(q("SELECT COUNT(*) AS total FROM expedicao_itens WHERE pa_nao_conforme_id=? AND COALESCE(ativo,1)=1"),
                        (solicitacao["pa_nao_conforme_id"],))
         if int(cursor.fetchone()["total"] or 0):
             raise ValueError("O saldo possui item de romaneio; a reversao foi interrompida.")
@@ -618,6 +641,7 @@ def reservar_operacional(expedicao_id, registro_id, peso, caixas, bandejas, *,
     garantir_schema()
     with transaction() as conn:
         cursor = conn.cursor()
+        _garantir_auditoria_itens_expedicao(cursor)
         cursor.execute(q("SELECT * FROM expedicoes WHERE id=?"), (expedicao_id,))
         romaneio = cursor.fetchone()
         if (not romaneio or romaneio["status"] != "Aberto"
@@ -631,6 +655,8 @@ def reservar_operacional(expedicao_id, registro_id, peso, caixas, bandejas, *,
         cursor.execute(q("""UPDATE pa_nao_conformes SET saldo_operacional_g=saldo_operacional_g-?,
             saldo_reservado_operacional_g=saldo_reservado_operacional_g+?,atualizado_em=?
             WHERE id=? AND saldo_operacional_g>=?"""), (peso_g,peso_g,agora,registro_id,peso_g))
+        if cursor.rowcount != 1:
+            raise ValueError("O saldo legado foi reservado por outro romaneio.")
         cursor.execute(q("""INSERT INTO expedicao_itens (
             expedicao_id,caixa_id,op_id,sku,quantidade_unidades,quantidade_kg,
             situacao_anterior,condicao_anterior,unidade_estoque,apresentacao,lote,
@@ -649,8 +675,10 @@ def remover_reserva_operacional(expedicao_id, item_id, *, usuario=None, perfil=N
     usuario, perfil, origem, _ = _identidade(usuario, perfil, origem)
     with transaction() as conn:
         cursor = conn.cursor()
+        _garantir_auditoria_itens_expedicao(cursor)
         cursor.execute(q("""SELECT i.*,e.status FROM expedicao_itens i JOIN expedicoes e ON e.id=i.expedicao_id
-            WHERE i.id=? AND i.expedicao_id=? AND i.origem_tipo=?"""), (item_id,expedicao_id,TIPO_LEGADO))
+            WHERE i.id=? AND i.expedicao_id=? AND i.origem_tipo=?
+              AND COALESCE(i.ativo,1)=1"""), (item_id,expedicao_id,TIPO_LEGADO))
         item = cursor.fetchone()
         if not item or item["status"] != "Aberto":
             raise ValueError("Reserva agregada nao encontrada em romaneio aberto.")
@@ -661,15 +689,19 @@ def remover_reserva_operacional(expedicao_id, item_id, *, usuario=None, perfil=N
             (peso_g,peso_g,_agora(),item["pa_nao_conforme_id"],peso_g))
         if cursor.rowcount != 1:
             raise ValueError("A reserva agregada nao esta integra.")
-        cursor.execute(q("DELETE FROM expedicao_itens WHERE id=?"), (item_id,))
+        cursor.execute(q("""UPDATE expedicao_itens
+            SET ativo=0,removido_em=?,removido_por=?,motivo_remocao=?
+            WHERE id=? AND COALESCE(ativo,1)=1"""),
+            (_agora(), usuario, "Reserva agregada removida do romaneio aberto", item_id))
         _evento(cursor,item["pa_nao_conforme_id"],"REMOCAO_RESERVA_ROMANEIO","RESERVADO","DISPONIVEL",
                 usuario,perfil,origem,f"Romaneio #{expedicao_id}")
 
 
 def concluir_reservas_cursor(cursor, expedicao_id, usuario="Sistema", perfil="sistema", origem="romaneio"):
+    _garantir_auditoria_itens_expedicao(cursor)
     cursor.execute(q("""SELECT i.*,e.tipo_movimentacao FROM expedicao_itens i
         JOIN expedicoes e ON e.id=i.expedicao_id
-        WHERE i.expedicao_id=? AND i.origem_tipo=?"""), (expedicao_id,TIPO_LEGADO))
+        WHERE i.expedicao_id=? AND i.origem_tipo=? AND COALESCE(i.ativo,1)=1"""), (expedicao_id,TIPO_LEGADO))
     itens = cursor.fetchall()
     for item in itens:
         peso_g = gramas(item["quantidade_kg"], "Peso reservado")
@@ -687,7 +719,10 @@ def concluir_reservas_cursor(cursor, expedicao_id, usuario="Sistema", perfil="si
 
 
 def cancelar_reservas_cursor(cursor, expedicao_id, justificativa, usuario="Sistema", perfil="sistema", origem="romaneio"):
-    cursor.execute(q("SELECT * FROM expedicao_itens WHERE expedicao_id=? AND origem_tipo=?"), (expedicao_id,TIPO_LEGADO))
+    _garantir_auditoria_itens_expedicao(cursor)
+    cursor.execute(q("""SELECT * FROM expedicao_itens
+        WHERE expedicao_id=? AND origem_tipo=? AND COALESCE(ativo,1)=1"""),
+        (expedicao_id,TIPO_LEGADO))
     for item in cursor.fetchall():
         peso_g = gramas(item["quantidade_kg"], "Peso reservado")
         cursor.execute(q("""UPDATE pa_nao_conformes SET saldo_reservado_operacional_g=saldo_reservado_operacional_g-?,
@@ -700,9 +735,10 @@ def cancelar_reservas_cursor(cursor, expedicao_id, justificativa, usuario="Siste
 
 
 def estornar_baixas_cursor(cursor, expedicao_id, justificativa, usuario="Sistema", perfil="sistema", origem="romaneio"):
+    _garantir_auditoria_itens_expedicao(cursor)
     cursor.execute(q("""SELECT i.*,e.tipo_movimentacao FROM expedicao_itens i
         JOIN expedicoes e ON e.id=i.expedicao_id
-        WHERE i.expedicao_id=? AND i.origem_tipo=?"""), (expedicao_id,TIPO_LEGADO))
+        WHERE i.expedicao_id=? AND i.origem_tipo=? AND COALESCE(i.ativo,1)=1"""), (expedicao_id,TIPO_LEGADO))
     for item in cursor.fetchall():
         peso_g = gramas(item["quantidade_kg"], "Peso movimentado")
         cursor.execute(q("""UPDATE pa_nao_conformes SET saldo_destinado_g=saldo_destinado_g-?,

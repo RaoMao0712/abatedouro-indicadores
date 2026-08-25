@@ -82,11 +82,11 @@ def banco_consolidado(tmp_path, monkeypatch):
         CREATE TABLE expedicao_itens (
             id INTEGER PRIMARY KEY, expedicao_id INTEGER,
             pa_nao_conforme_id INTEGER, quantidade_caixas INTEGER,
-            quantidade_bandejas INTEGER
+            quantidade_bandejas INTEGER, ativo INTEGER NOT NULL DEFAULT 1
         );
         INSERT INTO expedicao_itens VALUES
-            (1, 1, 10, 1, 12),
-            (2, 2, 10, 1, 12);
+            (1, 1, 10, 1, 12, 1),
+            (2, 2, 10, 1, 12, 1);
 
         CREATE TABLE estoque_eventos (id INTEGER PRIMARY KEY, acao TEXT);
         INSERT INTO estoque_eventos VALUES (1, 'BASELINE');
