@@ -1108,6 +1108,51 @@ def _resumo_romaneio_vinculado_cursor(cursor, expedicao_id):
     return resumo or "Sem itens", peso_mil
 
 
+ROTULOS_EVENTOS_PEDIDO = {
+    "PEDIDO_CRIADO": "Pedido criado",
+    "PEDIDO_CONFIRMADO": "Pedido confirmado",
+    "PEDIDO_ATUALIZADO": "Pedido atualizado",
+    "PEDIDO_CANCELADO": "Pedido cancelado",
+    "STATUS_APOS_VINCULO_EXISTENTE": "Status recalculado após vínculo",
+    "ROMANEIO_EXISTENTE_VINCULADO": "Romaneios existentes vinculados",
+    "ESTORNO_ATENDIMENTO": "Atendimento estornado",
+}
+
+
+def _apresentar_evento_pedido(evento):
+    """Resume snapshots técnicos sem apagar o conteúdo auditável persistido."""
+    evento = dict(evento)
+    evento["acao_rotulo"] = ROTULOS_EVENTOS_PEDIDO.get(
+        evento.get("acao"), str(evento.get("acao") or "Evento").replace("_", " ").capitalize())
+    justificativa = evento.get("justificativa")
+    evento["justificativa_resumo"] = justificativa or "-"
+    if not justificativa:
+        return evento
+    try:
+        dados = json.loads(justificativa)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return evento
+    if not isinstance(dados, dict):
+        evento["justificativa_resumo"] = "Detalhes técnicos preservados na auditoria."
+        return evento
+    romaneios = dados.get("romaneios") or []
+    if isinstance(romaneios, list) and romaneios:
+        documentos = []
+        for item in romaneios:
+            if not isinstance(item, dict):
+                continue
+            numero = item.get("numero") or "Romaneio"
+            identificador = f"ID #{item['id']}" if item.get("id") is not None else "ID não informado"
+            documentos.append(f"{numero} ({identificador})")
+        evento["justificativa_resumo"] = (
+            f"{len(documentos)} romaneio(s) vinculado(s): " + ", ".join(documentos)
+            if documentos else "Vínculo de romaneios registrado; detalhes técnicos preservados."
+        )
+    else:
+        evento["justificativa_resumo"] = "Detalhes técnicos preservados na auditoria."
+    return evento
+
+
 def buscar_pedido(pedido_id):
     criar_tabelas_pedidos_venda()
     conn = conectar(); cursor = conn.cursor()
@@ -1184,7 +1229,7 @@ def buscar_pedido(pedido_id):
             romaneio["quantidades_resumo"], romaneio["peso_mil_kg"] = _resumo_romaneio_vinculado_cursor(cursor, romaneio["id"])
             pedido["romaneios"].append(romaneio)
         cursor.execute(q("SELECT * FROM pedido_venda_eventos WHERE pedido_id=? ORDER BY criado_em,id"), (pedido_id,))
-        pedido["eventos"] = [dict(x) for x in cursor.fetchall()]
+        pedido["eventos"] = [_apresentar_evento_pedido(x) for x in cursor.fetchall()]
         return pedido
     finally:
         conn.close()

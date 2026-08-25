@@ -14,6 +14,7 @@ from modules.relatorios.expedicao import (
     resumo_estoque_oficial,
 )
 from modules.relatorios.producao import cte_ops_agregadas, normalizar_filtros
+from modules.pedidos_venda.services import _apresentar_evento_pedido
 
 
 def _situacao(rotulo, **quantidades):
@@ -131,3 +132,13 @@ def test_migration_snapshot_sqlite_e_aditiva_reversivel(tmp_path):
     conn.executescript((raiz / "20260825_p1_3_snapshot_conferencia_embalagem_sqlite_rollback.sql").read_text(encoding="utf-8"))
     assert "snapshot_json" not in {item[1] for item in conn.execute("PRAGMA table_info(embalagem_secundaria_conferencias)")}
     conn.close()
+
+
+def test_historico_pedido_resume_json_mantendo_documento_e_id_auditaveis():
+    evento = _apresentar_evento_pedido({
+        "acao": "ROMANEIO_EXISTENTE_VINCULADO",
+        "justificativa": '{"romaneios":[{"id":31,"numero":"ROM-20260821-005","itens":[{"expedicao_item_id":44}]}]}',
+    })
+    assert evento["acao_rotulo"] == "Romaneios existentes vinculados"
+    assert evento["justificativa_resumo"] == "1 romaneio(s) vinculado(s): ROM-20260821-005 (ID #31)"
+    assert "expedicao_item_id" in evento["justificativa"]  # snapshot bruto segue preservado

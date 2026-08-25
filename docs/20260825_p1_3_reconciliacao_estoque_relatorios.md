@@ -49,6 +49,7 @@ As unidades não são convertidas entre si: Galinha Cortada usa caixas, bandejas
 2. Filtros de caixa, OP, lote e validade, inadequados à fotografia agregada, foram retirados dessa tela. Foram adotados SKU, apresentação, situação e origem física.
 3. A reimpressão da Conferência Analítica podia refletir caixas lançadas depois da confirmação. Novas confirmações persistem snapshot completo, e o PDF prefere esse snapshot.
 4. Os relatórios produtivos já excluíam OP estornada/cancelada e caixas inativas; a regra foi coberta por teste explícito de regressão, sem criar cálculo paralelo.
+5. A auditoria do pedido exibia snapshots JSON extensos como justificativa. A interface agora apresenta ação e resumo operacionais, incluindo número e ID do romaneio, enquanto o snapshot bruto permanece imutável no banco.
 
 ## Migration
 
