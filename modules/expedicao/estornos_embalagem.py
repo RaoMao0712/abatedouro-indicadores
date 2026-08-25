@@ -12,7 +12,7 @@ import os
 from database import DATABASE_URL, conectar, q, transaction
 
 
-PERFIS_ESTORNO = {"admin", "pcp"}
+PERFIS_ESTORNO = {"admin", "pcp", "gerencia"}
 STATUS_INATIVOS = {"CANCELADA", "CANCELADO", "ESTORNADA", "ESTORNADO"}
 _SCHEMA_ESTORNOS_INICIALIZADO = False
 

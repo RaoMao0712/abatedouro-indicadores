@@ -190,7 +190,7 @@
             <div class="section-title-row"><div><span class="eyebrow">Segregação controlada</span><h3>Produtos Acabados Não Conformes</h3><p class="obs">Opcional. Marque zero ou várias caixas. Cada item marcado nascerá bloqueado e fora do estoque comercial.</p></div></div>
             <div class="tabela-responsiva tabela-executiva"><table>
                 <thead><tr><th>Não conforme</th><th>Caixa / lote</th><th>Quantidade / peso</th><th>Motivo e descrição</th><th>Local e observações</th></tr></thead>
-                <tbody>{% for caixa in caixas_op if caixa.status != 'Cancelada' %}<tr class="pa-nc-item">
+                <tbody>{% for caixa in caixas_fechamento if caixa.status|upper not in ['CANCELADA','CANCELADO','ESTORNADA','ESTORNADO'] %}<tr class="pa-nc-item">
                     <td><label><input type="checkbox" name="nc_caixa_id" value="{{ caixa.id }}" data-pa-nc-toggle> Bloquear</label></td>
                     <td><strong>{{ caixa.codigo_caixa }}</strong><input type="hidden" name="nc_{{ caixa.id }}_lote" value="{{ caixa.codigo_caixa }}" disabled data-pa-nc-field><input type="hidden" name="nc_{{ caixa.id }}_apresentacao" value="Caixa de {{ op_selecionada.sku }}" disabled data-pa-nc-field></td>
                     <td>{{ caixa.quantidade_bandejas|br_numero }} bandejas · {{ caixa.peso_liquido|br_numero(3) }} kg<input type="hidden" name="nc_{{ caixa.id }}_quantidade" value="{{ caixa.quantidade_bandejas }}" disabled data-pa-nc-field><input type="hidden" name="nc_{{ caixa.id }}_peso" value="{{ caixa.peso_liquido }}" disabled data-pa-nc-field><input type="hidden" name="nc_{{ caixa.id }}_unidade" value="BANDEJA" disabled data-pa-nc-field></td>
@@ -199,7 +199,7 @@
                 </tr>{% else %}<tr><td colspan="5">Nenhuma caixa ativa vinculada.</td></tr>{% endfor %}</tbody>
             </table></div>
         </section>
-        <button type="submit" class="botao-principal" {% if not fechamento_op.pode_encerrar or not conferencia_op or not conferencia_op.confirmacao_valida %}disabled{% endif %}>
+        <button type="{% if conferencia_op and conferencia_op.confirmacao_valida %}submit{% else %}button{% endif %}" class="botao-principal" {% if not fechamento_op.pode_encerrar %}disabled{% endif %} {% if not conferencia_op or not conferencia_op.confirmacao_valida %}data-abrir-conferencia{% endif %}>
             Finalizar Embalagem Secundária e Encerrar OP
         </button>
         {% if not conferencia_op or not conferencia_op.confirmacao_valida %}
@@ -261,7 +261,7 @@ document.addEventListener("DOMContentLoaded", function () {
     </div>
 
     {% if not fechamento_op or (fechamento_op.saldo_pi > 0 and fechamento_op.op.status == "Aberta") %}
-    <form method="post" class="form-grid" id="form-caixa-individual">
+    <form method="post" class="form-grid" id="form-caixa-individual" data-caixa-form data-restaurar="{{ '1' if request.args.get('inclusao_erro') else '0' }}">
         <input type="hidden" name="idempotency_key" value="{{ chave_inclusao_individual }}">
         <input type="hidden" name="op_principal" value="{{ op_selecionada.op_id }}">
         <input type="hidden" name="op_complementar" value="">
@@ -311,7 +311,7 @@ document.addEventListener("DOMContentLoaded", function () {
         </div>
 
         <div class="form-span-2">
-            <button type="submit" class="botao-principal">Adicionar Caixa PA</button>
+            <button type="button" class="botao-principal" data-confirmar-caixa>Adicionar Caixa PA</button>
         </div>
     </form>
 
@@ -326,7 +326,7 @@ document.addEventListener("DOMContentLoaded", function () {
         </div>
     </div>
 
-    <form method="post" class="form-grid" id="form-caixa-lote">
+    <form method="post" class="form-grid" id="form-caixa-lote" data-caixa-form data-restaurar="{{ '1' if request.args.get('inclusao_erro') else '0' }}">
         <input type="hidden" name="idempotency_key" value="{{ chave_inclusao_lote }}">
         <input type="hidden" name="op_principal" value="{{ op_selecionada.op_id }}">
         <input type="hidden" name="op_complementar" value="">
@@ -379,7 +379,7 @@ document.addEventListener("DOMContentLoaded", function () {
         </div>
 
         <div class="form-span-2">
-            <button type="submit" class="botao-principal">Salvar Caixas em Lote</button>
+            <button type="button" class="botao-principal" data-confirmar-caixa>Salvar Caixas em Lote</button>
         </div>
     </form>
     {% else %}
@@ -390,7 +390,7 @@ document.addEventListener("DOMContentLoaded", function () {
     {% endif %}
 </div>
 
-<div class="card expedicao-card">
+<div class="card expedicao-card" id="conferencia-caixas">
     <div class="section-title-row">
         <div>
             <span class="eyebrow">Conferência operacional e auditável</span>
@@ -404,16 +404,24 @@ document.addEventListener("DOMContentLoaded", function () {
         <span><strong>Estornadas:</strong> {{ conferencia_op.totais.caixas_estornadas }}</span>
         <span><strong>Bandejas ativas:</strong> {{ conferencia_op.totais.bandejas|br_numero }}</span>
         <span><strong>Bruto:</strong> {{ conferencia_op.totais.peso_bruto|br_numero(3) }} kg</span>
+        <span><strong>Tara:</strong> {{ conferencia_op.totais.peso_tara|br_numero(3) }} kg</span>
         <span><strong>Líquido:</strong> {{ conferencia_op.totais.peso_liquido|br_numero(3) }} kg</span>
         <span><strong>Possíveis duplicidades:</strong> {{ conferencia_op.duplicidades|length }}</span>
+        <span><strong>Saldo pendente:</strong> {{ conferencia_op.totais.saldo_pendente|br_numero }} bandejas</span>
     </div>
     <p class="obs">“Possível duplicidade” compara dados equivalentes lançados em até {{ conferencia_op.janela_duplicidade_segundos }} segundos. É apenas um alerta: nenhuma caixa é selecionada ou removida automaticamente.</p>
     <form method="get" action="{{ url_for('embalagem_secundaria') }}" class="form-grid" style="margin:1rem 0;">
         <input type="hidden" name="op_id" value="{{ op_selecionada.op_id }}">
         <div><label>Localizar caixa, peso, bandejas, usuário ou horário</label><input name="busca" value="{{ request.args.get('busca','') }}" placeholder="Ex.: CX-001, 12,760 ou 08:15"></div>
-        <div><label>Situação</label><select name="situacao"><option value="ativas" {% if request.args.get('situacao','ativas') == 'ativas' %}selected{% endif %}>Somente caixas ativas</option><option value="estornadas" {% if request.args.get('situacao') == 'estornadas' %}selected{% endif %}>Somente caixas estornadas</option><option value="todas" {% if request.args.get('situacao') == 'todas' %}selected{% endif %}>Todas</option></select></div>
+        <div><label>Situação</label><select name="situacao"><option value="todas" {% if request.args.get('situacao','todas') == 'todas' %}selected{% endif %}>Todas</option><option value="ativas" {% if request.args.get('situacao') == 'ativas' %}selected{% endif %}>Somente caixas ativas</option><option value="estornadas" {% if request.args.get('situacao') == 'estornadas' %}selected{% endif %}>Somente caixas estornadas</option></select></div>
+        <div><label>Usuário</label><input name="usuario" value="{{ request.args.get('usuario','') }}" placeholder="Nome do operador"></div>
+        <div><label>Peso bruto exato</label><input type="number" step="0.001" name="peso_bruto" value="{{ request.args.get('peso_bruto','') }}"></div>
+        <div><label>Bandejas</label><input type="number" step="1" name="bandejas" value="{{ request.args.get('bandejas','') }}"></div>
+        <div><label>Horário inicial</label><input type="time" name="horario_inicial" value="{{ request.args.get('horario_inicial','') }}"></div>
+        <div><label>Horário final</label><input type="time" name="horario_final" value="{{ request.args.get('horario_final','') }}"></div>
+        <div><label>Ordenação</label><select name="ordem"><option value="desc" {% if request.args.get('ordem','desc') == 'desc' %}selected{% endif %}>Mais recentes primeiro</option><option value="asc" {% if request.args.get('ordem') == 'asc' %}selected{% endif %}>Cronológica crescente</option></select></div>
         <div><label><input type="checkbox" name="duplicadas" value="1" {% if request.args.get('duplicadas') %}checked{% endif %}> Somente possíveis duplicidades</label></div>
-        <div><button class="botao-dre-exportar" type="submit">Aplicar filtros</button> <a class="botao-dre-exportar" href="{{ url_for('embalagem_secundaria', op_id=op_selecionada.op_id) }}">Limpar</a></div>
+        <div><button class="botao-dre-exportar" type="submit">Aplicar filtros</button> <a class="botao-dre-exportar" href="{{ url_for('embalagem_secundaria', op_id=op_selecionada.op_id) }}">Limpar</a> <a class="botao-principal" target="_blank" href="{{ url_for('pdf_conferencia_embalagem_secundaria', op_id=op_selecionada.op_id) }}">Gerar relatório</a></div>
     </form>
     {% endif %}
 
@@ -425,6 +433,7 @@ document.addEventListener("DOMContentLoaded", function () {
                     <th>Selecionar</th>
                     <th>Código</th>
                     <th>Peso bruto</th>
+                    <th>Tara</th>
                     <th>Bandejas</th>
                     <th>Peso líquido</th>
                     <th>Fabricação / validade</th>
@@ -440,6 +449,7 @@ document.addEventListener("DOMContentLoaded", function () {
                     <td><input type="checkbox" name="caixa_ids[]" value="{{ caixa.id }}" form="form-estorno-lote" data-caixa-selecao data-bandejas="{{ caixa.quantidade_bandejas }}" data-bruto="{{ caixa.peso_bruto }}" data-liquido="{{ caixa.peso_liquido }}" data-codigo="{{ caixa.codigo_caixa }}" {% if not caixa.selecionavel %}disabled{% endif %}></td>
                     <td><strong>{{ caixa.codigo_caixa }}</strong></td>
                     <td>{{ caixa.peso_bruto|br_numero(3) }} kg</td>
+                    <td>{{ caixa.peso_tara|br_numero(3) }} kg</td>
                     <td>{{ caixa.quantidade_bandejas|br_numero }}</td>
                     <td>{{ caixa.peso_liquido|br_numero(3) }} kg</td>
                     <td>{{ caixa.data_fabricacao or '-' }}<br>{{ caixa.data_validade or '-' }}</td>
@@ -493,7 +503,7 @@ document.addEventListener("DOMContentLoaded", function () {
         <input type="hidden" name="csrf_token" value="{{ csrf_estorno }}">
         <input type="hidden" name="idempotency_key" value="{{ chave_estorno_lote }}">
         <div class="form-span-2"><label><input type="checkbox" data-selecionar-todas> Selecionar todas as caixas ativas exibidas pelo filtro</label> <button type="button" class="botao-dre-exportar" data-limpar-selecao>Limpar seleção</button></div>
-        <div class="form-span-2" data-resumo-selecao><strong>0 caixas selecionadas</strong><br>0 bandejas · Bruto 0,000 kg · Líquido 0,000 kg</div>
+        <div class="form-span-2" data-resumo-selecao><strong>0 caixas selecionadas</strong><br>0 bandejas · Bruto 0,000 kg · Líquido 0,000 kg<br>Impacto PI: +0 bandejas · Impacto PA: -0 caixas</div>
         <div><label>Motivo</label><select name="motivo" required><option value="">Selecione</option><option>Lançamentos em duplicidade</option><option>Pesos informados incorretamente</option><option>Quantidades de bandejas incorretas</option><option>Caixas físicas desfeitas</option><option>Seleção lançada na OP errada</option><option>Outro</option></select></div>
         <div><label>Detalhes</label><textarea name="detalhes" rows="2" placeholder="Obrigatório para Outro"></textarea></div>
         <div class="form-span-2"><button type="submit" class="botao-principal" data-confirmar-lote disabled>Confirmar estorno das caixas selecionadas</button></div>
@@ -504,7 +514,7 @@ document.addEventListener("DOMContentLoaded", function () {
     <form method="post" action="{{ url_for('confirmar_conferencia_embalagem_secundaria', op_id=op_selecionada.op_id) }}" style="margin-top:1.5rem; padding:1rem; border:1px solid #d0d5dd; border-radius:12px;">
         <input type="hidden" name="csrf_token" value="{{ csrf_estorno }}">
         <input type="hidden" name="conferencia_hash" value="{{ conferencia_op.hash }}">
-        <label><input type="checkbox" required> <strong>Conferi os lançamentos da Embalagem Secundária desta OP.</strong></label>
+        <label><input type="checkbox" name="confirmacao" value="1" required> <strong>Conferi os lançamentos da Embalagem Secundária desta OP.</strong></label>
         <button type="submit" class="botao-principal" style="margin-top:.8rem;">Registrar conferência para encerramento</button>
         {% if conferencia_op.confirmacao_valida %}<p><strong>Conferência válida e registrada.</strong> Qualquer inclusão ou estorno invalidará esta confirmação.</p>{% endif %}
     </form>
@@ -687,12 +697,50 @@ document.addEventListener("DOMContentLoaded", function () {
     ["form-caixa-individual", "form-caixa-lote"].forEach(function (id) {
         const form = document.getElementById(id);
         if (!form) return;
-        form.addEventListener("submit", function () {
-            const botao = form.querySelector("button[type=submit]");
-            if (botao && !botao.disabled) {
-                botao.disabled = true;
-                botao.textContent = "Registrando...";
+        const botao = form.querySelector("[data-confirmar-caixa]");
+        const storageKey = "frigodatta:" + id + ":" + (form.querySelector("[name=op_principal]") || {}).value;
+        let envioExplicito = false;
+
+        function salvarRascunho() {
+            const dados = {};
+            Array.from(form.elements).forEach(function (campo) {
+                if (campo.name && campo.type !== "button") dados[campo.name] = campo.value;
+            });
+            sessionStorage.setItem(storageKey, JSON.stringify(dados));
+        }
+        if (form.dataset.restaurar === "1") {
+            try {
+                const dados = JSON.parse(sessionStorage.getItem(storageKey) || "{}");
+                Array.from(form.elements).forEach(function (campo) {
+                    if (campo.name && Object.prototype.hasOwnProperty.call(dados, campo.name)) campo.value = dados[campo.name];
+                });
+            } catch (erro) { sessionStorage.removeItem(storageKey); }
+        } else {
+            sessionStorage.removeItem(storageKey);
+        }
+
+        form.addEventListener("keydown", function (evento) {
+            if (evento.key !== "Enter") return;
+            if (id === "form-caixa-lote" && evento.target.tagName === "TEXTAREA") return;
+            evento.preventDefault();
+            const campos = Array.from(form.querySelectorAll("input:not([type=hidden]):not([disabled]), select:not([disabled]), textarea:not([disabled])"));
+            const atual = campos.indexOf(evento.target);
+            const proximo = atual >= 0 && atual < campos.length - 1 ? campos[atual + 1] : form.querySelector("[data-peso-bruto]");
+            if (proximo) proximo.focus();
+        });
+        form.addEventListener("submit", function (evento) {
+            if (!envioExplicito) {
+                evento.preventDefault();
+                return;
             }
+            salvarRascunho();
+        });
+        if (botao) botao.addEventListener("click", function () {
+            if (botao.disabled || !form.reportValidity()) return;
+            envioExplicito = true;
+            botao.disabled = true;
+            botao.textContent = "Registrando...";
+            form.requestSubmit();
         });
     });
 
@@ -710,7 +758,9 @@ document.addEventListener("DOMContentLoaded", function () {
         const bandejas = marcadas.reduce(function (s, item) { return s + numero(item.dataset.bandejas); }, 0);
         const bruto = marcadas.reduce(function (s, item) { return s + numero(item.dataset.bruto); }, 0);
         const liquido = marcadas.reduce(function (s, item) { return s + numero(item.dataset.liquido); }, 0);
-        if (resumoSelecao) resumoSelecao.innerHTML = "<strong>" + marcadas.length + " caixas selecionadas</strong><br>" + br(bandejas, 0) + " bandejas · Bruto " + br(bruto, 3) + " kg · Líquido " + br(liquido, 3) + " kg";
+        const codigos = marcadas.map(function (item) { return item.dataset.codigo; });
+        const idsResumo = codigos.length <= 6 ? codigos.join(", ") : codigos.slice(0, 6).join(", ") + " e mais " + (codigos.length - 6);
+        if (resumoSelecao) resumoSelecao.innerHTML = "<strong>" + marcadas.length + " caixas selecionadas</strong>" + (idsResumo ? " · " + idsResumo : "") + "<br>" + br(bandejas, 0) + " bandejas · Bruto " + br(bruto, 3) + " kg · Líquido " + br(liquido, 3) + " kg<br>Impacto PI: +" + br(bandejas, 0) + " bandejas · Impacto PA: -" + marcadas.length + " caixas / -" + br(liquido, 3) + " kg";
         if (confirmarLote) confirmarLote.disabled = marcadas.length === 0;
         if (marcarTodas) marcarTodas.checked = marcadas.length > 0 && marcadas.length === selecoes.filter(function (i) { return !i.disabled; }).length;
     }
@@ -725,6 +775,12 @@ document.addEventListener("DOMContentLoaded", function () {
         if (confirmarLote) { confirmarLote.disabled = true; confirmarLote.textContent = "Estornando..."; }
     });
     atualizarSelecao();
+
+    const abrirConferencia = document.querySelector("[data-abrir-conferencia]");
+    if (abrirConferencia) abrirConferencia.addEventListener("click", function () {
+        const painel = document.getElementById("conferencia-caixas");
+        if (painel) painel.scrollIntoView({behavior: "smooth", block: "start"});
+    });
 })();
 </script>
 

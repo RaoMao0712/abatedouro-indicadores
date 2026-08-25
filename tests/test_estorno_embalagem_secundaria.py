@@ -1,13 +1,16 @@
 from contextlib import contextmanager
+from io import BytesIO
 import inspect
 import json
 import sqlite3
 
 import pytest
+from pypdf import PdfReader
 
 from modules.expedicao import estornos_embalagem as estornos
 from modules.expedicao import services as expedicao_services
 from modules.expedicao import conferencia_embalagem as conferencia
+from modules.expedicao.relatorio_conferencia_embalagem import gerar_relatorio_conferencia_embalagem_pdf
 
 
 @pytest.fixture()
@@ -126,6 +129,49 @@ def test_caixa_padrao_devolve_exatamente_doze_bandejas(banco):
     conn = banco()
     linha = conn.execute("SELECT quantidade_bandejas FROM estoque_produto_intermediario WHERE tipo='ENTRADA_ESTORNO_CAIXA'").fetchone()
     assert linha[0] == 12
+    conn.close()
+
+
+@pytest.mark.parametrize("quantidade", [1, 6, 11, 12])
+def test_retorno_pi_exato_recompoe_saldo_anterior_ao_lancamento(banco, quantidade):
+    conn = banco()
+    conn.execute("DELETE FROM estoque_produto_intermediario")
+    conn.execute("UPDATE pa_caixa_composicao SET quantidade_bandejas=? WHERE caixa_id=2", (quantidade,))
+    conn.execute("UPDATE pa_caixas SET quantidade_bandejas=? WHERE id=2", (quantidade,))
+    conn.execute("""INSERT INTO estoque_produto_intermediario(
+        data_movimentacao,tipo,op_id,sku,quantidade_bandejas,origem,observacoes,idempotency_key)
+        VALUES('2026-08-21','ENTRADA_EMBALAGEM_PRIMARIA',7,'Galinha Cortada',50,
+        'Embalagem Primária','Saldo inicial controlado','PI-INICIAL')""")
+    conn.execute("""INSERT INTO estoque_produto_intermediario(
+        data_movimentacao,tipo,op_id,sku,quantidade_bandejas,origem,observacoes,caixa_id,idempotency_key)
+        VALUES('2026-08-21','SAIDA_EMBALAGEM_SECUNDARIA',7,'Galinha Cortada',?,
+        'Embalagem Secundária','Bandejas consumidas na formação da caixa PA #2.',2,'SAIDA-CONTROLADA')""", (quantidade,))
+    saldo_apos_lancamento = conn.execute("""SELECT SUM(CASE WHEN tipo LIKE 'ENTRADA%' THEN quantidade_bandejas ELSE -quantidade_bandejas END)
+        FROM estoque_produto_intermediario WHERE op_id=7""").fetchone()[0]
+    conn.commit(); conn.close()
+
+    _estornar(2, f"PI-EXATO-{quantidade}")
+    conn = banco()
+    saldo_final = conn.execute("""SELECT SUM(CASE WHEN tipo LIKE 'ENTRADA%' THEN quantidade_bandejas ELSE -quantidade_bandejas END)
+        FROM estoque_produto_intermediario WHERE op_id=7""").fetchone()[0]
+    devolvido = conn.execute("SELECT quantidade_bandejas FROM estoque_produto_intermediario WHERE tipo='ENTRADA_ESTORNO_CAIXA'").fetchone()[0]
+    assert saldo_apos_lancamento == 50 - quantidade
+    assert saldo_final == 50
+    assert devolvido == quantidade
+    conn.close()
+
+
+def test_pa_estornado_fica_fora_de_reserva_romaneio_e_estoque_ativo(banco):
+    _estornar(2, "PA-INATIVO")
+    conn = banco()
+    caixa = conn.execute("SELECT * FROM pa_caixas WHERE id=2").fetchone()
+    elegiveis = conn.execute("""SELECT id FROM pa_caixas WHERE status='Em estoque'
+        AND estoque_operacional=1 AND disponibilidade='DISPONIVEL'
+        AND reservado_expedicao_id IS NULL AND quantidade_pacotes_reservados=0""").fetchall()
+    assert caixa["status"] == "Estornada"
+    assert caixa["estoque_operacional"] == 0
+    assert caixa["disponibilidade"] == "ESTORNADO"
+    assert 2 not in {item["id"] for item in elegiveis}
     conn.close()
 
 
@@ -335,6 +381,20 @@ def test_conferencia_lista_estornadas_fora_dos_totais_e_filtra(conferencia_banco
     assert [c["codigo_caixa"] for c in painel["caixas"]] == ["CX-003", "CX-002", "CX-001"]
 
 
+def test_conferencia_filtra_campos_operacionais_ordena_e_totaliza_tara(conferencia_banco):
+    conn = conferencia_banco()
+    conn.execute("UPDATE pa_caixas SET usuario_pesagem='Maria' WHERE id=2")
+    conn.commit(); conn.close()
+    painel = conferencia.obter_conferencia_op(7, {
+        "situacao": "todas", "usuario": "mari", "peso_bruto": "10,500",
+        "bandejas": "10", "horario_inicial": "08:00", "horario_final": "08:01",
+        "ordem": "asc",
+    })
+    assert [c["codigo_caixa"] for c in painel["caixas_exibidas"]] == ["CX-002"]
+    assert painel["totais"]["peso_tara"] == pytest.approx(1.5)
+    assert painel["ordem"] == "asc"
+
+
 def test_alerta_duplicidade_nao_estorna_nem_seleciona(conferencia_banco):
     conn = conferencia_banco()
     conn.execute("""UPDATE pa_caixas SET peso_bruto=12.760,peso_liquido=12.260,
@@ -359,6 +419,36 @@ def test_conferencia_persistida_e_invalidada_por_alteracao(conferencia_banco):
     assert conferencia.obter_conferencia_op(7)["confirmacao_valida"] is False
 
 
+def test_snapshot_persiste_tara_saldo_e_pdf_analitico_multipagina(conferencia_banco):
+    painel = conferencia.obter_conferencia_op(7, {"situacao": "todas"})
+    conferencia.confirmar_conferencia_op(
+        7, usuario="Operadora", perfil="producao", hash_informado=painel["hash"])
+    confirmado = conferencia.obter_conferencia_op(7, {"situacao": "todas"})
+    conn = conferencia_banco()
+    snapshot = conn.execute("SELECT * FROM embalagem_secundaria_conferencias ORDER BY id DESC LIMIT 1").fetchone()
+    conn.close()
+    assert float(snapshot["peso_tara"]) == pytest.approx(1.5)
+    assert "saldo_pendente" in snapshot.keys()
+
+    caixas_base = confirmado["caixas"]
+    confirmado["caixas"] = []
+    for indice in range(90):
+        item = dict(caixas_base[indice % len(caixas_base)])
+        item["id"] = 1000 + indice
+        item["codigo_caixa"] = f"CX-PDF-{indice:03d}"
+        confirmado["caixas"].append(item)
+    pdf = gerar_relatorio_conferencia_embalagem_pdf(
+        {"id": 7, "data": "2026-08-21", "sku": "Galinha Cortada", "lote": "L-7"},
+        confirmado, "Operadora",
+    )
+    leitor = PdfReader(BytesIO(pdf))
+    texto = "\n".join(pagina.extract_text() or "" for pagina in leitor.pages)
+    assert len(leitor.pages) >= 2
+    assert float(leitor.pages[0].mediabox.width) > float(leitor.pages[0].mediabox.height)
+    assert "Resumo para fechamento da OP" in texto
+    assert "CX-PDF-089" in texto
+
+
 def test_template_expoe_selecao_resumo_filtros_e_portao_de_encerramento():
     template = open("templates/embalagem_secundaria.html", encoding="utf-8").read()
     rotas = open("modules/expedicao/routes.py", encoding="utf-8").read()
@@ -366,6 +456,29 @@ def test_template_expoe_selecao_resumo_filtros_e_portao_de_encerramento():
     assert 'name="caixa_ids[]"' in template and "data-resumo-selecao" in template
     assert "Somente possíveis duplicidades" in template and "Conferi os lançamentos" in template
     assert "caixas/estornar-lote" in rotas and "exigir_conferencia=True" in rotas
+    assert 'name="confirmacao" value="1" required' in template
+    assert 'request.form.get("confirmacao") != "1"' in rotas
+    assert 'type="button" class="botao-principal" data-confirmar-caixa' in template
+    assert 'evento.key !== "Enter"' in template and "evento.preventDefault()" in template
+    assert "Peso bruto exato" in template and "Horário inicial" in template and "Gerar relatório" in template
+
+
+def test_migration_p0_snapshot_sqlite_e_reversivel(tmp_path):
+    conn = sqlite3.connect(tmp_path / "p0-snapshot.db")
+    conn.execute("CREATE TABLE embalagem_secundaria_conferencias(id INTEGER PRIMARY KEY)")
+    conn.execute("CREATE TABLE embalagem_secundaria_requisicoes(id INTEGER PRIMARY KEY)")
+    raiz = "database/20260825_p0_conferencia_embalagem_secundaria"
+    conn.executescript(open(raiz + "_sqlite.sql", encoding="utf-8").read())
+    colunas = {item[1] for item in conn.execute("PRAGMA table_info(embalagem_secundaria_conferencias)")}
+    assert {"peso_tara", "saldo_pendente"} <= colunas
+    colunas_req = {item[1] for item in conn.execute("PRAGMA table_info(embalagem_secundaria_requisicoes)")}
+    assert {"repeticoes", "ultimo_reenvio_em"} <= colunas_req
+    conn.executescript(open(raiz + "_sqlite_rollback.sql", encoding="utf-8").read())
+    colunas = {item[1] for item in conn.execute("PRAGMA table_info(embalagem_secundaria_conferencias)")}
+    assert "peso_tara" not in colunas and "saldo_pendente" not in colunas
+    colunas_req = {item[1] for item in conn.execute("PRAGMA table_info(embalagem_secundaria_requisicoes)")}
+    assert "repeticoes" not in colunas_req and "ultimo_reenvio_em" not in colunas_req
+    conn.close()
 
 
 def test_homologacao_cinco_caixas_estorna_duas_preserva_tres_e_invalida_ao_continuar(conferencia_banco):

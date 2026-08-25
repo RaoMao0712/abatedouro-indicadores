@@ -32,6 +32,7 @@ from modules.expedicao.estoque_service import (  # noqa: E402
     reservar_itens,
 )
 from modules.expedicao.routes import register_expedicao_routes  # noqa: E402
+from modules.expedicao import estornos_embalagem as estornos_embalagem  # noqa: E402
 from modules.expedicao.conferencia_embalagem import (  # noqa: E402
     confirmar_conferencia_op,
     obter_conferencia_op,
@@ -614,6 +615,74 @@ class ExpedicaoCorretivaTest(unittest.TestCase):
         resposta = cliente.get(f"/embalagem-secundaria?op_id={op_id}")
         self.assertEqual(resposta.status_code, 200)
         self.assertIn("Conferência de Caixas da OP", resposta.get_data(as_text=True))
+
+    def test_14_retry_com_saldo_zerado_e_caixas_reais_de_mesmo_peso(self):
+        op_retry = self.criar_op("Galinha Cortada", 12)
+        executar("""INSERT INTO estoque_produto_intermediario(
+            data_movimentacao,tipo,op_id,sku,quantidade_bandejas,origem)
+            VALUES('2026-07-25','ENTRADA_EMBALAGEM_PRIMARIA',?,'Galinha Cortada',12,'Teste')""", (op_retry,))
+        formulario = {
+            "op_principal": str(op_retry), "bandejas_principal": "12", "peso_bruto": "10.500",
+            "data_fabricacao": "2026-07-25", "data_validade": "2027-07-25",
+            "idempotency_key": "RETRY-SALDO-ZERO",
+        }
+        primeiro = registrar_caixa_pa_manual(formulario, usuario="pcp")
+        self.assertEqual(registrar_caixa_pa_manual(formulario, usuario="pcp"), primeiro)
+        auditoria_retry = consultar_um(
+            "SELECT repeticoes,ultimo_reenvio_em FROM embalagem_secundaria_requisicoes WHERE idempotency_key=?",
+            ("RETRY-SALDO-ZERO",),
+        )
+        self.assertEqual(auditoria_retry["repeticoes"], 1)
+        self.assertTrue(auditoria_retry["ultimo_reenvio_em"])
+        self.assertEqual(consultar_um(
+            "SELECT COUNT(*) total FROM pa_caixa_composicao WHERE op_id=?", (op_retry,)
+        )["total"], 1)
+
+        op_mesmo_peso = self.criar_op("Galinha Cortada", 24)
+        executar("""INSERT INTO estoque_produto_intermediario(
+            data_movimentacao,tipo,op_id,sku,quantidade_bandejas,origem)
+            VALUES('2026-07-25','ENTRADA_EMBALAGEM_PRIMARIA',?,'Galinha Cortada',24,'Teste')""", (op_mesmo_peso,))
+        base = dict(formulario, op_principal=str(op_mesmo_peso))
+        caixa_a = registrar_caixa_pa_manual(dict(base, idempotency_key="PESO-REAL-A"), usuario="pcp")
+        caixa_b = registrar_caixa_pa_manual(dict(base, idempotency_key="PESO-REAL-B"), usuario="pcp")
+        self.assertNotEqual(caixa_a, caixa_b)
+        self.assertEqual(consultar_um(
+            "SELECT COUNT(*) total FROM pa_caixa_composicao WHERE op_id=?", (op_mesmo_peso,)
+        )["total"], 2)
+
+    def test_15_continuidade_a_b_c_estorna_b_lanca_d_confere_e_encerra(self):
+        os.environ["SECONDARY_PACKAGING_BOX_REVERSAL_ENABLED"] = "true"
+        op_id = self.criar_op("Galinha Cortada", 36)
+        executar("""INSERT INTO embalagem_primaria_apontamentos(
+            op_id,data_apontamento,sku,quantidade_bandejas)
+            VALUES(?,'2026-07-25','Galinha Cortada',36)""", (op_id,))
+        executar("""INSERT INTO estoque_produto_intermediario(
+            data_movimentacao,tipo,op_id,sku,quantidade_bandejas,origem)
+            VALUES('2026-07-25','ENTRADA_EMBALAGEM_PRIMARIA',?,'Galinha Cortada',36,'Teste')""", (op_id,))
+        def lancar(chave, peso):
+            return registrar_caixa_pa_manual({
+                "op_principal": str(op_id), "bandejas_principal": "12", "peso_bruto": peso,
+                "data_fabricacao": "2026-07-25", "data_validade": "2027-07-25",
+                "idempotency_key": chave,
+            }, usuario="pcp")
+        codigos = [lancar("CONT-A", "10.500"), lancar("CONT-B", "10.600"), lancar("CONT-C", "10.700")]
+        caixa_b = consultar_um("SELECT id FROM pa_caixas WHERE codigo_caixa=?", (codigos[1],))["id"]
+        estornos_embalagem.estornar_caixa_embalagem_secundaria(
+            op_id, caixa_b, usuario="pcp", perfil="pcp", justificativa="Peso informado incorretamente",
+            idempotency_key="CONT-EST-B",
+        )
+        codigo_d = lancar("CONT-D", "10.800")
+        painel = obter_conferencia_op(op_id, {"situacao": "todas"})
+        confirmar_conferencia_op(op_id, usuario="pcp", perfil="pcp", hash_informado=painel["hash"])
+        finalizar_embalagem_secundaria_op(
+            op_id, conferencia_hash=painel["hash"], exigir_conferencia=True,
+        )
+        caixas = consultar("""SELECT codigo_caixa,status FROM pa_caixas
+            WHERE id IN (SELECT caixa_id FROM pa_caixa_composicao WHERE op_id=?) ORDER BY id""", (op_id,))
+        self.assertEqual([item["codigo_caixa"] for item in caixas if item["status"] == "Em estoque"],
+                         [codigos[0], codigos[2], codigo_d])
+        self.assertEqual([item["codigo_caixa"] for item in caixas if item["status"] == "Estornada"], [codigos[1]])
+        self.assertEqual(consultar_um("SELECT status FROM ordens_producao WHERE id=?", (op_id,))["status"], "Encerrada")
 
         op_parcial = self.criar_op("Galinha Cortada", 6)
         executar("""

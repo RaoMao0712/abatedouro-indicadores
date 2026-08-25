@@ -54,19 +54,48 @@ def criar_tabelas_conferencia_embalagem():
             id {pk}, op_id INTEGER NOT NULL, usuario TEXT NOT NULL, perfil TEXT NOT NULL,
             confirmado_em {timestamp} NOT NULL, caixas_ativas INTEGER NOT NULL,
             caixas_estornadas INTEGER NOT NULL, total_bandejas TEXT NOT NULL,
-            peso_bruto TEXT NOT NULL, peso_liquido TEXT NOT NULL,
+            peso_bruto TEXT NOT NULL, peso_tara TEXT NOT NULL DEFAULT '0', peso_liquido TEXT NOT NULL,
+            saldo_pendente TEXT NOT NULL DEFAULT '0',
             caixas_ativas_json TEXT NOT NULL, duplicidades_json TEXT NOT NULL,
             hash_conferencia TEXT NOT NULL, confirmada INTEGER NOT NULL DEFAULT 1
         )
     """)
+    for nome in ("peso_tara", "saldo_pendente"):
+        try:
+            cursor.execute(
+                f"ALTER TABLE embalagem_secundaria_conferencias ADD COLUMN IF NOT EXISTS {nome} TEXT NOT NULL DEFAULT '0'"
+                if DATABASE_URL else
+                f"ALTER TABLE embalagem_secundaria_conferencias ADD COLUMN {nome} TEXT NOT NULL DEFAULT '0'"
+            )
+        except Exception as erro:
+            if DATABASE_URL or "duplicate column" not in str(erro).lower():
+                conn.rollback()
+                conn.close()
+                raise
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_conf_emb_op_data ON embalagem_secundaria_conferencias(op_id, confirmado_em)")
     cursor.execute(f"""
         CREATE TABLE IF NOT EXISTS embalagem_secundaria_requisicoes (
             id {pk}, op_id INTEGER NOT NULL, acao TEXT NOT NULL,
             idempotency_key TEXT NOT NULL UNIQUE, resultado_json TEXT NOT NULL,
-            usuario TEXT, criado_em {timestamp} NOT NULL
+            usuario TEXT, criado_em {timestamp} NOT NULL,
+            repeticoes INTEGER NOT NULL DEFAULT 0, ultimo_reenvio_em {timestamp}
         )
     """)
+    for nome, definicao in (
+        ("repeticoes", "INTEGER NOT NULL DEFAULT 0"),
+        ("ultimo_reenvio_em", f"{timestamp}"),
+    ):
+        try:
+            cursor.execute(
+                f"ALTER TABLE embalagem_secundaria_requisicoes ADD COLUMN IF NOT EXISTS {nome} {definicao}"
+                if DATABASE_URL else
+                f"ALTER TABLE embalagem_secundaria_requisicoes ADD COLUMN {nome} {definicao}"
+            )
+        except Exception as erro:
+            if DATABASE_URL or "duplicate column" not in str(erro).lower():
+                conn.rollback()
+                conn.close()
+                raise
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_req_emb_op_data ON embalagem_secundaria_requisicoes(op_id, criado_em)")
     conn.commit()
     conn.close()
@@ -127,8 +156,19 @@ def _totais(caixas):
         "caixas_estornadas": len(caixas) - len(ativas),
         "bandejas": sum((_decimal(c.get("quantidade_bandejas")) for c in ativas), Decimal("0")),
         "peso_bruto": sum((_decimal(c.get("peso_bruto")) for c in ativas), Decimal("0")),
+        "peso_tara": sum((_decimal(c.get("peso_tara")) for c in ativas), Decimal("0")),
         "peso_liquido": sum((_decimal(c.get("peso_liquido")) for c in ativas), Decimal("0")),
     }
+
+
+def _saldo_pendente(cursor, op_id):
+    cursor.execute(q("""SELECT COALESCE(SUM(CASE
+        WHEN tipo LIKE 'ENTRADA%%' THEN quantidade_bandejas
+        WHEN tipo LIKE 'SAIDA%%' THEN -quantidade_bandejas
+        ELSE quantidade_bandejas END), 0) AS saldo
+        FROM estoque_produto_intermediario WHERE op_id=?"""), (op_id,))
+    linha = cursor.fetchone()
+    return _decimal(linha["saldo"] if linha else 0)
 
 
 def _hash(caixas):
@@ -153,6 +193,7 @@ def obter_conferencia_op(op_id, filtros=None):
         caixa["bloqueios"] = _buscar_bloqueios(cursor, caixa) if str(caixa.get("status") or "").upper() not in STATUS_INATIVOS else []
         caixa["selecionavel"] = not caixa["bloqueios"] and str(caixa.get("status") or "").upper() not in STATUS_INATIVOS
     totais = _totais(caixas)
+    totais["saldo_pendente"] = _saldo_pendente(cursor, int(op_id))
     hash_atual = _hash(caixas)
     cursor.execute(q("""SELECT * FROM embalagem_secundaria_conferencias
         WHERE op_id=? ORDER BY id DESC LIMIT 1"""), (op_id,))
@@ -161,8 +202,13 @@ def obter_conferencia_op(op_id, filtros=None):
     conn.close()
 
     filtros = filtros or {}
-    situacao = str(filtros.get("situacao") or "ativas").lower()
+    situacao = str(filtros.get("situacao") or "todas").lower()
     busca = str(filtros.get("busca") or "").strip().lower()
+    usuario = str(filtros.get("usuario") or "").strip().lower()
+    peso_bruto = str(filtros.get("peso_bruto") or "").strip().replace(",", ".")
+    bandejas = str(filtros.get("bandejas") or "").strip().replace(",", ".")
+    horario_inicial = str(filtros.get("horario_inicial") or "").strip()
+    horario_final = str(filtros.get("horario_final") or "").strip()
     somente_duplicadas = str(filtros.get("duplicadas") or "").lower() in {"1", "true", "on"}
     exibidas = []
     for caixa in caixas:
@@ -174,14 +220,34 @@ def obter_conferencia_op(op_id, filtros=None):
             "usuario_lancamento", "criado_em", "status"))
         if busca and busca not in texto.lower():
             continue
+        if usuario and usuario not in str(caixa.get("usuario_lancamento") or "").lower():
+            continue
+        try:
+            if peso_bruto and _decimal(caixa.get("peso_bruto")) != Decimal(peso_bruto):
+                continue
+            if bandejas and _decimal(caixa.get("quantidade_bandejas")) != Decimal(bandejas):
+                continue
+        except Exception:
+            continue
+        criado = _parse_data(caixa.get("criado_em"))
+        if horario_inicial and (not criado or criado.strftime("%H:%M") < horario_inicial):
+            continue
+        if horario_final and (not criado or criado.strftime("%H:%M") > horario_final):
+            continue
         if somente_duplicadas and not caixa["possivel_duplicidade"]:
             continue
         exibidas.append(caixa)
+    ordem = str(filtros.get("ordem") or "desc").lower()
+    exibidas.sort(
+        key=lambda c: (_parse_data(c.get("criado_em")) or datetime.min, int(c["id"])),
+        reverse=ordem != "asc",
+    )
     return {
         "caixas": caixas, "caixas_exibidas": exibidas, "totais": totais,
         "hash": hash_atual, "duplicidades": sorted(duplicadas),
         "confirmacao_valida": confirmacao_valida, "ultima_conferencia": dict(ultima) if ultima else None,
         "janela_duplicidade_segundos": JANELA_DUPLICIDADE_SEGUNDOS,
+        "ordem": ordem,
     }
 
 
@@ -195,13 +261,16 @@ def confirmar_conferencia_op(op_id, *, usuario, perfil, hash_informado):
         if not hash_informado or hash_informado != hash_atual:
             raise ValueError("A relação de caixas mudou. Atualize a conferência antes de confirmar.")
         totais = _totais(caixas)
+        totais["saldo_pendente"] = _saldo_pendente(cursor, int(op_id))
         ids_ativas = [int(c["id"]) for c in caixas if str(c.get("status") or "").upper() not in STATUS_INATIVOS]
         cursor.execute(q("""INSERT INTO embalagem_secundaria_conferencias(
             op_id,usuario,perfil,confirmado_em,caixas_ativas,caixas_estornadas,total_bandejas,
-            peso_bruto,peso_liquido,caixas_ativas_json,duplicidades_json,hash_conferencia,confirmada)
-            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,1)"""), (
+            peso_bruto,peso_tara,peso_liquido,saldo_pendente,caixas_ativas_json,duplicidades_json,
+            hash_conferencia,confirmada)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)"""), (
             op_id, usuario, perfil, _agora(), totais["caixas_ativas"], totais["caixas_estornadas"],
-            str(totais["bandejas"]), str(totais["peso_bruto"]), str(totais["peso_liquido"]),
+            str(totais["bandejas"]), str(totais["peso_bruto"]), str(totais["peso_tara"]),
+            str(totais["peso_liquido"]), str(totais["saldo_pendente"]),
             json.dumps(ids_ativas), json.dumps(sorted(duplicadas)), hash_atual,
         ))
     return {**totais, "hash": hash_atual, "usuario": usuario}

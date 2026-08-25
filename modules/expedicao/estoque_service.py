@@ -515,6 +515,8 @@ def ativar_estoque_op_encerrada(cursor, op_id):
         SELECT 1 FROM pa_caixa_composicao c
         WHERE c.caixa_id = cx.id AND c.op_id = ?
     )
+      AND UPPER(COALESCE(cx.status, '')) NOT IN
+          ('ESTORNADA', 'ESTORNADO', 'CANCELADA', 'CANCELADO')
       AND NOT EXISTS (
         SELECT 1
         FROM pa_caixa_composicao c
@@ -541,6 +543,8 @@ def ativar_estoque_op_encerrada(cursor, op_id):
             formado_por = ?,
             formado_em = ?
         WHERE id = ? AND COALESCE(estoque_operacional, 0) = 0
+          AND UPPER(COALESCE(status, '')) NOT IN
+              ('ESTORNADA', 'ESTORNADO', 'CANCELADA', 'CANCELADO')
         """), (_usuario(), _agora(), caixa["id"]))
         if cursor.rowcount == 1:
             _inserir_evento(

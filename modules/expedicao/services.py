@@ -1,6 +1,7 @@
 """Servicos de Expedicao, Embalagem e estoques PI/PA."""
 
 from datetime import datetime, timedelta
+from decimal import Decimal
 import json
 import unicodedata
 
@@ -1172,7 +1173,7 @@ def inserir_caixa_pa(cursor, codigo_caixa, sku, data_fabricacao, data_validade, 
     UPDATE pa_caixas
     SET peso_tara = ?
     WHERE id = ?
-    """), (0.5, caixa_id))
+    """), (str(max(0, Decimal(str(peso_bruto)) - Decimal(str(peso_liquido)))), caixa_id))
     marcar_pa_pendente(cursor, caixa_id)
     return caixa_id
 
@@ -1183,6 +1184,33 @@ def _resultado_requisicao_embalagem(cursor, chave):
     cursor.execute(q("SELECT resultado_json FROM embalagem_secundaria_requisicoes WHERE idempotency_key=?"), (chave,))
     linha = cursor.fetchone()
     return json.loads(linha["resultado_json"]) if linha else None
+
+
+def _validar_chave_requisicao_embalagem(form):
+    chave = str(form.get("idempotency_key") or "").strip()
+    if not chave:
+        raise ValueError("Chave de idempotência obrigatória. Atualize a tela e tente novamente.")
+    if len(chave) > 200:
+        raise ValueError("Chave de idempotência inválida.")
+    return chave
+
+
+def _resultado_requisicao_embalagem_persistido(chave):
+    """Consulta o resultado antes de revalidar saldos alterados pela própria requisição."""
+    conn = conectar()
+    try:
+        cursor = conn.cursor()
+        resultado = _resultado_requisicao_embalagem(cursor, chave)
+        if resultado:
+            cursor.execute(q("""UPDATE embalagem_secundaria_requisicoes
+                SET repeticoes=COALESCE(repeticoes,0)+1, ultimo_reenvio_em=?
+                WHERE idempotency_key=?"""), (
+                datetime.now().strftime("%Y-%m-%d %H:%M:%S"), chave,
+            ))
+            conn.commit()
+        return resultado
+    finally:
+        conn.close()
 
 
 def _registrar_requisicao_embalagem(cursor, op_id, acao, chave, resultado, usuario):
@@ -1201,17 +1229,26 @@ def registrar_caixa_pa_manual(form, usuario=None):
     from .conferencia_embalagem import criar_tabelas_conferencia_embalagem
     criar_tabelas_conferencia_embalagem()
 
+    chave = _validar_chave_requisicao_embalagem(form)
+    existente = _resultado_requisicao_embalagem_persistido(chave)
+    if existente:
+        return existente["codigo_caixa"]
+
     composicao, total_bandejas, sku = preparar_composicao_caixa(form)
     validar_saldo_pi_para_composicoes([composicao])
 
     peso_bruto = parse_numero_form(form.get("peso_bruto") or 0)
-    peso_liquido = peso_bruto - 0.5
+    peso_liquido_informado = form.get("peso_liquido")
+    peso_liquido = (parse_numero_form(peso_liquido_informado)
+                    if str(peso_liquido_informado or "").strip() else peso_bruto - 0.5)
 
     if peso_bruto <= 0:
         raise ValueError("Informe o peso bruto da caixa.")
 
     if peso_liquido <= 0:
         raise ValueError("O peso líquido calculado precisa ser maior que zero.")
+    if peso_liquido > peso_bruto:
+        raise ValueError("O peso líquido não pode ser maior que o peso bruto.")
 
     data_fabricacao = form.get("data_fabricacao") or datetime.now().strftime("%Y-%m-%d")
     data_validade = form.get("data_validade") or calcular_validade_padrao(data_fabricacao)
@@ -1219,7 +1256,6 @@ def registrar_caixa_pa_manual(form, usuario=None):
         raise ValueError("A validade da Galinha Cortada deve seguir a regra vigente de um ano.")
     codigo_caixa = form.get("codigo_caixa") or gerar_codigo_caixa()
 
-    chave = str(form.get("idempotency_key") or "").strip()
     with transaction() as conn:
         cursor = conn.cursor()
         existente = _resultado_requisicao_embalagem(cursor, chave)
@@ -1245,6 +1281,11 @@ def registrar_caixas_pa_lote(form, usuario=None):
     from .conferencia_embalagem import criar_tabelas_conferencia_embalagem
     criar_tabelas_conferencia_embalagem()
 
+    chave = _validar_chave_requisicao_embalagem(form)
+    existente = _resultado_requisicao_embalagem_persistido(chave)
+    if existente:
+        return existente["codigos"]
+
     composicao, total_bandejas, sku = preparar_composicao_caixa(form)
     linhas = [linha.strip() for linha in (form.get("pesos_brutos_lote") or "").splitlines() if linha.strip()]
 
@@ -1253,15 +1294,22 @@ def registrar_caixas_pa_lote(form, usuario=None):
 
     pesos_brutos = [parse_numero_form(linha) for linha in linhas]
 
+    linhas_liquidas = [linha.strip() for linha in (form.get("pesos_liquidos_lote") or "").splitlines()]
+    if any(linhas_liquidas) and len(linhas_liquidas) != len(pesos_brutos):
+        raise ValueError("Informe um peso líquido para cada peso bruto do lote ou deixe o campo vazio.")
+
     pesos_liquidos = []
-    for peso_bruto in pesos_brutos:
+    for indice, peso_bruto in enumerate(pesos_brutos):
         if peso_bruto <= 0:
             raise ValueError("Todos os pesos brutos do lote precisam ser maiores que zero.")
 
-        peso_liquido = peso_bruto - 0.5
+        peso_liquido = (parse_numero_form(linhas_liquidas[indice])
+                        if any(linhas_liquidas) else peso_bruto - 0.5)
 
         if peso_liquido <= 0:
             raise ValueError("Todos os pesos líquidos do lote precisam ser maiores que zero.")
+        if peso_liquido > peso_bruto:
+            raise ValueError("Nenhum peso líquido do lote pode ser maior que o respectivo peso bruto.")
         pesos_liquidos.append(peso_liquido)
 
     validar_saldo_pi_para_composicoes([composicao for _ in pesos_brutos])
@@ -1281,7 +1329,6 @@ def registrar_caixas_pa_lote(form, usuario=None):
         prefixo_codigo = f"CX-{datetime.now().strftime('%Y%m%d')}"
         sequencia_codigo = 1
 
-    chave = str(form.get("idempotency_key") or "").strip()
     with transaction() as conn:
         cursor = conn.cursor()
         existente = _resultado_requisicao_embalagem(cursor, chave)
