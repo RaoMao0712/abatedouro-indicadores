@@ -89,6 +89,31 @@
     {% endif %}
 </div>
 
+{% if op_selecionada and fechamento_op and fechamento_op.op.status == "Aguardando Embalagem Secundária" and retomada_op and retomada_op.caixas_ativas > 0 %}
+<div class="card expedicao-card" id="retomar-embalagem-secundaria">
+    <span class="eyebrow">Continuidade operacional</span>
+    <h2>Retomar Embalagem Secundária</h2>
+    <p>Continue o apontamento das caixas restantes preservando os lançamentos já válidos.</p>
+    {% if retomada_op and retomada_op.permitido %}
+    <div class="hero-resumo-inline" style="margin-bottom: 1rem;">
+        <span><strong>Caixas ativas:</strong> {{ retomada_op.caixas_ativas }}</span>
+        <span><strong>Caixas estornadas:</strong> {{ retomada_op.caixas_estornadas }}</span>
+        <span><strong>Saldo pendente:</strong> {{ retomada_op.saldo_pi|br_numero }} bandejas</span>
+    </div>
+    <form method="post" action="{{ url_for('retomar_embalagem_secundaria_op', op_id=op_selecionada.op_id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_estorno }}">
+        <input type="hidden" name="idempotency_key" value="{{ chave_retomada }}">
+        <input type="hidden" name="confirmacao" value="RETOMAR">
+        <button type="submit" class="botao-principal">Retomar Embalagem Secundária</button>
+    </form>
+    <p class="obs">A retomada não apaga caixas, não reinicia a Embalagem Primária e exigirá nova conferência antes do encerramento.</p>
+    {% else %}
+    <strong>Retomada indisponível.</strong>
+    <ul>{% for bloqueio in retomada_op.bloqueios %}<li>{{ bloqueio }}</li>{% endfor %}</ul>
+    {% endif %}
+</div>
+{% endif %}
+
 {% if op_selecionada and fechamento_op %}
 <div class="card expedicao-card">
     <div class="section-title-row">
@@ -263,7 +288,7 @@ document.addEventListener("DOMContentLoaded", function () {
         </div>
     </div>
 
-    {% if not fechamento_op or (fechamento_op.saldo_pi > 0 and fechamento_op.op.status == "Aberta") %}
+    {% if not fechamento_op or (fechamento_op.saldo_pi > 0 and (fechamento_op.op.status == "Aberta" or (fechamento_op.op.status == "Aguardando Embalagem Secundária" and fechamento_op.caixas == 0))) %}
     <form method="post" class="form-grid" id="form-caixa-individual" data-caixa-form data-restaurar="{{ '1' if request.args.get('inclusao_erro') else '0' }}">
         <input type="hidden" name="idempotency_key" value="{{ chave_inclusao_individual }}">
         <input type="hidden" name="op_principal" value="{{ op_selecionada.op_id }}">
@@ -299,7 +324,8 @@ document.addEventListener("DOMContentLoaded", function () {
 
         <div>
             <label>Data de fabricação</label>
-            <input type="date" name="data_fabricacao" value="{{ hoje }}" data-fabricacao>
+            <input type="date" name="data_fabricacao" value="{{ data_fabricacao_padrao }}" data-fabricacao>
+            <small class="obs">Data original de fabricação da OP; a retomada não altera o lote.</small>
         </div>
 
         <div>
@@ -338,7 +364,8 @@ document.addEventListener("DOMContentLoaded", function () {
 
         <div>
             <label>Data de fabricação</label>
-            <input type="date" name="data_fabricacao" value="{{ hoje }}" data-fabricacao>
+            <input type="date" name="data_fabricacao" value="{{ data_fabricacao_padrao }}" data-fabricacao>
+            <small class="obs">Data original de fabricação da OP.</small>
         </div>
 
         <div>

@@ -336,6 +336,101 @@ def test_preflight_e_read_only(banco):
     conn.close()
 
 
+def _preparar_op_parcial_para_retomada(banco):
+    conn = banco()
+    conn.execute("UPDATE ordens_producao SET status='Aguardando Embalagem Secundária' WHERE id=7")
+    conn.execute("UPDATE estoque_produto_intermediario SET quantidade_bandejas=24 WHERE tipo='ENTRADA_EMBALAGEM_PRIMARIA'")
+    conn.execute("""INSERT INTO pa_caixas(
+        id,codigo_caixa,sku,data_fabricacao,data_validade,peso_bruto,peso_tara,peso_liquido,
+        quantidade_bandejas,status,origem,observacoes,local_estoque_id,criado_em,
+        estoque_operacional,condicao,disponibilidade,reservado_expedicao_id,
+        quantidade_pacotes_reservados) VALUES(
+        2,'CX-P02-EST','Galinha Cortada','2026-08-25','2027-08-25',12.5,.5,12,12,
+        'Estornada','Embalagem Secundária','',1,'2026-08-25 08:05:00',0,
+        'CONFORME','ESTORNADO',NULL,0)""")
+    conn.execute("INSERT INTO pa_caixa_composicao(caixa_id,op_id,quantidade_bandejas) VALUES(2,7,12)")
+    conn.commit()
+    conn.close()
+
+
+def test_retomada_parcial_preserva_caixas_pi_pa_estornos_e_invalida_conferencia(banco):
+    _preparar_op_parcial_para_retomada(banco)
+    preflight = operacoes.preflight_retomada_embalagem_secundaria(7)
+    assert preflight["permitido"]
+    assert preflight["caixas_ativas"] == 1
+    assert preflight["caixas_estornadas"] == 1
+    assert preflight["saldo_pi"] == "12.0"
+    resultado = operacoes.retomar_embalagem_secundaria(
+        7, usuario="Supervisora", perfil="pcp", idempotency_key="RETOMAR-PARCIAL-1",
+        confirmacao=True, ip_origem="127.0.0.1",
+    )
+    conn = banco()
+    assert conn.execute("SELECT status FROM ordens_producao WHERE id=7").fetchone()[0] == "Aberta"
+    assert conn.execute("SELECT COUNT(*) FROM pa_caixas").fetchone()[0] == 2
+    assert conn.execute("SELECT status FROM pa_caixas WHERE id=2").fetchone()[0] == "Estornada"
+    assert conn.execute("SELECT COUNT(*) FROM estoque_produto_intermediario").fetchone()[0] == 2
+    assert conn.execute("SELECT confirmada FROM embalagem_secundaria_conferencias").fetchone()[0] == 0
+    auditoria = conn.execute("SELECT tipo,status_anterior,status_posterior FROM op_operacoes_auditoria").fetchone()
+    assert tuple(auditoria) == ("RETOMADA_EMBALAGEM_SECUNDARIA", "Aguardando Embalagem Secundária", "Aberta")
+    conn.close()
+    assert resultado["efeitos"]["hard_delete"] is False
+    assert resultado["efeitos"]["caixas_ativas_preservadas"] == 1
+    assert resultado["efeitos"]["caixas_estornadas_preservadas"] == 1
+
+
+def test_retomada_e_idempotente_e_segunda_acao_concorrente_e_rejeitada(banco):
+    _preparar_op_parcial_para_retomada(banco)
+    argumentos = dict(usuario="Supervisora", perfil="pcp", idempotency_key="RETOMAR-IDEM", confirmacao=True)
+    primeiro = operacoes.retomar_embalagem_secundaria(7, **argumentos)
+    assert operacoes.retomar_embalagem_secundaria(7, **argumentos) == primeiro
+    with pytest.raises(ValueError, match="Retomada bloqueada"):
+        operacoes.retomar_embalagem_secundaria(7, **dict(argumentos, idempotency_key="RETOMAR-CONCORRENTE"))
+    conn = banco()
+    assert conn.execute("SELECT COUNT(*) FROM op_operacoes_auditoria").fetchone()[0] == 1
+    assert conn.execute("SELECT versao_operacional FROM ordens_producao").fetchone()[0] == 1
+    conn.close()
+
+
+def test_retomada_sem_saldo_ou_sem_caixa_ativa_e_bloqueada_sem_mutacao(banco):
+    conn = banco()
+    conn.execute("UPDATE ordens_producao SET status='Aguardando Embalagem Secundária' WHERE id=7")
+    conn.commit(); conn.close()
+    preflight = operacoes.preflight_retomada_embalagem_secundaria(7)
+    assert not preflight["permitido"]
+    assert any("saldo pendente" in item for item in preflight["bloqueios"])
+    with pytest.raises(ValueError, match="Retomada bloqueada"):
+        operacoes.retomar_embalagem_secundaria(
+            7, usuario="Supervisora", perfil="pcp", idempotency_key="RETOMAR-SEM-SALDO",
+            confirmacao=True,
+        )
+    conn = banco()
+    assert conn.execute("SELECT status FROM ordens_producao").fetchone()[0] == "Aguardando Embalagem Secundária"
+    assert conn.execute("SELECT COUNT(*) FROM op_operacoes_auditoria").fetchone()[0] == 0
+    conn.close()
+
+
+def test_regressao_postgresql_for_update_nao_usa_distinct(monkeypatch):
+    class CursorPostgres:
+        def __init__(self):
+            self.sql = ""
+
+        def execute(self, sql, parametros):
+            self.sql = sql
+            if "DISTINCT" in sql.upper() and "FOR UPDATE" in sql.upper():
+                raise RuntimeError("psycopg2.errors.FeatureNotSupported: FOR UPDATE is not allowed with DISTINCT clause")
+
+        def fetchall(self):
+            return []
+
+    monkeypatch.setattr(operacoes, "DATABASE_URL", "postgresql://teste")
+    monkeypatch.setattr(estornos, "DATABASE_URL", "postgresql://teste")
+    cursor = CursorPostgres()
+    assert operacoes._caixas_op(cursor, 83, bloquear=True) == []
+    assert "EXISTS" in cursor.sql.upper()
+    assert "FOR UPDATE" in cursor.sql.upper()
+    assert "DISTINCT" not in cursor.sql.upper()
+
+
 def test_migration_sqlite_aditiva_e_rollback_reversivel():
     raiz = Path(__file__).resolve().parents[1]
     conn = sqlite3.connect(":memory:")

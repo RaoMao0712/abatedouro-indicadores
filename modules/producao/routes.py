@@ -1140,7 +1140,11 @@ def register_producao_routes(app, integracoes=None):
             )
             flash(f"OP estornada integralmente. {resultado['efeitos']['caixas_estornadas']} caixa(s) revertida(s), sem exclusão física.")
         except (ValueError, PermissionError) as erro:
-            flash(str(erro))
+            status = 403 if isinstance(erro, PermissionError) else 409
+            return render_template(
+                "erro_operacional.html", titulo="Estorno integral não executado",
+                mensagem=str(erro), retorno=url_for("consultar_op", op_id=op_id),
+            ), status
         return redirect(url_for("consultar_op", op_id=op_id))
 
 

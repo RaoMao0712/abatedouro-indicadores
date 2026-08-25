@@ -49,6 +49,8 @@ from modules.expedicao.services import (  # noqa: E402
     registrar_caixa_pa_manual,
     salvar_romaneio_expedicao,
 )
+from modules.producao.operacoes_op import retomar_embalagem_secundaria  # noqa: E402
+from modules.qualidade.produtos_nao_conformes import criar_tabelas_pa_nao_conforme  # noqa: E402
 
 
 def executar(sql, parametros=()):
@@ -685,6 +687,78 @@ class ExpedicaoCorretivaTest(unittest.TestCase):
         self.assertEqual([item["codigo_caixa"] for item in caixas if item["status"] == "Estornada"], [codigos[1]])
         self.assertEqual(consultar_um("SELECT status FROM ordens_producao WHERE id=?", (op_id,))["status"], "Encerrada")
 
+    def test_16_cenario_op_83_d1_d8_estorno_retomada_d12_e_encerramento(self):
+        self.contexto("pcp", "Supervisora")
+        criar_tabelas_pa_nao_conforme()
+        op_id = self.criar_op("Galinha Cortada", 36, status="Aguardando Embalagem Secundária")
+        executar("""INSERT INTO embalagem_primaria_apontamentos(
+            op_id,data_apontamento,sku,quantidade_bandejas,observacoes)
+            VALUES(?,'2026-07-25','Galinha Cortada',36,'Produção D1')""", (op_id,))
+        executar("""INSERT INTO estoque_produto_intermediario(
+            data_movimentacao,tipo,op_id,sku,quantidade_bandejas,origem,observacoes)
+            VALUES('2026-07-25','ENTRADA_EMBALAGEM_PRIMARIA',?,'Galinha Cortada',36,
+            'Embalagem Primária','Produção D1')""", (op_id,))
+        caixa_ativa = self.criar_caixa_cortada(op_id, f"CX-OP83-{op_id}-ATIVA")
+        caixa_estornada = self.criar_caixa_cortada(op_id, f"CX-OP83-{op_id}-DUP")
+        for caixa_id in (caixa_ativa, caixa_estornada):
+            executar("""INSERT INTO estoque_produto_intermediario(
+                data_movimentacao,tipo,op_id,sku,quantidade_bandejas,origem,caixa_id,
+                observacoes,idempotency_key) VALUES(
+                '2026-08-01','SAIDA_EMBALAGEM_SECUNDARIA',?,'Galinha Cortada',12,
+                'Embalagem Secundária',?,'Apontamento D8',?)""",
+                (op_id, caixa_id, f"OP83-SAIDA-{caixa_id}"))
+        executar("UPDATE pa_caixas SET status='Estornada',estoque_operacional=0,disponibilidade='ESTORNADO' WHERE id=?", (caixa_estornada,))
+        executar("""INSERT INTO estoque_produto_intermediario(
+            data_movimentacao,tipo,op_id,sku,quantidade_bandejas,origem,caixa_id,
+            movimento_origem_id,observacoes,idempotency_key) VALUES(
+            '2026-08-01','ENTRADA_ESTORNO_CAIXA',?,'Galinha Cortada',12,
+            'Estorno de duplicidade',?,NULL,'Correção D8',?)""",
+            (op_id, caixa_estornada, f"OP83-ESTORNO-{caixa_estornada}"))
+        painel_anterior = obter_conferencia_op(op_id)
+        confirmar_conferencia_op(op_id, usuario="Supervisora", perfil="pcp", hash_informado=painel_anterior["hash"])
+
+        cliente = self.app.test_client()
+        with cliente.session_transaction() as sessao:
+            sessao.update({"usuario_id": 1, "nome": "Supervisora", "perfil": "pcp"})
+        preflight_estorno = cliente.get(f"/embalagem-secundaria/{op_id}/estorno/preflight")
+        self.assertEqual(preflight_estorno.status_code, 200)
+        self.assertIn("permitido", preflight_estorno.get_json())
+        estorno_sem_csrf = cliente.post(f"/embalagem-secundaria/{op_id}/estornar", data={})
+        self.assertEqual(estorno_sem_csrf.status_code, 403)
+        self.assertIn("Estorno integral não executado", estorno_sem_csrf.get_data(as_text=True))
+        pagina_antes = cliente.get(f"/embalagem-secundaria?op_id={op_id}")
+        html_antes = pagina_antes.get_data(as_text=True)
+        self.assertEqual(pagina_antes.status_code, 200)
+        self.assertIn("Retomar Embalagem Secundária", html_antes)
+        self.assertIn("Continue o apontamento das caixas restantes", html_antes)
+        self.assertNotIn('id="form-caixa-individual"', html_antes)
+
+        resultado = retomar_embalagem_secundaria(
+            op_id, usuario="Supervisora", perfil="pcp", idempotency_key=f"RETOMAR-OP83-{op_id}",
+            confirmacao=True,
+        )
+        self.assertEqual(resultado["status_op_posterior"], "Aberta")
+        self.assertFalse(obter_conferencia_op(op_id)["confirmacao_valida"])
+        pagina_depois = cliente.get(f"/embalagem-secundaria?op_id={op_id}")
+        html_depois = pagina_depois.get_data(as_text=True)
+        self.assertIn('id="form-caixa-individual"', html_depois)
+        self.assertIn('name="data_fabricacao" value="2026-07-25"', html_depois)
+
+        base = {
+            "op_principal": str(op_id), "bandejas_principal": "12",
+            "data_fabricacao": "2026-07-25", "data_validade": "2027-07-25",
+        }
+        registrar_caixa_pa_manual(dict(base, peso_bruto="10.600", idempotency_key=f"OP83-D12-A-{op_id}"), usuario="Supervisora")
+        registrar_caixa_pa_manual(dict(base, peso_bruto="10.700", idempotency_key=f"OP83-D12-B-{op_id}"), usuario="Supervisora")
+        painel_final = obter_conferencia_op(op_id)
+        self.assertEqual(painel_final["totais"]["caixas_ativas"], 3)
+        self.assertEqual(painel_final["totais"]["caixas_estornadas"], 1)
+        self.assertEqual(float(painel_final["totais"]["saldo_pendente"]), 0)
+        confirmar_conferencia_op(op_id, usuario="Supervisora", perfil="pcp", hash_informado=painel_final["hash"])
+        finalizar_embalagem_secundaria_op(op_id, conferencia_hash=painel_final["hash"], exigir_conferencia=True)
+        self.assertEqual(consultar_um("SELECT status FROM ordens_producao WHERE id=?", (op_id,))["status"], "Encerrada")
+
+    def test_15b_caixa_parcial_preserva_quantidade_tara_e_liquido(self):
         op_parcial = self.criar_op("Galinha Cortada", 6)
         executar("""
         INSERT INTO embalagem_primaria_apontamentos (

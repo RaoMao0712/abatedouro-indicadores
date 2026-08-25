@@ -121,13 +121,61 @@ def _resultado_idempotente(cursor, chave):
 
 
 def _caixas_op(cursor, op_id, bloquear=False):
-    sql = """SELECT DISTINCT cx.* FROM pa_caixas cx
-        JOIN pa_caixa_composicao comp ON comp.caixa_id=cx.id
-        WHERE comp.op_id=? ORDER BY cx.id"""
+    # PostgreSQL não permite FOR UPDATE em uma consulta com DISTINCT. O EXISTS
+    # preserva uma linha por caixa e permite bloquear exatamente os registros
+    # que serão revalidados/mutados pelo estorno integral.
+    sql = """SELECT cx.* FROM pa_caixas cx
+        WHERE EXISTS (
+            SELECT 1 FROM pa_caixa_composicao comp
+            WHERE comp.caixa_id=cx.id AND comp.op_id=?
+        ) ORDER BY cx.id"""
     if bloquear:
         sql += _bloqueio_sql()
     cursor.execute(q(sql), (op_id,))
     return cursor.fetchall()
+
+
+def _saldo_pi_op(cursor, op_id, bloquear=False):
+    if bloquear and DATABASE_URL:
+        cursor.execute(q("""SELECT id FROM estoque_produto_intermediario
+            WHERE op_id=? ORDER BY id FOR UPDATE"""), (op_id,))
+        cursor.fetchall()
+    cursor.execute(q("""SELECT
+        COALESCE(SUM(CASE
+            WHEN tipo LIKE 'ENTRADA%%' THEN quantidade_bandejas
+            WHEN tipo LIKE 'SAIDA%%' THEN -quantidade_bandejas
+            ELSE quantidade_bandejas END),0) saldo,
+        COALESCE(SUM(CASE WHEN tipo IN ('ENTRADA_OP','ENTRADA_EMBALAGEM_PRIMARIA')
+            THEN quantidade_bandejas ELSE 0 END),0) entrada_base
+        FROM estoque_produto_intermediario WHERE op_id=?"""), (op_id,))
+    linha = cursor.fetchone()
+    return _decimal(linha["saldo"]), _decimal(linha["entrada_base"])
+
+
+def _preflight_retomada_cursor(cursor, op, caixas, *, bloquear=False):
+    ativas = [c for c in caixas if str(c["status"] or "").upper() not in STATUS_INATIVOS]
+    saldo_pi, entrada_base = _saldo_pi_op(cursor, op["id"], bloquear=bloquear)
+    status = str(op["status"] or "")
+    bloqueios = []
+    if status != "Aguardando Embalagem Secundária":
+        bloqueios.append(
+            "A retomada explícita exige a situação Aguardando Embalagem Secundária; "
+            f"situação atual: {status or 'não informada'}."
+        )
+    if entrada_base <= 0:
+        bloqueios.append("A produção base não possui entrada válida de PI da Embalagem Primária.")
+    if not ativas:
+        bloqueios.append("A OP ainda não possui caixa ativa; utilize o lançamento inicial da Embalagem Secundária.")
+    if saldo_pi <= 0:
+        bloqueios.append("A OP não possui saldo pendente de PI para retomar a Embalagem Secundária.")
+    totais = _totais_op(cursor, op["id"])
+    return {
+        "op_id": int(op["id"]), "tipo": "RETOMADA_EMBALAGEM_SECUNDARIA",
+        "status_atual": status, "permitido": not bloqueios, "bloqueios": bloqueios,
+        "caixas_total": len(caixas), "caixas_ativas": len(ativas),
+        "caixas_estornadas": len(caixas) - len(ativas),
+        "saldo_pi": str(saldo_pi), "entrada_pi_base": str(entrada_base), "totais": totais,
+    }
 
 
 def _bloqueios_reabertura(cursor, op_id, caixas):
@@ -210,6 +258,22 @@ def preflight_operacao_op(op_id, tipo):
         conn.close()
 
 
+def preflight_retomada_embalagem_secundaria(op_id):
+    """Consulta somente leitura para a retomada de uma OP parcialmente apontada."""
+    criar_tabelas_operacoes_op()
+    conn = conectar()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(q("SELECT * FROM ordens_producao WHERE id=?"), (op_id,))
+        op = cursor.fetchone()
+        if not op:
+            raise ValueError("OP não encontrada.")
+        caixas = _caixas_op(cursor, op_id)
+        return _preflight_retomada_cursor(cursor, op, caixas)
+    finally:
+        conn.close()
+
+
 def _auditar(cursor, *, op_id, tipo, chave, usuario, perfil, motivo, etapa,
              status_anterior, status_posterior, preflight, efeitos, resultado, ip_origem):
     cursor.execute(q("""INSERT INTO op_operacoes_auditoria(
@@ -219,6 +283,57 @@ def _auditar(cursor, *, op_id, tipo, chave, usuario, perfil, motivo, etapa,
         op_id, tipo, chave, usuario, perfil, motivo.strip(), etapa, status_anterior,
         status_posterior, _json(preflight), _json(efeitos), _json(resultado), ip_origem, _agora(),
     ))
+
+
+def retomar_embalagem_secundaria(op_id, *, usuario, perfil, idempotency_key,
+                                  ip_origem=None, confirmacao=False):
+    """Abre a etapa de caixas sem recriar ou apagar qualquer efeito da OP."""
+    motivo = "Retomada operacional da Embalagem Secundária parcialmente apontada"
+    _validar_autorizacao(usuario, perfil, motivo, idempotency_key)
+    if not confirmacao:
+        raise ValueError("Confirme expressamente a retomada preservando PI, PA, caixas e histórico.")
+    criar_tabelas_operacoes_op()
+    with transaction() as conn:
+        cursor = conn.cursor()
+        existente = _resultado_idempotente(cursor, idempotency_key)
+        if existente:
+            return existente
+        cursor.execute(q("SELECT * FROM ordens_producao WHERE id=?" + _bloqueio_sql()), (op_id,))
+        op = cursor.fetchone()
+        if not op:
+            raise ValueError("OP não encontrada.")
+        caixas = _caixas_op(cursor, op_id, bloquear=True)
+        preflight = _preflight_retomada_cursor(cursor, op, caixas, bloquear=True)
+        if not preflight["permitido"]:
+            raise ValueError("Retomada bloqueada: " + " ".join(preflight["bloqueios"]))
+        cursor.execute(q("""UPDATE ordens_producao SET status='Aberta',
+            versao_operacional=COALESCE(versao_operacional,0)+1
+            WHERE id=? AND status='Aguardando Embalagem Secundária'"""), (op_id,))
+        if cursor.rowcount != 1:
+            raise ValueError("A OP foi alterada concorrentemente; a retomada foi cancelada.")
+        cursor.execute(q("UPDATE embalagem_secundaria_conferencias SET confirmada=0 WHERE op_id=? AND confirmada=1"), (op_id,))
+        conferencias_invalidadas = cursor.rowcount
+        efeitos = {
+            "pi_preservado": True, "pa_preservado": True,
+            "caixas_ativas_preservadas": preflight["caixas_ativas"],
+            "caixas_estornadas_preservadas": preflight["caixas_estornadas"],
+            "saldo_pi_pendente": preflight["saldo_pi"],
+            "conferencias_invalidadas": conferencias_invalidadas,
+            "hard_delete": False,
+        }
+        resultado = {
+            "sucesso": True, "op_id": int(op_id), "tipo": "RETOMADA_EMBALAGEM_SECUNDARIA",
+            "status_op_anterior": op["status"], "status_op_posterior": "Aberta",
+            "etapa_destino": "EMBALAGEM_SECUNDARIA", "efeitos": efeitos,
+        }
+        _auditar(
+            cursor, op_id=op_id, tipo="RETOMADA_EMBALAGEM_SECUNDARIA",
+            chave=idempotency_key, usuario=usuario, perfil=perfil, motivo=motivo,
+            etapa="EMBALAGEM_SECUNDARIA", status_anterior=op["status"],
+            status_posterior="Aberta", preflight=preflight, efeitos=efeitos,
+            resultado=resultado, ip_origem=ip_origem,
+        )
+        return resultado
 
 
 def reabrir_op(op_id, *, usuario, perfil, motivo, etapa_destino, idempotency_key,

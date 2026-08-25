@@ -12,7 +12,12 @@ from config import EMPRESA_EMITENTE, ESTABELECIMENTO_DOCUMENTO, IDENTIFICACAO_TE
 from database import conectar, q
 from modules.auth.decorators import perfil_permitido
 from modules.producao.services import buscar_op_por_id
-from modules.producao.operacoes_op import estornar_op_integral
+from modules.producao.operacoes_op import (
+    estornar_op_integral,
+    preflight_operacao_op,
+    preflight_retomada_embalagem_secundaria,
+    retomar_embalagem_secundaria,
+)
 
 from .services import (
     BANDEJAS_POR_CAIXA,
@@ -79,6 +84,14 @@ from modules.qualidade.liberacoes import (
 )
 from modules.clientes.services import listar_clientes
 from .relatorio_entregas import gerar_relatorio_entregas_pdf
+
+
+def _csrf_estorno_valido():
+    informado = str(request.form.get("csrf_token") or "")
+    esperado = str(session.get("estorno_embalagem_csrf") or "")
+    return bool(informado and esperado and secrets.compare_digest(informado, esperado))
+
+
 from .consolidado_estoque import ROTULOS_SITUACOES, consolidar_estoque_camara
 from .relatorio_estoque import gerar_relatorio_estoque_pdf
 from .relatorio_nc_pdf import gerar_relatorio_nc_pdf
@@ -263,10 +276,7 @@ def register_expedicao_routes(app, integracoes=None):
     @perfil_permitido("pcp", "gerencia")
     def estornar_embalagem_secundaria_op(op_id):
         try:
-            if not secrets.compare_digest(
-                str(request.form.get("csrf_token") or ""),
-                str(session.get("estorno_embalagem_csrf") or ""),
-            ):
+            if not _csrf_estorno_valido():
                 raise PermissionError("Sessão de confirmação expirada. Atualize a página e tente novamente.")
             resultado = estornar_op_integral(
                 op_id,
@@ -282,18 +292,54 @@ def register_expedicao_routes(app, integracoes=None):
                 f"Caixas estornadas: {resultado['caixas_estornadas']}."
             )
         except (ValueError, PermissionError) as erro:
-            flash(str(erro))
+            status = 403 if isinstance(erro, PermissionError) else 409
+            return render_template(
+                "erro_operacional.html", titulo="Estorno integral não executado",
+                mensagem=str(erro), retorno=url_for("embalagem_secundaria", op_id=op_id),
+            ), status
         return redirect(url_for("embalagem_secundaria", op_id=op_id))
+
+
+    @app.route("/embalagem-secundaria/<int:op_id>/estorno/preflight")
+    @perfil_permitido("pcp", "gerencia")
+    def preflight_estorno_embalagem_secundaria_op(op_id):
+        try:
+            return jsonify(preflight_operacao_op(op_id, "ESTORNO_INTEGRAL"))
+        except ValueError as erro:
+            return jsonify({"permitido": False, "erro": str(erro), "op_id": op_id}), 404
+
+
+    @app.route("/embalagem-secundaria/<int:op_id>/retomar", methods=["POST"])
+    @perfil_permitido("pcp", "gerencia")
+    def retomar_embalagem_secundaria_op(op_id):
+        try:
+            if not _csrf_estorno_valido():
+                raise PermissionError("Sessão de confirmação expirada. Atualize a página e tente novamente.")
+            resultado = retomar_embalagem_secundaria(
+                op_id, usuario=session.get("nome") or "Usuário",
+                perfil=session.get("perfil"),
+                idempotency_key=request.form.get("idempotency_key"),
+                ip_origem=request.access_route[0] if request.access_route else request.remote_addr,
+                confirmacao=request.form.get("confirmacao") == "RETOMAR",
+            )
+            flash(
+                "Embalagem Secundária retomada. Caixas válidas, estornos, PI e PA foram preservados; "
+                "uma nova conferência será exigida antes do encerramento."
+            )
+            return redirect(url_for("embalagem_secundaria", op_id=op_id, retomada="1"))
+        except (ValueError, PermissionError) as erro:
+            status = 403 if isinstance(erro, PermissionError) else 409
+            return render_template(
+                "erro_operacional.html", titulo="Retomada não executada",
+                mensagem=str(erro), retorno=url_for("embalagem_secundaria", op_id=op_id),
+            ), status
 
 
     @app.route("/embalagem-secundaria/<int:op_id>/conferencia/confirmar", methods=["POST"])
     @perfil_permitido("pcp", "producao", "gerencia")
     def confirmar_conferencia_embalagem_secundaria(op_id):
         try:
-            if not secrets.compare_digest(
-                str(request.form.get("csrf_token") or ""),
-                str(session.get("estorno_embalagem_csrf") or ""),
-            ):
+            if not _csrf_estorno_valido():
                 raise PermissionError("Sessão de confirmação expirada. Atualize a página e tente novamente.")
             if request.form.get("confirmacao") != "1":
                 raise ValueError("Confirme que conferiu os lançamentos da Embalagem Secundária.")
@@ -331,10 +377,7 @@ def register_expedicao_routes(app, integracoes=None):
     @perfil_permitido("pcp", "gerencia")
     def estornar_caixa_embalagem_secundaria_rota(op_id, caixa_id):
         try:
-            if not secrets.compare_digest(
-                str(request.form.get("csrf_token") or ""),
-                str(session.get("estorno_embalagem_csrf") or ""),
-            ):
+            if not _csrf_estorno_valido():
                 raise PermissionError("Sessão de confirmação expirada. Atualize a página e tente novamente.")
             motivo = str(request.form.get("motivo") or "").strip()
             detalhes = str(request.form.get("detalhes") or "").strip()
@@ -364,10 +407,7 @@ def register_expedicao_routes(app, integracoes=None):
     @perfil_permitido("pcp", "gerencia")
     def estornar_caixas_embalagem_secundaria_lote_rota(op_id):
         try:
-            if not secrets.compare_digest(
-                str(request.form.get("csrf_token") or ""),
-                str(session.get("estorno_embalagem_csrf") or ""),
-            ):
+            if not _csrf_estorno_valido():
                 raise PermissionError("Sessão de confirmação expirada. Atualize a página e tente novamente.")
             motivo = str(request.form.get("motivo") or "").strip()
             detalhes = str(request.form.get("detalhes") or "").strip()
@@ -423,6 +463,7 @@ def register_expedicao_routes(app, integracoes=None):
         caixas_op = []
         fechamento_op = None
         conferencia_op = None
+        retomada_op = None
 
         if op_id_selecionada:
             try:
@@ -459,6 +500,11 @@ def register_expedicao_routes(app, integracoes=None):
                 except Exception:
                     caixas_op = []
 
+                try:
+                    retomada_op = preflight_retomada_embalagem_secundaria(op_id_int)
+                except ValueError as erro:
+                    retomada_op = {"permitido": False, "bloqueios": [str(erro)]}
+
         estorno_habilitado = funcionalidade_estorno_habilitada()
         csrf_estorno = session.get("estorno_embalagem_csrf") or secrets.token_urlsafe(32)
         session["estorno_embalagem_csrf"] = csrf_estorno
@@ -486,7 +532,10 @@ def register_expedicao_routes(app, integracoes=None):
             chave_estorno_lote=str(uuid.uuid4()),
             chave_inclusao_individual=str(uuid.uuid4()),
             chave_inclusao_lote=str(uuid.uuid4()),
+            chave_retomada=str(uuid.uuid4()),
             conferencia_op=conferencia_op,
+            retomada_op=retomada_op,
+            data_fabricacao_padrao=(op_selecionada["data_op"] if op_selecionada else datetime.now().strftime("%Y-%m-%d")),
         )
 
     @app.route("/expedicao")

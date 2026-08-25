@@ -1232,6 +1232,76 @@ def _registrar_requisicao_embalagem(cursor, op_id, acao, chave, resultado, usuar
     ))
 
 
+def _validar_lancamento_secundaria_cursor(cursor, consumo_por_op):
+    """Bloqueia OP/ledger e revalida estado e saldo imediatamente antes da inclusão."""
+    ops = {}
+    for op_id in sorted(consumo_por_op):
+        bloqueio = " FOR UPDATE" if DATABASE_URL else ""
+        cursor.execute(q("SELECT * FROM ordens_producao WHERE id=?" + bloqueio), (op_id,))
+        op = cursor.fetchone()
+        if not op:
+            raise ValueError(f"OP #{op_id} não encontrada.")
+        if op["status"] == "Aguardando Embalagem Secundária":
+            cursor.execute(q("""SELECT COUNT(DISTINCT cx.id) total
+                FROM pa_caixas cx JOIN pa_caixa_composicao comp ON comp.caixa_id=cx.id
+                WHERE comp.op_id=? AND UPPER(COALESCE(cx.status,'')) NOT IN
+                ('ESTORNADA','ESTORNADO','CANCELADA','CANCELADO')"""), (op_id,))
+            caixas_ativas = int(cursor.fetchone()["total"] or 0)
+            if caixas_ativas:
+                raise ValueError(
+                    f"A OP #{op_id} está parcialmente apontada. Use Retomar Embalagem Secundária antes de lançar novas caixas."
+                )
+            # O primeiro lançamento inicia a etapa secundária. Retomadas com
+            # histórico existente continuam exigindo a ação explícita.
+            cursor.execute(q("""UPDATE ordens_producao SET status='Aberta'
+                WHERE id=? AND status='Aguardando Embalagem Secundária'"""), (op_id,))
+            if cursor.rowcount != 1:
+                raise ValueError("A OP foi alterada concorrentemente; atualize a tela e tente novamente.")
+        elif op["status"] != "Aberta":
+            raise ValueError(f"A OP #{op_id} está em situação {op['status']} e não aceita novas caixas.")
+        ops[op_id] = op
+        if DATABASE_URL:
+            cursor.execute(q("""SELECT id FROM estoque_produto_intermediario
+                WHERE op_id=? ORDER BY id FOR UPDATE"""), (op_id,))
+            cursor.fetchall()
+        cursor.execute(q("""SELECT COALESCE(SUM(CASE
+            WHEN tipo LIKE 'ENTRADA%%' THEN quantidade_bandejas
+            WHEN tipo LIKE 'SAIDA%%' THEN -quantidade_bandejas
+            ELSE quantidade_bandejas END),0) saldo
+            FROM estoque_produto_intermediario WHERE op_id=?"""), (op_id,))
+        saldo = Decimal(str(cursor.fetchone()["saldo"] or 0))
+        consumo = Decimal(str(consumo_por_op[op_id] or 0))
+        if consumo > saldo:
+            raise ValueError(
+                f"A OP #{op_id} possui apenas {saldo:g} bandejas disponíveis em PI. "
+                f"O lançamento tentaria consumir {consumo:g}."
+            )
+    return ops
+
+
+def _invalidar_conferencia_por_inclusao(cursor, op_ids):
+    for op_id in sorted(set(op_ids)):
+        cursor.execute(q("""UPDATE embalagem_secundaria_conferencias
+            SET confirmada=0 WHERE op_id=? AND confirmada=1"""), (op_id,))
+
+
+def _gerar_codigo_caixa_cursor(cursor):
+    hoje = datetime.now().strftime("%Y%m%d")
+    prefixo = f"CX-{hoje}-"
+    bloqueio = " FOR UPDATE" if DATABASE_URL else ""
+    cursor.execute(q("""SELECT codigo_caixa FROM pa_caixas
+        WHERE codigo_caixa LIKE ? ORDER BY codigo_caixa DESC LIMIT 1""" + bloqueio),
+        (f"{prefixo}%",))
+    ultima = cursor.fetchone()
+    if not ultima:
+        return f"{prefixo}001"
+    try:
+        sequencia = int(str(ultima["codigo_caixa"]).split("-")[-1]) + 1
+    except Exception:
+        sequencia = 1
+    return f"{prefixo}{sequencia:03d}"
+
+
 def registrar_caixa_pa_manual(form, usuario=None):
     criar_tabelas_estoque_pi_pa()
     from .conferencia_embalagem import criar_tabelas_conferencia_embalagem
@@ -1258,17 +1328,25 @@ def registrar_caixa_pa_manual(form, usuario=None):
     if peso_liquido > peso_bruto:
         raise ValueError("O peso líquido não pode ser maior que o peso bruto.")
 
-    data_fabricacao = form.get("data_fabricacao") or datetime.now().strftime("%Y-%m-%d")
+    op_base = buscar_op_por_id(composicao[0][0])
+    data_fabricacao = form.get("data_fabricacao") or (op_base["data"] if op_base else "")
     data_validade = form.get("data_validade") or calcular_validade_padrao(data_fabricacao)
     if data_validade != calcular_validade_padrao(data_fabricacao):
         raise ValueError("A validade da Galinha Cortada deve seguir a regra vigente de um ano.")
-    codigo_caixa = form.get("codigo_caixa") or gerar_codigo_caixa()
+    codigo_caixa = form.get("codigo_caixa") or None
 
     with transaction() as conn:
         cursor = conn.cursor()
         existente = _resultado_requisicao_embalagem(cursor, chave)
         if existente:
             return existente["codigo_caixa"]
+        consumo_por_op = {}
+        for op_id, quantidade in composicao:
+            consumo_por_op[op_id] = consumo_por_op.get(op_id, 0) + quantidade
+        ops = _validar_lancamento_secundaria_cursor(cursor, consumo_por_op)
+        if any(str(op["data"]) != str(data_fabricacao) for op in ops.values()):
+            raise ValueError("A data de fabricação deve permanecer igual à data original da OP.")
+        codigo_caixa = codigo_caixa or _gerar_codigo_caixa_cursor(cursor)
         caixa_id = inserir_caixa_pa(
             cursor, codigo_caixa, sku, data_fabricacao, data_validade,
             peso_bruto, peso_liquido, total_bandejas,
@@ -1276,6 +1354,7 @@ def registrar_caixa_pa_manual(form, usuario=None):
         )
         if usuario:
             cursor.execute(q("UPDATE pa_caixas SET usuario_pesagem=? WHERE id=?"), (usuario, caixa_id))
+        _invalidar_conferencia_por_inclusao(cursor, consumo_por_op)
         _registrar_requisicao_embalagem(
             cursor, composicao[0][0], "INCLUSAO_INDIVIDUAL", chave,
             {"codigo_caixa": codigo_caixa}, usuario,
@@ -1322,26 +1401,33 @@ def registrar_caixas_pa_lote(form, usuario=None):
 
     validar_saldo_pi_para_composicoes([composicao for _ in pesos_brutos])
 
-    data_fabricacao = form.get("data_fabricacao") or datetime.now().strftime("%Y-%m-%d")
+    op_base = buscar_op_por_id(composicao[0][0])
+    data_fabricacao = form.get("data_fabricacao") or (op_base["data"] if op_base else "")
     data_validade = form.get("data_validade") or calcular_validade_padrao(data_fabricacao)
     if data_validade != calcular_validade_padrao(data_fabricacao):
         raise ValueError("A validade da Galinha Cortada deve seguir a regra vigente de um ano.")
     observacoes = form.get("observacoes") or "Lançamento em lote na Embalagem Secundária"
 
     codigos = []
-    primeiro_codigo = gerar_codigo_caixa()
-    try:
-        prefixo_codigo = "-".join(primeiro_codigo.split("-")[:-1])
-        sequencia_codigo = int(primeiro_codigo.split("-")[-1])
-    except Exception:
-        prefixo_codigo = f"CX-{datetime.now().strftime('%Y%m%d')}"
-        sequencia_codigo = 1
 
     with transaction() as conn:
         cursor = conn.cursor()
         existente = _resultado_requisicao_embalagem(cursor, chave)
         if existente:
             return existente["codigos"]
+        consumo_por_op = {}
+        for op_id, quantidade in composicao:
+            consumo_por_op[op_id] = consumo_por_op.get(op_id, 0) + quantidade * len(pesos_brutos)
+        ops = _validar_lancamento_secundaria_cursor(cursor, consumo_por_op)
+        if any(str(op["data"]) != str(data_fabricacao) for op in ops.values()):
+            raise ValueError("A data de fabricação deve permanecer igual à data original da OP.")
+        primeiro_codigo = _gerar_codigo_caixa_cursor(cursor)
+        try:
+            prefixo_codigo = "-".join(primeiro_codigo.split("-")[:-1])
+            sequencia_codigo = int(primeiro_codigo.split("-")[-1])
+        except Exception:
+            prefixo_codigo = f"CX-{datetime.now().strftime('%Y%m%d')}"
+            sequencia_codigo = 1
         for peso_bruto, peso_liquido in zip(pesos_brutos, pesos_liquidos):
             codigo_caixa = f"{prefixo_codigo}-{sequencia_codigo:03d}"
             sequencia_codigo += 1
@@ -1352,6 +1438,7 @@ def registrar_caixas_pa_lote(form, usuario=None):
             if usuario:
                 cursor.execute(q("UPDATE pa_caixas SET usuario_pesagem=? WHERE id=?"), (usuario, caixa_id))
             codigos.append(codigo_caixa)
+        _invalidar_conferencia_por_inclusao(cursor, consumo_por_op)
         _registrar_requisicao_embalagem(
             cursor, composicao[0][0], "INCLUSAO_LOTE", chave,
             {"codigos": codigos}, usuario,
