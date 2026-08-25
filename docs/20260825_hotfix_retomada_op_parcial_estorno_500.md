@@ -72,6 +72,9 @@ Consulta autenticada e somente leitura em `https://abatedouro-indicadores.onrend
 - histórico de dois estornos individuais preservado (24/08/2026 20:29:13 e 20:31:30);
 - nenhum estorno integral, inclusão ou alteração de status foi executado no diagnóstico.
 
-## Publicação e snapshot pós-deploy
+## Preservação pré-deploy
 
-A preencher após integração, backup, deploy e validação autenticada.
+- Branch remota de recuperação do código: `backup/pre-hotfix-retomada-op-parcial-estorno-500-20260825`, apontando para o commit inicial.
+- Export lógico completo do PostgreSQL criado no Render em 25/08/2026 18:58 (America/Manaus), além da recuperação contínua disponibilizada pelo provedor.
+
+O commit publicado e o snapshot pós-deploy autenticado são registrados no relatório final da execução, após a conclusão do deploy.
