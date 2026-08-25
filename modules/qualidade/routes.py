@@ -457,7 +457,7 @@ def register_qualidade_routes(app, integracoes=None):
                 op_id,
                 COALESCE(SUM(quantidade), 0) as kg_produzidos
             FROM apontamentos_producao
-            WHERE LOWER(unidade) = 'kg'
+            WHERE LOWER(unidade) = 'kg' AND COALESCE(vigente,1)=1
             GROUP BY op_id
         ) prod ON prod.op_id = o.id
         WHERE {where_sql}

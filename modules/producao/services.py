@@ -875,10 +875,35 @@ def gerar_producao_automatica_setores(
     conn = conn or conectar()
     cursor = conn.cursor()
 
+    # Compatibilidade com bancos criados antes da migration P0.2 e com rotinas
+    # transacionais que chamam este servico diretamente.
+    if not DATABASE_URL:
+        for sqlite_sql in (
+            "ALTER TABLE apontamentos_producao ADD COLUMN vigente INTEGER NOT NULL DEFAULT 1",
+            "ALTER TABLE apontamentos_producao ADD COLUMN invalidado_em TEXT",
+            "ALTER TABLE apontamentos_producao ADD COLUMN invalidado_por TEXT",
+        ):
+            try:
+                cursor.execute(sqlite_sql)
+            except Exception as erro:
+                if "duplicate column" not in str(erro).lower():
+                    raise
+    try:
+        responsavel_invalidacao = nome_usuario_atual() or "Sistema"
+    except RuntimeError:
+        responsavel_invalidacao = "Sistema"
+
+    # Reencerramentos preservam o historico: a versao automatica anterior deixa
+    # de ser vigente, mas nunca e apagada fisicamente.
     cursor.execute(q("""
-    DELETE FROM apontamentos_producao
-    WHERE op_id = ?
-    """), (op["id"],))
+    UPDATE apontamentos_producao
+    SET vigente = 0, invalidado_em = ?, invalidado_por = ?
+    WHERE op_id = ? AND COALESCE(vigente, 1) = 1 AND (
+        observacoes LIKE 'Gerado automaticamente no encerramento da OP%%'
+        OR observacoes LIKE 'Produção final informada no encerramento da OP%%'
+        OR observacoes LIKE 'Kg final produzido informado no encerramento da OP%%'
+    )
+    """), (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), responsavel_invalidacao, op["id"]))
 
     cursor.execute(q("""
     SELECT setor, COALESCE(SUM(quantidade), 0) as total

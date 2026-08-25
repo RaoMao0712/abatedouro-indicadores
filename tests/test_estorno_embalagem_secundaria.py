@@ -175,7 +175,7 @@ def test_pa_estornado_fica_fora_de_reserva_romaneio_e_estoque_ativo(banco):
     conn.close()
 
 
-def test_op_encerrada_reabre_e_remove_totais_automaticos_obsoletos(banco):
+def test_op_encerrada_reabre_e_invalida_totais_automaticos_sem_apagar(banco):
     conn = banco()
     conn.execute("UPDATE ordens_producao SET status='Encerrada' WHERE id=7")
     conn.execute("INSERT INTO apontamentos_producao(op_id,observacoes) VALUES(7,'Produção final informada no encerramento da OP | teste')")
@@ -184,7 +184,8 @@ def test_op_encerrada_reabre_e_remove_totais_automaticos_obsoletos(banco):
     conn = banco()
     assert resultado["status_op_posterior"] == "Aberta"
     assert conn.execute("SELECT status FROM ordens_producao WHERE id=7").fetchone()[0] == "Aberta"
-    assert conn.execute("SELECT COUNT(*) FROM apontamentos_producao WHERE op_id=7").fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM apontamentos_producao WHERE op_id=7").fetchone()[0] == 1
+    assert conn.execute("SELECT vigente FROM apontamentos_producao WHERE op_id=7").fetchone()[0] == 0
     conn.close()
 
 

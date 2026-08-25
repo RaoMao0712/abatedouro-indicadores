@@ -160,7 +160,7 @@ def expressao_periodo(campo, granularidade):
 
 
 def montar_condicoes_ops(filtros, alias="o"):
-    condicoes = [f"{alias}.data BETWEEN ? AND ?"]
+    condicoes = [f"{alias}.data BETWEEN ? AND ?", f"UPPER(COALESCE({alias}.status,'')) NOT IN ('ESTORNADA','ESTORNADO','CANCELADA','CANCELADO')"]
     parametros = [filtros["data_inicio"], filtros["data_fim"]]
 
     if filtros["op_id"]:
@@ -245,6 +245,7 @@ def cte_ops_agregadas(filtros, somente_encerradas=False):
                  AND LOWER(COALESCE(unidade, '')) IN ('unidades', 'unidade', 'aves', 'ave', 'bandejas', 'caixas')
                 THEN quantidade ELSE 0 END), 0) AS unidades_finais
         FROM apontamentos_producao
+        WHERE COALESCE(vigente, 1) = 1
         GROUP BY op_id
     ),
     primaria AS (
@@ -828,6 +829,7 @@ def buscar_eficiencia_dados(filtros):
                 WHEN LOWER(COALESCE(unidade, '')) IN ('unidades', 'unidade', 'aves', 'ave', 'bandejas')
                 THEN quantidade ELSE 0 END), 0) AS unidades_produzidas
         FROM apontamentos_producao
+        WHERE COALESCE(vigente, 1) = 1
         GROUP BY op_id
     ),
     pa AS (

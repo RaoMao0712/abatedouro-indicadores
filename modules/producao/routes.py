@@ -1,6 +1,7 @@
 """Rotas operacionais do m?dulo de Produ??o."""
 
 from datetime import datetime
+import uuid
 
 from flask import flash, redirect, render_template, request, session, url_for
 
@@ -49,13 +50,18 @@ from .performance import (
     corrigir_snapshot,
     decidir_velocidade,
     historico_performance,
-    invalidar_por_reabertura,
     listar_skus_operacionais,
     listar_velocidades,
     preparar_snapshot_inicio,
     propor_velocidade,
     registrar_reprocesso,
     sugerir_contagem,
+)
+from .operacoes_op import (
+    estornar_op_integral,
+    historico_operacoes_op,
+    preflight_operacao_op,
+    reabrir_op as reabrir_op_operacional,
 )
 
 _INTEGRACOES = {}
@@ -1100,38 +1106,41 @@ def register_producao_routes(app, integracoes=None):
 
 
     @app.route("/op/<int:op_id>/reabrir", methods=["POST"])
-    @perfil_permitido("admin")
+    @perfil_permitido("admin", "pcp", "gerencia")
     def reabrir_op(op_id):
-        op = buscar_op_por_id(op_id)
+        try:
+            resultado = reabrir_op_operacional(
+                op_id, usuario=session.get("nome") or session.get("usuario_nome") or "Usuário",
+                perfil=session.get("perfil"), motivo=request.form.get("motivo"),
+                etapa_destino=request.form.get("etapa_destino"),
+                idempotency_key=request.form.get("idempotency_key"),
+                ip_origem=request.access_route[0] if request.access_route else request.remote_addr,
+                confirmacao=request.form.get("confirmacao") == "REABRIR",
+            )
+            flash(f"OP reaberta para {resultado['etapa_destino']}. PI, PA, caixas e apontamentos foram preservados.")
+            return redirect(url_for(
+                "embalagem_secundaria", op_id=op_id,
+                conferencia="1" if resultado["etapa_destino"] == "CONFERENCIA_FINAL" else None,
+            ))
+        except (ValueError, PermissionError) as erro:
+            flash(str(erro))
+        return redirect(url_for("consultar_op", op_id=op_id))
 
-        if not op:
-            flash("OP não encontrada.")
-            return redirect(url_for("consultar_op"))
 
-        if _integracao("op_possui_caixa_pa")(op_id):
-            flash("Esta OP já possui bandejas vinculadas a caixas de PA. Reabertura bloqueada para preservar a rastreabilidade.")
-            return redirect(url_for("consultar_op", op_id=op_id))
-
-        _integracao("remover_movimentacoes_estoque_pi_por_op")(op_id)
-
-        conn = conectar()
-        cursor = conn.cursor()
-
-        cursor.execute(q("""
-        UPDATE ordens_producao
-        SET status = ?
-        WHERE id = ?
-        """), ("Aberta", op_id))
-
-        invalidar_por_reabertura(
-            op_id, cursor=cursor, usuario=session.get("nome") or "Usuario",
-            usuario_id=session.get("usuario_id"), perfil=session.get("perfil"),
-        )
-
-        conn.commit()
-        conn.close()
-
-        flash("OP reaberta com sucesso. A entrada automática no Estoque PI foi estornada.")
+    @app.route("/op/<int:op_id>/estornar-integral", methods=["POST"])
+    @perfil_permitido("admin", "pcp", "gerencia")
+    def estornar_op_integral_route(op_id):
+        try:
+            resultado = estornar_op_integral(
+                op_id, usuario=session.get("nome") or session.get("usuario_nome") or "Usuário",
+                perfil=session.get("perfil"), motivo=request.form.get("motivo"),
+                idempotency_key=request.form.get("idempotency_key"),
+                ip_origem=request.access_route[0] if request.access_route else request.remote_addr,
+                confirmacao=request.form.get("confirmacao") == "ESTORNAR_INTEGRAL",
+            )
+            flash(f"OP estornada integralmente. {resultado['efeitos']['caixas_estornadas']} caixa(s) revertida(s), sem exclusão física.")
+        except (ValueError, PermissionError) as erro:
+            flash(str(erro))
         return redirect(url_for("consultar_op", op_id=op_id))
 
 
@@ -1153,6 +1162,10 @@ def register_producao_routes(app, integracoes=None):
         performance_linha = None
         sugestao_contagem_performance = None
         historico_performance_linha = []
+        preflight_reabertura = None
+        preflight_estorno = None
+        historico_operacional_op = []
+        chaves_operacao = {}
 
         if op_id:
             conn = conectar()
@@ -1161,7 +1174,7 @@ def register_producao_routes(app, integracoes=None):
             cursor.execute(q("SELECT * FROM ordens_producao WHERE id = ?"), (op_id,))
             op = cursor.fetchone()
 
-            cursor.execute(q("SELECT * FROM apontamentos_producao WHERE op_id = ? ORDER BY id ASC"), (op_id,))
+            cursor.execute(q("SELECT * FROM apontamentos_producao WHERE op_id = ? AND COALESCE(vigente,1)=1 ORDER BY id ASC"), (op_id,))
             producoes = cursor.fetchall()
 
             cursor.execute(q("SELECT * FROM apontamentos_mao_obra WHERE op_id = ? ORDER BY id ASC"), (op_id,))
@@ -1188,6 +1201,13 @@ def register_producao_routes(app, integracoes=None):
                 velocidades_ativas_performance = cursor.fetchall()
                 cursor.execute(q("SELECT * FROM linha_performance_auditoria WHERE op_id=? ORDER BY criado_em DESC,id DESC"), (op_id,))
                 historico_performance_linha = cursor.fetchall()
+                preflight_reabertura = preflight_operacao_op(op_id, "REABERTURA")
+                preflight_estorno = preflight_operacao_op(op_id, "ESTORNO_INTEGRAL")
+                historico_operacional_op = historico_operacoes_op(op_id)
+                chaves_operacao = {
+                    "reabertura": f"REABRIR-OP-{op_id}-{uuid.uuid4()}",
+                    "estorno": f"ESTORNAR-OP-{op_id}-{uuid.uuid4()}",
+                }
             else:
                 velocidades_ativas_performance = []
 
@@ -1209,6 +1229,10 @@ def register_producao_routes(app, integracoes=None):
             sugestao_contagem_performance=sugestao_contagem_performance,
             velocidades_ativas_performance=velocidades_ativas_performance if op else [],
             historico_performance_linha=historico_performance_linha,
+            preflight_reabertura=preflight_reabertura,
+            preflight_estorno=preflight_estorno,
+            historico_operacional_op=historico_operacional_op,
+            chaves_operacao=chaves_operacao,
         )
 
     @app.route("/op/<int:op_id>/corrigir-peso-entrada", methods=["POST"])
@@ -1244,7 +1268,7 @@ def register_producao_routes(app, integracoes=None):
         cursor.execute(q("SELECT * FROM ordens_producao WHERE id = ?"), (op_id,))
         op = cursor.fetchone()
 
-        cursor.execute(q("SELECT * FROM apontamentos_producao WHERE op_id = ? ORDER BY id ASC"), (op_id,))
+        cursor.execute(q("SELECT * FROM apontamentos_producao WHERE op_id = ? AND COALESCE(vigente,1)=1 ORDER BY id ASC"), (op_id,))
         producoes = cursor.fetchall()
 
         cursor.execute(q("SELECT * FROM apontamentos_mao_obra WHERE op_id = ? ORDER BY id ASC"), (op_id,))

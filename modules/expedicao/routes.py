@@ -11,6 +11,7 @@ from config import EMPRESA_EMITENTE, ESTABELECIMENTO_DOCUMENTO, IDENTIFICACAO_TE
 from database import conectar, q
 from modules.auth.decorators import perfil_permitido
 from modules.producao.services import buscar_op_por_id
+from modules.producao.operacoes_op import estornar_op_integral
 
 from .services import (
     BANDEJAS_POR_CAIXA,
@@ -44,7 +45,6 @@ from .services import (
 from .estornos_embalagem import (
     estornar_caixa_embalagem_secundaria,
     estornar_caixas_embalagem_secundaria_em_lote,
-    estornar_op_embalagem_secundaria,
     funcionalidade_estorno_habilitada,
 )
 from .conferencia_embalagem import confirmar_conferencia_op, obter_conferencia_op
@@ -242,13 +242,14 @@ def register_expedicao_routes(app, integracoes=None):
                 str(session.get("estorno_embalagem_csrf") or ""),
             ):
                 raise PermissionError("Sessão de confirmação expirada. Atualize a página e tente novamente.")
-            resultado = estornar_op_embalagem_secundaria(
+            resultado = estornar_op_integral(
                 op_id,
                 usuario=session.get("nome") or "Usuário",
                 perfil=session.get("perfil"),
-                justificativa=request.form.get("justificativa"),
+                motivo=request.form.get("justificativa"),
                 idempotency_key=request.form.get("idempotency_key"),
                 ip_origem=request.access_route[0] if request.access_route else request.remote_addr,
+                confirmacao=request.form.get("confirmacao") == "ESTORNAR_INTEGRAL",
             )
             flash(
                 "OP estornada com sucesso, sem exclusão de histórico. "

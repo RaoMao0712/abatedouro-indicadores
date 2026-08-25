@@ -1496,6 +1496,10 @@ def finalizar_embalagem_secundaria_op(op_id, checkpoint=None, nao_conformes=None
     from .estoque_service import ativar_estoque_op_encerrada, criar_tabelas_estoque_confiavel
 
     garantir_schema_producao()
+    # Garante o versionamento logico dos apontamentos antes de um eventual
+    # reencerramento de OP reaberta.
+    from modules.producao.operacoes_op import criar_tabelas_operacoes_op
+    criar_tabelas_operacoes_op()
     criar_tabelas_estoque_pi_pa()
     criar_tabelas_estoque_confiavel()
     if exigir_conferencia:

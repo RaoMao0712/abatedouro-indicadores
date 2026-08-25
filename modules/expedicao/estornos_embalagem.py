@@ -79,6 +79,15 @@ def criar_tabelas_estornos_embalagem():
         _alterar(cursor,
             "ALTER TABLE estoque_eventos ADD COLUMN IF NOT EXISTS evento_origem_id INTEGER",
             "ALTER TABLE estoque_eventos ADD COLUMN evento_origem_id INTEGER")
+        _alterar(cursor,
+            "ALTER TABLE apontamentos_producao ADD COLUMN IF NOT EXISTS vigente INTEGER NOT NULL DEFAULT 1",
+            "ALTER TABLE apontamentos_producao ADD COLUMN vigente INTEGER NOT NULL DEFAULT 1")
+        _alterar(cursor,
+            "ALTER TABLE apontamentos_producao ADD COLUMN IF NOT EXISTS invalidado_em TIMESTAMP",
+            "ALTER TABLE apontamentos_producao ADD COLUMN invalidado_em TEXT")
+        _alterar(cursor,
+            "ALTER TABLE apontamentos_producao ADD COLUMN IF NOT EXISTS invalidado_por TEXT",
+            "ALTER TABLE apontamentos_producao ADD COLUMN invalidado_por TEXT")
 
         cursor.execute(f"""
         CREATE TABLE IF NOT EXISTS embalagem_secundaria_estornos (
@@ -275,9 +284,11 @@ def _estornar_caixa_cursor(cursor, op_id, caixa_id, usuario, perfil, justificati
         cursor.execute(q("UPDATE ordens_producao SET status=? WHERE id=? AND status='Encerrada'"), (status_posterior, op_id))
         if cursor.rowcount != 1:
             raise ValueError("A OP foi alterada concorrentemente; o estorno foi cancelado.")
-        cursor.execute(q("""DELETE FROM apontamentos_producao WHERE op_id=? AND (
+        cursor.execute(q("""UPDATE apontamentos_producao SET vigente=0,invalidado_em=?,invalidado_por=?
+            WHERE op_id=? AND COALESCE(vigente,1)=1 AND (
             observacoes LIKE 'Gerado automaticamente no encerramento da OP%%'
-            OR observacoes LIKE 'Produção final informada no encerramento da OP%%')"""), (op_id,))
+            OR observacoes LIKE 'Produção final informada no encerramento da OP%%'
+            OR observacoes LIKE 'Kg final produzido informado no encerramento da OP%%')"""), (_agora(), usuario, op_id))
 
     depois = _totais_op(cursor, op_id)
     snapshot = {chave: caixa[chave] for chave in (
@@ -364,9 +375,11 @@ def estornar_caixas_embalagem_secundaria_em_lote(op_id, caixa_ids, *, usuario, p
             cursor.execute(q("UPDATE ordens_producao SET status='Aberta' WHERE id=? AND status='Encerrada'"), (op_id,))
             if cursor.rowcount != 1:
                 raise ValueError("A OP foi alterada concorrentemente; o lote foi cancelado.")
-            cursor.execute(q("""DELETE FROM apontamentos_producao WHERE op_id=? AND (
+            cursor.execute(q("""UPDATE apontamentos_producao SET vigente=0,invalidado_em=?,invalidado_por=?
+                WHERE op_id=? AND COALESCE(vigente,1)=1 AND (
                 observacoes LIKE 'Gerado automaticamente no encerramento da OP%%'
-                OR observacoes LIKE 'Produção final informada no encerramento da OP%%')"""), (op_id,))
+                OR observacoes LIKE 'Produção final informada no encerramento da OP%%'
+                OR observacoes LIKE 'Kg final produzido informado no encerramento da OP%%')"""), (_agora(), usuario, op_id))
         depois = _totais_op(cursor, op_id)
         resultado = {
             "sucesso": True, "op_id": int(op_id), "caixas_estornadas": len(ids),
@@ -424,9 +437,11 @@ def estornar_op_embalagem_secundaria(op_id, *, usuario, perfil, justificativa,
                 cursor, op_id, caixa_id, usuario, perfil, justificativa,
                 f"{idempotency_key}:CAIXA:{indice}", ip_origem, ajustar_op=False))
         cursor.execute(q("UPDATE ordens_producao SET status='Estornada' WHERE id=?"), (op_id,))
-        cursor.execute(q("""DELETE FROM apontamentos_producao WHERE op_id=? AND (
+        cursor.execute(q("""UPDATE apontamentos_producao SET vigente=0,invalidado_em=?,invalidado_por=?
+            WHERE op_id=? AND COALESCE(vigente,1)=1 AND (
             observacoes LIKE 'Gerado automaticamente no encerramento da OP%%'
-            OR observacoes LIKE 'Produção final informada no encerramento da OP%%')"""), (op_id,))
+            OR observacoes LIKE 'Produção final informada no encerramento da OP%%'
+            OR observacoes LIKE 'Kg final produzido informado no encerramento da OP%%')"""), (_agora(), usuario, op_id))
         depois = _totais_op(cursor, op_id)
         resultado = {"sucesso": True, "op_id": op_id, "caixas_estornadas": len(resultados),
                      "status_op_anterior": op["status"], "status_op_posterior": "Estornada",

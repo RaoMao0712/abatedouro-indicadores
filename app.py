@@ -29,6 +29,7 @@ from modules.producao.routes import register_producao_routes
 from modules.producao.correcoes_administrativas import criar_tabelas_correcoes_administrativas_op
 from modules.producao.disponibilidade import criar_tabelas_disponibilidade
 from modules.producao.performance import criar_tabelas_performance
+from modules.producao.operacoes_op import criar_tabelas_operacoes_op
 from modules.qualidade.routes import register_qualidade_routes
 from modules.qualidade.services import criar_tabelas_sgi
 from modules.qualidade.produtos_nao_conformes import criar_tabelas_pa_nao_conforme
@@ -577,6 +578,7 @@ def inicializar_schema_aplicacao():
         criar_tabelas_estoque_pi_pa,
         criar_tabelas_estoque_confiavel,
         criar_tabelas_estornos_embalagem,
+        criar_tabelas_operacoes_op,
         criar_tabelas_almoxarifado,
         criar_tabelas_estoque_almoxarifado,
         criar_tabelas_receitas_sku,

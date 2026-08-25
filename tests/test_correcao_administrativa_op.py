@@ -354,6 +354,7 @@ def test_admin_e_gerencia_visualizam_campo_editavel(perfil):
 def _app_rotas(monkeypatch, *, possui_caixa=True):
     app = Flask(__name__)
     app.secret_key = "teste"
+    app.add_url_rule("/embalagem-secundaria", endpoint="embalagem_secundaria", view_func=lambda: "ok")
     producao_routes.register_producao_routes(
         app,
         {
@@ -390,20 +391,25 @@ def test_rota_envia_novo_peso_ao_backend_mesmo_com_caixa_pa(monkeypatch):
     assert recebido["args"][:4] == (5, "900,75", "Conferência", "")
 
 
-def test_caixa_pa_continua_bloqueando_reabertura(monkeypatch):
-    monkeypatch.setattr(
-        producao_routes,
-        "buscar_op_por_id",
-        lambda op_id: {"id": op_id, "status": "Encerrada"},
-    )
+def test_reabertura_com_caixa_pa_delega_ao_fluxo_preservador(monkeypatch):
+    recebido = {}
+
+    def reabrir(op_id, **kwargs):
+        recebido.update(op_id=op_id, **kwargs)
+        return {"etapa_destino": "EMBALAGEM_SECUNDARIA"}
+
+    monkeypatch.setattr(producao_routes, "reabrir_op_operacional", reabrir)
     app = _app_rotas(monkeypatch, possui_caixa=True)
     cliente = app.test_client()
     with cliente.session_transaction() as sessao:
         sessao.update(usuario_id=1, nome="Admin", perfil="admin")
 
-    resposta = cliente.post("/op/5/reabrir")
-    with cliente.session_transaction() as sessao:
-        mensagens = [mensagem for _, mensagem in sessao.get("_flashes", [])]
+    resposta = cliente.post("/op/5/reabrir", data={
+        "motivo": "Correção de pesagem", "etapa_destino": "EMBALAGEM_SECUNDARIA",
+        "idempotency_key": "R-5", "confirmacao": "REABRIR",
+    })
 
     assert resposta.status_code == 302
-    assert any("Reabertura bloqueada" in mensagem for mensagem in mensagens)
+    assert recebido["op_id"] == 5
+    assert recebido["confirmacao"] is True
+    assert recebido["motivo"] == "Correção de pesagem"

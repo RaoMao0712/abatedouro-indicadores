@@ -4,13 +4,13 @@ from database import conectar, q
 
 
 def _filtros(status_filtro, sku_filtro):
-    status_condicao_op = ""
-    status_condicao_alias = ""
+    status_condicao_op = " AND UPPER(COALESCE(status,'')) NOT IN ('ESTORNADA','ESTORNADO','CANCELADA','CANCELADO')"
+    status_condicao_alias = " AND UPPER(COALESCE(o.status,'')) NOT IN ('ESTORNADA','ESTORNADO','CANCELADA','CANCELADO')"
     parametros_status = ()
 
     if status_filtro in ["Aberta", "Encerrada"]:
-        status_condicao_op = " AND COALESCE(status, 'Aberta') = ?"
-        status_condicao_alias = " AND COALESCE(o.status, 'Aberta') = ?"
+        status_condicao_op += " AND COALESCE(status, 'Aberta') = ?"
+        status_condicao_alias += " AND COALESCE(o.status, 'Aberta') = ?"
         parametros_status = (status_filtro,)
 
     sku_condicao_op = ""
@@ -93,6 +93,7 @@ def buscar_dados_dashboard(data_inicio, data_fim, status_filtro, sku_filtro):
     JOIN ordens_producao o ON o.id = p.op_id
     WHERE o.data BETWEEN ? AND ?
       AND LOWER(p.unidade) = 'kg'
+      AND COALESCE(p.vigente,1)=1
       {status_condicao_alias}
       {sku_condicao_alias}
     """), (data_inicio, data_fim) + parametros_filtros)
@@ -104,6 +105,7 @@ def buscar_dados_dashboard(data_inicio, data_fim, status_filtro, sku_filtro):
     JOIN ordens_producao o ON o.id = p.op_id
     WHERE o.data BETWEEN ? AND ?
       AND p.setor = 'Expedição'
+      AND COALESCE(p.vigente,1)=1
       AND LOWER(p.unidade) IN ('unidades', 'unidade', 'aves', 'ave')
       {status_condicao_alias}
       {sku_condicao_alias}
@@ -116,6 +118,7 @@ def buscar_dados_dashboard(data_inicio, data_fim, status_filtro, sku_filtro):
     JOIN ordens_producao o ON o.id = p.op_id
     WHERE o.data BETWEEN ? AND ?
       AND LOWER(p.unidade) = 'kg'
+      AND COALESCE(p.vigente,1)=1
       AND COALESCE(o.sku, 'Galinha Cortada') = 'Galinha Cortada'
       {status_condicao_alias}
     """), (data_inicio, data_fim) + parametros_status)
@@ -137,6 +140,7 @@ def buscar_dados_dashboard(data_inicio, data_fim, status_filtro, sku_filtro):
     JOIN ordens_producao o ON o.id = p.op_id
     WHERE o.data BETWEEN ? AND ?
       AND p.setor = 'Expedição'
+      AND COALESCE(p.vigente,1)=1
       AND LOWER(p.unidade) IN ('unidades', 'unidade', 'aves', 'ave')
       {status_condicao_alias}
     GROUP BY COALESCE(o.sku, 'Galinha Cortada')
@@ -151,6 +155,7 @@ def buscar_dados_dashboard(data_inicio, data_fim, status_filtro, sku_filtro):
     JOIN ordens_producao o ON o.id = p.op_id
     WHERE o.data BETWEEN ? AND ?
       AND LOWER(p.unidade) = 'kg'
+      AND COALESCE(p.vigente,1)=1
       {status_condicao_alias}
     GROUP BY COALESCE(o.sku, 'Galinha Cortada')
     """), (data_inicio, data_fim) + parametros_status)
@@ -211,6 +216,7 @@ def buscar_dados_dashboard(data_inicio, data_fim, status_filtro, sku_filtro):
     FROM apontamentos_producao p
     JOIN ordens_producao o ON o.id = p.op_id
     WHERE o.data BETWEEN ? AND ?
+      AND COALESCE(p.vigente,1)=1
       {status_condicao_alias}
     GROUP BY p.setor
     ORDER BY p.setor

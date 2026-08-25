@@ -122,25 +122,6 @@
                 </button>
             {% endif %}
 
-            {% if session.get("perfil") == "admin" %}
-
-                <form
-                    method="POST"
-                    action="{{ url_for('reabrir_op', op_id=op.id) }}"
-                    onsubmit="return confirm('Deseja realmente reabrir esta OP?')"
-                >
-
-                    <button
-                        type="submit"
-                        class="botao-editar"
-                    >
-                        Reabrir OP
-                    </button>
-
-                </form>
-
-            {% endif %}
-
         {% endif %}
 
         <a
@@ -151,28 +132,69 @@
             Imprimir OP
         </a>
 
-        {% if session.get("perfil") == "admin" %}
-
-            <form
-                method="POST"
-                action="{{ url_for('excluir_op', op_id=op.id) }}"
-                onsubmit="return confirm('Deseja realmente excluir esta OP?')"
-            >
-
-                <button
-                    type="submit"
-                    class="botao-excluir"
-                >
-                    Excluir OP
-                </button>
-
-            </form>
-
-        {% endif %}
-
     </div>
 
 </div>
+
+{% if session.get("perfil") in ["admin", "pcp", "gerencia"] %}
+<section class="card">
+    <div class="section-title-row">
+        <div><span class="eyebrow">P0.2 &middot; governan&ccedil;a</span><h2>Reabertura e estorno da OP</h2></div>
+        <strong>Estado atual: {{ op.status }}</strong>
+    </div>
+    <p class="obs"><strong>Reabrir</strong> devolve a OP a uma etapa operacional e preserva produ&ccedil;&atilde;o, PI, PA e caixas. <strong>Estornar integralmente</strong> anula os efeitos operacionais com movimentos compensat&oacute;rios e trilha de auditoria, sem apagar registros.</p>
+
+    <div class="form-grid">
+        <details {% if op.status == 'Encerrada' %}open{% endif %}>
+            <summary><strong>Reabrir OP</strong> &mdash; corre&ccedil;&atilde;o operacional</summary>
+            {% if preflight_reabertura and preflight_reabertura.permitido %}
+            <p class="obs">Preflight aprovado. {{ preflight_reabertura.caixas_total }} caixa(s) e os saldos atuais ser&atilde;o preservados; a confer&ecirc;ncia anterior perder&aacute; validade.</p>
+            <form method="POST" action="{{ url_for('reabrir_op', op_id=op.id) }}">
+                <input type="hidden" name="idempotency_key" value="{{ chaves_operacao.reabertura }}">
+                <label>Etapa de destino</label>
+                <select name="etapa_destino" required>
+                    <option value="EMBALAGEM_SECUNDARIA">Embalagem Secund&aacute;ria</option>
+                    <option value="CONFERENCIA_FINAL">Confer&ecirc;ncia final</option>
+                </select>
+                <label>Motivo da reabertura</label>
+                <textarea name="motivo" minlength="5" required placeholder="Descreva a corre&ccedil;&atilde;o necess&aacute;ria"></textarea>
+                <label><input type="checkbox" name="confirmacao" value="REABRIR" required> Confirmo que quero reabrir a OP sem apagar PI, PA, caixas ou apontamentos.</label>
+                <button type="submit" class="botao-editar">Reabrir OP com auditoria</button>
+            </form>
+            {% else %}
+            <p class="alerta-operacional"><strong>Reabertura indispon&iacute;vel.</strong></p>
+            <ul>{% for bloqueio in preflight_reabertura.bloqueios %}<li>{{ bloqueio }}</li>{% endfor %}</ul>
+            {% endif %}
+        </details>
+
+        <details>
+            <summary><strong>Estornar OP integralmente</strong> &mdash; anula&ccedil;&atilde;o operacional</summary>
+            <p class="obs">Impacto previsto: {{ preflight_estorno.caixas_ativas if preflight_estorno else 0 }} caixa(s) ativa(s), {{ preflight_estorno.totais.bandejas if preflight_estorno else 0 }} bandeja(s), {{ preflight_estorno.totais.peso_liquido if preflight_estorno else 0 }} kg l&iacute;quidos. Movimentos originais permanecer&atilde;o no hist&oacute;rico.</p>
+            {% if preflight_estorno and preflight_estorno.permitido %}
+            <form method="POST" action="{{ url_for('estornar_op_integral_route', op_id=op.id) }}">
+                <input type="hidden" name="idempotency_key" value="{{ chaves_operacao.estorno }}">
+                <label>Motivo do estorno integral</label>
+                <textarea name="motivo" minlength="5" required placeholder="Explique por que toda a OP deve ser anulada"></textarea>
+                <label><input type="checkbox" name="confirmacao" value="ESTORNAR_INTEGRAL" required> Confirmo o estorno integral de PI, PA, caixas e efeitos em indicadores.</label>
+                <button type="submit" class="botao-excluir">Estornar OP integralmente</button>
+            </form>
+            {% else %}
+            <p class="alerta-operacional"><strong>Estorno integral bloqueado no preflight.</strong></p>
+            <ul>{% for bloqueio in preflight_estorno.bloqueios %}<li>{{ bloqueio }}</li>{% endfor %}</ul>
+            {% endif %}
+        </details>
+    </div>
+</section>
+
+{% if historico_operacional_op %}
+<section class="card">
+    <span class="eyebrow">Auditoria imut&aacute;vel</span><h2>Hist&oacute;rico operacional da OP</h2>
+    <div class="table-wrapper"><table><thead><tr><th>Data</th><th>A&ccedil;&atilde;o</th><th>Estado</th><th>Respons&aacute;vel</th><th>Motivo</th></tr></thead><tbody>
+    {% for evento in historico_operacional_op %}<tr><td>{{ evento.criado_em }}</td><td>{{ evento.tipo|replace('_',' ') }}</td><td>{{ evento.status_anterior }} &rarr; {{ evento.status_posterior }}</td><td>{{ evento.usuario }} ({{ evento.perfil }})</td><td>{{ evento.motivo }}</td></tr>{% endfor %}
+    </tbody></table></div>
+</section>
+{% endif %}
+{% endif %}
 
 {% if disponibilidade_linha %}
 <section class="card disponibilidade-linha-card situacao-{{ disponibilidade_linha.situacao|lower }}">
