@@ -10,13 +10,13 @@
             <p>{{ config.objetivo }}</p>
             <div class="financeiro-hero-resumo">
                 {% if config.familia == "estoque" %}
-                <span class="financeiro-pill-info"><strong>Posicao</strong> Local atual oficial</span>
+                <span class="financeiro-pill-info"><strong>Posição</strong> Saldo físico corrente oficial</span>
                 {% elif config.familia == "historico" %}
                 <span class="financeiro-pill-info"><strong>Consulta</strong> Caixa individual</span>
                 {% else %}
                 <span class="financeiro-pill-info"><strong>Periodo</strong> {{ filtros.data_inicio }} a {{ filtros.data_fim }}</span>
                 {% endif %}
-                <span class="financeiro-pill-info"><strong>Base</strong> PA, romaneios e eventos fisicos</span>
+                <span class="financeiro-pill-info"><strong>Base</strong> PA, legado e eventos físicos auditáveis</span>
             </div>
         </div>
 
@@ -31,14 +31,14 @@
                 <input type="date" name="data_fim" value="{{ filtros.data_fim }}">
             </div>
             {% endif %}
-            <div>
+            {% if config.familia != "estoque" %}<div>
                 <label>Caixa</label>
                 <input type="search" name="caixa" value="{{ filtros.caixa }}" placeholder="Codigo">
             </div>
             <div>
                 <label>OP</label>
                 <input type="search" name="op_id" value="{{ filtros.op_id }}" placeholder="Numero">
-            </div>
+            </div>{% endif %}
             <div>
                 <label>SKU</label>
                 <select name="sku">
@@ -48,10 +48,10 @@
                     {% endfor %}
                 </select>
             </div>
-            <div>
+            {% if config.familia != "estoque" %}<div>
                 <label>Lote</label>
                 <input type="search" name="lote" value="{{ filtros.lote }}" placeholder="OP/lote">
-            </div>
+            </div>{% endif %}
             {% if config.familia == "transferencias" %}
             <div>
                 <label>Origem</label>
@@ -79,6 +79,27 @@
                 <label>Romaneio</label>
                 <input type="search" name="romaneio" value="{{ filtros.romaneio }}" placeholder="Numero">
             </div>
+            {% elif config.familia == "estoque" %}
+            <div>
+                <label>Apresentação</label>
+                <input type="search" name="apresentacao" value="{{ filtros.apresentacao }}" placeholder="Ex.: Pacote com 2 aves">
+            </div>
+            <div>
+                <label>Origem física</label>
+                <select name="origem">
+                    <option value="Todos">Todas</option>
+                    {% for origem in opcoes.origens %}<option value="{{ origem }}" {% if filtros.origem == origem %}selected{% endif %}>{{ origem }}</option>{% endfor %}
+                </select>
+            </div>
+            <div>
+                <label>Situação</label>
+                <select name="status">
+                    <option value="Todos">Todas</option>
+                    {% for status_item in opcoes.status %}
+                    <option value="{{ status_item.valor }}" {% if filtros.status == status_item.valor %}selected{% endif %}>{{ status_item.rotulo }}</option>
+                    {% endfor %}
+                </select>
+            </div>
             {% else %}
             <div>
                 <label>Validade inicial</label>
@@ -101,6 +122,14 @@
             <button type="submit">Filtrar</button>
         </form>
     </section>
+
+    {% if reconciliacao %}
+    <section class="card relatorio-expedicao-card relatorio-expedicao-notas">
+        <span><strong>Reconciliação:</strong> {{ "Aprovada" if reconciliacao.ok else "Divergente" }}.</span>
+        <span><strong>Fonte:</strong> {{ fonte_oficial }}.</span>
+        <span>Cards, detalhamento e Excel usam o mesmo conjunto completo filtrado.</span>
+    </section>
+    {% endif %}
 
     <div class="relatorio-expedicao-acoes">
         <a href="{{ url_for('biblioteca_relatorios', dominio='Expedicao') }}" class="botao-dre-imprimir">Biblioteca</a>
@@ -235,21 +264,24 @@
                 <table>
                     <thead>
                         <tr>
-                            <th>SKU</th>
-                            <th>Caixas</th>
-                            <th>Eventos</th>
-                            <th>Peso liquido</th>
-                            <th>Peso bruto</th>
+                            {% if config.familia == "estoque" %}
+                            <th>SKU / produto</th><th>Apresentação</th><th>Caixas</th><th>Bandejas</th><th>Peso</th><th>Galinhas</th><th>Pacotes</th>
+                            {% else %}
+                            <th>SKU</th><th>Caixas</th><th>Eventos</th><th>Peso líquido</th><th>Peso bruto</th>
+                            {% endif %}
                         </tr>
                     </thead>
                     <tbody>
                         {% for item in agrupamentos %}
                         <tr>
-                            <td><strong>{{ item.grupo }}</strong></td>
-                            <td>{{ item.caixas|br_numero(0) }}</td>
-                            <td>{{ item.eventos|br_numero(0) }}</td>
-                            <td>{{ item.peso_liquido|br_numero(3) }} kg</td>
-                            <td>{{ item.peso_bruto|br_numero(3) }} kg</td>
+                            {% if config.familia == "estoque" %}
+                            <td><strong>{{ item.sku }}</strong><br>{{ item.produto }}</td><td>{{ item.apresentacao }}</td>
+                            <td>{{ item.caixas|br_numero(0) }}</td><td>{{ item.bandejas|br_numero(0) }}</td><td>{{ item.peso_kg|br_numero(3) }} kg</td>
+                            <td>{{ item.galinhas|br_numero(0) }}</td><td>{{ item.pacotes|br_numero(0) }}</td>
+                            {% else %}
+                            <td><strong>{{ item.grupo }}</strong></td><td>{{ item.caixas|br_numero(0) }}</td><td>{{ item.eventos|br_numero(0) }}</td>
+                            <td>{{ item.peso_liquido|br_numero(3) }} kg</td><td>{{ item.peso_bruto|br_numero(3) }} kg</td>
+                            {% endif %}
                         </tr>
                         {% endfor %}
                     </tbody>
@@ -301,6 +333,13 @@
                         </tr>
                         {% endfor %}
                     </tbody>
+                    {% elif config.familia == "estoque" %}
+                    <thead><tr><th>SKU / produto</th><th>Apresentação</th><th>Situação</th><th>Origem</th><th>Caixas</th><th>Bandejas</th><th>Peso</th><th>Galinhas</th><th>Pacotes</th></tr></thead>
+                    <tbody>{% for item in detalhes %}<tr>
+                        <td><strong>{{ item.sku }}</strong><br>{{ item.produto }}</td><td>{{ item.apresentacao }}</td><td>{{ item.situacao_rotulo }}</td><td>{{ item.origens }}</td>
+                        <td>{{ item.caixas|br_numero(0) }}</td><td>{{ item.bandejas|br_numero(0) }}</td><td>{{ item.peso_kg|br_numero(3) }} kg</td>
+                        <td>{{ item.galinhas|br_numero(0) }}</td><td>{{ item.pacotes|br_numero(0) }}</td>
+                    </tr>{% endfor %}</tbody>
                     {% else %}
                     <thead>
                         <tr>

@@ -57,7 +57,8 @@ def criar_tabelas_conferencia_embalagem():
             peso_bruto TEXT NOT NULL, peso_tara TEXT NOT NULL DEFAULT '0', peso_liquido TEXT NOT NULL,
             saldo_pendente TEXT NOT NULL DEFAULT '0',
             caixas_ativas_json TEXT NOT NULL, duplicidades_json TEXT NOT NULL,
-            hash_conferencia TEXT NOT NULL, confirmada INTEGER NOT NULL DEFAULT 1
+            hash_conferencia TEXT NOT NULL, snapshot_json TEXT,
+            confirmada INTEGER NOT NULL DEFAULT 1
         )
     """)
     for nome in ("peso_tara", "saldo_pendente"):
@@ -72,6 +73,17 @@ def criar_tabelas_conferencia_embalagem():
                 conn.rollback()
                 conn.close()
                 raise
+    try:
+        cursor.execute(
+            "ALTER TABLE embalagem_secundaria_conferencias ADD COLUMN IF NOT EXISTS snapshot_json TEXT"
+            if DATABASE_URL else
+            "ALTER TABLE embalagem_secundaria_conferencias ADD COLUMN snapshot_json TEXT"
+        )
+    except Exception as erro:
+        if DATABASE_URL or "duplicate column" not in str(erro).lower():
+            conn.rollback()
+            conn.close()
+            raise
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_conf_emb_op_data ON embalagem_secundaria_conferencias(op_id, confirmado_em)")
     cursor.execute(f"""
         CREATE TABLE IF NOT EXISTS embalagem_secundaria_requisicoes (
@@ -183,6 +195,40 @@ def _hash(caixas):
     return hashlib.sha256(json.dumps(dados, sort_keys=True).encode("utf-8")).hexdigest()
 
 
+def _snapshot_documental(caixas, totais, duplicadas, hash_conferencia, *, usuario, perfil, confirmado_em):
+    """Congela a conferência; relatórios históricos nunca consultam caixas posteriores."""
+    return {
+        "versao": 1,
+        "confirmado_em": confirmado_em,
+        "usuario": usuario,
+        "perfil": perfil,
+        "hash": hash_conferencia,
+        "duplicidades": sorted(duplicadas),
+        "totais": {chave: str(valor) for chave, valor in totais.items()},
+        "caixas": json.loads(json.dumps(caixas, ensure_ascii=False, default=str)),
+    }
+
+
+def _ler_snapshot(registro):
+    if not registro or "snapshot_json" not in registro.keys() or not registro["snapshot_json"]:
+        return None
+    try:
+        snapshot = json.loads(registro["snapshot_json"])
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
+    totais = snapshot.get("totais") or {}
+    for campo in ("bandejas", "peso_bruto", "peso_tara", "peso_liquido", "saldo_pendente"):
+        totais[campo] = _decimal(totais.get(campo))
+    for campo in ("caixas_ativas", "caixas_estornadas"):
+        totais[campo] = int(_decimal(totais.get(campo)))
+    snapshot["totais"] = totais
+    snapshot["ultima_conferencia"] = dict(registro)
+    snapshot["confirmacao_valida"] = True
+    snapshot["caixas_exibidas"] = snapshot.get("caixas") or []
+    snapshot["janela_duplicidade_segundos"] = JANELA_DUPLICIDADE_SEGUNDOS
+    return snapshot
+
+
 def obter_conferencia_op(op_id, filtros=None):
     criar_tabelas_conferencia_embalagem()
     conn = conectar()
@@ -247,7 +293,7 @@ def obter_conferencia_op(op_id, filtros=None):
         "hash": hash_atual, "duplicidades": sorted(duplicadas),
         "confirmacao_valida": confirmacao_valida, "ultima_conferencia": dict(ultima) if ultima else None,
         "janela_duplicidade_segundos": JANELA_DUPLICIDADE_SEGUNDOS,
-        "ordem": ordem,
+        "ordem": ordem, "snapshot_documental": _ler_snapshot(ultima),
     }
 
 
@@ -263,15 +309,21 @@ def confirmar_conferencia_op(op_id, *, usuario, perfil, hash_informado):
         totais = _totais(caixas)
         totais["saldo_pendente"] = _saldo_pendente(cursor, int(op_id))
         ids_ativas = [int(c["id"]) for c in caixas if str(c.get("status") or "").upper() not in STATUS_INATIVOS]
+        confirmado_em = _agora()
+        snapshot = _snapshot_documental(
+            caixas, totais, duplicadas, hash_atual,
+            usuario=usuario, perfil=perfil, confirmado_em=confirmado_em,
+        )
         cursor.execute(q("""INSERT INTO embalagem_secundaria_conferencias(
             op_id,usuario,perfil,confirmado_em,caixas_ativas,caixas_estornadas,total_bandejas,
             peso_bruto,peso_tara,peso_liquido,saldo_pendente,caixas_ativas_json,duplicidades_json,
-            hash_conferencia,confirmada)
-            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)"""), (
-            op_id, usuario, perfil, _agora(), totais["caixas_ativas"], totais["caixas_estornadas"],
+            hash_conferencia,snapshot_json,confirmada)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)"""), (
+            op_id, usuario, perfil, confirmado_em, totais["caixas_ativas"], totais["caixas_estornadas"],
             str(totais["bandejas"]), str(totais["peso_bruto"]), str(totais["peso_tara"]),
             str(totais["peso_liquido"]), str(totais["saldo_pendente"]),
             json.dumps(ids_ativas), json.dumps(sorted(duplicadas)), hash_atual,
+            json.dumps(snapshot, ensure_ascii=False, default=str),
         ))
     return {**totais, "hash": hash_atual, "usuario": usuario}
 

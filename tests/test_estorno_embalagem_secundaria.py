@@ -420,6 +420,28 @@ def test_conferencia_persistida_e_invalidada_por_alteracao(conferencia_banco):
     assert conferencia.obter_conferencia_op(7)["confirmacao_valida"] is False
 
 
+def test_reimpressao_usa_snapshot_e_ignora_caixa_lancada_depois(conferencia_banco):
+    painel = conferencia.obter_conferencia_op(7)
+    conferencia.confirmar_conferencia_op(
+        7, usuario="Operadora", perfil="producao", hash_informado=painel["hash"])
+    conn = conferencia_banco()
+    conn.execute("""INSERT INTO pa_caixas(
+        id,codigo_caixa,sku,data_fabricacao,data_validade,peso_bruto,peso_tara,peso_liquido,
+        quantidade_bandejas,status,origem,observacoes,local_estoque_id,criado_em,
+        estoque_operacional,condicao,disponibilidade,reservado_expedicao_id,quantidade_pacotes_reservados)
+        VALUES(4,'CX-POSTERIOR','Galinha Cortada','2026-08-21','2027-08-21',9,.5,8.5,
+               8,'Em estoque','Embalagem Secundária','',1,'2026-08-21 09:00:00',0,
+               'CONFORME','PENDENTE_OP',NULL,0)""")
+    conn.execute("INSERT INTO pa_caixa_composicao(caixa_id,op_id,quantidade_bandejas) VALUES(4,7,8)")
+    conn.commit(); conn.close()
+    atual = conferencia.obter_conferencia_op(7)
+    snapshot = atual["snapshot_documental"]
+    assert atual["totais"]["caixas_ativas"] == 4
+    assert snapshot["totais"]["caixas_ativas"] == 3
+    assert {item["codigo_caixa"] for item in snapshot["caixas"]} == {"CX-001", "CX-002", "CX-003"}
+    assert "CX-POSTERIOR" not in json.dumps(snapshot, ensure_ascii=False, default=str)
+
+
 def test_snapshot_persiste_tara_saldo_e_pdf_analitico_multipagina(conferencia_banco):
     painel = conferencia.obter_conferencia_op(7, {"situacao": "todas"})
     conferencia.confirmar_conferencia_op(

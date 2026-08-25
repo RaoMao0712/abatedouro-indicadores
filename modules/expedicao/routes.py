@@ -315,8 +315,9 @@ def register_expedicao_routes(app, integracoes=None):
             flash("OP não encontrada.")
             return redirect(url_for("embalagem_secundaria"))
         conferencia = obter_conferencia_op(op_id, {"situacao": "todas", "ordem": "asc"})
+        conferencia_pdf = conferencia.get("snapshot_documental") or conferencia
         pdf = gerar_relatorio_conferencia_embalagem_pdf(
-            dict(op), conferencia, session.get("nome") or "Usuário não identificado",
+            dict(op), conferencia_pdf, session.get("nome") or "Usuário não identificado",
         )
         resposta = send_file(
             BytesIO(pdf), mimetype="application/pdf", as_attachment=False,

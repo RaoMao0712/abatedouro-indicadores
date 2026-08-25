@@ -1,7 +1,7 @@
 """Servicos compartilhados para relatorios oficiais de expedicao."""
 
 from collections import defaultdict
-from datetime import date, datetime
+from datetime import date
 from io import BytesIO
 from urllib.parse import urlencode
 
@@ -10,6 +10,7 @@ from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 from database import conectar, q
+from modules.expedicao.consolidado_estoque import consolidar_estoque_camara
 
 
 LOCAL_ABATEDOURO = "Abatedouro"
@@ -80,6 +81,7 @@ def normalizar_filtros(args, config):
         "caixa": args.get("caixa") or "",
         "op_id": args.get("op_id") or "",
         "sku": args.get("sku") or "Todos",
+        "apresentacao": args.get("apresentacao") or "",
         "lote": args.get("lote") or "",
         "origem": args.get("origem") or "Todos",
         "destino": args.get("destino") or "Todos",
@@ -91,6 +93,91 @@ def normalizar_filtros(args, config):
         "romaneio": args.get("romaneio") or "",
         "por_pagina": 300,
     }
+
+
+def linhas_estoque_oficial(fotografia, filtros):
+    """Projeta a fotografia oficial sem recalcular qualquer regra de estoque."""
+    linhas = []
+    sku_filtro = str(filtros.get("sku") or "Todos").strip().casefold()
+    apresentacao_filtro = str(filtros.get("apresentacao") or "").strip().casefold()
+    status_filtro = str(filtros.get("status") or "Todos").strip().casefold()
+    origem_filtro = str(filtros.get("origem") or "Todos").strip().casefold()
+    for grupo in fotografia.get("grupos", []):
+        identidades = {
+            str(grupo.get("sku_codigo") or "").strip().casefold(),
+            str(grupo.get("produto") or "").strip().casefold(),
+        }
+        if sku_filtro != "todos" and sku_filtro not in identidades:
+            continue
+        if apresentacao_filtro and apresentacao_filtro not in str(grupo.get("apresentacao") or "").casefold():
+            continue
+        for situacao, dados in grupo.get("situacoes", {}).items():
+            if status_filtro != "todos" and status_filtro != str(situacao).casefold():
+                continue
+            origens = list(dados.get("origens") or [])
+            if origem_filtro != "todos" and origem_filtro not in {str(item).casefold() for item in origens}:
+                continue
+            quantidades = dados.get("quantidades") or {}
+            if not any(quantidades.get(unidade, 0) for unidade in grupo.get("unidades", [])):
+                continue
+            linhas.append({
+                "chave": grupo.get("chave"),
+                "sku": grupo.get("sku_codigo") or "Não classificado",
+                "produto": grupo.get("produto") or "Produto não classificado",
+                "apresentacao": grupo.get("apresentacao") or "Não identificada",
+                "classificado": bool(grupo.get("classificado")),
+                "situacao": situacao,
+                "situacao_rotulo": dados.get("rotulo") or situacao,
+                "origens": ", ".join(origens) or "Não identificada",
+                "caixas": quantidades.get("caixas", 0),
+                "bandejas": quantidades.get("bandejas", 0),
+                "peso_kg": quantidades.get("peso_kg", 0),
+                "galinhas": quantidades.get("galinhas", 0),
+                "pacotes": quantidades.get("pacotes", 0),
+            })
+    return linhas
+
+
+def resumo_estoque_oficial(linhas):
+    campos = (
+        ("caixas", "Caixas", "caixas", "inteiro"),
+        ("bandejas", "Bandejas", "bandejas", "inteiro"),
+        ("peso_kg", "Peso físico", "kg", "decimal"),
+        ("galinhas", "Galinhas", "aves", "inteiro"),
+        ("pacotes", "Pacotes", "pacotes", "inteiro"),
+    )
+    return [
+        {
+            "rotulo": rotulo,
+            "valor": sum((item.get(campo) or 0) for item in linhas),
+            "tipo": tipo,
+            "unidade": unidade,
+        }
+        for campo, rotulo, unidade, tipo in campos
+    ]
+
+
+def agrupar_estoque_oficial(linhas):
+    grupos = {}
+    for linha in linhas:
+        chave = (linha["sku"], linha["produto"], linha["apresentacao"])
+        grupo = grupos.setdefault(chave, {
+            "sku": chave[0], "produto": chave[1], "apresentacao": chave[2],
+            "caixas": 0, "bandejas": 0, "peso_kg": 0,
+            "galinhas": 0, "pacotes": 0,
+        })
+        for campo in ("caixas", "bandejas", "peso_kg", "galinhas", "pacotes"):
+            grupo[campo] += linha.get(campo) or 0
+    return sorted(grupos.values(), key=lambda item: (item["produto"], item["apresentacao"]))
+
+
+def reconciliar_estoque_oficial(fotografia, linhas, filtros):
+    """Diagnóstico puro: serviço, tela e exportador devem compartilhar estes totais."""
+    esperadas = linhas_estoque_oficial(fotografia, filtros)
+    campos = ("caixas", "bandejas", "peso_kg", "galinhas", "pacotes")
+    esperado = {campo: sum((item.get(campo) or 0) for item in esperadas) for campo in campos}
+    exibido = {campo: sum((item.get(campo) or 0) for item in linhas) for campo in campos}
+    return {"ok": esperado == exibido, "esperado": esperado, "exibido": exibido}
 
 
 def montar_cte_caixas():
@@ -206,57 +293,6 @@ def buscar_transferencias(filtros):
     """, [LOCAL_ABATEDOURO] + parametros + [filtros["por_pagina"]])
 
 
-def buscar_estoque_camara_fria(filtros):
-    condicoes = [
-        "LOWER(COALESCE(local_atual.nome, '')) LIKE ?",
-        "LOWER(COALESCE(local_atual.nome, '')) LIKE ?",
-        "COALESCE(cx.status, '') = ?",
-    ]
-    parametros = ["%fria%", "%lsm%", "Em estoque"]
-
-    caixa_cond, caixa_params = aplicar_filtros_caixa(filtros)
-    condicoes.extend(caixa_cond)
-    parametros.extend(caixa_params)
-
-    where_sql = " AND ".join(condicoes)
-
-    return executar_lista(montar_cte_caixas() + f"""
-        SELECT
-            cx.id AS caixa_id,
-            cx.codigo_caixa,
-            cx.sku,
-            comp.op_id,
-            comp.ops_composicao,
-            cx.data_fabricacao,
-            cx.data_validade,
-            cx.peso_bruto,
-            cx.peso_liquido,
-            cx.quantidade_bandejas,
-            cx.status AS status_caixa,
-            COALESCE(local_atual.nome, ?) AS local_atual,
-            ult.numero_romaneio,
-            ult.data_transferencia,
-            ult.usuario_transferencia
-        FROM pa_caixas cx
-        LEFT JOIN comp ON comp.caixa_id = cx.id
-        LEFT JOIN locais_estoque local_atual ON local_atual.id = cx.local_estoque_id
-        LEFT JOIN (
-            SELECT
-                mov.caixa_id,
-                MAX(mov.criado_em) AS data_transferencia,
-                MAX(e.numero_romaneio) AS numero_romaneio,
-                MAX(mov.usuario) AS usuario_transferencia
-            FROM pa_movimentacoes mov
-            LEFT JOIN expedicoes e ON e.id = mov.expedicao_id
-            WHERE mov.tipo = ?
-            GROUP BY mov.caixa_id
-        ) ult ON ult.caixa_id = cx.id
-        WHERE {where_sql}
-        ORDER BY cx.data_validade ASC, cx.id ASC
-        LIMIT ?
-    """, [LOCAL_ABATEDOURO, "TRANSFERENCIA"] + parametros + [filtros["por_pagina"]])
-
-
 def buscar_caixas_para_selecao(filtros):
     condicoes, parametros = aplicar_filtros_caixa(filtros)
     if not condicoes:
@@ -336,16 +372,6 @@ def adicionar_lote(linha):
     return linha
 
 
-def idade_dias(data_iso):
-    if not data_iso:
-        return None
-    try:
-        data = datetime.strptime(str(data_iso)[:10], "%Y-%m-%d").date()
-        return (date.today() - data).days
-    except ValueError:
-        return None
-
-
 def resumo_transferencias(linhas):
     caixas = {item["caixa_id"] for item in linhas}
     return [
@@ -353,21 +379,6 @@ def resumo_transferencias(linhas):
         {"rotulo": "Caixas", "valor": len(caixas), "tipo": "inteiro", "unidade": "caixas unicas"},
         {"rotulo": "Peso liquido", "valor": sum(valor_float(i.get("peso_liquido")) for i in linhas), "tipo": "decimal", "unidade": "kg"},
         {"rotulo": "Peso bruto", "valor": sum(valor_float(i.get("peso_bruto")) for i in linhas), "tipo": "decimal", "unidade": "kg"},
-    ]
-
-
-def resumo_estoque(linhas):
-    skus = {item["sku"] for item in linhas if item.get("sku")}
-    lotes = {item["lote"] for item in linhas if item.get("lote")}
-    vencidas = sum(1 for item in linhas if item.get("data_validade") and str(item["data_validade"])[:10] < hoje_iso())
-    sem_validade = sum(1 for item in linhas if not item.get("data_validade"))
-    return [
-        {"rotulo": "Caixas", "valor": len(linhas), "tipo": "inteiro", "unidade": "caixas"},
-        {"rotulo": "Peso liquido", "valor": sum(valor_float(i.get("peso_liquido")) for i in linhas), "tipo": "decimal", "unidade": "kg"},
-        {"rotulo": "SKUs", "valor": len(skus), "tipo": "inteiro", "unidade": "produtos"},
-        {"rotulo": "Lotes", "valor": len(lotes), "tipo": "inteiro", "unidade": "lotes"},
-        {"rotulo": "Vencidas", "valor": vencidas, "tipo": "inteiro", "unidade": "caixas"},
-        {"rotulo": "Sem validade", "valor": sem_validade, "tipo": "inteiro", "unidade": "caixas"},
     ]
 
 
@@ -415,37 +426,15 @@ def montar_resumo_gerencial_expedicao(slug, args):
         ]
         return {"resumo": resumo, "tem_dados": bool(linha.get("transferencias"))}
 
-    condicoes = [
-        "LOWER(COALESCE(local_atual.nome, '')) LIKE ?",
-        "LOWER(COALESCE(local_atual.nome, '')) LIKE ?",
-        "COALESCE(cx.status, '') = ?",
-    ]
-    parametros = ["%fria%", "%lsm%", "Em estoque"]
-    caixa_cond, caixa_params = aplicar_filtros_caixa(filtros)
-    condicoes.extend(caixa_cond)
-    parametros.extend(caixa_params)
-    linha = executar_lista(montar_cte_caixas() + f"""
-        SELECT
-            COUNT(*) AS caixas,
-            COALESCE(SUM(cx.peso_liquido), 0) AS peso_liquido,
-            COUNT(DISTINCT cx.sku) AS skus,
-            COUNT(DISTINCT comp.op_id) AS lotes,
-            COALESCE(SUM(CASE WHEN cx.data_validade IS NOT NULL AND substr(cx.data_validade, 1, 10) < ? THEN 1 ELSE 0 END), 0) AS vencidas,
-            COALESCE(SUM(CASE WHEN cx.data_validade IS NULL OR cx.data_validade = '' THEN 1 ELSE 0 END), 0) AS sem_validade
-        FROM pa_caixas cx
-        LEFT JOIN comp ON comp.caixa_id = cx.id
-        LEFT JOIN locais_estoque local_atual ON local_atual.id = cx.local_estoque_id
-        WHERE {" AND ".join(condicoes)}
-    """, [hoje_iso()] + parametros)[0]
-    resumo = [
-        {"rotulo": "Caixas", "valor": int(linha.get("caixas") or 0), "tipo": "inteiro", "unidade": "caixas"},
-        {"rotulo": "Peso liquido", "valor": valor_float(linha.get("peso_liquido")), "tipo": "decimal", "unidade": "kg"},
-        {"rotulo": "SKUs", "valor": int(linha.get("skus") or 0), "tipo": "inteiro", "unidade": "produtos"},
-        {"rotulo": "Lotes", "valor": int(linha.get("lotes") or 0), "tipo": "inteiro", "unidade": "lotes"},
-        {"rotulo": "Vencidas", "valor": int(linha.get("vencidas") or 0), "tipo": "inteiro", "unidade": "caixas"},
-        {"rotulo": "Sem validade", "valor": int(linha.get("sem_validade") or 0), "tipo": "inteiro", "unidade": "caixas"},
-    ]
-    return {"resumo": resumo, "tem_dados": bool(linha.get("caixas"))}
+    fotografia = consolidar_estoque_camara(incluir_nao_conforme=True)
+    linhas = linhas_estoque_oficial(fotografia, filtros)
+    resumo = resumo_estoque_oficial(linhas)
+    return {
+        "resumo": resumo,
+        "tem_dados": bool(linhas),
+        "reconciliacao": reconciliar_estoque_oficial(fotografia, linhas, filtros),
+        "fonte_oficial": "modules.expedicao.consolidado_estoque.consolidar_estoque_camara",
+    }
 
 
 def agrupar(linhas, chave, campo_valor="peso_liquido"):
@@ -498,6 +487,7 @@ def montar_contexto_relatorio_expedicao(slug, args):
     caixa = None
     historico = []
     sugestoes = []
+    opcoes = {} if slug == "estoque-camara-fria" else buscar_opcoes_filtro()
 
     if slug == "transferencias":
         detalhes = [adicionar_lote(item) for item in buscar_transferencias(filtros)]
@@ -507,14 +497,36 @@ def montar_contexto_relatorio_expedicao(slug, args):
             limitacoes.append("Nenhuma transferencia encontrada para os filtros selecionados.")
         limitacoes.append("Transferencias sao eventos logisticos: nao geram financeiro, DRE ou CMV.")
     elif slug == "estoque-camara-fria":
-        detalhes = [adicionar_lote(item) for item in buscar_estoque_camara_fria(filtros)]
-        for item in detalhes:
-            item["idade_dias"] = idade_dias(item.get("data_fabricacao"))
-        resumo = resumo_estoque(detalhes)
-        agrupamentos = agrupar(detalhes, "sku")
+        fotografia = consolidar_estoque_camara(incluir_nao_conforme=True)
+        detalhes = linhas_estoque_oficial(fotografia, filtros)
+        resumo = resumo_estoque_oficial(detalhes)
+        agrupamentos = agrupar_estoque_oficial(detalhes)
+        reconciliacao = reconciliar_estoque_oficial(fotografia, detalhes, filtros)
+        opcoes = {
+            **opcoes,
+            "skus": sorted({grupo.get("sku_codigo") for grupo in fotografia["grupos"] if grupo.get("sku_codigo")}),
+            "status": [
+                {"valor": "disponivel", "rotulo": "Disponível para expedição"},
+                {"valor": "reservado", "rotulo": "Reservado"},
+                {"valor": "nao_conforme_bloqueado", "rotulo": "Não conforme bloqueado"},
+                {"valor": "reprocessamento", "rotulo": "Em reprocessamento"},
+                {"valor": "aguardando_liberacao", "rotulo": "Aguardando liberação"},
+            ],
+            "origens": sorted({
+                origem
+                for grupo in fotografia["grupos"]
+                for dados in grupo["situacoes"].values()
+                for origem in dados.get("origens", [])
+            }),
+        }
         if not detalhes:
-            limitacoes.append("Nenhuma caixa encontrada atualmente na Camara Fria LSM.")
-        limitacoes.append("Posicao atual usa pa_caixas.local_estoque_id, nao historico antigo de transferencia.")
+            limitacoes.append("Nenhuma posição física encontrada para os filtros selecionados.")
+        limitacoes.append(
+            "Posição atual: mesma fotografia oficial da Câmara, com legado, pós-marco-zero, reservas e PNC remanescente."
+        )
+        limitacoes.append(
+            "Físico = disponível + reservado + bloqueado; documentos históricos não são somados como estoque."
+        )
     else:
         sugestoes = [adicionar_lote(item) for item in buscar_caixas_para_selecao(filtros)]
         caixa_id = args.get("caixa_id") or ""
@@ -542,19 +554,29 @@ def montar_contexto_relatorio_expedicao(slug, args):
         limitacoes.append("Historico por Caixa nao inclui NF, cliente ou venda; rastreabilidade completa permanece futura.")
         limitacoes.append("Formato disponivel: tela e impressao do navegador. PDF dedicado nao foi declarado.")
 
-    return {
+    contexto = {
         "slug": slug,
         "config": config,
         "filtros": filtros,
-        "opcoes": buscar_opcoes_filtro(),
+        "opcoes": opcoes,
         "resumo": resumo,
         "agrupamentos": agrupamentos,
         "detalhes": detalhes,
         "caixa": caixa,
         "historico": historico,
         "limitacoes": limitacoes,
-        "query_string": urlencode({k: v for k, v in filtros.items() if v not in ["", "Todos", "Todas"]}),
+        "query_string": urlencode({
+            k: v for k, v in filtros.items()
+            if k != "por_pagina" and v not in ["", "Todos", "Todas"]
+        }),
     }
+    if slug == "estoque-camara-fria":
+        contexto.update({
+            "fotografia_estoque": fotografia,
+            "reconciliacao": reconciliacao,
+            "fonte_oficial": "modules.expedicao.consolidado_estoque.consolidar_estoque_camara",
+        })
+    return contexto
 
 
 def gerar_excel_relatorio_expedicao(contexto):
@@ -587,6 +609,11 @@ def gerar_excel_relatorio_expedicao(contexto):
             "origem_nome", "destino_nome", "codigo_caixa", "op_id", "sku", "lote",
             "peso_liquido", "peso_bruto", "data_validade", "usuario", "local_atual",
         ]
+    elif contexto["slug"] == "estoque-camara-fria":
+        colunas = [
+            "sku", "produto", "apresentacao", "situacao_rotulo", "origens",
+            "caixas", "bandejas", "peso_kg", "galinhas", "pacotes",
+        ]
     else:
         colunas = [
             "caixa_id", "codigo_caixa", "op_id", "sku", "lote", "data_fabricacao",
@@ -599,6 +626,13 @@ def gerar_excel_relatorio_expedicao(contexto):
     ws.append(colunas)
     for item in contexto["detalhes"]:
         ws.append([item.get(coluna, "") for coluna in colunas])
+
+    if contexto["slug"] == "estoque-camara-fria":
+        cabecalho = ws.max_row - len(contexto["detalhes"])
+        for indice, coluna in enumerate(colunas, start=1):
+            for celula in ws.iter_rows(min_row=cabecalho + 1, max_row=ws.max_row,
+                                       min_col=indice, max_col=indice):
+                celula[0].number_format = "0.000" if coluna == "peso_kg" else "0"
 
     for cell in ws[1]:
         cell.font = Font(bold=True, color="FFFFFF")
