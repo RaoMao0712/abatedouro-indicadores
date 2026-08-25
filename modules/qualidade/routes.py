@@ -36,6 +36,11 @@ from .reprocessamento import (
     cancelar_reprocessamento, concluir_reprocessamento, iniciar_reprocessamento,
     listar_reprocessamentos,
 )
+from .reconciliacao_p1_1_1 import (
+    diagnosticar as diagnosticar_reconciliacao_p1_1_1,
+    reconciliar as reconciliar_p1_1_1,
+    reverter as reverter_reconciliacao_p1_1_1,
+)
 from .descarte_pnc_relatorio import (
     MODALIDADES, STATUS_DOCUMENTO, TIPOS_DATA, consultar_romaneios_descarte,
     normalizar_filtros, opcoes_filtros_relatorio,
@@ -85,6 +90,24 @@ def register_qualidade_routes(app, integracoes=None):
                                         perfil="admin", origem="flask-cli")
         click.echo(json.dumps(resultado, ensure_ascii=False, sort_keys=True))
 
+    @app.cli.command("diagnosticar-pnc-p1-1-1")
+    def diagnosticar_pnc_p1_1_1():
+        """Fotografia somente leitura das pré-condições da reconciliação P1.1.1."""
+        click.echo(json.dumps(diagnosticar_reconciliacao_p1_1_1(), ensure_ascii=False,
+                              sort_keys=True, default=str))
+
+    @app.cli.command("reconciliar-pnc-p1-1-1")
+    @click.option("--confirmar", is_flag=True, help="Aplica a reconciliação documental estrita.")
+    def reconciliar_pnc_legado_p1_1_1(confirmar):
+        resultado = reconciliar_p1_1_1(confirmar=confirmar)
+        click.echo(json.dumps(resultado, ensure_ascii=False, sort_keys=True, default=str))
+
+    @app.cli.command("reverter-reconciliacao-pnc-p1-1-1")
+    @click.option("--confirmar", is_flag=True, help="Reverte somente a reconciliação documental.")
+    def reverter_pnc_legado_p1_1_1(confirmar):
+        resultado = reverter_reconciliacao_p1_1_1(confirmar=confirmar)
+        click.echo(json.dumps(resultado, ensure_ascii=False, sort_keys=True, default=str))
+
     @app.get("/qualidade/produtos-nao-conformes")
     @perfil_permitido("pcp", "producao", "qualidade", "gerencia")
     def produtos_nao_conformes():
@@ -133,7 +156,9 @@ def register_qualidade_routes(app, integracoes=None):
         for item in consultar_pa_nc(filtros):
             saldo = item["saldo_fisico"]
             quantidade = saldo["pacotes"] if str(item["unidade"]).upper() == "PACOTE" else saldo["bandejas"]
-            escritor.writerow((item["numero"], item["registrado_em"], item["op_id"], item["lote"],
+            escritor.writerow((item["numero"], item["registrado_em"],
+                               item["op_id"] if item["op_id"] else "Não identificada",
+                               item["lote"] or "Não identificado",
                                item["produto"], item["apresentacao"], quantidade,
                                Decimal(saldo["peso_g"]) / Decimal(1000),
                                item["unidade"], item["motivo"], item["status"], item["local_nome"],

@@ -6,6 +6,7 @@ import pytest
 
 from modules.qualidade import liberacoes
 from modules.qualidade import produtos_nao_conformes as nc
+from modules.qualidade import reconciliacao_p1_1_1 as reconciliacao
 
 
 @pytest.fixture()
@@ -35,6 +36,9 @@ def banco(tmp_path, monkeypatch):
     monkeypatch.setattr(liberacoes, "conectar", conectar)
     monkeypatch.setattr(liberacoes, "transaction", transacao)
     monkeypatch.setattr(liberacoes, "DATABASE_URL", None)
+    monkeypatch.setattr(reconciliacao, "conectar", conectar)
+    monkeypatch.setattr(reconciliacao, "transaction", transacao)
+    monkeypatch.setattr(reconciliacao, "DATABASE_URL", None)
 
     conn = conectar()
     conn.executescript("""
@@ -223,9 +227,25 @@ def test_aprovacao_parcial_e_total_movem_exatamente_o_mesmo_peso(banco):
     finalizado = next(item for item in nc.consultar({"situacao": "FINALIZADOS"})
                        if item["id"] == registro["id"])
     assert finalizado["saldo_fisico"]["peso_g"] == 0
+    conn = banco[0]()
+    eventos_antes = conn.execute("""SELECT COUNT(*) FROM pa_nao_conforme_eventos
+        WHERE pa_nao_conforme_id=? AND acao='APROVACAO_LIBERACAO'""",
+        (registro["id"],)).fetchone()[0]
+    itens_antes = conn.execute("SELECT COUNT(*) FROM expedicao_itens").fetchone()[0]
+    conn.close()
     with pytest.raises(ValueError, match="ja foi validada"):
         liberacoes.validar(restante, "APROVAR", "Repetir", usuario="Admin",
                            perfil="admin", origem="teste")
+    repetido = _registro(banco)
+    conn = banco[0]()
+    eventos_depois = conn.execute("""SELECT COUNT(*) FROM pa_nao_conforme_eventos
+        WHERE pa_nao_conforme_id=? AND acao='APROVACAO_LIBERACAO'""",
+        (registro["id"],)).fetchone()[0]
+    itens_depois = conn.execute("SELECT COUNT(*) FROM expedicao_itens").fetchone()[0]
+    conn.close()
+    assert repetido["status"] == "LIBERADO"
+    assert eventos_depois == eventos_antes
+    assert itens_depois == itens_antes
 
 
 def test_autoaprovacao_admin_e_bloqueada_no_backend_e_auditada(banco):

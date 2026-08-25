@@ -7,10 +7,10 @@
 </section>
 <div class="form-grid">
   <section class="card"><h3>1 &mdash; Identifica&ccedil;&atilde;o</h3>
-    <p><strong>Tipo:</strong> {{ 'Invent&aacute;rio legado agregado' if registro.tipo_registro == 'INVENTARIO_LEGADO_AGREGADO' else 'Caixa rastreada' }}</p>
-    <p><strong>OP:</strong> {{ '#' ~ registro.op_id if registro.op_id else 'N&atilde;o identificada' }}</p>
-    <p><strong>Lote:</strong> {{ registro.lote or 'N&atilde;o identificado' }}</p>
-    <p><strong>Validade:</strong> {{ registro.validade or 'N&atilde;o identificada' }}</p>
+    <p><strong>Tipo:</strong> {{ 'Inventário legado agregado' if registro.tipo_registro == 'INVENTARIO_LEGADO_AGREGADO' else 'Caixa rastreada' }}</p>
+    <p><strong>OP:</strong> {{ '#' ~ registro.op_id if registro.op_id else 'Não identificada' }}</p>
+    <p><strong>Lote:</strong> {{ registro.lote or 'Não identificado' }}</p>
+    <p><strong>Validade:</strong> {{ registro.validade or 'Não identificada' }}</p>
     <p><strong>Produto:</strong> {{ registro.produto }}</p><p><strong>Local:</strong> {{ registro.local_nome }}</p>
   </section>
   <section class="card"><h3>2 &mdash; F&iacute;sico</h3>
@@ -29,7 +29,7 @@
     <p><strong>Peso:</strong> {{ registro.peso|br_numero(3) }} kg</p>
     {% endif %}
   </section>
-  <section class="card"><h3>3 &mdash; N&atilde;o conformidade</h3><p><strong>Condi&ccedil;&atilde;o:</strong> {{ registro.condicao_inicial or registro.condicao }}</p><p><strong>Motivo:</strong> {{ registro.motivo }}</p><p><strong>Origem:</strong> {{ registro.origem_entrada or 'Produ&ccedil;&atilde;o rastreada' }}</p><p><strong>Contagem:</strong> {{ registro.data_contagem or registro.registrado_em }}</p><p><strong>Respons&aacute;veis:</strong> {{ registro.responsaveis_contagem or registro.registrado_por }}</p></section>
+  <section class="card"><h3>3 &mdash; N&atilde;o conformidade</h3><p><strong>Condi&ccedil;&atilde;o:</strong> {{ registro.condicao_inicial or registro.condicao }}</p><p><strong>Motivo:</strong> {{ registro.motivo }}</p><p><strong>Origem:</strong> {{ registro.origem_entrada or 'Produção rastreada' }}</p><p><strong>Contagem:</strong> {{ registro.data_contagem or registro.registrado_em }}</p><p><strong>Respons&aacute;veis:</strong> {{ registro.responsaveis_contagem or registro.registrado_por }}</p></section>
   <section class="card"><h3>4 &mdash; Valida&ccedil;&otilde;es</h3><p><strong>Qualidade:</strong> {{ registro.validacao_qualidade or '-' }}</p><p><strong>Ger&ecirc;ncia:</strong> {{ registro.validacao_gerencia or '-' }}</p><p><strong>Observa&ccedil;&otilde;es:</strong> {{ registro.observacoes or '-' }}</p></section>
 </div>
 
