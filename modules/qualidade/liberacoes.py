@@ -585,26 +585,29 @@ def inventario_legado_fisico():
             FROM pa_nao_conformes nc
             JOIN locais_estoque le ON le.id=nc.local_estoque_id
             WHERE nc.tipo_registro=?
-              AND (nc.saldo_inicial_g-COALESCE(nc.saldo_destinado_g,0))>0
             ORDER BY nc.data_contagem,nc.id"""), (TIPO_LEGADO,))
         registros = []
         for linha in cursor.fetchall():
             item = dict(linha)
+            saldo_fisico = nc.saldo_fisico_remanescente(item)
+            if not saldo_fisico["ativo"]:
+                continue
             item["sku_codigo"] = SKU_INVENTARIO_CODIGO
             item["origem_fisica"] = "Inventário Legado"
-            item["peso_fisico_g"] = max(
-                0, int(item["saldo_inicial_g"] or 0) - int(item["saldo_destinado_g"] or 0)
-            )
+            item["peso_fisico_g"] = int(saldo_fisico["peso_g"])
+            item["caixas_fisicas"] = int(saldo_fisico["caixas"])
+            item["bandejas_fisicas"] = int(saldo_fisico["bandejas"])
             if item["condicao_inicial"] == "NAO_CONFORME":
                 item["condicao_fisica"] = "Não conforme"
+                item["disponibilidade_fisica"] = "Bloqueado"
             else:
                 item["condicao_fisica"] = "Conforme — aguardando liberação"
-            if int(item["saldo_bloqueado_g"] or 0) > 0:
-                item["disponibilidade_fisica"] = "Bloqueado"
-            elif int(item["saldo_reservado_operacional_g"] or 0) > 0:
-                item["disponibilidade_fisica"] = "Reservado"
-            else:
-                item["disponibilidade_fisica"] = "Disponível"
+                if int(item["saldo_bloqueado_g"] or 0) > 0:
+                    item["disponibilidade_fisica"] = "Bloqueado"
+                elif int(item["saldo_reservado_operacional_g"] or 0) > 0:
+                    item["disponibilidade_fisica"] = "Reservado"
+                else:
+                    item["disponibilidade_fisica"] = "Disponível"
             registros.append(item)
         return registros
     finally:
@@ -617,8 +620,8 @@ def resumo_inventario_legado_fisico(registros=None):
     aguardando = [item for item in registros if item["condicao_inicial"] == "CONFORME_AGUARDANDO_LIBERACAO"]
     return {
         "registros": len(registros),
-        "caixas_fisicas": sum(int(item["caixas_iniciais"] or 0) for item in registros),
-        "bandejas_fisicas": sum(int(item["bandejas_iniciais"] or 0) for item in registros),
+        "caixas_fisicas": sum(int(item["caixas_fisicas"] or 0) for item in registros),
+        "bandejas_fisicas": sum(int(item["bandejas_fisicas"] or 0) for item in registros),
         "peso_fisico_g": sum(int(item["peso_fisico_g"] or 0) for item in registros),
         "caixas_bloqueadas_nc": sum(int(item["caixas_bloqueadas"] or 0) for item in nao_conformes),
         "peso_bloqueado_nc_g": sum(int(item["saldo_bloqueado_g"] or 0) for item in nao_conformes),

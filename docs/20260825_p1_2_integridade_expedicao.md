@@ -58,6 +58,7 @@ O saldo operacional segue `Disponível = Físico - Reservado - Bloqueado`. Pedid
 - Operações críticas não bloqueavam o documento no PostgreSQL: incluído `FOR UPDATE` em reservar, remover, concluir, cancelar e estornar.
 - Estorno comercial deixava o vínculo ativo no romaneio: o vínculo operacional agora é limpo depois da restauração do pedido.
 - Pedido não expunha estado real da reserva: incluídos estado calculado e quantidade reservada por item.
+- O smoke autenticado mostrou PNC legado já descartado no físico da Câmara: a leitura passou a reutilizar o saldo remanescente canônico da Qualidade e a excluir estados terminais, sem alterar dados.
 
 ## Migration
 

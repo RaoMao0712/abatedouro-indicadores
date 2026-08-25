@@ -47,8 +47,16 @@
             <strong class="texto-alerta">Totais ainda não informados</strong>
             {% elif is_mz %}
             <strong class="texto-sucesso">Totais históricos registrados</strong>
-            {% else %}
+            {% elif expedicao.status == "Aberto" %}
             <strong>{{ resumo_itens.total_itens|br_numero(0) }} item(ns) reservado(s)</strong>
+            {% elif expedicao.status == "Concluído" %}
+            <strong>{{ resumo_itens.total_itens|br_numero(0) }} item(ns) movimentado(s)</strong>
+            {% elif expedicao.status == "Cancelado" %}
+            <strong>{{ resumo_itens.total_itens|br_numero(0) }} item(ns) cancelado(s)</strong>
+            {% elif expedicao.status == "Estornado" %}
+            <strong>{{ resumo_itens.total_itens|br_numero(0) }} item(ns) estornado(s)</strong>
+            {% else %}
+            <strong>{{ resumo_itens.total_itens|br_numero(0) }} item(ns) registrado(s)</strong>
             {% endif %}
         </div>
     </section>

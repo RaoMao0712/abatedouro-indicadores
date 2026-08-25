@@ -133,7 +133,7 @@ def test_simulacao_e_carga_idempotente_reconciliam_totais_oficiais(banco):
     resumo_fisico = liberacoes.resumo_inventario_legado_fisico(fisicos)
     assert [item["id"] for item in fisicos] == [1, 2, 3]
     assert len({item["idempotency_key"] for item in fisicos}) == 3
-    assert [(item["motivo"], item["caixas_iniciais"], item["bandejas_iniciais"], item["peso_fisico_g"])
+    assert [(item["motivo"], item["caixas_fisicas"], item["bandejas_fisicas"], item["peso_fisico_g"])
             for item in fisicos] == [
         ("Carne Escura", 689, 8268, 8340430),
         ("Carcaça Incompleta", 130, 1560, 1536130),
@@ -146,22 +146,27 @@ def test_simulacao_e_carga_idempotente_reconciliam_totais_oficiais(banco):
         "peso_aguardando_g": 595500, "peso_disponivel_g": 0, "peso_reservado_g": 0,
     }
     assert liberacoes.saldos_legados_operacionais() == []
-    from modules.expedicao.routes import integrar_resumo_inventario_legado
-    resumo_tela = integrar_resumo_inventario_legado({
-        "unidades_fisicas": 0, "peso_fisico": 0, "unidades_bloqueadas": 0,
-        "peso_bloqueado": 0, "unidades_outras_condicoes": 0,
-        "peso_outras_condicoes": 0, "peso_reservado": 0,
-        "unidades_disponiveis": 0,
-    }, resumo_fisico)
-    assert resumo_tela["unidades_fisicas"] == 867
-    assert resumo_tela["peso_fisico"] == 10472.060
-    assert resumo_tela["unidades_bloqueadas"] == 819
-    assert resumo_tela["peso_bloqueado"] == 9876.560
-    assert resumo_tela["unidades_outras_condicoes"] == 48
-    assert resumo_tela["peso_outras_condicoes"] == 595.500
-    assert resumo_tela["peso_legado_disponivel"] == 0
-    assert resumo_tela["unidades_disponiveis"] == 0
-    assert resumo_tela["peso_reservado"] == 0
+
+
+def test_finalizados_nao_reentram_no_fisico_e_liberado_fica_no_operacional(banco):
+    _carga(banco)
+    conn = banco[0]()
+    conn.execute("""UPDATE pa_nao_conformes SET status='DESCARTADO',saldo_bloqueado_g=0,
+        caixas_bloqueadas=0,bandejas_bloqueadas=0 WHERE id IN (1,2)""")
+    conn.execute("""UPDATE pa_nao_conformes SET status='LIBERADO',saldo_bloqueado_g=0,
+        saldo_operacional_g=saldo_inicial_g,caixas_bloqueadas=0,bandejas_bloqueadas=0
+        WHERE id=3""")
+    conn.commit()
+    conn.close()
+
+    fisicos = liberacoes.inventario_legado_fisico()
+    resumo = liberacoes.resumo_inventario_legado_fisico(fisicos)
+    operacionais = liberacoes.saldos_legados_operacionais()
+
+    assert fisicos == []
+    assert resumo["registros"] == 0
+    assert resumo["peso_fisico_g"] == 0
+    assert [item["id"] for item in operacionais] == [3]
 
 
 @pytest.mark.parametrize("perfil", ["pcp", "producao", "gerencia"])

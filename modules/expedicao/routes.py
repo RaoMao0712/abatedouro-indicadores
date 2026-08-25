@@ -1,6 +1,7 @@
 """Rotas de Expedicao, Embalagem e estoques PI/PA."""
 
 from datetime import datetime
+from decimal import Decimal
 import secrets
 import uuid
 
@@ -72,7 +73,7 @@ from .estoque_service import (
 )
 from modules.qualidade.produtos_nao_conformes import listar_locais_segregacao, MOTIVOS
 from modules.qualidade.liberacoes import (
-    inventario_legado_fisico, resumo_inventario_legado_fisico,
+    inventario_legado_fisico,
     remover_reserva_operacional, reservar_operacional,
     saldos_legados_operacionais,
 )
@@ -122,18 +123,43 @@ def _itens_nc_galinha_inteira(form):
     return itens
 
 
-def integrar_resumo_inventario_legado(resumo, resumo_legado):
-    """Soma presença física agregada sem convertê-la em estoque disponível."""
+def alinhar_resumo_ao_consolidado(resumo, consolidado, saldos_legados):
+    """Faz os cards consumirem a mesma fotografia física do consolidado por produto."""
     resumo = dict(resumo)
-    resumo["peso_legado_disponivel"] = resumo_legado["peso_disponivel_g"] / 1000
-    resumo["unidades_fisicas"] = float(resumo["unidades_fisicas"] or 0) + resumo_legado["caixas_fisicas"]
-    resumo["peso_fisico"] = float(resumo["peso_fisico"] or 0) + resumo_legado["peso_fisico_g"] / 1000
-    resumo["bandejas_legado"] = resumo_legado["bandejas_fisicas"]
-    resumo["unidades_bloqueadas"] = float(resumo["unidades_bloqueadas"] or 0) + resumo_legado["caixas_bloqueadas_nc"]
-    resumo["peso_bloqueado"] = float(resumo["peso_bloqueado"] or 0) + resumo_legado["peso_bloqueado_nc_g"] / 1000
-    resumo["unidades_outras_condicoes"] = float(resumo["unidades_outras_condicoes"] or 0) + resumo_legado["caixas_aguardando"]
-    resumo["peso_outras_condicoes"] = float(resumo["peso_outras_condicoes"] or 0) + resumo_legado["peso_aguardando_g"] / 1000
-    resumo["peso_reservado"] = float(resumo["peso_reservado"] or 0) + resumo_legado["peso_reservado_g"] / 1000
+    campos = {
+        "unidades_fisicas": ("total_fisico", None),
+        "unidades_disponiveis": ("disponivel", None),
+        "unidades_reservadas": ("reservado", None),
+        "unidades_bloqueadas": ("nao_conforme_bloqueado", None),
+        "unidades_reprocessamento": ("reprocessamento", None),
+        "unidades_outras_condicoes": ("aguardando_liberacao", None),
+        "peso_fisico": ("total_fisico", "peso_kg"),
+        "peso_disponivel": ("disponivel", "peso_kg"),
+        "peso_reservado": ("reservado", "peso_kg"),
+        "peso_bloqueado": ("nao_conforme_bloqueado", "peso_kg"),
+        "peso_reprocessamento": ("reprocessamento", "peso_kg"),
+        "peso_outras_condicoes": ("aguardando_liberacao", "peso_kg"),
+    }
+    for campo, (situacao, unidade_fixa) in campos.items():
+        total = Decimal("0")
+        for grupo in consolidado.get("grupos", []):
+            quantidades = (
+                grupo.get("total_fisico", {}) if situacao == "total_fisico"
+                else grupo.get("situacoes", {}).get(situacao, {}).get("quantidades", {})
+            )
+            unidade = unidade_fixa
+            if unidade is None:
+                unidade = "caixas" if "caixas" in quantidades else "pacotes"
+            total += Decimal(str(quantidades.get(unidade, 0) or 0))
+        resumo[campo] = float(total)
+    resumo["bandejas_legado"] = float(sum(
+        Decimal(str(grupo.get("total_fisico", {}).get("bandejas", 0) or 0))
+        for grupo in consolidado.get("grupos", [])
+    ))
+    resumo["peso_legado_disponivel"] = float(sum(
+        Decimal(int(item["saldo_operacional_g"] or 0)) / Decimal(1000)
+        for item in saldos_legados
+    ))
     return resumo
 
 
@@ -640,9 +666,8 @@ def register_expedicao_routes(app, integracoes=None):
         itens, resumo = buscar_estoque_operacional()
         saldos_legados = saldos_legados_operacionais()
         inventario_fisico = inventario_legado_fisico()
-        resumo_legado = resumo_inventario_legado_fisico(inventario_fisico)
-        resumo = integrar_resumo_inventario_legado(resumo, resumo_legado)
         consolidado = consolidar_estoque_camara(incluir_nao_conforme=True)
+        resumo = alinhar_resumo_ao_consolidado(resumo, consolidado, saldos_legados)
         return render_template(
             "expedicao_estoque.html",
             itens=itens,

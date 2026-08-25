@@ -64,9 +64,13 @@ def test_migration_postgresql_e_aditiva_e_reversivel():
 def test_telas_exibem_estado_de_reserva_e_unicode_normal():
     pedido = (ROOT / "templates" / "pedido_venda_detalhe.html").read_text(encoding="utf-8")
     romaneio = (ROOT / "templates" / "romaneio_detalhe.html").read_text(encoding="utf-8")
+    estoque = (ROOT / "templates" / "expedicao_estoque.html").read_text(encoding="utf-8")
     assert "status_reserva_descricao" in pedido
     assert "quantidade_reservada_exibicao_mil" in pedido
     assert '"Inventário legado"' in romaneio
     assert '"Não identificada"' in romaneio
     assert '"Invent&aacute;rio legado"' not in romaneio
     assert '"N&atilde;o identificada"' not in romaneio
+    assert "item(ns) movimentado(s)" in romaneio
+    assert "item.caixas_fisicas" in estoque
+    assert "item.bandejas_fisicas" in estoque

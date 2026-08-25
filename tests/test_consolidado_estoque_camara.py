@@ -157,6 +157,27 @@ def test_opcao_sem_nao_conforme_omite_saldos_bloqueados(banco_consolidado):
         assert grupo["total_fisico"] == grupo["total_conforme"]
 
 
+def test_cards_consumem_a_mesma_fotografia_do_consolidado(banco_consolidado):
+    fotografia = consolidado.consolidar_estoque_camara(incluir_nao_conforme=True)
+    resumo = routes.alinhar_resumo_ao_consolidado(
+        {}, fotografia, [{"saldo_operacional_g": 30000}])
+
+    assert resumo["unidades_fisicas"] == 173
+    assert resumo["unidades_disponiveis"] == 124
+    assert resumo["unidades_reservadas"] == 32
+    assert resumo["unidades_bloqueadas"] == 9
+    assert resumo["unidades_reprocessamento"] == 1
+    assert resumo["unidades_outras_condicoes"] == 7
+    assert resumo["peso_fisico"] == 226.996
+    assert resumo["peso_disponivel"] == 50.333
+    assert resumo["peso_reservado"] == 15.555
+    assert resumo["peso_bloqueado"] == 87.777
+    assert resumo["peso_reprocessamento"] == 8.888
+    assert resumo["peso_outras_condicoes"] == 64.443
+    assert resumo["bandejas_legado"] == 276
+    assert resumo["peso_legado_disponivel"] == 30
+
+
 def test_pdf_usa_mesma_fotografia_e_separa_nao_conformes(banco_consolidado):
     antes = _fotografia(banco_consolidado)
     resultado = consolidado.consolidar_estoque_camara(incluir_nao_conforme=True)
@@ -222,8 +243,6 @@ def test_tela_renderiza_grupos_e_modal_com_opcao_desmarcada(monkeypatch):
     )}))
     monkeypatch.setattr(routes, "saldos_legados_operacionais", lambda: [])
     monkeypatch.setattr(routes, "inventario_legado_fisico", lambda: [])
-    monkeypatch.setattr(routes, "resumo_inventario_legado_fisico", lambda _: {"peso_fisico_g": 0, "bandejas_fisicas": 0})
-    monkeypatch.setattr(routes, "integrar_resumo_inventario_legado", lambda resumo, _: {**resumo, "peso_legado_disponivel": 0, "bandejas_legado": 0})
     monkeypatch.setattr(routes, "obter_marco_zero", lambda: None)
     chamadas = []
     def fotografia_por_opcao(**opcoes):
