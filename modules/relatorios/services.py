@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from copy import deepcopy
+import unicodedata
 
 from . import repositories as repository
 from .catalogo import RELATORIOS_OFICIAIS
@@ -16,13 +17,85 @@ ORDEM_DOMINIOS_RELATORIOS = [
     "Gerencial",
 ]
 
+ROTULOS_DOMINIOS_RELATORIOS = {
+    "Financeiro": "Financeiro",
+    "Producao": "Produção",
+    "Almoxarifado": "Estoque e Insumos",
+    "Expedicao": "Estoque e Expedição",
+    "Gerencial": "Gerencial",
+}
 
-def listar_relatorios_oficiais():
-    return deepcopy(RELATORIOS_OFICIAIS)
+PERFIS_POR_DOMINIO = {
+    "Financeiro": ("admin", "pcp", "gerencia"),
+    "Producao": ("admin", "pcp", "producao", "gerencia"),
+    "Almoxarifado": ("admin", "pcp", "producao", "gerencia"),
+    "Expedicao": ("admin", "pcp", "qualidade", "gerencia"),
+    "Gerencial": ("admin", "pcp", "gerencia"),
+}
+
+ORDEM_FINALIDADES = ["Posição atual", "Movimentação", "Análise", "Histórico"]
+
+CALCULABILIDADE = {
+    "producao-rendimento": "Calculado sobre pesos oficiais de entrada e saída; exibe N/A sem base comparável.",
+    "producao-disponibilidade": "Calculado com os tempos oficiais registrados; exibe N/A quando a base é insuficiente.",
+    "producao-performance": "Calculado com produção e tempo operacional oficiais; exibe N/A sem parâmetros suficientes.",
+    "producao-oee": "OEE depende de Disponibilidade, Performance e Qualidade calculáveis; componentes ausentes são exibidos como N/A.",
+    "almoxarifado-cmv": "CMV calculado pela camada financeira homologada; períodos sem cobertura são identificados como N/A ou parcial.",
+    "financeiro-dre-gerencial": "Valores consolidados pela DRE oficial; linhas sem base permanecem explicitamente sem dados.",
+}
+
+
+def _classificar_finalidade(relatorio):
+    texto = _normalizar_busca(f"{relatorio.get('id', '')} {relatorio.get('nome', '')}")
+    if any(chave in texto for chave in ("historico", "rastreabilidade", "fifo", "tendencia")):
+        return "Histórico"
+    if any(chave in texto for chave in ("estoque atual", "estoque camara", "contas a pagar", "contas a receber", "saldo")):
+        return "Posição atual"
+    if any(chave in texto for chave in (
+        "entrada", "saida", "producao por", "consumo", "condenacao", "perda",
+        "transferencia", "entrega", "receita", "aporte", "venda",
+    )):
+        return "Movimentação"
+    return "Análise"
+
+
+def _nivel_gerencial(relatorio, finalidade):
+    if relatorio.get("dominio") in ("Financeiro", "Gerencial"):
+        return "Gerencial"
+    if finalidade == "Histórico":
+        return "Histórico"
+    if finalidade in ("Posição atual", "Movimentação"):
+        return "Operacional"
+    return "Tático"
+
+
+def enriquecer_relatorio(relatorio):
+    item = deepcopy(relatorio)
+    finalidade = _classificar_finalidade(item)
+    item["modulo"] = ROTULOS_DOMINIOS_RELATORIOS[item["dominio"]]
+    item["tipo"] = finalidade
+    item["nivel"] = _nivel_gerencial(item, finalidade)
+    item["perfis"] = PERFIS_POR_DOMINIO[item["dominio"]]
+    item["permissao"] = ", ".join(item["perfis"])
+    item["fonte"] = ", ".join(item.get("dependencias", []))
+    item["calculabilidade"] = CALCULABILIDADE.get(item["id"], "Disponível conforme a cobertura da fonte oficial informada.")
+    return item
+
+
+def perfil_pode_acessar_relatorio(perfil, dominio):
+    return (perfil or "") in PERFIS_POR_DOMINIO.get(dominio, ())
+
+
+def listar_relatorios_oficiais(perfil=None):
+    relatorios = [enriquecer_relatorio(item) for item in RELATORIOS_OFICIAIS]
+    if perfil:
+        relatorios = [item for item in relatorios if perfil in item["perfis"]]
+    return relatorios
 
 
 def _normalizar_busca(valor):
-    return (valor or "").strip().lower()
+    texto = unicodedata.normalize("NFKD", str(valor or ""))
+    return "".join(caractere for caractere in texto if not unicodedata.combining(caractere)).strip().lower()
 
 
 def _opcoes_unicas(relatorios, campo):
@@ -36,26 +109,38 @@ def _opcoes_unicas(relatorios, campo):
     return valores
 
 
-def filtrar_relatorios_oficiais(args):
-    relatorios = listar_relatorios_oficiais()
+def filtrar_relatorios_oficiais(args, perfil=None):
+    catalogo_completo = listar_relatorios_oficiais()
+    relatorios = listar_relatorios_oficiais(perfil)
     termo = _normalizar_busca(args.get("q"))
-    dominio = args.get("dominio") or "Todos"
+    dominio = args.get("modulo") or args.get("dominio") or "Todos"
+    tipo = args.get("tipo") or "Todos"
+    nivel = args.get("nivel") or "Todos"
+    formato = args.get("formato") or "Todos"
     prioridade = args.get("prioridade") or "Todas"
     status = args.get("status") or "Todos"
 
     filtrados = []
 
     for relatorio in relatorios:
-        texto_busca = " ".join([
+        texto_busca = _normalizar_busca(" ".join([
             relatorio.get("nome", ""),
-            relatorio.get("dominio", ""),
+            relatorio.get("modulo", ""),
             relatorio.get("objetivo", ""),
+            relatorio.get("tipo", ""),
+            relatorio.get("nivel", ""),
             " ".join(relatorio.get("dependencias", [])),
-        ]).lower()
+        ]))
 
         if termo and termo not in texto_busca:
             continue
-        if dominio != "Todos" and relatorio.get("dominio") != dominio:
+        if dominio != "Todos" and relatorio.get("modulo") != dominio and relatorio.get("dominio") != dominio:
+            continue
+        if tipo != "Todos" and relatorio.get("tipo") != tipo:
+            continue
+        if nivel != "Todos" and relatorio.get("nivel") != nivel:
+            continue
+        if formato != "Todos" and formato not in relatorio.get("formatos", []):
             continue
         if prioridade != "Todas" and relatorio.get("prioridade") != prioridade:
             continue
@@ -69,25 +154,43 @@ def filtrar_relatorios_oficiais(args):
     for dominio_nome in ORDEM_DOMINIOS_RELATORIOS:
         itens = [item for item in filtrados if item.get("dominio") == dominio_nome]
         if itens:
+            subgrupos = []
+            for finalidade in ORDEM_FINALIDADES:
+                relatorios_finalidade = [item for item in itens if item["tipo"] == finalidade]
+                if relatorios_finalidade:
+                    subgrupos.append({"finalidade": finalidade, "relatorios": relatorios_finalidade})
             grupos.append({
                 "dominio": dominio_nome,
+                "modulo": ROTULOS_DOMINIOS_RELATORIOS[dominio_nome],
                 "relatorios": itens,
+                "finalidades": subgrupos,
             })
 
     return {
         "relatorios": filtrados,
         "grupos": grupos,
-        "total_catalogo": len(relatorios),
+        "total_catalogo": len(catalogo_completo),
+        "total_permitido": len(relatorios),
         "total_filtrado": len(filtrados),
-        "dominios": ORDEM_DOMINIOS_RELATORIOS,
+        "dominios": [ROTULOS_DOMINIOS_RELATORIOS[item] for item in ORDEM_DOMINIOS_RELATORIOS],
+        "tipos": ORDEM_FINALIDADES,
+        "niveis": _opcoes_unicas(relatorios, "nivel"),
+        "formatos": sorted({formato for item in relatorios for formato in item.get("formatos", [])}),
         "prioridades": _opcoes_unicas(relatorios, "prioridade"),
         "status_opcoes": _opcoes_unicas(relatorios, "status"),
         "filtros": {
             "q": args.get("q") or "",
             "dominio": dominio,
+            "tipo": tipo,
+            "nivel": nivel,
+            "formato": formato,
             "prioridade": prioridade,
             "status": status,
         },
+        "matriz_permissoes": [
+            {"modulo": ROTULOS_DOMINIOS_RELATORIOS[dominio], "perfis": perfis}
+            for dominio, perfis in PERFIS_POR_DOMINIO.items()
+        ] if perfil == "admin" else [],
     }
 
 

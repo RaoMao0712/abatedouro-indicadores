@@ -9,7 +9,7 @@ from .services import montar_contexto_fluxo_caixa
 
 def register_fluxo_caixa_routes(app):
     @app.route("/fluxo-caixa")
-    @perfil_permitido("pcp")
+    @perfil_permitido("pcp", "gerencia")
     def fluxo_caixa():
         return render_template(
             "fluxo_caixa.html",

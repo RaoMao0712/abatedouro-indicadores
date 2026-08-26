@@ -84,7 +84,7 @@ def test_cards_e_dominios_respeitam_perfis():
         "producao": {"producao", "manutencao", "cadastros"},
         "qualidade": {"producao", "qualidade", "manutencao", "expedicao", "cadastros"},
         "manutencao": {"producao", "manutencao"},
-        "gerencia": {"producao", "qualidade", "manutencao", "cadastros"},
+        "gerencia": {"gestao", "producao", "qualidade", "manutencao", "cadastros"},
     }
     for perfil, dominios in esperados.items():
         html = html_inicio(perfil)

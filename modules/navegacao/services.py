@@ -8,6 +8,7 @@ from flask import current_app, url_for
 PERFIS_CONHECIDOS = ("admin", "pcp", "producao", "qualidade", "manutencao", "gerencia")
 TODOS_PERFIS = PERFIS_CONHECIDOS
 ADMIN_PCP = ("admin", "pcp")
+GESTAO_PERFIS = ("admin", "pcp", "gerencia")
 
 # Tempos dos Setores: funcionalidade operacional descontinuada — preservada
 # para compatibilidade e eventual uso futuro em estudos específicos de tempos
@@ -27,14 +28,14 @@ NAVEGACAO = [
         "titulo": "Gestão",
         "descricao": "Visão executiva e relatórios oficiais.",
         "icone": "chart",
-        "perfis": ADMIN_PCP,
+        "perfis": GESTAO_PERFIS,
         "card": True,
         "itens": [
-            {"titulo": "Dashboard Executivo", "endpoint": "relatorio_gerencial_oficial", "route_args": {"slug": "dashboard-executivo"}, "perfis": ADMIN_PCP, "principal": True},
-            {"titulo": "Biblioteca de Relatórios", "endpoint": "biblioteca_relatorios", "perfis": ADMIN_PCP, "principal": True},
-            {"titulo": "Indicadores", "endpoint": "relatorio_gerencial_oficial", "route_args": {"slug": "indicadores"}, "perfis": ADMIN_PCP},
-            {"titulo": "Comparativos", "endpoint": "relatorio_gerencial_oficial", "route_args": {"slug": "comparativos"}, "perfis": ADMIN_PCP},
-            {"titulo": "Tendências", "endpoint": "relatorio_gerencial_oficial", "route_args": {"slug": "tendencias"}, "perfis": ADMIN_PCP},
+            {"titulo": "Dashboard Executivo", "endpoint": "relatorio_gerencial_oficial", "route_args": {"slug": "dashboard-executivo"}, "perfis": GESTAO_PERFIS, "principal": True},
+            {"titulo": "Biblioteca de Relatórios", "endpoint": "biblioteca_relatorios", "perfis": GESTAO_PERFIS, "principal": True},
+            {"titulo": "Indicadores", "endpoint": "relatorio_gerencial_oficial", "route_args": {"slug": "indicadores"}, "perfis": GESTAO_PERFIS},
+            {"titulo": "Comparativos", "endpoint": "relatorio_gerencial_oficial", "route_args": {"slug": "comparativos"}, "perfis": GESTAO_PERFIS},
+            {"titulo": "Tendências", "endpoint": "relatorio_gerencial_oficial", "route_args": {"slug": "tendencias"}, "perfis": GESTAO_PERFIS},
         ],
     },
     {

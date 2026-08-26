@@ -2,11 +2,14 @@
 
 from datetime import datetime
 
-from flask import abort, render_template, request, send_file, url_for
+from flask import abort, render_template, request, send_file, session, url_for
 
 from modules.auth.decorators import perfil_permitido
 
-from .services import buscar_dados_relatorio_custos, filtrar_relatorios_oficiais
+from .services import (
+    buscar_dados_relatorio_custos,
+    filtrar_relatorios_oficiais,
+)
 from .financeiro import (
     RELATORIOS_FINANCEIROS,
     gerar_excel_relatorio_financeiro,
@@ -39,9 +42,9 @@ from modules.producao.oee import montar_contexto_oee, gerar_excel_oee
 def register_relatorios_routes(app):
 
     @app.route("/relatorios")
-    @perfil_permitido("pcp")
+    @perfil_permitido("pcp", "producao", "qualidade", "gerencia")
     def biblioteca_relatorios():
-        contexto = filtrar_relatorios_oficiais(request.args)
+        contexto = filtrar_relatorios_oficiais(request.args, session.get("perfil"))
 
         for relatorio in contexto["relatorios"]:
             endpoint = relatorio.get("endpoint")
@@ -50,7 +53,7 @@ def register_relatorios_routes(app):
         return render_template("biblioteca_relatorios.html", **contexto)
 
     @app.route("/relatorios/financeiro/<slug>")
-    @perfil_permitido("pcp")
+    @perfil_permitido("pcp", "gerencia")
     def relatorio_financeiro_oficial(slug):
         if slug not in RELATORIOS_FINANCEIROS:
             abort(404)
@@ -60,7 +63,7 @@ def register_relatorios_routes(app):
         )
 
     @app.route("/relatorios/financeiro/<slug>/exportar")
-    @perfil_permitido("pcp")
+    @perfil_permitido("pcp", "gerencia")
     def relatorio_financeiro_oficial_exportar(slug):
         if slug not in RELATORIOS_FINANCEIROS:
             abort(404)
@@ -75,7 +78,7 @@ def register_relatorios_routes(app):
         )
 
     @app.route("/relatorios/producao/<slug>")
-    @perfil_permitido("pcp")
+    @perfil_permitido("pcp", "producao", "gerencia")
     def relatorio_producao_oficial(slug):
         if slug not in RELATORIOS_PRODUCAO:
             abort(404)
@@ -89,7 +92,7 @@ def register_relatorios_routes(app):
         )
 
     @app.route("/relatorios/producao/<slug>/exportar")
-    @perfil_permitido("pcp")
+    @perfil_permitido("pcp", "producao", "gerencia")
     def relatorio_producao_oficial_exportar(slug):
         if slug not in RELATORIOS_PRODUCAO:
             abort(404)
@@ -108,7 +111,7 @@ def register_relatorios_routes(app):
         )
 
     @app.route("/relatorios/almoxarifado/<slug>")
-    @perfil_permitido("pcp")
+    @perfil_permitido("pcp", "producao", "gerencia")
     def relatorio_almoxarifado_oficial(slug):
         if slug not in RELATORIOS_ALMOXARIFADO:
             abort(404)
@@ -118,7 +121,7 @@ def register_relatorios_routes(app):
         )
 
     @app.route("/relatorios/almoxarifado/<slug>/exportar")
-    @perfil_permitido("pcp")
+    @perfil_permitido("pcp", "producao", "gerencia")
     def relatorio_almoxarifado_oficial_exportar(slug):
         if slug not in RELATORIOS_ALMOXARIFADO:
             abort(404)
@@ -133,7 +136,7 @@ def register_relatorios_routes(app):
         )
 
     @app.route("/relatorios/expedicao/<slug>")
-    @perfil_permitido("pcp")
+    @perfil_permitido("pcp", "qualidade", "gerencia")
     def relatorio_expedicao_oficial(slug):
         if slug not in RELATORIOS_EXPEDICAO:
             abort(404)
@@ -143,7 +146,7 @@ def register_relatorios_routes(app):
         )
 
     @app.route("/relatorios/expedicao/<slug>/exportar")
-    @perfil_permitido("pcp")
+    @perfil_permitido("pcp", "qualidade", "gerencia")
     def relatorio_expedicao_oficial_exportar(slug):
         if slug not in RELATORIOS_EXPEDICAO or not RELATORIOS_EXPEDICAO[slug].get("excel"):
             abort(404)
@@ -158,7 +161,7 @@ def register_relatorios_routes(app):
         )
 
     @app.route("/relatorios/gerencial/<slug>")
-    @perfil_permitido("pcp")
+    @perfil_permitido("pcp", "gerencia")
     def relatorio_gerencial_oficial(slug):
         if slug not in RELATORIOS_GERENCIAIS:
             abort(404)
@@ -173,7 +176,7 @@ def register_relatorios_routes(app):
         )
 
     @app.route("/relatorios/gerencial/<slug>/exportar")
-    @perfil_permitido("pcp")
+    @perfil_permitido("pcp", "gerencia")
     def relatorio_gerencial_oficial_exportar(slug):
         if slug not in RELATORIOS_GERENCIAIS:
             abort(404)

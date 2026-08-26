@@ -1,178 +1,44 @@
 {% extends "base.html" %}
-
+{% macro valor_kpi(item) -%}
+    {% if item.valor_atual is none %}N/A{% elif item.unidade == "R$" %}{{ item.valor_atual|br_moeda }}{% elif item.unidade == "%" %}{{ item.valor_atual|br_percentual }}{% else %}{{ item.valor_atual|br_numero }}{% endif %}
+{%- endmacro %}
 {% block conteudo %}
-
 <div class="dashboard-executivo-page">
+    <nav class="relatorio-breadcrumb" aria-label="Navegação estrutural"><a href="{{ url_for('inicio') }}">Início</a><span>/</span><a href="{{ url_for('biblioteca_relatorios') }}">Biblioteca</a><span>/</span><strong>Dashboard Executivo</strong></nav>
     <section class="hero-dashboard dashboard-executivo-hero">
-        <div>
-            <span class="eyebrow">Biblioteca de Relatorios</span>
-            <h2>Dashboard Executivo</h2>
-            <p>Leitura executiva dos indicadores oficiais, sem criar nova fonte de dados.</p>
-            <div class="financeiro-hero-resumo">
-                <span class="financeiro-pill-info"><strong>Atual</strong> {{ periodo_atual }}</span>
-                <span class="financeiro-pill-info"><strong>Comparado</strong> {{ periodo_anterior }}</span>
-                <span class="financeiro-pill-info"><strong>Consulta</strong> {{ consultado_em }}</span>
-            </div>
+        <div><span class="eyebrow">Visão gerencial</span><h2>Dashboard Executivo</h2><p>Posição atual e desempenho do período em blocos separados, consumindo apenas indicadores oficiais.</p>
+            <div class="financeiro-hero-resumo"><span class="financeiro-pill-info"><strong>Período</strong> {{ periodo_atual }}</span><span class="financeiro-pill-info"><strong>Comparação</strong> {{ periodo_anterior }}</span><span class="financeiro-pill-info"><strong>Atualizado</strong> {{ consultado_em }}</span></div>
         </div>
-
         <form method="GET" action="{{ url_for('relatorio_gerencial_oficial', slug='dashboard-executivo') }}" class="dashboard-executivo-filtros">
-            <div>
-                <label>Data inicial</label>
-                <input type="date" name="data_inicio" value="{{ filtros.data_inicio }}">
-            </div>
-            <div>
-                <label>Data final</label>
-                <input type="date" name="data_fim" value="{{ filtros.data_fim }}">
-            </div>
-            <div>
-                <label>Bloco</label>
-                <select name="bloco">
-                    {% for bloco in opcoes.blocos %}
-                    <option value="{{ bloco }}" {% if filtros.bloco == bloco %}selected{% endif %}>{{ bloco }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-            <div>
-                <label>Tendencia</label>
-                <select name="granularidade">
-                    {% for valor, rotulo in opcoes.granularidades %}
-                    <option value="{{ valor }}" {% if filtros.granularidade == valor %}selected{% endif %}>{{ rotulo }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-            <button type="submit">Aplicar</button>
+            <div><label for="dashboard-periodo">Período</label><select id="dashboard-periodo" name="periodo">{% for valor, rotulo in opcoes.periodos %}<option value="{{ valor }}" {% if filtros.periodo == valor %}selected{% endif %}>{{ rotulo }}</option>{% endfor %}</select></div>
+            <div><label for="dashboard-inicio">Data inicial</label><input id="dashboard-inicio" type="date" name="data_inicio" value="{{ filtros.data_inicio }}"></div>
+            <div><label for="dashboard-fim">Data final</label><input id="dashboard-fim" type="date" name="data_fim" value="{{ filtros.data_fim }}"></div>
+            <div><label for="dashboard-bloco">Bloco</label><select id="dashboard-bloco" name="bloco">{% for bloco in opcoes.blocos %}<option value="{{ bloco }}" {% if filtros.bloco == bloco %}selected{% endif %}>{{ bloco }}</option>{% endfor %}</select></div>
+            <div><label for="dashboard-tendencia">Tendência</label><select id="dashboard-tendencia" name="granularidade">{% for valor, rotulo in opcoes.granularidades %}<option value="{{ valor }}" {% if filtros.granularidade == valor %}selected{% endif %}>{{ rotulo }}</option>{% endfor %}</select></div>
+            <button type="submit">Atualizar</button>
         </form>
     </section>
+    <div class="dashboard-executivo-acoes"><a href="{{ url_for('biblioteca_relatorios', modulo='Gerencial') }}" class="botao-dre-imprimir">Voltar à biblioteca</a><a href="{{ url_for('relatorio_gerencial_oficial', slug='dashboard-executivo') }}?{{ query_resumo }}" class="botao-dre-imprimir">Resumo</a><a href="{{ url_for('relatorio_gerencial_oficial', slug='dashboard-executivo') }}?{{ query_todos }}" class="botao-dre-imprimir">Todos os blocos</a><button type="button" class="botao-dre-exportar" onclick="window.print()">Imprimir / Salvar em PDF</button></div>
 
-    <div class="dashboard-executivo-acoes">
-        <a href="{{ url_for('biblioteca_relatorios', dominio='Gerencial') }}" class="botao-dre-imprimir">Biblioteca</a>
-        <a href="{{ url_for('relatorio_gerencial_oficial', slug='dashboard-executivo') }}?{{ query_resumo }}" class="botao-dre-imprimir">Resumo</a>
-        <a href="{{ url_for('relatorio_gerencial_oficial', slug='dashboard-executivo') }}?{{ query_todos }}" class="botao-dre-imprimir">Carregar todos</a>
-        <button type="button" class="botao-dre-exportar" onclick="window.print()">Imprimir / Salvar em PDF</button>
-    </div>
+    <section class="dashboard-secao"><div class="section-title-row"><div><span class="eyebrow">Agora</span><h2>Operação atual</h2></div></div><div class="dashboard-executivo-kpis">
+        {% for item in posicao_operacao %}<article class="card dashboard-executivo-kpi"><div class="dashboard-executivo-kpi-topo"><span>Operação</span><em>Posição atual</em></div><h3>{{ item.titulo }}</h3><strong>{% if item.valor is none %}N/A{% else %}{{ item.valor|int }}{% endif %}</strong><p>{{ item.explicacao }}</p><div class="dashboard-executivo-kpi-links"><span>{% if item.valor is none %}Fonte indisponível{% else %}Fonte oficial{% endif %}</span><a href="{{ url_for(item.endpoint, **item.args) }}">Consultar</a></div></article>{% endfor %}
+    </div></section>
 
-    <section class="dashboard-executivo-grid">
-        <div class="dashboard-executivo-main">
-            <section class="dashboard-executivo-kpis">
-                {% for item in itens %}
-                <article class="card dashboard-executivo-kpi dominio-{{ item.dominio|lower }}">
-                    <div class="dashboard-executivo-kpi-topo">
-                        <span>{{ item.dominio }}</span>
-                        <em>{{ item.referencia_temporal }}</em>
-                    </div>
-                    <h3>{{ item.nome }}</h3>
-                    <strong>
-                        {% if item.valor_atual is none %}
-                        -
-                        {% elif item.unidade == "R$" %}
-                        {{ item.valor_atual|br_moeda }}
-                        {% elif item.unidade == "%" %}
-                        {{ item.valor_atual|br_percentual }}
-                        {% else %}
-                        {{ item.valor_atual|br_numero }}
-                        {% endif %}
-                    </strong>
-                    <small>
-                        {{ item.unidade }} | anterior:
-                        {% if item.valor_anterior is none %}
-                        -
-                        {% elif item.unidade == "R$" %}
-                        {{ item.valor_anterior|br_moeda }}
-                        {% elif item.unidade == "%" %}
-                        {{ item.valor_anterior|br_percentual }}
-                        {% else %}
-                        {{ item.valor_anterior|br_numero }}
-                        {% endif %}
-                    </small>
-                    <div class="dashboard-executivo-var">
-                        <span>{{ item.leitura }}</span>
-                        <b>{% if item.variacao_pct is not none %}{{ item.variacao_pct|br_percentual }}{% else %}Nao comparavel{% endif %}</b>
-                    </div>
-                    <p>{{ item.pergunta }}</p>
-                    <div class="dashboard-executivo-kpi-links">
-                        <span>{{ item.tendencia_resumo }}</span>
-                        {% if item.link_endpoint %}
-                        <a href="{{ url_for(item.link_endpoint, **item.link_args) }}">Aprofundar</a>
-                        {% endif %}
-                    </div>
-                </article>
-                {% endfor %}
-            </section>
+    {% if itens_posicao %}<section class="dashboard-secao"><div class="section-title-row"><div><span class="eyebrow">Agora</span><h2>Estoque atual</h2></div></div><div class="dashboard-executivo-kpis">
+        {% for item in itens_posicao %}<article class="card dashboard-executivo-kpi"><div class="dashboard-executivo-kpi-topo"><span>{{ item.dominio }}</span><em>Posição atual</em></div><h3>{{ item.nome }}</h3><strong>{{ valor_kpi(item) }}</strong><p>{{ item.pergunta }}</p>{% if item.link_endpoint %}<div class="dashboard-executivo-kpi-links"><span>{{ item.status_dados }}</span><a href="{{ url_for(item.link_endpoint, **item.link_args) }}">Ver origem</a></div>{% endif %}</article>{% endfor %}
+    </div></section>{% endif %}
 
-            <section class="card dashboard-executivo-card">
-                <div class="section-title-row">
-                    <div>
-                        <span class="eyebrow">Pontos de atencao</span>
-                        <h2>Alertas objetivos</h2>
-                    </div>
-                </div>
-                {% if alertas %}
-                <div class="dashboard-executivo-alertas">
-                    {% for alerta in alertas %}
-                    <div class="dashboard-executivo-alerta">
-                        <strong>{{ alerta.titulo }}</strong>
-                        <span>{{ alerta.motivo }}</span>
-                        <small>{{ alerta.dominio }} | {{ alerta.periodo }}</small>
-                    </div>
-                    {% endfor %}
-                </div>
-                {% else %}
-                <div class="relatorio-financeiro-vazio">Nenhum alerta objetivo no bloco carregado.</div>
-                {% endif %}
-            </section>
-        </div>
-
-        <aside class="dashboard-executivo-side">
-            <section class="card dashboard-executivo-card">
-                <div class="section-title-row">
-                    <div>
-                        <span class="eyebrow">Sob demanda</span>
-                        <h2>Blocos por dominio</h2>
-                    </div>
-                </div>
-                <div class="dashboard-executivo-blocos">
-                    {% for bloco in blocos %}
-                    <a href="{{ url_for('relatorio_gerencial_oficial', slug='dashboard-executivo') }}?{{ bloco.query }}">
-                        <strong>{{ bloco.dominio }}</strong>
-                        <span>{{ bloco.indicadores }} indicadores executivos</span>
-                    </a>
-                    {% endfor %}
-                </div>
-            </section>
-
-            <section class="card dashboard-executivo-card">
-                <div class="section-title-row">
-                    <div>
-                        <span class="eyebrow">Evolucao</span>
-                        <h2>Dependencias abertas</h2>
-                    </div>
-                </div>
-                <div class="dashboard-executivo-dependencias">
-                    {% for item in dependencias %}
-                    <div>
-                        <strong>{{ item.nome }}</strong>
-                        <span>{{ item.status }}</span>
-                        <small>{{ item.motivo }}</small>
-                    </div>
-                    {% endfor %}
-                </div>
-            </section>
-        </aside>
+    <section class="dashboard-secao"><div class="section-title-row"><div><span class="eyebrow">{{ periodo_atual }}</span><h2>Desempenho no período selecionado</h2></div></div>
+        {% if itens_periodo %}<div class="dashboard-executivo-kpis">{% for item in itens_periodo %}<article class="card dashboard-executivo-kpi dominio-{{ item.dominio|lower }}"><div class="dashboard-executivo-kpi-topo"><span>{{ item.dominio }}</span><em>{{ item.referencia_temporal }}</em></div><h3>{{ item.nome }}</h3><strong>{{ valor_kpi(item) }}</strong><small>{{ item.unidade }} | período anterior: {% if item.valor_anterior is none %}N/A{% elif item.unidade == "R$" %}{{ item.valor_anterior|br_moeda }}{% elif item.unidade == "%" %}{{ item.valor_anterior|br_percentual }}{% else %}{{ item.valor_anterior|br_numero }}{% endif %}</small><div class="dashboard-executivo-var"><span>{{ item.leitura }}</span><b>{% if item.variacao_pct is not none %}{{ item.variacao_pct|br_percentual }}{% else %}N/A{% endif %}</b></div><p>{{ item.pergunta }}</p><div class="dashboard-executivo-kpi-links"><span>{{ item.tendencia_resumo }}</span>{% if item.link_endpoint %}<a href="{{ url_for(item.link_endpoint, **item.link_args) }}">Aprofundar</a>{% endif %}</div></article>{% endfor %}</div>{% else %}<div class="card relatorio-financeiro-vazio">Nenhum indicador de período no bloco selecionado.</div>{% endif %}
     </section>
 
-    <section class="card dashboard-executivo-card">
-        <div class="section-title-row">
-            <div>
-                <span class="eyebrow">Limites</span>
-                <h2>Regras da leitura executiva</h2>
-            </div>
-        </div>
-        <div class="relatorio-financeiro-vazio">
-            {% for item in limitacoes %}
-            <div>{{ item }}</div>
-            {% endfor %}
-        </div>
-    </section>
+    <section class="dashboard-executivo-grid"><div class="dashboard-executivo-main">
+        <section class="card dashboard-executivo-card"><div class="section-title-row"><div><span class="eyebrow">Pontos de atenção</span><h2>Alertas objetivos</h2></div></div>{% if alertas %}<div class="dashboard-executivo-alertas">{% for alerta in alertas %}<div class="dashboard-executivo-alerta"><strong>{{ alerta.titulo }}</strong><span>{{ alerta.motivo }}</span><small>{{ alerta.dominio }} | {{ alerta.periodo }}</small>{% if alerta.link_endpoint %}<a href="{{ url_for(alerta.link_endpoint, **alerta.link_args) }}">Consultar origem</a>{% endif %}</div>{% endfor %}</div>{% else %}<div class="relatorio-financeiro-vazio">Nenhum alerta objetivo no bloco carregado.</div>{% endif %}</section>
+        <section class="card dashboard-executivo-card"><div class="section-title-row"><div><span class="eyebrow">Atalhos</span><h2>Ações rápidas de consulta</h2></div></div><div class="dashboard-executivo-blocos">{% for acao in acoes_rapidas %}{% if session.perfil in acao.perfis %}<a href="{{ url_for(acao.endpoint) }}"><strong>{{ acao.titulo }}</strong><span>Abrir visão oficial</span></a>{% endif %}{% endfor %}</div></section>
+    </div><aside class="dashboard-executivo-side">
+        <section class="card dashboard-executivo-card"><div class="section-title-row"><div><span class="eyebrow">Sob demanda</span><h2>Blocos gerenciais</h2></div></div><div class="dashboard-executivo-blocos">{% for bloco in blocos %}<a href="{{ url_for('relatorio_gerencial_oficial', slug='dashboard-executivo') }}?{{ bloco.query }}"><strong>{{ bloco.dominio }}</strong><span>{{ bloco.indicadores }} indicadores</span></a>{% endfor %}</div></section>
+        <section class="card dashboard-executivo-card"><div class="section-title-row"><div><span class="eyebrow">Cobertura</span><h2>Dependências conhecidas</h2></div></div><div class="dashboard-executivo-dependencias">{% for item in dependencias %}<div><strong>{{ item.nome }}</strong><span>{{ item.status }}</span><small>{{ item.motivo }}</small></div>{% endfor %}</div></section>
+    </aside></section>
+    <section class="card dashboard-executivo-card"><div class="section-title-row"><div><span class="eyebrow">Transparência</span><h2>Limites da leitura</h2></div></div><div class="relatorio-financeiro-vazio">{% for item in limitacoes %}<div>{{ item }}</div>{% endfor %}</div></section>
 </div>
-
 {% endblock %}

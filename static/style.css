@@ -7723,10 +7723,50 @@ small {
 
 .biblioteca-filtros {
     display: grid;
-    grid-template-columns: minmax(180px, 1.3fr) repeat(3, minmax(130px, 0.85fr)) minmax(92px, 0.5fr);
+    grid-template-columns: minmax(180px, 1.3fr) repeat(4, minmax(120px, 0.8fr)) minmax(110px, 0.55fr) auto;
     gap: 10px;
     align-items: end;
     min-width: 0;
+}
+
+.biblioteca-limpar {
+    display: inline-flex;
+    height: 38px;
+    align-items: center;
+    justify-content: center;
+    color: #475569;
+    font-size: 11px;
+    font-weight: 900;
+}
+
+.biblioteca-finalidade {
+    display: grid;
+    gap: 8px;
+}
+
+.biblioteca-finalidade > h3 {
+    margin: 0;
+    color: #475569;
+    font-size: 12px;
+    letter-spacing: .45px;
+    text-transform: uppercase;
+}
+
+.biblioteca-matriz {
+    padding: 16px !important;
+}
+
+.biblioteca-matriz table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.biblioteca-matriz th,
+.biblioteca-matriz td {
+    padding: 9px;
+    border-bottom: 1px solid #e2e8f0;
+    text-align: left;
+    font-size: 12px;
 }
 
 .biblioteca-filtros label {
@@ -8700,6 +8740,24 @@ small {
     gap: 14px;
 }
 
+.relatorio-breadcrumb {
+    display: flex;
+    gap: 7px;
+    align-items: center;
+    color: #64748b;
+    font-size: 11px;
+}
+
+.relatorio-breadcrumb a {
+    color: #1d4ed8;
+    text-decoration: none;
+}
+
+.dashboard-secao {
+    display: grid;
+    gap: 9px;
+}
+
 .dashboard-executivo-hero {
     grid-template-columns: minmax(0, 1.1fr) minmax(360px, 0.9fr) !important;
     gap: 14px;
@@ -8905,19 +8963,26 @@ small {
 }
 
 @media (max-width: 1200px) {
+    .biblioteca-hero,
     .dashboard-executivo-hero,
     .dashboard-executivo-grid {
         grid-template-columns: minmax(0, 1fr) !important;
     }
+
+    .biblioteca-filtros {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
 }
 
 @media (max-width: 720px) {
+    .biblioteca-filtros,
     .dashboard-executivo-filtros {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }
 
 @media (max-width: 520px) {
+    .biblioteca-filtros,
     .dashboard-executivo-filtros,
     .dashboard-executivo-kpis {
         grid-template-columns: 1fr;

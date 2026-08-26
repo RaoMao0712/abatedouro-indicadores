@@ -9,6 +9,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
 
+from database import conectar
 from modules.dre.services import buscar_resumo_dre_gerencial
 from modules.fluxo_caixa.services import montar_resumo_gerencial_fluxo_caixa
 from modules.relatorios.almoxarifado import montar_resumo_gerencial_almoxarifado
@@ -653,7 +654,10 @@ DASHBOARD_INICIAL_IDS = [
     "fin_receita_liquida",
     "fin_resultado_operacional",
     "fin_saldo_caixa",
-    "fin_aportes",
+    "prod_peso",
+    "prod_rendimento",
+    "prod_perdas",
+    "exp_caixas_camara",
 ]
 
 
@@ -691,7 +695,7 @@ DASHBOARD_LINKS = {
 
 
 DEPENDENCIAS_DASHBOARD_EXECUTIVO = [
-    {"nome": "CMV", "status": STATUS_CONGELADO, "motivo": "Congelado ate existir criterio oficial definitivo de custo."},
+    {"nome": "CMV", "status": STATUS_DISPONIVEL, "motivo": "Motor oficial disponível; períodos sem cobertura histórica são exibidos como N/A ou parcial."},
     {"nome": "OEE", "status": STATUS_EVOLUCAO, "motivo": "Motor D/P/Q implantado; Qualidade e OEE permanecem N/A por ausencia de unidades boas/processadas oficiais."},
     {"nome": "Vendas", "status": STATUS_ESTRUTURACAO, "motivo": "Depende de NF e Romaneio de Venda."},
     {"nome": "Rastreabilidade completa", "status": STATUS_ESTRUTURACAO, "motivo": "Depende do destino final e venda."},
@@ -714,7 +718,20 @@ def indicadores_dashboard(ids):
 
 
 def normalizar_filtros_dashboard_executivo(args):
-    filtros = normalizar_filtros(args)
+    periodo = args.get("periodo") or "mes_atual"
+    hoje = date.today()
+    dados = dict(args)
+    if periodo == "hoje":
+        dados.update({"data_inicio": hoje.isoformat(), "data_fim": hoje.isoformat()})
+    elif periodo == "mes_anterior":
+        fim_anterior = hoje.replace(day=1) - timedelta(days=1)
+        dados.update({"data_inicio": fim_anterior.replace(day=1).isoformat(), "data_fim": fim_anterior.isoformat()})
+    elif periodo == "mes_atual":
+        dados.update({"data_inicio": hoje.replace(day=1).isoformat(), "data_fim": hoje.isoformat()})
+    else:
+        periodo = "personalizado"
+    filtros = normalizar_filtros(ArgsDict(dados))
+    filtros["periodo"] = periodo
     filtros["bloco"] = args.get("bloco") or "Resumo"
     filtros["granularidade"] = args.get("granularidade") or "mes"
     if filtros["granularidade"] not in ["dia", "semana", "mes"]:
@@ -727,6 +744,7 @@ def query_dashboard(filtros, extras=None):
         "data_inicio": filtros["data_inicio"],
         "data_fim": filtros["data_fim"],
         "granularidade": filtros.get("granularidade") or "mes",
+        "periodo": filtros.get("periodo") or "personalizado",
     }
     if extras:
         dados.update(extras)
@@ -749,32 +767,39 @@ def montar_alertas_dashboard(itens):
     alertas = []
     for item in itens:
         valor = item.get("valor_atual")
+        periodo_alerta = "Posição atual" if str(item.get("referencia_temporal") or "").strip().lower() == "posicao atual" else item.get("periodo_atual")
         if item["id"] == "fin_saldo_caixa" and valor is not None and valor < 0:
             alertas.append({
                 "titulo": "Saldo de caixa negativo",
                 "motivo": "Saldo realizado oficial abaixo de zero.",
                 "valor": valor,
-                "periodo": item.get("periodo_atual"),
+                "periodo": periodo_alerta,
                 "dominio": item.get("dominio"),
                 "item": item,
+                "link_endpoint": item.get("link_endpoint"),
+                "link_args": item.get("link_args", {}),
             })
         if item["id"] in ["prod_perdas", "prod_produtividade_hora_setor"] and item.get("leitura") == "Aumentou":
             alertas.append({
                 "titulo": f"{item['nome']} em elevacao",
                 "motivo": "Comparativo oficial indicou aumento frente ao periodo anterior.",
                 "valor": valor,
-                "periodo": item.get("periodo_atual"),
+                "periodo": periodo_alerta,
                 "dominio": item.get("dominio"),
                 "item": item,
+                "link_endpoint": item.get("link_endpoint"),
+                "link_args": item.get("link_args", {}),
             })
         if item.get("status_dados") == STATUS_SEM_DADOS:
             alertas.append({
                 "titulo": f"{item['nome']} sem dados",
                 "motivo": "Indicador necessario para a leitura executiva ainda nao possui base no periodo.",
                 "valor": None,
-                "periodo": item.get("periodo_atual"),
+                "periodo": periodo_alerta,
                 "dominio": item.get("dominio"),
                 "item": item,
+                "link_endpoint": item.get("link_endpoint"),
+                "link_args": item.get("link_args", {}),
             })
     return alertas[:5]
 
@@ -789,6 +814,54 @@ def montar_blocos_dashboard(filtros):
             "query": query_dashboard(filtros, {"bloco": dominio}),
         })
     return blocos
+
+
+def montar_posicao_atual_operacao():
+    """Resumo somente leitura em uma única query, sem criar nova fonte de negócio."""
+    conn = conectar()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT
+              (SELECT COUNT(*) FROM ordens_producao
+               WHERE UPPER(COALESCE(status, 'ABERTA')) NOT IN
+                 ('ENCERRADA','ESTORNADA','ESTORNADO','CANCELADA','CANCELADO')) AS ops_ativas,
+              (SELECT COUNT(*) FROM pa_nao_conformes
+               WHERE UPPER(COALESCE(status, 'BLOQUEADO')) NOT IN
+                 ('LIBERADO','RETRABALHO','REPROCESSADO','DESCARTADO','CANCELADO','CANCELADA','ESTORNADO')) AS pnc_ativos,
+              (SELECT COUNT(*) FROM pedidos_venda
+               WHERE UPPER(COALESCE(status, 'RASCUNHO')) IN
+                 ('CONFIRMADO','PARCIALMENTE_ATENDIDO')) AS pedidos_pendentes
+        """)
+        linha = cursor.fetchone()
+        valores = dict(linha) if linha is not None else {}
+    except Exception:
+        valores = {}
+    finally:
+        conn.close()
+
+    definicoes = [
+        ("OPs em andamento", "ops_ativas", "relatorio_producao_oficial", {"slug": "producao-por-op"}, "Ordens ainda não encerradas."),
+        ("PNC ativos", "pnc_ativos", "produtos_nao_conformes", {"situacao": "ATIVOS"}, "Registros não conformes ainda ativos."),
+        ("Pedidos pendentes", "pedidos_pendentes", "pedidos_venda", {"status": "CONFIRMADO"}, "Pedidos confirmados ou parcialmente atendidos."),
+    ]
+    return [
+        {"titulo": titulo, "valor": valores.get(campo), "endpoint": endpoint,
+         "args": args, "explicacao": explicacao}
+        for titulo, campo, endpoint, args, explicacao in definicoes
+    ]
+
+
+def montar_alertas_operacao(posicao):
+    alertas = []
+    for item in posicao:
+        if item["titulo"] in ("PNC ativos", "Pedidos pendentes") and (item.get("valor") or 0) > 0:
+            alertas.append({
+                "titulo": item["titulo"], "motivo": item["explicacao"],
+                "periodo": "Posição atual", "dominio": "Operação",
+                "link_endpoint": item["endpoint"], "link_args": item["args"],
+            })
+    return alertas
 
 
 def montar_contexto_dashboard_executivo(args):
@@ -806,6 +879,9 @@ def montar_contexto_dashboard_executivo(args):
     tendencias = montar_tendencias_indicadores(indicadores, filtros)
     tendencias_por_id = {item["id"]: item for item in tendencias}
     itens = [enriquecer_item_dashboard(item, tendencias_por_id.get(item["id"])) for item in comparativos]
+    itens_posicao = [item for item in itens if str(item.get("referencia_temporal") or "").strip().lower() == "posicao atual"]
+    itens_periodo = [item for item in itens if item not in itens_posicao]
+    posicao_operacao = montar_posicao_atual_operacao()
     anterior_inicio, anterior_fim = deslocar_periodo_anterior(filtros["data_inicio"], filtros["data_fim"])
 
     return {
@@ -816,7 +892,10 @@ def montar_contexto_dashboard_executivo(args):
         "periodo_anterior": f"{anterior_inicio} a {anterior_fim}",
         "consultado_em": datetime.now().strftime("%d/%m/%Y %H:%M"),
         "itens": itens,
-        "alertas": montar_alertas_dashboard(itens),
+        "itens_posicao": itens_posicao,
+        "itens_periodo": itens_periodo,
+        "posicao_operacao": posicao_operacao,
+        "alertas": (montar_alertas_operacao(posicao_operacao) + montar_alertas_dashboard(itens))[:5],
         "blocos": montar_blocos_dashboard(filtros),
         "dependencias": DEPENDENCIAS_DASHBOARD_EXECUTIVO,
         "query_todos": query_dashboard(filtros, {"bloco": "Todos"}),
@@ -824,12 +903,19 @@ def montar_contexto_dashboard_executivo(args):
         "opcoes": {
             "blocos": ["Resumo", "Financeiro", "Producao", "Almoxarifado", "Expedicao", "Todos"],
             "granularidades": [("dia", "Dia"), ("semana", "Semana"), ("mes", "Mes")],
+            "periodos": [("hoje", "Hoje"), ("mes_atual", "Mês atual"), ("mes_anterior", "Mês anterior"), ("personalizado", "Personalizado")],
         },
+        "acoes_rapidas": [
+            {"titulo": "Ordens de Produção", "endpoint": "ordem_producao", "perfis": ("admin", "pcp")},
+            {"titulo": "Produtos Não Conformes", "endpoint": "produtos_nao_conformes", "perfis": ("admin", "pcp", "qualidade", "gerencia")},
+            {"titulo": "Pedidos de Venda", "endpoint": "pedidos_venda", "perfis": ("admin", "pcp", "gerencia")},
+            {"titulo": "CMV e Estoque Valorizado", "endpoint": "cmv_gerencial", "perfis": ("admin", "pcp", "gerencia")},
+        ],
         "limitacoes": [
             "O Dashboard Executivo nao grava dados e nao substitui relatorios oficiais.",
             "Comparativos e tendencias sao consumidos da camada gerencial homologada.",
             "A abertura inicial carrega somente o nucleo executivo; dominios completos sao carregados sob demanda.",
-            "CMV, OEE, Vendas, Giro, FIFO e Rastreabilidade completa permanecem em evolucao.",
+            "CMV está disponível com cobertura explicitada; OEE, Vendas, Giro, FIFO e Rastreabilidade completa permanecem em evolução.",
         ],
     }
 

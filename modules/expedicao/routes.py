@@ -926,7 +926,7 @@ def register_expedicao_routes(app, integracoes=None):
         )
 
     @app.route("/expedicao/relatorio-entregas.pdf")
-    @perfil_permitido("pcp", "qualidade")
+    @perfil_permitido("pcp", "qualidade", "gerencia")
     def relatorio_entregas_expedicao():
         filtros = {
             "numero": request.args.get("numero") or "",
