@@ -978,6 +978,8 @@ def salvar_movimentacao_financeira(
     documento_id = uuid.uuid4().hex
     total_parcelas = len(parcelas_validas)
     plano = derivar_plano_movimentacao(categoria, form.get("plano_conta_id"))
+    if not plano["plano_conta_id"] or not plano["grupo_gerencial"] or not plano["linha_dre"]:
+        raise ValueError("Selecione uma conta do Plano de Contas com grupo e linha DRE estruturados.")
     categoria = plano["categoria_movimentacao"]
 
     conn = conectar()

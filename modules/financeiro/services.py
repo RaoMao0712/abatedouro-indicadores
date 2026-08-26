@@ -366,6 +366,6 @@ def diagnostico_categorias_legadas():
             "Receita Bruta passa a ser linha_dre do Plano de Contas, nao origem_importacao",
             "Aportes e Transferencias ficam fora da Receita Bruta operacional",
             "Marketing, impostos, taxas e investimentos ficam fora do Resultado Operacional",
-            "CMV permanece como linha estrutural com calculo congelado pela regra atual",
+            "CMV e calculado apenas pelo subledger FIFO; custo ausente permanece N/A",
         ],
     }

@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block conteudo %}
+<section class="hero-dashboard">
+  <div><span class="eyebrow">Financeiro</span><h2>CMV e estoque valorizado</h2>
+    <p>Razão FIFO gerencial, segregado do estoque físico.</p></div>
+  <form method="get"><label>Início</label><input type="date" name="data_inicio" value="{{ data_inicio }}" required>
+    <label>Fim</label><input type="date" name="data_fim" value="{{ data_fim }}" required><button type="submit">Aplicar</button></form>
+  <div><a class="botao-dre-exportar" href="{{ url_for('cmv_exportar_excel', data_inicio=data_inicio, data_fim=data_fim) }}">Excel</a>
+    <a class="botao-dre-imprimir" href="{{ url_for('cmv_exportar_pdf', data_inicio=data_inicio, data_fim=data_fim) }}">PDF</a></div>
+</section>
+<div class="cards-executivos">
+  <div class="kpi-card"><span class="kpi-label">Estado do cálculo</span><strong>{{ resumo.estado_calculo }}</strong><small>Qualidade da base de custo</small></div>
+  <div class="kpi-card"><span class="kpi-label">CMV conhecido</span><strong>{% if resumo.cmv_total is not none %}{{ resumo.cmv_total|br_moeda }}{% else %}N/A{% endif %}</strong><small>Somente camadas oficiais</small></div>
+  <div class="kpi-card destaque"><span class="kpi-label">Cobertura</span><strong>{{ resumo.cobertura_percentual|br_percentual }}</strong><small>Quantidade vendida com custo</small></div>
+  <div class="kpi-card {% if resumo.quantidade_sem_custo %}alerta{% endif %}"><span class="kpi-label">Quantidade sem custo</span><strong>{{ resumo.quantidade_sem_custo|br_numero }}</strong><small>Lacuna não mascarada</small></div>
+</div>
+<section class="card"><div class="section-title-row"><div><span class="eyebrow">Rastreabilidade</span><h2>Consumos FIFO</h2></div></div>
+<div class="tabela-responsiva"><table><thead><tr><th>Data</th><th>Documento</th><th>Produto</th><th>Qtd.</th><th>Camada</th><th>Custo unit.</th><th>Custo total</th><th>Origem</th></tr></thead><tbody>
+{% for item in detalhes %}<tr><td>{{ item.data_evento }}</td><td>{{ item.documento }}</td><td>{{ item.produto }}</td><td>{{ item.quantidade|br_numero }} {{ item.unidade }}</td><td>{{ item.camada_id or 'Sem camada' }}</td><td>{% if item.custo_conhecido %}{{ item.custo_unitario|br_moeda }}{% else %}N/A{% endif %}</td><td>{% if item.custo_conhecido %}{{ item.custo_total|br_moeda }}{% else %}N/A{% endif %}</td><td>{{ item.origem_custo or 'Custo não disponível' }}</td></tr>
+{% else %}<tr><td colspan="8">Nenhum evento de CMV no período. A ausência não é apresentada como custo zero.</td></tr>{% endfor %}
+</tbody></table></div></section>
+<section class="card"><div class="section-title-row"><div><span class="eyebrow">Posição</span><h2>Estoque valorizado</h2></div></div>
+<div class="tabela-responsiva"><table><thead><tr><th>Produto</th><th>Unidade</th><th>Quantidade</th><th>Com custo</th><th>Sem custo</th><th>Cobertura</th><th>Valor conhecido</th></tr></thead><tbody>
+{% for item in estoque %}<tr><td>{{ item.produto }}</td><td>{{ item.unidade }}</td><td>{{ item.quantidade|br_numero }}</td><td>{{ item.quantidade_com_custo|br_numero }}</td><td>{{ item.quantidade_sem_custo|br_numero }}</td><td>{{ item.cobertura_percentual|br_percentual }}</td><td>{{ item.valor_conhecido|br_moeda }}</td></tr>
+{% else %}<tr><td colspan="7">Nenhuma camada de custo oficial registrada.</td></tr>{% endfor %}
+</tbody></table></div><p class="obs">Saldos físicos legados sem custo confiável permanecem fora do valor conhecido até reconciliação explícita.</p></section>
+{% endblock %}

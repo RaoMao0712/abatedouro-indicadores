@@ -67,14 +67,14 @@
 
             <div class="dre-tabela-oficial-row saida">
                 <div><strong>(-) CMV</strong><small>Custo das mercadorias vendidas</small></div>
-                <strong>- {{ cmv_total|br_moeda }}</strong>
-                <strong>{{ cmv_percentual|br_percentual }}</strong>
+                <strong>{% if cmv_total is not none %}- {{ cmv_total|br_moeda }}{% else %}N/A{% endif %}</strong>
+                <strong>{% if cmv_percentual is not none %}{{ cmv_percentual|br_percentual }}{% else %}N/A{% endif %}</strong>
             </div>
 
             <div class="dre-tabela-oficial-row total">
                 <div><strong>= Margem Bruta</strong><small>Margem sobre a receita</small></div>
-                <strong>{{ margem_bruta|br_moeda }}</strong>
-                <strong>{{ margem_bruta_percentual|br_percentual }}</strong>
+                <strong>{% if margem_bruta is not none %}{{ margem_bruta|br_moeda }}{% else %}N/A{% endif %}</strong>
+                <strong>{% if margem_bruta_percentual is not none %}{{ margem_bruta_percentual|br_percentual }}{% else %}N/A{% endif %}</strong>
             </div>
 
             <div class="dre-tabela-oficial-row saida">
@@ -83,10 +83,10 @@
                 <strong>{{ custos_operacionais_percentual|br_percentual }}</strong>
             </div>
 
-            <div class="dre-tabela-oficial-row resultado {% if resultado_operacional >= 0 %}positivo{% else %}negativo{% endif %}">
+            <div class="dre-tabela-oficial-row resultado {% if resultado_operacional is not none and resultado_operacional >= 0 %}positivo{% else %}negativo{% endif %}">
                 <div><strong>= Resultado Operacional</strong><small>Margem operacional</small></div>
-                <strong>{% if resultado_operacional < 0 %}- {% endif %}{{ (resultado_operacional|abs)|br_moeda }}</strong>
-                <strong>{{ margem_operacional_percentual|br_percentual }}</strong>
+                <strong>{% if resultado_operacional is none %}N/A{% else %}{% if resultado_operacional < 0 %}- {% endif %}{{ (resultado_operacional|abs)|br_moeda }}{% endif %}</strong>
+                <strong>{% if margem_operacional_percentual is not none %}{{ margem_operacional_percentual|br_percentual }}{% else %}N/A{% endif %}</strong>
             </div>
 
             <div class="dre-tabela-oficial-row {% if resultado_nao_operacional >= 0 %}receita{% else %}saida{% endif %}">
@@ -95,10 +95,10 @@
                 <strong>{{ ((resultado_nao_operacional / receita_bruta * 100) if receita_bruta > 0 else 0)|br_percentual }}</strong>
             </div>
 
-            <div class="dre-tabela-oficial-row resultado {% if resultado_gerencial_periodo >= 0 %}positivo{% else %}negativo{% endif %}">
+            <div class="dre-tabela-oficial-row resultado {% if resultado_gerencial_periodo is not none and resultado_gerencial_periodo >= 0 %}positivo{% else %}negativo{% endif %}">
                 <div><strong>= Resultado Liquido Gerencial</strong><small>Resultado Operacional mais Resultado Nao Operacional</small></div>
-                <strong>{% if resultado_gerencial_periodo < 0 %}- {% endif %}{{ (resultado_gerencial_periodo|abs)|br_moeda }}</strong>
-                <strong>{{ ((resultado_gerencial_periodo / receita_bruta * 100) if receita_bruta > 0 else 0)|br_percentual }}</strong>
+                <strong>{% if resultado_gerencial_periodo is none %}N/A{% else %}{% if resultado_gerencial_periodo < 0 %}- {% endif %}{{ (resultado_gerencial_periodo|abs)|br_moeda }}{% endif %}</strong>
+                <strong>{% if resultado_gerencial_periodo is not none and receita_bruta > 0 %}{{ (resultado_gerencial_periodo / receita_bruta * 100)|br_percentual }}{% else %}N/A{% endif %}</strong>
             </div>
         </div>
     </section>
@@ -116,8 +116,8 @@
         <div class="card dre-mini-kpi dre-kpi-oficial kpi-cmv">
             <div>
                 <span>CMV</span>
-                <strong>{{ cmv_total|br_moeda }}</strong>
-                <small>{{ cmv_percentual|br_percentual }} sobre a receita</small>
+                <strong>{% if cmv_total is not none %}{{ cmv_total|br_moeda }}{% else %}N/A{% endif %}</strong>
+                <small>{{ cmv_estado }} · cobertura {{ cmv_cobertura_percentual|br_percentual }}</small>
             </div>
             <b>▾</b>
         </div>
@@ -125,19 +125,19 @@
         <div class="card dre-mini-kpi dre-kpi-oficial kpi-margem">
             <div>
                 <span>Margem Bruta</span>
-                <strong>{{ margem_bruta|br_moeda }}</strong>
-                <small>{{ margem_bruta_percentual|br_percentual }} sobre a receita</small>
+                <strong>{% if margem_bruta is not none %}{{ margem_bruta|br_moeda }}{% else %}N/A{% endif %}</strong>
+                <small>{% if margem_bruta_percentual is not none %}{{ margem_bruta_percentual|br_percentual }} sobre a receita líquida{% else %}Depende de CMV calculável{% endif %}</small>
             </div>
             <b>↗</b>
         </div>
 
-        <div class="card dre-mini-kpi dre-kpi-oficial kpi-resultado {% if resultado_operacional >= 0 %}resultado-positivo{% else %}resultado-negativo{% endif %}">
+        <div class="card dre-mini-kpi dre-kpi-oficial kpi-resultado {% if resultado_operacional is not none and resultado_operacional >= 0 %}resultado-positivo{% else %}resultado-negativo{% endif %}">
             <div>
                 <span>Resultado Operacional</span>
-                <strong>{% if resultado_operacional < 0 %}- {% endif %}{{ (resultado_operacional|abs)|br_moeda }}</strong>
-                <small>{{ margem_operacional_percentual|br_percentual }} de margem operacional</small>
+                <strong>{% if resultado_operacional is none %}N/A{% else %}{% if resultado_operacional < 0 %}- {% endif %}{{ (resultado_operacional|abs)|br_moeda }}{% endif %}</strong>
+                <small>{% if margem_operacional_percentual is not none %}{{ margem_operacional_percentual|br_percentual }} de margem operacional{% else %}Depende de CMV calculável{% endif %}</small>
             </div>
-            <b>{% if resultado_operacional >= 0 %}↗{% else %}↘{% endif %}</b>
+            <b>{% if resultado_operacional is not none and resultado_operacional >= 0 %}↗{% else %}↘{% endif %}</b>
         </div>
     </aside>
 
@@ -182,14 +182,14 @@
                     {{ item.quantidade_unidades|br_numero }} {% if item.sku == 'Galinha Cortada' %}bandejas{% else %}unidades{% endif %}
                     {% if item.sku == 'Galinha Cortada' %}<br>{{ item.quantidade_kg|br_numero }} kg{% endif %}
                 </small>
-                <small>{{ item.materia_prima|br_moeda }}</small>
-                <small>{{ item.embalagem|br_moeda }}</small>
-                <strong>{{ item.cmv|br_moeda }}</strong>
+                <small>N/A por componente</small>
+                <small>N/A por componente</small>
+                <strong>{% if item.cmv is not none %}{{ item.cmv|br_moeda }}{% else %}N/A{% endif %}</strong>
                 <strong>
                     {% if item.sku == 'Galinha Cortada' %}
-                        {{ item.cmv_por_kg|br_moeda }} / kg
+                        {% if item.cmv_por_kg is not none %}{{ item.cmv_por_kg|br_moeda }} / kg{% else %}N/A{% endif %}
                     {% else %}
-                        {{ item.cmv_por_unidade|br_moeda }} / un.
+                        {% if item.cmv_por_unidade is not none %}{{ item.cmv_por_unidade|br_moeda }} / un.{% else %}N/A{% endif %}
                     {% endif %}
                 </strong>
             </div>
@@ -198,14 +198,13 @@
             <div class="dre-tabela-row dre-cmv-row dre-total-geral-row">
                 <span>Total Geral</span>
                 <small></small>
-                <small>{{ cmv_por_sku|sum(attribute='materia_prima')|br_moeda }}</small>
-                <small>{{ cmv_por_sku|sum(attribute='embalagem')|br_moeda }}</small>
-                <strong>{{ cmv_total|br_moeda }}</strong>
+                <small>-</small><small>-</small>
+                <strong>{% if cmv_total is not none %}{{ cmv_total|br_moeda }}{% else %}N/A{% endif %}</strong>
                 <strong>-</strong>
             </div>
         </div>
 
-        <p class="obs dre-obs">CMV Galinha Cortada: (custo da ave viva + custo da embalagem) × quantidade de bandejas vendidas. CMV/kg = CMV total ÷ kg vendidos. Galinha Inteira: 1 × 1 por unidade.</p>
+        <p class="obs dre-obs">CMV por consumo FIFO de camadas oficiais. Cobertura: {{ cmv_cobertura_percentual|br_percentual }}; com custo: {{ cmv_quantidade_com_custo|br_numero }}; sem custo: {{ cmv_quantidade_sem_custo|br_numero }}. Custo ausente nunca é tratado como zero.</p>
     </div>
 </div>
 
@@ -243,12 +242,14 @@
 
 <div class="card dre-leitura-executiva dre-leitura-oficial">
     <strong>Leitura executiva:</strong>
-    {% if resultado_operacional >= 0 %}
+    {% if resultado_operacional is none %}
+        Resultado operacional não calculável porque o CMV não possui cobertura integral.
+    {% elif resultado_operacional >= 0 %}
         A operação apresentou resultado operacional positivo na competência analisada.
     {% else %}
         A operação apresentou resultado operacional negativo na competência analisada.
     {% endif %}
-    A DRE considera receita de venda, CMV por unidade/bandeja vendida e custos mensais lançados no FrigoDatta.
+    A DRE usa competência documental para receitas/despesas e o razão FIFO oficial para CMV.
 </div>
 
 {% endblock %}

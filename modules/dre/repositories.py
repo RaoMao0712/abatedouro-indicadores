@@ -136,11 +136,7 @@ def buscar_custos_operacionais_movimentacoes_por_categoria(competencia):
     WHERE tipo IN (?, ?, ?, ?)
       AND COALESCE(status, 'Pendente') <> ?
       AND data_documento BETWEEN ? AND ?
-      AND (
-        linha_dre = ?
-        OR linha_dre IS NULL
-        OR TRIM(linha_dre) = ''
-      )
+      AND linha_dre = ?
     GROUP BY COALESCE(NULLIF(categoria_plano, ''), categoria)
     ORDER BY categoria
     """), (*TIPOS_SAIDA, "Cancelado", data_inicio, data_fim, LINHA_DESPESAS_OPERACIONAIS))

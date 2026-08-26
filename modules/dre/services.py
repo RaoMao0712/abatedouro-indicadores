@@ -7,16 +7,10 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-from database import conectar, q
 from . import repositories as repository
 from modules.custos.services import CATEGORIAS_CUSTOS
-from modules.financeiro.services import (
-    LINHA_DEDUCOES_RECEITA,
-    LINHA_DESPESAS_OPERACIONAIS,
-    LINHA_RECEITA_BRUTA,
-    LINHA_RESULTADO_NAO_OPERACIONAL,
-    categoria_impacta_resultado_operacional,
-)
+from modules.cmv.services import resumo_periodo as buscar_resumo_cmv
+from modules.financeiro.services import categoria_impacta_resultado_operacional
 
 
 def formatar_numero_br(valor, casas=2):
@@ -211,8 +205,8 @@ def buscar_dados_dre_gerencial(competencia):
     data_inicio = f"{competencia}-01"
     data_fim = f"{competencia}-{ultimo_dia:02d}"
 
-    # CMV temporariamente congelado: vendas_diarias ainda fornece quantidades/SKUs
-    # para o calculo do CMV, mas nao alimenta mais Receita Bruta.
+    # Vendas legadas fornecem apenas a quantidade de lacuna quando ainda nao
+    # existe evento quantitativo oficial no subledger de CMV.
     vendas_linhas = [
         normalizar_venda_para_dre(item)
         for item in repository.buscar_vendas_periodo(data_inicio, data_fim)
@@ -261,58 +255,30 @@ def buscar_dados_dre_gerencial(competencia):
             "preco_medio": round(preco_medio, 4)
         })
 
-    parametros = repository.buscar_parametros_custos_por_sku()
-
+    # CMV usa exclusivamente o subledger FIFO. Parametros atuais de custo por
+    # SKU nao sao custo historico oficial e deixam de mascarar lacunas com zero.
+    cmv = buscar_resumo_cmv(data_inicio, data_fim)
+    if not cmv["linhas"] and vendas_por_sku_dict:
+        # A venda legada prova a saida, mas nao possui camada oficial vinculada.
+        # Ela compoe a lacuna de cobertura sem receber custo estimado.
+        quantidade_legada = sum(float(venda["quantidade_kg"] or venda["quantidade_unidades"] or 0)
+                                for venda in vendas_por_sku_dict.values())
+        cmv.update({"quantidade_vendida": quantidade_legada, "quantidade_com_custo": 0,
+                    "quantidade_sem_custo": quantidade_legada, "cobertura_percentual": 0,
+                    "estado_calculo": "NAO_CALCULAVEL", "cmv_total": None})
+    cmv_total = cmv["cmv_total"] if cmv["estado_calculo"] == "CALCULAVEL" else None
     cmv_por_sku = []
-    cmv_total = 0
-
-    for sku, venda in vendas_por_sku_dict.items():
-        parametros_sku = parametros.get(sku)
-
-        custo_ave = 0
-        custo_embalagem = 0
-
-        if parametros_sku:
-            custo_ave = float(parametros_sku["custo_ave"] or 0)
-            custo_embalagem = float(parametros_sku["custo_embalagem"] or 0)
-
-        quantidade_unidades = float(venda["quantidade_unidades"] or 0)
-        quantidade_kg = float(venda["quantidade_kg"] or 0)
-
-        # Regra atual validada:
-        # Galinha Cortada: (ave viva + embalagem) x bandejas vendidas.
-        # CMV por kg = CMV total / kg vendidos.
-        # Galinha Inteira: 1 x 1 por unidade vendida.
-        custo_materia_prima_unitario = custo_ave
-        custo_embalagem_unitario = custo_embalagem
-        quantidade_cmv = quantidade_unidades
-
-        custo_materia_prima = quantidade_cmv * custo_materia_prima_unitario
-        custo_embalagens = quantidade_cmv * custo_embalagem_unitario
-        cmv_sku = custo_materia_prima + custo_embalagens
-        cmv_total += cmv_sku
-
-        cmv_por_kg = 0
-        if sku == "Galinha Cortada" and quantidade_kg > 0:
-            cmv_por_kg = cmv_sku / quantidade_kg
-
-        cmv_por_unidade = 0
-        if quantidade_cmv > 0:
-            cmv_por_unidade = cmv_sku / quantidade_cmv
-
+    for item in cmv["linhas"]:
+        quantidade = float(item["quantidade"] or 0)
+        custo = float(item["custo_total"]) if item["custo_total"] is not None else None
         cmv_por_sku.append({
-            "sku": sku,
-            "quantidade_vendida": round(quantidade_kg if sku == "Galinha Cortada" else quantidade_unidades, 2),
-            "quantidade_unidades": round(quantidade_unidades, 2),
-            "quantidade_kg": round(quantidade_kg, 2),
-            "custo_materia_prima_unitario": round(custo_materia_prima_unitario, 4),
-            "custo_embalagem_unitario": round(custo_embalagem_unitario, 4),
-            "materia_prima": round(custo_materia_prima, 2),
-            "embalagem": round(custo_embalagens, 2),
-            "cmv": round(cmv_sku, 2),
-            "cmv_por_kg": round(cmv_por_kg, 4),
-            "cmv_por_unidade": round(cmv_por_unidade, 4),
-            "observacao_calculo": "CMV por bandeja vendida; CMV/kg calculado pelos kg vendidos." if sku == "Galinha Cortada" else "CMV 1 x 1 por unidade vendida."
+            "sku": item["produto"], "unidade": item["unidade"],
+            "quantidade_vendida": quantidade, "quantidade_unidades": quantidade,
+            "quantidade_kg": quantidade if item["unidade"] == "KG" else 0,
+            "materia_prima": None, "embalagem": None, "cmv": custo,
+            "cmv_por_kg": custo / quantidade if custo is not None and quantidade > 0 and item["unidade"] == "KG" else None,
+            "cmv_por_unidade": custo / quantidade if custo is not None and quantidade > 0 else None,
+            "estado_calculo": cmv["estado_calculo"],
         })
 
     custos_raw = repository.buscar_custos_operacionais_movimentacoes_por_categoria(competencia)
@@ -333,10 +299,10 @@ def buscar_dados_dre_gerencial(competencia):
         custos[categoria] = custos.get(categoria, 0) + valor
 
     custos_operacionais_total = sum(custos.values())
-    margem_bruta = receita_operacional_liquida - cmv_total
-    resultado_operacional = margem_bruta - custos_operacionais_total
+    margem_bruta = receita_operacional_liquida - cmv_total if cmv_total is not None else None
+    resultado_operacional = margem_bruta - custos_operacionais_total if margem_bruta is not None else None
     resultado_nao_operacional = repository.buscar_resultado_nao_operacional_movimentacoes(data_inicio, data_fim)
-    resultado_gerencial_periodo = resultado_operacional + resultado_nao_operacional
+    resultado_gerencial_periodo = resultado_operacional + resultado_nao_operacional if resultado_operacional is not None else None
 
     def perc(valor):
         if receita_bruta > 0:
@@ -361,144 +327,35 @@ def buscar_dados_dre_gerencial(competencia):
         "deducoes_receita": round(deducoes_receita, 2),
         "receita_operacional_liquida": round(receita_operacional_liquida, 2),
         "vendas_por_sku": vendas_por_sku,
-        "cmv_total": round(cmv_total, 2),
-        "cmv_percentual": round(perc(cmv_total), 2),
+        "cmv_total": round(cmv_total, 2) if cmv_total is not None else None,
+        "cmv_percentual": round(perc(cmv_total), 2) if cmv_total is not None else None,
+        "cmv_estado": cmv["estado_calculo"],
+        "cmv_cobertura_percentual": cmv["cobertura_percentual"],
+        "cmv_quantidade_com_custo": cmv["quantidade_com_custo"],
+        "cmv_quantidade_sem_custo": cmv["quantidade_sem_custo"],
         "cmv_por_sku": cmv_por_sku,
-        "margem_bruta": round(margem_bruta, 2),
-        "margem_bruta_percentual": round(perc(margem_bruta), 2),
+        "margem_bruta": round(margem_bruta, 2) if margem_bruta is not None else None,
+        "margem_bruta_percentual": round(margem_bruta / receita_operacional_liquida * 100, 2) if margem_bruta is not None and receita_operacional_liquida else None,
         "custos_operacionais_total": round(custos_operacionais_total, 2),
         "custos_operacionais_percentual": round(perc(custos_operacionais_total), 2),
         "linhas_custos": linhas_custos,
         "linhas_custos_executivas": linhas_custos_executivas,
         "despesas_grafico": despesas_grafico,
-        "resultado_operacional": round(resultado_operacional, 2),
+        "resultado_operacional": round(resultado_operacional, 2) if resultado_operacional is not None else None,
         "resultado_nao_operacional": round(resultado_nao_operacional, 2),
-        "resultado_gerencial_periodo": round(resultado_gerencial_periodo, 2),
-        "margem_operacional_percentual": round(perc(resultado_operacional), 2)
+        "resultado_gerencial_periodo": round(resultado_gerencial_periodo, 2) if resultado_gerencial_periodo is not None else None,
+        "margem_operacional_percentual": round(resultado_operacional / receita_operacional_liquida * 100, 2) if resultado_operacional is not None and receita_operacional_liquida else None
     }
 
 
 def buscar_resumo_dre_gerencial(competencia):
-    ano, mes = competencia.split("-")
-    ultimo_dia = calendar.monthrange(int(ano), int(mes))[1]
-    data_inicio = f"{competencia}-01"
-    data_fim = f"{competencia}-{ultimo_dia:02d}"
-
-    conn = conectar()
-    cursor = conn.cursor()
-
-    cursor.execute(q("""
-    SELECT *
-    FROM vendas_diarias
-    WHERE data BETWEEN ? AND ?
-    ORDER BY sku ASC, data ASC, id ASC
-    """), (data_inicio, data_fim))
-    vendas_linhas = [normalizar_venda_para_dre(item) for item in cursor.fetchall()]
-    vendas_por_sku_dict = {}
-    for item in vendas_linhas:
-        sku = item["sku"]
-        venda = vendas_por_sku_dict.setdefault(sku, {"quantidade_unidades": 0, "quantidade_kg": 0})
-        venda["quantidade_unidades"] += item["quantidade_unidades"]
-        venda["quantidade_kg"] += item["quantidade_kg"]
-
-    cursor.execute(q("""
-    SELECT COALESCE(SUM(valor), 0) as total
-    FROM movimentacoes_financeiras
-    WHERE tipo = ?
-      AND COALESCE(status, 'Pendente') <> ?
-      AND data_documento BETWEEN ? AND ?
-      AND (
-        linha_dre = ?
-        OR categoria IN (?, ?, ?)
-      )
-    """), (
-        "Entrada", "Cancelado", data_inicio, data_fim,
-        LINHA_RECEITA_BRUTA,
-        "Receita Bruta", "Venda de Producao Propria", "Venda de Mercadorias",
-    ))
-    receita_bruta = float(cursor.fetchone()["total"] or 0)
-
-    cursor.execute(q("""
-    SELECT COALESCE(SUM(valor), 0) as total
-    FROM movimentacoes_financeiras
-    WHERE COALESCE(status, 'Pendente') <> ?
-      AND data_documento BETWEEN ? AND ?
-      AND linha_dre = ?
-      AND tipo IN (?, ?, ?, ?)
-      AND COALESCE(tipo_conta, 'Saida') <> ?
-    """), ("Cancelado", data_inicio, data_fim, LINHA_DEDUCOES_RECEITA, *repository.TIPOS_SAIDA, "Neutro"))
-    deducoes_receita = float(cursor.fetchone()["total"] or 0)
-    receita_operacional_liquida = receita_bruta - deducoes_receita
-
-    cursor.execute("SELECT * FROM parametros_custos")
-    parametros = {item["sku"]: item for item in cursor.fetchall()}
-    cmv_total = 0
-    for sku, venda in vendas_por_sku_dict.items():
-        parametros_sku = parametros.get(sku)
-        custo_ave = float(parametros_sku["custo_ave"] or 0) if parametros_sku else 0
-        custo_embalagem = float(parametros_sku["custo_embalagem"] or 0) if parametros_sku else 0
-        quantidade_cmv = float(venda["quantidade_unidades"] or 0)
-        cmv_total += quantidade_cmv * custo_ave + quantidade_cmv * custo_embalagem
-
-    cursor.execute(q("""
-    SELECT
-        COALESCE(NULLIF(categoria_plano, ''), categoria) as categoria,
-        COALESCE(SUM(valor), 0) as total
-    FROM movimentacoes_financeiras
-    WHERE tipo IN (?, ?, ?, ?)
-      AND COALESCE(status, 'Pendente') <> ?
-      AND data_documento BETWEEN ? AND ?
-      AND (
-        linha_dre = ?
-        OR linha_dre IS NULL
-        OR TRIM(linha_dre) = ''
-      )
-    GROUP BY COALESCE(NULLIF(categoria_plano, ''), categoria)
-    ORDER BY categoria
-    """), (*repository.TIPOS_SAIDA, "Cancelado", data_inicio, data_fim, LINHA_DESPESAS_OPERACIONAIS))
-    custos_raw = cursor.fetchall()
-    custos_operacionais_total = 0
-    linhas_custos = []
-    for item in custos_raw:
-        categoria = item["categoria"]
-        valor = float(item["total"] or 0)
-        if not categoria_impacta_resultado_operacional(categoria):
-            continue
-        custos_operacionais_total += valor
-        linhas_custos.append({"categoria": categoria, "valor": round(valor, 2)})
-
-    margem_bruta = receita_operacional_liquida - cmv_total
-    resultado_operacional = margem_bruta - custos_operacionais_total
-    cursor.execute(q("""
-    SELECT
-        COALESCE(SUM(
-            CASE
-                WHEN tipo = ? THEN valor
-                WHEN tipo IN (?, ?, ?, ?) THEN -valor
-                ELSE 0
-            END
-        ), 0) as total
-    FROM movimentacoes_financeiras
-    WHERE COALESCE(status, 'Pendente') <> ?
-      AND data_documento BETWEEN ? AND ?
-      AND linha_dre = ?
-      AND COALESCE(tipo_conta, '') <> ?
-    """), ("Entrada", *repository.TIPOS_SAIDA, "Cancelado", data_inicio, data_fim, LINHA_RESULTADO_NAO_OPERACIONAL, "Neutro"))
-    resultado_nao_operacional = float(cursor.fetchone()["total"] or 0)
-    conn.close()
-    resultado_gerencial_periodo = resultado_operacional + resultado_nao_operacional
-
-    return {
-        "receita_bruta": round(receita_bruta, 2),
-        "deducoes_receita": round(deducoes_receita, 2),
-        "receita_operacional_liquida": round(receita_operacional_liquida, 2),
-        "custos_operacionais_total": round(custos_operacionais_total, 2),
-        "resultado_operacional": round(resultado_operacional, 2),
-        "resultado_nao_operacional": round(resultado_nao_operacional, 2),
-        "resultado_gerencial_periodo": round(resultado_gerencial_periodo, 2),
-        "linhas_custos": linhas_custos,
-    }
-
+    # Dashboard e relatorios compartilham rigorosamente o mesmo calculo da tela.
+    dados = buscar_dados_dre_gerencial(competencia)
+    return {chave: dados[chave] for chave in (
+        "receita_bruta", "deducoes_receita", "receita_operacional_liquida",
+        "cmv_total", "cmv_estado", "cmv_cobertura_percentual", "margem_bruta",
+        "custos_operacionais_total", "resultado_operacional",
+        "resultado_nao_operacional", "resultado_gerencial_periodo", "linhas_custos")}
 
 def gerar_excel_dre_gerencial(competencia, dados):
     wb = Workbook()
@@ -517,7 +374,7 @@ def gerar_excel_dre_gerencial(competencia, dados):
     fill_cinza = PatternFill("solid", fgColor=cinza)
     fill_resultado = PatternFill(
         "solid",
-        fgColor=azul_resultado if dados["resultado_operacional"] >= 0 else vermelho
+        fgColor=azul_resultado if dados["resultado_operacional"] is not None and dados["resultado_operacional"] >= 0 else vermelho
     )
 
     fonte_titulo = Font(color=branco, bold=True, size=16)
@@ -560,7 +417,7 @@ def gerar_excel_dre_gerencial(competencia, dados):
         celula.border = borda
 
     def perc_excel(valor, base):
-        return (valor / base * 100) if base else 0
+        return (valor / base * 100) if valor is not None and base else None
 
     kpis = [
         ("Receita Bruta", dados["receita_bruta"], 100 if dados["receita_bruta"] > 0 else 0, "Central de Movimentacoes"),
@@ -577,8 +434,8 @@ def gerar_excel_dre_gerencial(competencia, dados):
     for item in kpis:
         linha += 1
         ws[f"A{linha}"] = item[0]
-        ws[f"B{linha}"] = item[1]
-        ws[f"C{linha}"] = item[2] / 100
+        ws[f"B{linha}"] = item[1] if item[1] is not None else "N/A"
+        ws[f"C{linha}"] = item[2] / 100 if item[2] is not None else "N/A"
         ws[f"D{linha}"] = item[3]
 
         for col in range(1, 5):
@@ -657,7 +514,9 @@ def gerar_excel_dre_gerencial(competencia, dados):
     ws.merge_cells(start_row=linha, start_column=1, end_row=linha, end_column=4)
     ws.cell(row=linha, column=1).value = (
         "Leitura executiva: "
-        + ("A operação apresentou resultado operacional positivo." if dados["resultado_operacional"] >= 0 else "A operação apresentou resultado operacional negativo.")
+        + ("Resultado operacional nao calculavel por cobertura insuficiente do CMV."
+           if dados["resultado_operacional"] is None else
+           ("A operação apresentou resultado operacional positivo." if dados["resultado_operacional"] >= 0 else "A operação apresentou resultado operacional negativo."))
     )
     ws.cell(row=linha, column=1).alignment = Alignment(wrap_text=True)
     ws.cell(row=linha, column=1).fill = PatternFill("solid", fgColor="FFF7ED")

@@ -18,6 +18,7 @@ from modules.engenharia_produtos import criar_tabelas_engenharia_produtos, regis
 from modules.importacao_oficial import register_importacao_routes
 from modules.dashboard.routes import register_dashboard_routes
 from modules.custos.routes import register_custos_routes
+from modules.cmv import criar_tabelas_cmv, register_cmv_routes
 from modules.dre.routes import register_dre_routes
 from modules.fluxo_caixa.routes import register_fluxo_caixa_routes
 from modules.financeiro.routes import register_financeiro_routes
@@ -522,6 +523,7 @@ register_cadastros_routes(app)
 register_engenharia_produtos_routes(app)
 register_dashboard_routes(app)
 register_custos_routes(app)
+register_cmv_routes(app)
 register_dre_routes(app, {
     "criar_tabela_vendas": lambda: criar_tabela_vendas(),
 })
@@ -600,6 +602,7 @@ def inicializar_schema_aplicacao():
         criar_banco,
         criar_tabela_tempos_setor,
         criar_tabelas_custos,
+        criar_tabelas_cmv,
         criar_tabela_vendas,
         criar_tabelas_expedicao,
         criar_tabelas_estoque_pi_pa,

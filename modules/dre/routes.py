@@ -11,7 +11,7 @@ from .services import buscar_dados_dre_gerencial, gerar_excel_dre_gerencial
 
 def register_dre_routes(app, integracoes=None):
     @app.route("/dre-gerencial/exportar-excel")
-    @perfil_permitido("pcp")
+    @perfil_permitido("pcp", "gerencia", "financeiro")
     def exportar_dre_gerencial_excel():
         competencia = request.args.get("competencia") or datetime.now().strftime("%Y-%m")
         dados = buscar_dados_dre_gerencial(competencia)
@@ -27,7 +27,7 @@ def register_dre_routes(app, integracoes=None):
         )
 
     @app.route("/dre-gerencial")
-    @perfil_permitido("pcp")
+    @perfil_permitido("pcp", "gerencia", "financeiro")
     def dre_gerencial():
         competencia = request.args.get("competencia") or datetime.now().strftime("%Y-%m")
         dados = buscar_dados_dre_gerencial(competencia)
@@ -42,6 +42,10 @@ def register_dre_routes(app, integracoes=None):
             cmv_total=dados["cmv_total"],
             cmv_percentual=dados["cmv_percentual"],
             cmv_por_sku=dados["cmv_por_sku"],
+            cmv_estado=dados["cmv_estado"],
+            cmv_cobertura_percentual=dados["cmv_cobertura_percentual"],
+            cmv_quantidade_com_custo=dados["cmv_quantidade_com_custo"],
+            cmv_quantidade_sem_custo=dados["cmv_quantidade_sem_custo"],
             margem_bruta=dados["margem_bruta"],
             margem_bruta_percentual=dados["margem_bruta_percentual"],
             custos_operacionais_total=dados["custos_operacionais_total"],

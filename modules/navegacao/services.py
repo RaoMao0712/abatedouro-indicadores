@@ -199,6 +199,7 @@ NAVEGACAO = [
             {"titulo": "Liquidação", "endpoint": "movimentacoes_liquidacao", "perfis": ADMIN_PCP},
             {"titulo": "Fluxo de Caixa", "endpoint": "fluxo_caixa", "perfis": ADMIN_PCP, "principal": True},
             {"titulo": "DRE Gerencial", "endpoint": "dre_gerencial", "perfis": ADMIN_PCP, "principal": True},
+            {"titulo": "CMV e Estoque Valorizado", "endpoint": "cmv_gerencial", "perfis": ADMIN_PCP, "principal": True},
             {"titulo": "Auditoria Financeira", "endpoint": "movimentacoes_auditoria", "perfis": ADMIN_PCP},
             {"titulo": "Pendências", "endpoint": "movimentacoes_pendencias", "perfis": ADMIN_PCP},
             {

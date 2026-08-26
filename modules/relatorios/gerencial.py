@@ -195,11 +195,14 @@ def resolver_dre(definicao, data_inicio, data_fim, cache=None):
     campo = definicao["campo_origem"]
     total = 0.0
     tem_base = False
+    nao_calculavel = False
     meses = periodo_meses(data_inicio, data_fim)
     if not meses:
         return indicador_resultado(definicao, data_inicio, data_fim, None)
     for competencia in meses:
         dados = obter_cache(cache, ("dre", competencia), lambda c=competencia: buscar_resumo_dre_gerencial(c))
+        if campo in {"cmv_total", "margem_bruta", "resultado_operacional", "resultado_gerencial_periodo"} and dados.get(campo) is None:
+            nao_calculavel = True
         total += float(dados.get(campo) or 0)
         tem_base = tem_base or any(
             float(dados.get(chave) or 0) != 0
@@ -211,8 +214,10 @@ def resolver_dre(definicao, data_inicio, data_fim, cache=None):
                 "resultado_gerencial_periodo",
             ]
         ) or bool(dados.get("linhas_custos"))
-    valor = round(total, 2) if tem_base or total != 0 else None
-    return indicador_resultado(definicao, data_inicio, data_fim, valor, limitacao="DRE consolidada por competencia mensal.")
+    valor = None if nao_calculavel else (round(total, 2) if tem_base or total != 0 else None)
+    limitacao = ("N/A: ao menos uma competencia nao possui CMV integralmente calculavel."
+                 if nao_calculavel else "DRE consolidada por competencia mensal.")
+    return indicador_resultado(definicao, data_inicio, data_fim, valor, limitacao=limitacao)
 
 
 def resolver_fluxo(definicao, data_inicio, data_fim, cache=None):
@@ -310,6 +315,7 @@ REGISTRO_INDICADORES = [
     {"id": "fin_receita_bruta", "nome": "Receita Bruta", "dominio": "Financeiro", "descricao": "Receita bruta pela DRE gerencial.", "origem": "DRE Gerencial", "tipo_origem": "dre", "campo_origem": "receita_bruta", "unidade": "R$", "referencia_temporal": "Competencia", "status": STATUS_DISPONIVEL, "comparacao": "periodo_equivalente", "tendencia": "serie_mensal", "direcao": "neutra", "permissao": "pcp", "granularidades": ["mes"]},
     {"id": "fin_deducoes", "nome": "Deducoes", "dominio": "Financeiro", "descricao": "Deducoes oficiais da receita.", "origem": "DRE Gerencial", "tipo_origem": "dre", "campo_origem": "deducoes_receita", "unidade": "R$", "referencia_temporal": "Competencia", "status": STATUS_DISPONIVEL, "comparacao": "periodo_equivalente", "tendencia": "serie_mensal", "direcao": "neutra", "permissao": "pcp", "granularidades": ["mes"]},
     {"id": "fin_receita_liquida", "nome": "Receita Operacional Liquida", "dominio": "Financeiro", "descricao": "Receita bruta menos deducoes.", "origem": "DRE Gerencial", "tipo_origem": "dre", "campo_origem": "receita_operacional_liquida", "unidade": "R$", "referencia_temporal": "Competencia", "status": STATUS_DISPONIVEL, "comparacao": "periodo_equivalente", "tendencia": "serie_mensal", "direcao": "neutra", "permissao": "pcp", "granularidades": ["mes"]},
+    {"id": "fin_margem_bruta", "nome": "Margem Bruta", "dominio": "Financeiro", "descricao": "Receita liquida menos CMV calculavel.", "origem": "DRE Gerencial", "tipo_origem": "dre", "campo_origem": "margem_bruta", "unidade": "R$", "referencia_temporal": "Competencia", "status": STATUS_DISPONIVEL, "comparacao": "periodo_equivalente", "tendencia": "serie_mensal", "direcao": "neutra", "permissao": "pcp", "granularidades": ["mes"]},
     {"id": "fin_despesas_operacionais", "nome": "Despesas Operacionais", "dominio": "Financeiro", "descricao": "Custos/despesas operacionais da DRE.", "origem": "DRE Gerencial", "tipo_origem": "dre", "campo_origem": "custos_operacionais_total", "unidade": "R$", "referencia_temporal": "Competencia", "status": STATUS_DISPONIVEL, "comparacao": "periodo_equivalente", "tendencia": "serie_mensal", "direcao": "neutra", "permissao": "pcp", "granularidades": ["mes"]},
     {"id": "fin_resultado_operacional", "nome": "Resultado Operacional", "dominio": "Financeiro", "descricao": "Resultado operacional oficial da DRE.", "origem": "DRE Gerencial", "tipo_origem": "dre", "campo_origem": "resultado_operacional", "unidade": "R$", "referencia_temporal": "Competencia", "status": STATUS_DISPONIVEL, "comparacao": "periodo_equivalente", "tendencia": "serie_mensal", "direcao": "neutra", "permissao": "pcp", "granularidades": ["mes"]},
     {"id": "fin_resultado_nao_operacional", "nome": "Resultado Nao Operacional", "dominio": "Financeiro", "descricao": "Resultado nao operacional oficial.", "origem": "DRE Gerencial", "tipo_origem": "dre", "campo_origem": "resultado_nao_operacional", "unidade": "R$", "referencia_temporal": "Competencia", "status": STATUS_DISPONIVEL, "comparacao": "periodo_equivalente", "tendencia": "serie_mensal", "direcao": "neutra", "permissao": "pcp", "granularidades": ["mes"]},
@@ -333,7 +339,7 @@ REGISTRO_INDICADORES = [
     {"id": "exp_caixas_transferidas", "nome": "Caixas Transferidas", "dominio": "Expedicao", "descricao": "Caixas transferidas fisicamente.", "origem": "Transferencias", "tipo_origem": "expedicao", "slug_origem": "transferencias", "campo_origem": "Caixas", "unidade": "caixas", "referencia_temporal": "Data do evento", "status": STATUS_DISPONIVEL, "comparacao": "periodo_equivalente", "tendencia": "serie", "direcao": "neutra", "permissao": "pcp", "granularidades": ["dia", "semana", "mes"]},
     {"id": "exp_peso_transferido", "nome": "Peso Transferido", "dominio": "Expedicao", "descricao": "Peso liquido transferido.", "origem": "Transferencias", "tipo_origem": "expedicao", "slug_origem": "transferencias", "campo_origem": "Peso liquido", "unidade": "kg", "referencia_temporal": "Data do evento", "status": STATUS_DISPONIVEL, "comparacao": "periodo_equivalente", "tendencia": "serie", "direcao": "neutra", "permissao": "pcp", "granularidades": ["dia", "semana", "mes"]},
     {"id": "exp_caixas_camara", "nome": "Caixas na Camara Fria", "dominio": "Expedicao", "descricao": "Caixas atualmente na Camara Fria LSM.", "origem": "Estoque Camara Fria", "tipo_origem": "expedicao", "slug_origem": "estoque-camara-fria", "campo_origem": "Caixas", "unidade": "caixas", "referencia_temporal": "Posicao atual", "status": STATUS_DISPONIVEL, "comparacao": "periodo_equivalente", "tendencia": "serie", "direcao": "neutra", "permissao": "pcp", "granularidades": ["mes"]},
-    {"id": "cmv", "nome": "CMV", "dominio": "Almoxarifado", "descricao": "CMV congelado por decisao arquitetural.", "origem": "CMV", "tipo_origem": "bloqueado", "unidade": "R$", "referencia_temporal": "Nao aplicavel", "status": STATUS_CONGELADO, "comparacao": "bloqueado", "tendencia": "bloqueado", "direcao": "neutra", "permissao": "pcp", "granularidades": []},
+    {"id": "cmv", "nome": "CMV", "dominio": "Financeiro", "descricao": "CMV por consumo FIFO de camadas oficiais.", "origem": "DRE Gerencial", "tipo_origem": "dre", "campo_origem": "cmv_total", "unidade": "R$", "referencia_temporal": "Competencia", "status": STATUS_DISPONIVEL, "comparacao": "periodo_equivalente", "tendencia": "serie_mensal", "direcao": "neutra", "permissao": "pcp", "granularidades": ["mes"]},
     {"id": "oee", "nome": "OEE", "dominio": "Producao", "descricao": "Motor oficial de D/P/Q/OEE; valor permanece N/A enquanto Qualidade nao possuir base oficial.", "origem": "OEE", "tipo_origem": "bloqueado", "unidade": "%", "referencia_temporal": "Data da OP e janela programada", "status": STATUS_EVOLUCAO, "comparacao": "bloqueado", "tendencia": "bloqueado", "direcao": "neutra", "permissao": "pcp", "granularidades": []},
 ]
 
