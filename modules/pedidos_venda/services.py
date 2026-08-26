@@ -6,6 +6,7 @@ Assim, SQLite e PostgreSQL compartilham a mesma semântica exata.
 
 from datetime import datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+import re
 import json
 import re
 import unicodedata
@@ -107,6 +108,15 @@ def decimal_centavos(valor):
 
 def decimal_milesimos(valor):
     return (Decimal(int(valor or 0)) / Decimal(1000)).quantize(Decimal("0.001"))
+
+
+def formatar_resumo_quantidades_br(valor):
+    """Formata somente as quantidades decimais do resumo comercial para pt-BR."""
+    return re.sub(
+        r"(?<![\d.,])(-?\d+\.\d{3})(?=\s)",
+        lambda trecho: f"{Decimal(trecho.group(1)):,.3f}".replace(",", "X").replace(".", ",").replace("X", "."),
+        str(valor or ""),
+    )
 
 
 def catalogo_produtos_venda(produtos):

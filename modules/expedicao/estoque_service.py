@@ -79,6 +79,22 @@ def formatar_data_hora_emissao_manaus(valor):
     )
 
 
+def formatar_data_hora_brasileira(valor):
+    """Formata data/hora para telas e CSVs, convertendo instantes cientes para Manaus."""
+    if not valor:
+        return "-"
+    if isinstance(valor, datetime):
+        data_hora = valor
+    else:
+        try:
+            data_hora = datetime.fromisoformat(str(valor).strip())
+        except (TypeError, ValueError):
+            return "-"
+    if data_hora.tzinfo is not None and data_hora.utcoffset() is not None:
+        data_hora = data_hora.astimezone(FUSO_MANAUS)
+    return data_hora.strftime("%d/%m/%Y %H:%M")
+
+
 def formatar_data_brasileira(valor):
     """Formata uma data ISO sem alterar seu dia operacional."""
     if not valor:

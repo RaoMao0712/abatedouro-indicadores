@@ -2,6 +2,7 @@ from flask import Flask
 from werkzeug.security import generate_password_hash
 from functools import wraps
 import os
+import re
 import sqlite3
 import threading
 from database import DATABASE_URL, DB_NAME, conectar, inicializar_schema_uma_vez, q
@@ -43,7 +44,11 @@ from modules.expedicao.services import (
     remover_movimentacoes_estoque_pi_por_op,
 )
 from modules.expedicao.estornos_embalagem import criar_tabelas_estornos_embalagem
-from modules.expedicao.estoque_service import criar_tabelas_estoque_confiavel
+from modules.expedicao.estoque_service import (
+    criar_tabelas_estoque_confiavel,
+    formatar_data_brasileira,
+    formatar_data_hora_brasileira,
+)
 from modules.movimentacoes.services import criar_tabela_movimentacoes_financeiras
 from modules.financeiro.services import criar_tabela_plano_contas_mestre
 from modules.almoxarifado.services import (
@@ -96,6 +101,26 @@ def filtro_br_moeda(valor):
 @app.template_filter("br_percentual")
 def filtro_br_percentual(valor):
     return formatar_percentual_br(valor)
+
+
+@app.template_filter("br_data")
+def filtro_br_data(valor):
+    return formatar_data_brasileira(valor)
+
+
+@app.template_filter("br_data_hora")
+def filtro_br_data_hora(valor):
+    return formatar_data_hora_brasileira(valor)
+
+
+@app.template_filter("br_resumo_quantidades")
+def filtro_br_resumo_quantidades(valor):
+    texto = str(valor or "")
+    return re.sub(
+        r"(?<![\d.,])(-?\d+\.\d{3})(?=\s)",
+        lambda trecho: formatar_numero_br(trecho.group(1), 3),
+        texto,
+    )
 
 
 ROTINAS_ESTRUTURAIS_EXECUTADAS = set()

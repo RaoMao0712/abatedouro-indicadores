@@ -19,10 +19,10 @@ Relatórios não movimentam estoque. Consultas, PDFs, CSVs e Excel auditados sã
 | Consolidado por Produto | Posição atual | Bloco da tela da Câmara e PDF | Mesmo consolidado | `consolidar_estoque_camara` | Galinha Cortada: caixas/bandejas/kg; Inteira: galinhas/pacotes | Conforme |
 | Transferências | Movimento histórico | `/relatorios/expedicao/transferencias` (tela/Excel) | `pa_movimentacoes` + `expedicoes` | Eventos `TRANSFERENCIA`, sem somar ao saldo corrente | Período, caixa, OP, SKU, lote, origem, destino, usuário e romaneio; detalhes limitados, totais SQL completos | Conforme; limitação de detalhe documentada |
 | Histórico por caixa | Movimento histórico | `/relatorios/expedicao/historico-por-caixa` (tela/impressão) | `pa_movimentacoes` | Evento físico + documento relacionado | Caixa/OP/SKU/lote; consulta individual | Conforme |
-| Expedições e romaneios comerciais | Movimento histórico | `/expedicao`, `/expedicao/historico`, `/expedicao/<id>`, impressão | `expedicoes`, itens ativos e eventos | Documento original; vínculo ao pedido é referência, não nova saída | Status/documento; sem recontar vínculo | Conforme após P1.2, revalidado |
-| Pedidos e vínculos | Movimento comercial | `/pedidos-venda`, `/pedidos-venda/<id>`, PDF | Pedido, itens, atendimentos e vínculos | Pedido − entregue; reservado separado de entregue | Pedido/cliente/status; múltiplos romaneios não duplicam saída | Conforme após P1.2, revalidado |
-| PNC Ativos/Finalizados | Posição atual + histórico | `/qualidade/produtos-nao-conformes` | `consultar_pa_nc` | Saldo físico remanescente canônico | Período, OP, lote, produto, motivo, status, local, responsável, destinação e situação; tabela paginada, cards completos | Conforme |
-| CSV de PNC | Posição/histórico filtrado | `/qualidade/produtos-nao-conformes/exportar.csv` | `consultar_pa_nc` | Exatamente a mesma consulta e filtros da tela, sem paginação | Todos os filtros da tela, UTF-8 com BOM | Conforme |
+| Expedições e romaneios comerciais | Movimento histórico | `/expedicao`, `/expedicao/historico`, `/expedicao/<id>`, impressão | `expedicoes`, itens ativos e eventos | Documento original; vínculo ao pedido é referência, não nova saída | Status/documento; listagem paginada após o cálculo dos cards; sem recontar vínculo | **Corrigido e revalidado** |
+| Pedidos e vínculos | Movimento comercial | `/pedidos-venda`, `/pedidos-venda/<id>`, PDF | Pedido, itens, atendimentos e vínculos | Pedido − entregue; reservado separado de entregue | Pedido/cliente/status; múltiplos romaneios não duplicam saída | Conforme após P1.2; datas e quantidades padronizadas em pt-BR |
+| PNC Ativos/Finalizados | Posição atual + histórico | `/qualidade/produtos-nao-conformes` | `consultar_pa_nc` | Saldo físico remanescente canônico | Período, OP, lote, produto, motivo, status, local, responsável, destinação e situação; tabela paginada, cards completos | **Corrigida a normalização de situação e revalidado** |
+| CSV de PNC | Posição/histórico filtrado | `/qualidade/produtos-nao-conformes/exportar.csv` | `consultar_pa_nc` | Exatamente a mesma consulta e filtros da tela, sem paginação | Todos os filtros da tela, UTF-8 com BOM e datas pt-BR | **Revalidado** |
 | Romaneio individual de descarte | Snapshot documental | detalhe e PDF de descarte | `snapshot_json` | Snapshot imutável do documento | Por documento | Conforme |
 | Consolidado de descarte | Movimento histórico líquido | lista e relatório PDF de romaneios de descarte | Documentos persistidos + snapshot | Somente `CONFIRMADO` totaliza; rascunho/cancelado/estornado são exceções sem efeito | Período/tipo de data, número, status, produto, apresentação, motivo, destino, motorista, placa e emissor | Conforme |
 | Conferência Analítica da Embalagem Secundária | Snapshot documental | `/embalagem-secundaria/<op>/conferencia/relatorio.pdf` | Reconsulta das caixas correntes, embora IDs/totais estivessem confirmados | `snapshot_json` completo da confirmação | Documento congelado; caixas posteriores não entram | **Corrigido** |
@@ -50,6 +50,10 @@ As unidades não são convertidas entre si: Galinha Cortada usa caixas, bandejas
 3. A reimpressão da Conferência Analítica podia refletir caixas lançadas depois da confirmação. Novas confirmações persistem snapshot completo, e o PDF prefere esse snapshot.
 4. Os relatórios produtivos já excluíam OP estornada/cancelada e caixas inativas; a regra foi coberta por teste explícito de regressão, sem criar cálculo paralelo.
 5. A auditoria do pedido exibia snapshots JSON extensos como justificativa. A interface agora apresenta ação e resumo operacionais, incluindo número e ID do romaneio, enquanto o snapshot bruto permanece imutável no banco.
+6. O card superior da Câmara somava caixas de Galinha Cortada com pacotes de Galinha Inteira em um único número sem unidade. Os cards agora preservam simultaneamente caixas, bandejas, kg, galinhas e pacotes, derivados da mesma fotografia oficial.
+7. A Central de Romaneios carregava toda a lista e não implementava a regra “listagem paginada, totais completos”. A listagem passou a aceitar 10, 25, 50 ou 100 itens; cards e relatório continuam calculados antes do recorte da página.
+8. O parâmetro minúsculo `situacao=finalizados` retornava os dados corretos, mas mantinha “Ativos” selecionado na interface. A rota agora normaliza e valida a situação antes de tela, paginação e CSV.
+9. Datas/hora de PNC, descarte e pedidos, além do resumo de quantidades comerciais, eram exibidos no formato interno. A apresentação agora usa `dd/mm/aaaa`, `dd/mm/aaaa HH:MM` em Manaus quando o instante possui fuso e separadores numéricos brasileiros, sem alterar armazenamento ou snapshots.
 
 ## Migration
 
@@ -69,3 +73,23 @@ Nenhum índice novo foi adicionado: não foi encontrada evidência que justifica
 ## Reconciliação automatizada
 
 `tests/test_p1_3_reconciliacao_relatorios.py` compara serviço, linhas de tela, cards, agrupamento e Excel, incluindo filtros e diferença de `0,001 kg`. Também verifica que o Excel contém números reais e que OP estornada é neutralizada sem desaparecer do histórico.
+
+## Retomada após o hotfix da OP 83 — 26/08/2026
+
+A retomada partiu de `a038a45d0d1011ddbcb017ea20dced3937080eee`, já contendo o hotfix homologado e a primeira entrega P1.3 (`7e3539b`). Não houve nova migration nem índice.
+
+### Reconciliação autenticada somente leitura antes do deploy
+
+| Fonte | Galinha Cortada | Inteira c/1 | Inteira c/2 | Resultado |
+|---|---:|---:|---:|---|
+| Serviço oficial / biblioteca | 2 caixas; 18 bandejas; 41,460 kg | 188 galinhas; 188 pacotes | 3.972 galinhas; 1.986 pacotes | Coincidente |
+| Tela Estoque da Câmara | 2 caixas; 18 bandejas; 41,460 kg | 188 galinhas; 188 pacotes | 3.972 galinhas; 1.986 pacotes | Coincidente |
+| Consolidado por Produto | 2 caixas; 18 bandejas; 41,460 kg | 188 galinhas; 188 pacotes | 3.972 galinhas; 1.986 pacotes | Coincidente |
+| PDF consolidado | 2 caixas; 18 bandejas; 41,460 kg | 188 galinhas; 188 pacotes | 3.972 galinhas; 1.986 pacotes | A4, uma página, sem cortes |
+| Excel existente | células numéricas `2`, `18`, `41.46` | células numéricas | células numéricas | Mesma projeção filtrada; tipos numéricos preservados |
+
+O legado agregado disponível é 41,460 kg. A posição de Galinha Cortada é de origem legada; as duas apresentações de Galinha Inteira são pós-marco-zero. Reservado, bloqueado, reprocessamento e aguardando liberação estavam zerados. Não houve dupla contagem entre origens.
+
+A OP 83 foi consultada sem mutação: estado `Aberta`; 52 caixas ativas; 2 estornadas; 624 bandejas ativas; bruto 670,040 kg; tara 26,000 kg; líquido 644,040 kg; saldo PI 1.320 bandejas; fabricação 13/08/2026 e validade 13/08/2027. A trilha registra a retomada de 26/08/2026 e mantém os dois estornos; caixas estornadas permanecem históricas e fora dos totais ativos.
+
+Na Central de Romaneios, o filtro de 01/08/2026 a 26/08/2026 retornou 30 documentos: 25 concluídos, 4 cancelados, 1 estornado e nenhum aberto. No descarte, três documentos confirmados totalizaram 819 caixas, 9.828 bandejas e 9.876,560 kg; PDF individual e consolidado exibiram snapshot, formato A4 e nenhuma quebra visual. PNC finalizados retornaram três registros: um liberado e dois descartados; ativos estavam zerados. Pedidos retornaram seis documentos, quatro atendidos e dois cancelados, sem demanda cancelada nos cards ativos.

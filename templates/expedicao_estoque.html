@@ -8,12 +8,16 @@
     <nav class="romaneio-tabs no-print"><a href="{{ url_for('expedicao') }}">Romaneios</a><a class="ativo" href="{{ url_for('estoque_camara_expedicao') }}">Estoque da Câmara</a><a href="{{ url_for('nao_conformes_expedicao') }}">Produtos Não Conformes</a><a href="{{ url_for('historico_estoque_expedicao') }}">Histórico</a></nav>
     <section class="expedicao-kpis">
         <div class="card expedicao-kpi verde"><span>Legado agregado dispon&iacute;vel</span><strong>{{ resumo.peso_legado_disponivel|br_numero(3) }} kg</strong><small>Origem preservada, sem OP ou lote fict&iacute;cio</small></div>
-        <div class="card expedicao-kpi azul"><span>Físico total</span><strong>{{ resumo.unidades_fisicas|br_numero(0) }}</strong><small>{{ resumo.peso_fisico|br_numero(3) }} kg &middot; {{ resumo.bandejas_legado|br_numero(0) }} bandejas físicas consolidadas</small></div>
-        <div class="card expedicao-kpi verde"><span>Conforme disponível</span><strong>{{ resumo.unidades_disponiveis|br_numero(0) }}</strong><small>{{ resumo.peso_disponivel|br_numero(3) }} kg aplicáveis</small></div>
-        <div class="card expedicao-kpi"><span>Reservado</span><strong>{{ resumo.unidades_reservadas|br_numero(0) }}</strong><small>{{ resumo.peso_reservado|br_numero(3) }} kg aplicáveis</small></div>
-        <div class="card expedicao-kpi vermelho"><span>Não conforme bloqueado</span><strong>{{ resumo.unidades_bloqueadas|br_numero(0) }}</strong><small>{{ resumo.peso_bloqueado|br_numero(3) }} kg aplicáveis</small></div>
-        <div class="card expedicao-kpi"><span>Em reprocessamento</span><strong>{{ resumo.unidades_reprocessamento|br_numero(0) }}</strong><small>{{ resumo.peso_reprocessamento|br_numero(3) }} kg aplicáveis</small></div>
-        <div class="card expedicao-kpi"><span>Aguardando liberação</span><strong>{{ resumo.unidades_outras_condicoes|br_numero(0) }}</strong><small>{{ resumo.peso_outras_condicoes|br_numero(3) }} kg &middot; fisicamente bloqueado</small></div>
+        {% for titulo, css, quantidades, observacao in [
+          ('Físico total', 'azul', resumo.quantidades_fisicas, 'posição física consolidada'),
+          ('Conforme disponível', 'verde', resumo.quantidades_disponiveis, 'disponível para operação'),
+          ('Reservado', '', resumo.quantidades_reservadas, 'fisicamente presente e indisponível'),
+          ('Não conforme bloqueado', 'vermelho', resumo.quantidades_bloqueadas, 'segregado pela Qualidade'),
+          ('Em reprocessamento', '', resumo.quantidades_reprocessamento, 'fisicamente indisponível'),
+          ('Aguardando liberação', '', resumo.quantidades_outras_condicoes, 'fisicamente bloqueado')
+        ] %}
+        <div class="card expedicao-kpi {{ css }}"><span>{{ titulo }}</span><strong>{{ quantidades.caixas|br_numero(0) }} caixas &middot; {{ quantidades.pacotes|br_numero(0) }} pacotes</strong><small>{{ quantidades.bandejas|br_numero(0) }} bandejas &middot; {{ quantidades.galinhas|br_numero(0) }} galinhas &middot; {{ quantidades.peso_kg|br_numero(3) }} kg &middot; {{ observacao }}</small></div>
+        {% endfor %}
     </section>
     <section class="card estoque-consolidado" aria-labelledby="titulo-consolidado-produto">
         <header class="estoque-consolidado-cabecalho">

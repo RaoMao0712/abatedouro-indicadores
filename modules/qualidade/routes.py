@@ -46,14 +46,22 @@ from .descarte_pnc_relatorio import (
     normalizar_filtros, opcoes_filtros_relatorio,
 )
 from .descarte_pnc_relatorio_pdf import gerar_relatorio_consolidado_descarte_pdf
+from modules.expedicao.estoque_service import formatar_data_brasileira, formatar_data_hora_brasileira
 
 _CRIAR_BANCO = None
+
+
+def _normalizar_situacao_pnc(valor):
+    situacao = str(valor or "ATIVOS").strip().upper()
+    return situacao if situacao in SITUACOES else "ATIVOS"
 
 
 def register_qualidade_routes(app, integracoes=None):
     global _CRIAR_BANCO
     integracoes = integracoes or {}
     _CRIAR_BANCO = integracoes.get("criar_banco")
+    app.jinja_env.filters.setdefault("br_data", formatar_data_brasileira)
+    app.jinja_env.filters.setdefault("br_data_hora", formatar_data_hora_brasileira)
 
     def descarte_habilitado():
         return bool(current_app.config.get("PNC_DISCARD_WAYBILL_ENABLED", False))
@@ -115,7 +123,7 @@ def register_qualidade_routes(app, integracoes=None):
             "inicio", "fim", "op", "lote", "produto", "motivo", "status",
             "local", "responsavel", "destinacao", "situacao", "pagina", "por_pagina",
         )}
-        filtros["situacao"] = filtros["situacao"] or "ATIVOS"
+        filtros["situacao"] = _normalizar_situacao_pnc(filtros["situacao"])
         registros, paginacao = consultar_pa_nc(filtros, paginar=True)
         registros_indicadores = consultar_pa_nc({**filtros, "pagina": ""})
         args_paginacao = request.args.to_dict()
@@ -146,7 +154,7 @@ def register_qualidade_routes(app, integracoes=None):
             "inicio", "fim", "op", "lote", "produto", "motivo", "status",
             "local", "responsavel", "destinacao", "situacao",
         )}
-        filtros["situacao"] = filtros["situacao"] or "ATIVOS"
+        filtros["situacao"] = _normalizar_situacao_pnc(filtros["situacao"])
         saida = io.StringIO()
         escritor = csv.writer(saida, delimiter=";")
         escritor.writerow(("Número", "Data", "OP", "Lote", "Produto", "Apresentação",
@@ -156,14 +164,16 @@ def register_qualidade_routes(app, integracoes=None):
         for item in consultar_pa_nc(filtros):
             saldo = item["saldo_fisico"]
             quantidade = saldo["pacotes"] if str(item["unidade"]).upper() == "PACOTE" else saldo["bandejas"]
-            escritor.writerow((item["numero"], item["registrado_em"],
+            escritor.writerow((item["numero"], formatar_data_hora_brasileira(item["registrado_em"]),
                                item["op_id"] if item["op_id"] else "Não identificada",
                                item["lote"] or "Não identificado",
                                item["produto"], item["apresentacao"], quantidade,
                                Decimal(saldo["peso_g"]) / Decimal(1000),
                                item["unidade"], item["motivo"], item["status"], item["local_nome"],
-                               item["registrado_por"], item["decisao"], item["decidido_em"],
-                               item["romaneio_descarte_numero"], item["descarte_finalizado_em"] or item["decidido_em"]))
+                               item["registrado_por"], item["decisao"],
+                               formatar_data_hora_brasileira(item["decidido_em"]),
+                               item["romaneio_descarte_numero"],
+                               formatar_data_hora_brasileira(item["descarte_finalizado_em"] or item["decidido_em"])))
         return Response("\ufeff" + saida.getvalue(), mimetype="text/csv",
                         headers={"Content-Disposition": "attachment; filename=produtos-nao-conformes.csv"})
 

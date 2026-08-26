@@ -35,7 +35,7 @@
   <section class="card romaneio-lista-card"><div class="tabela-responsiva tabela-executiva expedicao-tabela"><table>
     <thead><tr><th>Número</th><th>Saída</th><th>PNC</th><th>Produto / apresentação / característica</th><th>Destino</th><th>Motorista / placa</th><th>Quantidades</th><th>Status</th><th>Emissor</th><th>Ações</th></tr></thead>
     <tbody>{% for r in romaneios %}<tr>
-      <td>{{ r.numero }}</td><td>{{ r.saida_fisica_em }}</td><td>{{ r.pnc_numero }}</td>
+      <td>{{ r.numero }}</td><td>{{ r.saida_fisica_em|br_data_hora }}</td><td>{{ r.pnc_numero }}</td>
       <td>{{ r.produto }}<br><small>{{ r.apresentacao }} · {{ r.motivo }}</small></td><td>{{ r.destino }}</td><td>{{ r.motorista }}<br><small>{{ r.placa }}</small></td>
       <td>{% if r.tipo_unidade == 'INTEIRA' %}{{ r.galinhas }} galinhas · {{ r.pacotes }} pacotes{% else %}{{ r.caixas }} caixas · {{ r.bandejas }} bandejas · {{ (r.peso_g/1000)|br_numero(3) }} kg{% endif %}</td>
       <td>{{ r.status }}{% if not r.efetivo %}<br><small>Fora do total físico</small>{% endif %}</td><td>{{ r.usuario_emissor }}</td>

@@ -43,6 +43,7 @@ from .services import (
     configurar_integracoes,
     finalizar_embalagem_secundaria_op,
     montar_contexto_estoque_produtos,
+    paginar_expedicoes,
     registrar_apontamento_embalagem_primaria,
     registrar_caixa_pa_manual,
     registrar_caixas_pa_lote,
@@ -165,6 +166,26 @@ def alinhar_resumo_ao_consolidado(resumo, consolidado, saldos_legados):
                 unidade = "caixas" if "caixas" in quantidades else "pacotes"
             total += Decimal(str(quantidades.get(unidade, 0) or 0))
         resumo[campo] = float(total)
+    situacoes_cards = {
+        "quantidades_fisicas": "total_fisico",
+        "quantidades_disponiveis": "disponivel",
+        "quantidades_reservadas": "reservado",
+        "quantidades_bloqueadas": "nao_conforme_bloqueado",
+        "quantidades_reprocessamento": "reprocessamento",
+        "quantidades_outras_condicoes": "aguardando_liberacao",
+    }
+    for campo, situacao in situacoes_cards.items():
+        totais = {unidade: Decimal("0") for unidade in (
+            "caixas", "bandejas", "pacotes", "galinhas", "peso_kg",
+        )}
+        for grupo in consolidado.get("grupos", []):
+            quantidades = (
+                grupo.get("total_fisico", {}) if situacao == "total_fisico"
+                else grupo.get("situacoes", {}).get(situacao, {}).get("quantidades", {})
+            )
+            for unidade in totais:
+                totais[unidade] += Decimal(str(quantidades.get(unidade, 0) or 0))
+        resumo[campo] = {unidade: float(valor) for unidade, valor in totais.items()}
     resumo["bandejas_legado"] = float(sum(
         Decimal(str(grupo.get("total_fisico", {}).get("bandejas", 0) or 0))
         for grupo in consolidado.get("grupos", [])
@@ -557,6 +578,20 @@ def register_expedicao_routes(app, integracoes=None):
         expedicoes = buscar_expedicoes(data_inicio, data_fim, status, tipo_movimentacao,
                                        numero, cliente_id, produto, destino, pedido_numero)
         resumo = calcular_resumo_expedicao(expedicoes)
+        expedicoes, paginacao = paginar_expedicoes(
+            expedicoes, request.args.get("pagina"), request.args.get("por_pagina")
+        )
+        args_paginacao = request.args.to_dict()
+        args_paginacao["por_pagina"] = paginacao["por_pagina"]
+        url_anterior = url_proxima = None
+        if paginacao["tem_anterior"]:
+            url_anterior = url_for("expedicao", **{
+                **args_paginacao, "pagina": paginacao["pagina"] - 1,
+            })
+        if paginacao["tem_proxima"]:
+            url_proxima = url_for("expedicao", **{
+                **args_paginacao, "pagina": paginacao["pagina"] + 1,
+            })
 
         return render_template(
             "expedicao.html",
@@ -573,6 +608,7 @@ def register_expedicao_routes(app, integracoes=None):
             numero=numero, produto=produto, destino=destino,
             pedido_numero=pedido_numero,
             agrupamento_relatorio=agrupamento_relatorio,
+            paginacao=paginacao, url_anterior=url_anterior, url_proxima=url_proxima,
             status_opcoes=["Todos", "Aberto", "Concluído", "Cancelado", "Estornado"]
         )
 

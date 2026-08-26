@@ -1932,6 +1932,34 @@ def calcular_resumo_expedicao(expedicoes):
         "total_kg": round(total_kg, 2)
     }
 
+
+def paginar_expedicoes(expedicoes, pagina=1, por_pagina=25):
+    """Pagina apenas a listagem; os cards continuam usando o conjunto filtrado completo."""
+    try:
+        pagina = max(1, int(pagina or 1))
+    except (TypeError, ValueError):
+        pagina = 1
+    try:
+        por_pagina = int(por_pagina or 25)
+    except (TypeError, ValueError):
+        por_pagina = 25
+    if por_pagina not in {10, 25, 50, 100}:
+        por_pagina = 25
+
+    total = len(expedicoes)
+    paginas = max(1, (total + por_pagina - 1) // por_pagina)
+    pagina = min(pagina, paginas)
+    inicio = (pagina - 1) * por_pagina
+    fim = inicio + por_pagina
+    return expedicoes[inicio:fim], {
+        "pagina": pagina,
+        "por_pagina": por_pagina,
+        "total": total,
+        "paginas": paginas,
+        "tem_anterior": pagina > 1,
+        "tem_proxima": pagina < paginas,
+    }
+
 def gerar_numero_romaneio(data_romaneio, tipo_movimentacao="TRANSFERENCIA"):
     """
     Gera número sequencial diário do romaneio.

@@ -9,10 +9,11 @@ from flask import flash, redirect, render_template, request, send_file, session,
 from modules.auth.decorators import perfil_permitido
 from modules.clientes.services import listar_clientes
 from modules.engenharia_produtos.services import listar_catalogo
+from modules.expedicao.estoque_service import formatar_data_brasileira
 from .pdf import gerar_pdf_pedido
 from .services import (CONDICOES_PAGAMENTO, FORMAS_PAGAMENTO, STATUS, UNIDADES,
     buscar_pedido, cancelar_pedido, catalogo_produtos_venda, confirmar_pedido, decimal_centavos, decimal_milesimos,
-    gerar_romaneio_pedido, listar_pedidos, listar_romaneios_elegiveis, resumo_pedidos, salvar_pedido,
+    formatar_resumo_quantidades_br, gerar_romaneio_pedido, listar_pedidos, listar_romaneios_elegiveis, resumo_pedidos, salvar_pedido,
     vincular_romaneios_existentes)
 
 
@@ -36,6 +37,8 @@ def _dados_formulario(pedido=None):
 def register_pedidos_venda_routes(app):
     app.jinja_env.globals["pedido_centavos"] = decimal_centavos
     app.jinja_env.globals["pedido_milesimos"] = decimal_milesimos
+    app.jinja_env.filters.setdefault("br_data", formatar_data_brasileira)
+    app.jinja_env.filters.setdefault("br_resumo_quantidades", formatar_resumo_quantidades_br)
 
     @app.route("/pedidos-venda")
     @perfil_permitido("pcp", "expedicao", "gerencia")

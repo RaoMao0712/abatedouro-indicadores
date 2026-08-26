@@ -323,7 +323,7 @@ class RomaneiosSegurancaTest(unittest.TestCase):
 
     def test_23_listagem_reconhece_documentos_mz(self):
         texto = self.cliente().get(
-            "/expedicao?data_inicio=2026-07-01&data_fim=2026-07-31"
+            "/expedicao?data_inicio=2026-07-01&data_fim=2026-07-31&por_pagina=100"
         ).get_data(as_text=True)
         self.assertIn("MZ-20260724-001", texto)
         self.assertIn("Marco Zero", texto)

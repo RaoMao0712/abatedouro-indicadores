@@ -18,6 +18,6 @@
   <button class="pv-btn">Filtrar</button>
 </form>
 <div style="overflow:auto"><table class="pv-table"><thead><tr><th>Número</th><th>Data</th><th>Cliente</th><th>Previsão</th><th>Valor</th><th>Pagamento</th><th colspan="2">Entregue / saldo por unidade</th><th>Status</th><th></th></tr></thead><tbody>
-{% for p in pedidos %}<tr><td>{{ p.numero }}</td><td>{{ p.data_pedido }}</td><td>{{ p.cliente_snapshot.razao_social }}</td><td>{{ p.previsao_entrega or '-' }}</td><td>R$ {{ pedido_centavos(p.valor_total_centavos)|br_numero }}</td><td>{{ p.condicao_pagamento }}</td><td colspan="2">{{ p.quantidades_resumo }}</td><td>{{ status_opcoes[p.status] }}</td><td><a href="{{ url_for('detalhe_pedido_venda',pedido_id=p.id) }}">Detalhes</a></td></tr>
+{% for p in pedidos %}<tr><td>{{ p.numero }}</td><td>{{ p.data_pedido|br_data }}</td><td>{{ p.cliente_snapshot.razao_social }}</td><td>{{ p.previsao_entrega|br_data if p.previsao_entrega else '-' }}</td><td>R$ {{ pedido_centavos(p.valor_total_centavos)|br_numero }}</td><td>{{ p.condicao_pagamento }}</td><td colspan="2">{{ p.quantidades_resumo|br_resumo_quantidades }}</td><td>{{ status_opcoes[p.status] }}</td><td><a href="{{ url_for('detalhe_pedido_venda',pedido_id=p.id) }}">Detalhes</a></td></tr>
 {% else %}<tr><td colspan="10">Nenhum pedido encontrado.</td></tr>{% endfor %}</tbody></table></div>
 {% endblock %}

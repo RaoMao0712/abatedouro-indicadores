@@ -48,6 +48,7 @@
         </label>
         <button type="submit" class="romaneio-btn romaneio-btn-filter">Aplicar filtros</button>
         <button type="submit" class="romaneio-btn romaneio-btn-primary" formaction="{{ url_for('relatorio_entregas_expedicao') }}" formtarget="_blank">Gerar relat&oacute;rio</button>
+        <label>Itens por página<select name="por_pagina"><option value="10" {% if paginacao.por_pagina == 10 %}selected{% endif %}>10</option><option value="25" {% if paginacao.por_pagina == 25 %}selected{% endif %}>25</option><option value="50" {% if paginacao.por_pagina == 50 %}selected{% endif %}>50</option><option value="100" {% if paginacao.por_pagina == 100 %}selected{% endif %}>100</option></select></label>
     </form>
 
     <section class="expedicao-kpis romaneio-kpis" aria-label="Indicadores dos documentos filtrados">
@@ -91,6 +92,11 @@
                 {% endfor %}
                 </tbody>
             </table>
+        </div>
+        <div class="acoes-relatorio">
+            <span>{{ paginacao.total }} registro(s) &middot; página {{ paginacao.pagina }} de {{ paginacao.paginas }} &middot; totais calculados sobre todo o filtro</span>
+            {% if url_anterior %}<a class="botao-dre-exportar" href="{{ url_anterior }}">Anterior</a>{% endif %}
+            {% if url_proxima %}<a class="botao-dre-exportar" href="{{ url_proxima }}">Próxima</a>{% endif %}
         </div>
     </section>
 </div>

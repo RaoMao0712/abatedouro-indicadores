@@ -14,7 +14,11 @@ from modules.relatorios.expedicao import (
     resumo_estoque_oficial,
 )
 from modules.relatorios.producao import cte_ops_agregadas, normalizar_filtros
-from modules.pedidos_venda.services import _apresentar_evento_pedido
+from modules.pedidos_venda.services import _apresentar_evento_pedido, formatar_resumo_quantidades_br
+from modules.expedicao.estoque_service import formatar_data_hora_brasileira
+from modules.expedicao.routes import alinhar_resumo_ao_consolidado
+from modules.expedicao.services import calcular_resumo_expedicao, paginar_expedicoes
+from modules.qualidade.routes import _normalizar_situacao_pnc
 
 
 def _situacao(rotulo, **quantidades):
@@ -142,3 +146,50 @@ def test_historico_pedido_resume_json_mantendo_documento_e_id_auditaveis():
     assert evento["acao_rotulo"] == "Romaneios existentes vinculados"
     assert evento["justificativa_resumo"] == "1 romaneio(s) vinculado(s): ROM-20260821-005 (ID #31)"
     assert "expedicao_item_id" in evento["justificativa"]  # snapshot bruto segue preservado
+
+
+def test_cards_superiores_preservam_unidades_fisicas_sem_soma_mista():
+    consolidado = {"grupos": [
+        {
+            "total_fisico": {"caixas": 2, "bandejas": 18, "peso_kg": Decimal("41.460")},
+            "situacoes": {"disponivel": _situacao(
+                "Disponível", caixas=2, bandejas=18, peso_kg=Decimal("41.460"))},
+        },
+        {
+            "total_fisico": {"galinhas": 3972, "pacotes": 1986},
+            "situacoes": {"disponivel": _situacao("Disponível", galinhas=3972, pacotes=1986)},
+        },
+    ]}
+    resumo = alinhar_resumo_ao_consolidado({}, consolidado, [])
+    assert resumo["quantidades_fisicas"] == {
+        "caixas": 2.0, "bandejas": 18.0, "pacotes": 1986.0,
+        "galinhas": 3972.0, "peso_kg": 41.46,
+    }
+    assert resumo["quantidades_disponiveis"] == resumo["quantidades_fisicas"]
+
+
+def test_paginacao_limita_listagem_sem_alterar_totais_do_filtro():
+    expedicoes = [
+        {"id": indice, "status": "Concluído", "total_unidades": 1, "total_kg": 2}
+        for indice in range(1, 54)
+    ]
+    resumo = calcular_resumo_expedicao(expedicoes)
+    pagina, paginacao = paginar_expedicoes(expedicoes, pagina=2, por_pagina=25)
+    assert [item["id"] for item in pagina] == list(range(26, 51))
+    assert paginacao == {
+        "pagina": 2, "por_pagina": 25, "total": 53, "paginas": 3,
+        "tem_anterior": True, "tem_proxima": True,
+    }
+    assert resumo["total_romaneios"] == 53
+    assert resumo["concluidos"] == 53
+    assert resumo["total_kg"] == 106
+
+
+def test_filtro_pnc_e_datas_de_apresentacao_sao_normalizados():
+    assert _normalizar_situacao_pnc("finalizados") == "FINALIZADOS"
+    assert _normalizar_situacao_pnc("desconhecida") == "ATIVOS"
+    assert formatar_data_hora_brasileira("2026-08-26T11:30:43+00:00") == "26/08/2026 07:30"
+    assert formatar_data_hora_brasileira("2026-08-21 15:50:00") == "21/08/2026 15:50"
+    assert formatar_resumo_quantidades_br(
+        "3904.000 Ave entregue; 0.000 Ave saldo"
+    ) == "3.904,000 Ave entregue; 0,000 Ave saldo"
