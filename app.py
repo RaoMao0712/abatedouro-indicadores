@@ -46,6 +46,8 @@ from modules.expedicao.services import (
     remover_movimentacoes_estoque_pi_por_op,
 )
 from modules.expedicao.estornos_embalagem import criar_tabelas_estornos_embalagem
+from modules.label_printing import criar_tabelas_impressao_etiquetas
+from modules.label_printing.routes import register_label_printing_routes
 from modules.expedicao.estoque_service import (
     criar_tabelas_estoque_confiavel,
     formatar_data_brasileira,
@@ -66,6 +68,8 @@ app.config["SEND_FILE_MAX_AGE_DEFAULT"] = int(os.getenv("STATIC_CACHE_SECONDS", 
 app.config["PNC_DISCARD_WAYBILL_ENABLED"] = os.getenv(
     "PNC_DISCARD_WAYBILL_ENABLED", "false"
 ).strip().lower() in {"1", "true", "yes", "on", "sim"}
+for _flag_etiqueta in ("LABEL_PRINTING_ENABLED", "BOX_LABEL_AUTO_PRINT_ENABLED", "LOCAL_PRINT_AGENT_ENABLED"):
+    app.config[_flag_etiqueta] = os.getenv(_flag_etiqueta, "false").strip().lower() in {"1", "true", "yes", "on", "sim"}
 
 
 # ============================================================
@@ -587,6 +591,7 @@ register_clientes_routes(app)
 register_expedicao_routes(app, {
     "criar_banco": criar_banco,
 })
+register_label_printing_routes(app)
 register_pedidos_venda_routes(app)
 
 register_movimentacoes_routes(app)
@@ -603,6 +608,7 @@ def inicializar_schema_aplicacao():
         criar_tabela_tempos_setor,
         criar_tabelas_custos,
         criar_tabelas_cmv,
+        criar_tabelas_impressao_etiquetas,
         criar_tabela_vendas,
         criar_tabelas_expedicao,
         criar_tabelas_estoque_pi_pa,

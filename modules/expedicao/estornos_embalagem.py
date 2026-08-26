@@ -277,6 +277,8 @@ def _estornar_caixa_cursor(cursor, op_id, caixa_id, usuario, perfil, justificati
         (agora, usuario, justificativa.strip(), caixa_id))
     if cursor.rowcount != 1:
         raise ValueError("A caixa foi alterada concorrentemente; atualize a tela e tente novamente.")
+    from modules.label_printing.services import invalidar_jobs_caixa_cursor
+    invalidar_jobs_caixa_cursor(cursor, caixa_id)
 
     status_posterior = status_anterior
     if ajustar_op and str(status_anterior) == "Encerrada":

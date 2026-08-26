@@ -23,3 +23,6 @@ class Config:
     PNC_DISCARD_WAYBILL_ENABLED = os.getenv(
         "PNC_DISCARD_WAYBILL_ENABLED", "false"
     ).strip().lower() in {"1", "true", "yes", "on", "sim"}
+    LABEL_PRINTING_ENABLED = os.getenv("LABEL_PRINTING_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on", "sim"}
+    BOX_LABEL_AUTO_PRINT_ENABLED = os.getenv("BOX_LABEL_AUTO_PRINT_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on", "sim"}
+    LOCAL_PRINT_AGENT_ENABLED = os.getenv("LOCAL_PRINT_AGENT_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on", "sim"}

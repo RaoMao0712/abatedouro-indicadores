@@ -430,6 +430,11 @@ document.addEventListener("DOMContentLoaded", function () {
 
     {% if conferencia_op %}
     <div class="hero-resumo-inline" style="margin-bottom:1rem;">
+        <span><strong>Etiquetas automáticas:</strong> {{ 'habilitadas' if label_printing_enabled else 'desabilitadas' }}</span>
+        <span><strong>Estação/conector/Zebra:</strong> agente local</span>
+        <span><strong>Confirmação:</strong> “Enviada à impressora” significa aceite do spool, não impressão física confirmada.</span>
+    </div>
+    <div class="hero-resumo-inline" style="margin-bottom:1rem;">
         <span><strong>Ativas:</strong> {{ conferencia_op.totais.caixas_ativas }}</span>
         <span><strong>Estornadas:</strong> {{ conferencia_op.totais.caixas_estornadas }}</span>
         <span><strong>Bandejas ativas:</strong> {{ conferencia_op.totais.bandejas|br_numero }}</span>
@@ -469,12 +474,15 @@ document.addEventListener("DOMContentLoaded", function () {
                     <th>Fabricação / validade</th>
                     <th>Lote / lançamento</th>
                     <th>Status</th>
+                    <th>Etiqueta</th>
                     <th>Alerta</th>
                     <th>Ação</th>
                 </tr>
             </thead>
             <tbody>
                 {% for caixa in caixas_op %}
+                {% set etiqueta_jobs = jobs_etiqueta.get(caixa.id, []) %}
+                {% set ultimo_job = etiqueta_jobs[-1] if etiqueta_jobs else none %}
                 <tr {% if caixa.status|upper in ['ESTORNADA','ESTORNADO','CANCELADA','CANCELADO'] %}style="opacity:.62;background:#f4f4f4;"{% endif %}>
                     <td><input type="checkbox" name="caixa_ids[]" value="{{ caixa.id }}" form="form-estorno-lote" data-caixa-selecao data-bandejas="{{ caixa.quantidade_bandejas }}" data-bruto="{{ caixa.peso_bruto }}" data-liquido="{{ caixa.peso_liquido }}" data-codigo="{{ caixa.codigo_caixa }}" {% if not caixa.selecionavel %}disabled{% endif %}></td>
                     <td><strong>{{ caixa.codigo_caixa }}</strong></td>
@@ -485,8 +493,23 @@ document.addEventListener("DOMContentLoaded", function () {
                     <td>{{ caixa.data_fabricacao or '-' }}<br>{{ caixa.data_validade or '-' }}</td>
                     <td>{{ caixa.codigo_caixa }}<br><small>{{ caixa.criado_em or '-' }} · {{ caixa.usuario_lancamento or '-' }}</small></td>
                     <td><strong>{{ caixa.status }}</strong>{% if caixa.bloqueios %}<br><small>{{ caixa.bloqueios|join(' ') }}</small>{% endif %}</td>
+                    <td>
+                        {% if ultimo_job %}<strong>{{ ultimo_job.state|replace('_', ' ')|title }}</strong><br><small>{{ ultimo_job.job_uuid[:8] }} · geração {{ ultimo_job.generation }}</small>
+                        {% elif label_printing_enabled %}<span class="obs">Sem modelo compatível</span>
+                        {% else %}<span class="obs">Desabilitada</span>{% endif %}
+                        {% if etiqueta_jobs %}<details><summary>Histórico ({{ etiqueta_jobs|length }})</summary>{% for job in etiqueta_jobs %}<small>G{{ job.generation }} · {{ job.state|replace('_',' ') }}{% if job.box_reversed %} · caixa estornada{% endif %}<br></small>{% endfor %}</details>{% endif %}
+                    </td>
                     <td>{% if caixa.possivel_duplicidade %}<strong style="color:#b54708;">Possível duplicidade</strong>{% else %}<span class="obs">—</span>{% endif %}</td>
                     <td>
+                    {% if label_printing_enabled and ultimo_job and pode_estornar_caixa and caixa.status|upper not in ['ESTORNADA','ESTORNADO','CANCELADA','CANCELADO'] %}
+                        <details><summary class="botao-dre-exportar" style="cursor:pointer;">Reimprimir etiqueta</summary>
+                            <form method="post" action="{{ url_for('reimprimir_etiqueta_caixa', op_id=op_selecionada.op_id, caixa_id=caixa.id) }}" style="min-width:260px;margin:.6rem 0;">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_estorno }}">
+                                <label>Justificativa obrigatória</label><textarea name="justificativa" minlength="10" required></textarea>
+                                <button class="botao-dre-exportar" type="submit">Solicitar reimpressão</button>
+                            </form>
+                        </details>
+                    {% endif %}
                     {% if estorno_habilitado and pode_estornar_caixa and caixa.status|upper not in ['ESTORNADA','ESTORNADO','CANCELADA','CANCELADO'] %}
                         <details>
                             <summary class="botao-dre-exportar" style="cursor:pointer;">Estornar caixa</summary>

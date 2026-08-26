@@ -1304,6 +1304,8 @@ def _gerar_codigo_caixa_cursor(cursor):
 
 def registrar_caixa_pa_manual(form, usuario=None):
     criar_tabelas_estoque_pi_pa()
+    from modules.label_printing.services import criar_tabelas_impressao_etiquetas
+    criar_tabelas_impressao_etiquetas()
     from .conferencia_embalagem import criar_tabelas_conferencia_embalagem
     criar_tabelas_conferencia_embalagem()
 
@@ -1354,6 +1356,8 @@ def registrar_caixa_pa_manual(form, usuario=None):
         )
         if usuario:
             cursor.execute(q("UPDATE pa_caixas SET usuario_pesagem=? WHERE id=?"), (usuario, caixa_id))
+        from modules.label_printing.services import criar_job_caixa_cursor
+        criar_job_caixa_cursor(cursor, caixa_id, solicitado_por=usuario)
         _invalidar_conferencia_por_inclusao(cursor, consumo_por_op)
         _registrar_requisicao_embalagem(
             cursor, composicao[0][0], "INCLUSAO_INDIVIDUAL", chave,
@@ -1365,6 +1369,8 @@ def registrar_caixa_pa_manual(form, usuario=None):
 
 def registrar_caixas_pa_lote(form, usuario=None):
     criar_tabelas_estoque_pi_pa()
+    from modules.label_printing.services import criar_tabelas_impressao_etiquetas
+    criar_tabelas_impressao_etiquetas()
     from .conferencia_embalagem import criar_tabelas_conferencia_embalagem
     criar_tabelas_conferencia_embalagem()
 
@@ -1437,6 +1443,8 @@ def registrar_caixas_pa_lote(form, usuario=None):
             )
             if usuario:
                 cursor.execute(q("UPDATE pa_caixas SET usuario_pesagem=? WHERE id=?"), (usuario, caixa_id))
+            from modules.label_printing.services import criar_job_caixa_cursor
+            criar_job_caixa_cursor(cursor, caixa_id, solicitado_por=usuario)
             codigos.append(codigo_caixa)
         _invalidar_conferencia_por_inclusao(cursor, consumo_por_op)
         _registrar_requisicao_embalagem(

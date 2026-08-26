@@ -83,6 +83,7 @@ from modules.qualidade.liberacoes import (
     remover_reserva_operacional, reservar_operacional,
     saldos_legados_operacionais,
 )
+from modules.label_printing.services import listar_jobs_caixas, solicitar_reimpressao
 from modules.clientes.services import listar_clientes
 from .relatorio_entregas import gerar_relatorio_entregas_pdf
 
@@ -453,6 +454,19 @@ def register_expedicao_routes(app, integracoes=None):
             flash(str(erro))
         return redirect(url_for("embalagem_secundaria", op_id=op_id, conferencia="1"))
 
+    @app.post("/embalagem-secundaria/<int:op_id>/caixas/<int:caixa_id>/etiqueta/reimprimir")
+    @perfil_permitido("pcp", "gerencia")
+    def reimprimir_etiqueta_caixa(op_id, caixa_id):
+        try:
+            if not _csrf_estorno_valido():
+                raise PermissionError("Sessão de confirmação expirada. Atualize a página e tente novamente.")
+            job_uuid = solicitar_reimpressao(caixa_id, usuario=session.get("nome") or "Usuário",
+                                              justificativa=request.form.get("justificativa"))
+            flash(f"Reimpressão solicitada e registrada na fila ({job_uuid[:8]}).")
+        except (ValueError, PermissionError) as erro:
+            flash(str(erro))
+        return redirect(url_for("embalagem_secundaria", op_id=op_id, conferencia="1"))
+
 
     @app.route("/embalagem-secundaria", methods=["GET", "POST"])
 
@@ -530,6 +544,7 @@ def register_expedicao_routes(app, integracoes=None):
         csrf_estorno = session.get("estorno_embalagem_csrf") or secrets.token_urlsafe(32)
         session["estorno_embalagem_csrf"] = csrf_estorno
         chaves_estorno = {int(caixa["id"]): str(uuid.uuid4()) for caixa in caixas_op}
+        jobs_etiqueta = listar_jobs_caixas([caixa["id"] for caixa in caixas_op])
 
         return render_template(
             "embalagem_secundaria.html",
@@ -556,6 +571,8 @@ def register_expedicao_routes(app, integracoes=None):
             chave_retomada=str(uuid.uuid4()),
             conferencia_op=conferencia_op,
             retomada_op=retomada_op,
+            jobs_etiqueta=jobs_etiqueta,
+            label_printing_enabled=bool(app.config.get("LABEL_PRINTING_ENABLED", False)),
             data_fabricacao_padrao=(op_selecionada["data_op"] if op_selecionada else datetime.now().strftime("%Y-%m-%d")),
         )
 
