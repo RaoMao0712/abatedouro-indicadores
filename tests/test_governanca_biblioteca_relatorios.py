@@ -111,10 +111,10 @@ def cliente_autenticado():
     return client
 
 
-def test_catalogo_tem_39_ids_unicos_e_campos_governados():
+def test_catalogo_tem_41_ids_unicos_e_campos_governados():
     ids = [item["id"] for item in RELATORIOS_OFICIAIS]
 
-    assert len(RELATORIOS_OFICIAIS) == 39
+    assert len(RELATORIOS_OFICIAIS) == 41
     assert len(ids) == len(set(ids))
 
     for item in RELATORIOS_OFICIAIS:

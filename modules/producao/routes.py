@@ -58,6 +58,11 @@ from .performance import (
     registrar_reprocesso,
     sugerir_contagem,
 )
+from .oee import (
+    calcular_oee,
+    listar_configuracoes_fisicas,
+    registrar_configuracao_fisica,
+)
 from .operacoes_op import (
     estornar_op_integral,
     historico_operacoes_op,
@@ -166,7 +171,10 @@ def register_producao_routes(app, integracoes=None):
                 flash("Apontamento de mão de obra salvo.")
 
             elif tipo == "parada":
-                salvar_apontamento_parada(request.form)
+                salvar_apontamento_parada(
+                    request.form, usuario=session.get("nome") or "Usuario",
+                    usuario_id=session.get("usuario_id"),
+                )
                 flash("Apontamento de parada salvo.")
 
             elif tipo == "descarte":
@@ -227,7 +235,10 @@ def register_producao_routes(app, integracoes=None):
             try:
                 if not request.form.get("afeta_linha_abate"):
                     raise ValueError("Informe se a parada afetou a Linha de Abate.")
-                salvar_apontamento_parada(request.form)
+                salvar_apontamento_parada(
+                    request.form, usuario=session.get("nome") or "Usuario",
+                    usuario_id=session.get("usuario_id"),
+                )
                 flash("Apontamento de horas paradas salvo.")
             except ValueError as erro:
                 flash(str(erro))
@@ -272,6 +283,7 @@ def register_producao_routes(app, integracoes=None):
             "velocidades_ideais_linha.html",
             velocidades=listar_velocidades(filtros), filtros=filtros,
             skus=listar_skus_operacionais(),
+            configuracoes_fisicas=listar_configuracoes_fisicas(),
         )
 
 
@@ -303,6 +315,26 @@ def register_producao_routes(app, integracoes=None):
                 perfil=session.get("perfil"),
             )
             flash("Decisao da velocidade registrada com auditoria.")
+        except (ValueError, PermissionError) as erro:
+            flash(str(erro))
+        return redirect(url_for("velocidades_ideais_linha"))
+
+
+    @app.post("/linha-abate/configuracao-fisica")
+    @perfil_permitido("admin")
+    def registrar_configuracao_fisica_linha():
+        try:
+            registrar_configuracao_fisica(
+                request.form.get("vigencia_inicio"), request.form.get("vigencia_fim"),
+                request.form.get("noria_1_ganchos_instalados"),
+                request.form.get("noria_1_ganchos_operacionais"),
+                request.form.get("noria_2_ganchos_instalados"),
+                request.form.get("noria_2_ganchos_operacionais"),
+                request.form.get("justificativa"),
+                usuario=session.get("nome") or "Usuario",
+                usuario_id=session.get("usuario_id"), perfil=session.get("perfil"),
+            )
+            flash("Configuracao fisica da linha registrada sem efeito retroativo.")
         except (ValueError, PermissionError) as erro:
             flash(str(erro))
         return redirect(url_for("velocidades_ideais_linha"))
@@ -1165,6 +1197,7 @@ def register_producao_routes(app, integracoes=None):
         correcoes_administrativas = []
         disponibilidade_linha = None
         performance_linha = None
+        oee_linha = None
         sugestao_contagem_performance = None
         historico_performance_linha = []
         preflight_reabertura = None
@@ -1213,6 +1246,10 @@ def register_producao_routes(app, integracoes=None):
                 performance_linha = calcular_performance(
                     op_id, conn=conn, disponibilidade=disponibilidade_linha,
                 )
+                oee_linha = calcular_oee(
+                    op_id, conn=conn, disponibilidade=disponibilidade_linha,
+                    performance=performance_linha,
+                )
                 sugestao_contagem_performance = sugerir_contagem(op_id, conn=conn)
                 cursor.execute("SELECT * FROM linha_abate_velocidades_ideais WHERE status='ATIVA' AND ativo_logico=1 ORDER BY configuracao,sku,id DESC")
                 velocidades_ativas_performance = cursor.fetchall()
@@ -1243,6 +1280,7 @@ def register_producao_routes(app, integracoes=None):
             correcoes_administrativas=correcoes_administrativas,
             disponibilidade_linha=disponibilidade_linha,
             performance_linha=performance_linha,
+            oee_linha=oee_linha,
             sugestao_contagem_performance=sugestao_contagem_performance,
             velocidades_ativas_performance=velocidades_ativas_performance if op else [],
             historico_performance_linha=historico_performance_linha,

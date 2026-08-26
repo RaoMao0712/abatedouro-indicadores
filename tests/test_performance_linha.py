@@ -305,7 +305,7 @@ def test_32_op_reaberta_invalida_snapshot_e_contagem(banco):
     preparar_calculo(banco)
     conn=banco(); cursor=conn.cursor(); perf.invalidar_por_reabertura(1,cursor=cursor,usuario="Admin",perfil="admin"); conn.execute("UPDATE ordens_producao SET status='Aberta' WHERE id=1"); conn.commit(); conn.close()
     r=resultado(banco)
-    assert r["situacao"] == "NAO_CALCULAVEL"
+    assert r["situacao"] == "EM_ANDAMENTO"
 
 
 def test_33_op_cancelada(banco):
@@ -366,10 +366,11 @@ def test_42_regressao_relatorio_eficiencia_sem_performance_oee():
     assert all("calcular_performance" not in item.read_text(encoding="utf-8") for item in arquivos)
 
 
-def test_interface_nao_exibe_oee_e_formula_fica_no_servico():
+def test_interface_exibe_oee_sem_calculo_parcial_e_formula_fica_no_servico():
     raiz=Path(__file__).parents[1]
     consulta=(raiz/"templates/_performance_linha.html").read_text(encoding="utf-8")
-    assert "OEE" not in consulta
+    assert "OEE" in consulta
+    assert "OEE parcial" in consulta
     assert "Performance da Linha" in consulta
     assert "performance_linha.performance" in consulta
 

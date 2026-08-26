@@ -46,5 +46,32 @@
       </div></form>{% else %}&mdash;{% endif %}</td>
   </tr>{% else %}<tr><td colspan="8">Nenhuma refer&ecirc;ncia encontrada.</td></tr>{% endfor %}</tbody></table></div>
 </div>
+
+<div class="card">
+  <h2>Configura&ccedil;&atilde;o f&iacute;sica das n&oacute;rias</h2>
+  <p class="obs">Informa&ccedil;&atilde;o audit&aacute;vel de capacidade f&iacute;sica. Ganchos n&atilde;o multiplicam a Performance e nenhuma estimativa de 80% &eacute; persistida automaticamente.</p>
+  {% if session.get('perfil') == 'admin' %}
+  <form method="POST" action="{{ url_for('registrar_configuracao_fisica_linha') }}">
+    <div class="form-grid">
+      <div><label>In&iacute;cio da vig&ecirc;ncia</label><input type="date" name="vigencia_inicio" required></div>
+      <div><label>Fim da vig&ecirc;ncia</label><input type="date" name="vigencia_fim"></div>
+      <div><label>N&oacute;ria 1 &mdash; instalados</label><input type="number" min="1" name="noria_1_ganchos_instalados" placeholder="500" required></div>
+      <div><label>N&oacute;ria 1 &mdash; operacionais</label><input type="number" min="1" name="noria_1_ganchos_operacionais" required></div>
+      <div><label>N&oacute;ria 2 &mdash; instalados</label><input type="number" min="1" name="noria_2_ganchos_instalados" placeholder="500" required></div>
+      <div><label>N&oacute;ria 2 &mdash; operacionais</label><input type="number" min="1" name="noria_2_ganchos_operacionais" required></div>
+    </div>
+    <label>Justificativa t&eacute;cnica</label><textarea name="justificativa" required></textarea>
+    <button type="submit">Registrar configura&ccedil;&atilde;o versionada</button>
+  </form>
+  {% endif %}
+  <div class="table-responsive"><table><thead><tr><th>Vig&ecirc;ncia</th><th>N&oacute;ria 1</th><th>N&oacute;ria 2</th><th>Auditoria</th></tr></thead><tbody>
+  {% for item in configuracoes_fisicas %}<tr>
+    <td>{{ item.vigencia_inicio }} &ndash; {{ item.vigencia_fim or 'aberta' }}</td>
+    <td>{{ item.noria_1_ganchos_operacionais }} operacionais / {{ item.noria_1_ganchos_instalados }} instalados</td>
+    <td>{{ item.noria_2_ganchos_operacionais }} operacionais / {{ item.noria_2_ganchos_instalados }} instalados</td>
+    <td>{{ item.registrado_por }} em {{ item.criado_em }}<br>{{ item.justificativa }}</td>
+  </tr>{% else %}<tr><td colspan="4">Nenhuma configura&ccedil;&atilde;o f&iacute;sica oficial registrada. N&atilde;o foi aplicado preenchimento retroativo.</td></tr>{% endfor %}
+  </tbody></table></div>
+</div>
 </div>
 {% endblock %}

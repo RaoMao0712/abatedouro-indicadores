@@ -163,6 +163,8 @@ def criar_tabelas_disponibilidade():
             ("ALTER TABLE apontamentos_paradas ADD COLUMN IF NOT EXISTS classificacao_alterada_em TEXT", "ALTER TABLE apontamentos_paradas ADD COLUMN classificacao_alterada_em TEXT"),
             ("ALTER TABLE apontamentos_paradas ADD COLUMN IF NOT EXISTS classificacao_alterada_por TEXT", "ALTER TABLE apontamentos_paradas ADD COLUMN classificacao_alterada_por TEXT"),
             ("ALTER TABLE apontamentos_paradas ADD COLUMN IF NOT EXISTS classificacao_justificativa TEXT", "ALTER TABLE apontamentos_paradas ADD COLUMN classificacao_justificativa TEXT"),
+            ("ALTER TABLE apontamentos_paradas ADD COLUMN IF NOT EXISTS registrado_por TEXT", "ALTER TABLE apontamentos_paradas ADD COLUMN registrado_por TEXT"),
+            ("ALTER TABLE apontamentos_paradas ADD COLUMN IF NOT EXISTS registrado_por_id INTEGER", "ALTER TABLE apontamentos_paradas ADD COLUMN registrado_por_id INTEGER"),
         ]:
             _executar_alteracao(cursor, postgres_sql, sqlite_sql)
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_linha_programacao_op ON linha_abate_programacoes(op_id)")
@@ -513,6 +515,15 @@ def calcular_disponibilidade(op_id, *, agora=None, conn=None):
     inconsistencias = []
     try:
         cursor = conn.cursor()
+        cursor.execute(q("SELECT status FROM ordens_producao WHERE id=?"), (op_id,))
+        op = cursor.fetchone()
+        status_op = str(op["status"] or "").upper() if op else ""
+        op_em_andamento = bool(
+            op and status_op not in {
+                "ENCERRADA", "ESTORNADA", "ESTORNADO", "CANCELADA", "CANCELADO",
+            }
+        )
+        op_historica = status_op in {"ESTORNADA", "ESTORNADO", "CANCELADA", "CANCELADO"}
         programacao, pausas = obter_programacao(op_id, conn=conn)
         base = {
             "inicio_programado": None, "fim_programado": None,
@@ -524,10 +535,17 @@ def calcular_disponibilidade(op_id, *, agora=None, conn=None):
             "tempo_operacional_minutos": None, "disponibilidade": None,
             "situacao": "NAO_CALCULAVEL", "motivos": motivos, "alertas": alertas,
             "inconsistencias": inconsistencias,
-            "pausas_planejadas": pausas, "auditoria": [],
+            "pausas_planejadas": pausas, "auditoria": [], "status_op": status_op,
         }
+        if not op:
+            motivos.append("OP nao encontrada.")
+            return base
         if not programacao:
-            motivos.append("OP sem programacao oficial da Linha de Abate.")
+            if op_em_andamento:
+                base["situacao"] = "EM_ANDAMENTO"
+                motivos.append("OP em andamento sem programacao oficial da Linha de Abate.")
+            else:
+                motivos.append("OP sem programacao oficial da Linha de Abate.")
             return base
         try:
             inicio_p = _parse_data_hora(programacao["inicio_programado"])
@@ -581,6 +599,7 @@ def calcular_disponibilidade(op_id, *, agora=None, conn=None):
         cursor.execute(q("SELECT * FROM apontamentos_paradas WHERE op_id=?"), (op_id,))
         paradas = cursor.fetchall()
         perdas = []
+        parada_aberta_em_andamento = False
         for parada in paradas:
             if not _parada_intercepta_janela(parada, (inicio_p, fim_p)):
                 continue
@@ -617,11 +636,15 @@ def calcular_disponibilidade(op_id, *, agora=None, conn=None):
             except (TypeError, ValueError):
                 intervalo = None
             if not intervalo:
-                inconsistencias.append({
-                    "codigo": "PARADA_ABERTA_OU_INTERVALO_INVALIDO",
-                    "parada_id": parada["id"],
-                })
-                alertas.append(f"Parada #{parada['id']} que afeta a linha esta aberta ou possui horario invalido.")
+                if op_em_andamento and not parada["hora_fim"]:
+                    parada_aberta_em_andamento = True
+                    alertas.append(f"Parada #{parada['id']} que afeta a linha permanece aberta; medicao em andamento.")
+                else:
+                    inconsistencias.append({
+                        "codigo": "PARADA_ABERTA_OU_INTERVALO_INVALIDO",
+                        "parada_id": parada["id"],
+                    })
+                    alertas.append(f"Parada #{parada['id']} que afeta a linha esta aberta ou possui horario invalido.")
                 continue
             if natureza_valida:
                 recortado = _recortar(intervalo, (inicio_p, fim_p))
@@ -633,7 +656,10 @@ def calcular_disponibilidade(op_id, *, agora=None, conn=None):
         perdas_unidas = _unir_intervalos(atrasos_liquidos + antecipados_liquidos + paradas_liquidas)
         perda_total = sum((_minutos(i, f) for i, f in perdas_unidas), Decimal("0"))
         operacional = max(Decimal("0"), liquido - perda_total)
-        disponibilidade = min(Decimal("100"), max(Decimal("0"), operacional / liquido * Decimal("100")))
+        disponibilidade = operacional / liquido * Decimal("100")
+        if disponibilidade < 0 or disponibilidade > 100:
+            inconsistencias.append({"codigo": "DISPONIBILIDADE_FORA_DOS_LIMITES"})
+            alertas.append("Disponibilidade fora do intervalo de 0% a 100%; revise a programacao e os tempos.")
         inconsistente = bool(inconsistencias)
         base.update({
             "atraso_inicio_minutos": sum((_minutos(i, f) for i, f in atrasos_liquidos), Decimal("0")),
@@ -643,6 +669,19 @@ def calcular_disponibilidade(op_id, *, agora=None, conn=None):
             "disponibilidade": None if inconsistente else disponibilidade,
             "situacao": "INCONSISTENTE" if inconsistente else "CALCULAVEL",
         })
+        if op_historica:
+            base.update({
+                "tempo_operacional_minutos": None, "disponibilidade": None,
+                "situacao": "NAO_CALCULAVEL",
+            })
+            motivos.append("OP estornada/cancelada mantida somente no historico, sem indicador vigente.")
+        elif op_em_andamento and not inconsistente:
+            base.update({"disponibilidade": None, "situacao": "EM_ANDAMENTO"})
+            motivos.append(
+                "Parada da linha em andamento; percentual final nao publicado."
+                if parada_aberta_em_andamento
+                else "OP em andamento; a Disponibilidade final nao e publicada."
+            )
         cursor.execute(q("SELECT * FROM linha_abate_auditoria WHERE op_id=? ORDER BY criado_em DESC,id DESC"), (op_id,))
         base["auditoria"] = cursor.fetchall()
         return base

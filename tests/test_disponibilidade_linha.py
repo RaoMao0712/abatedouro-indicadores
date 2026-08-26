@@ -30,7 +30,7 @@ def banco(tmp_path, monkeypatch):
         horas_paradas REAL NOT NULL DEFAULT 0, observacoes TEXT,
         manutencao_aberta TEXT, criado_em TEXT DEFAULT CURRENT_TIMESTAMP
     );
-    INSERT INTO ordens_producao(id,data,status) VALUES (1,'2026-08-10','Aberta');
+    INSERT INTO ordens_producao(id,data,status) VALUES (1,'2026-08-10','Encerrada');
     """)
     conn.commit()
     conn.close()
@@ -356,6 +356,10 @@ def test_reclassificacao_administrativa_regulariza_e_retorna_calculavel(banco):
 
 def test_estados_principais_permanecem_compativeis(banco):
     assert resultado()["situacao"] == "NAO_CALCULAVEL"
+    conn = banco()
+    conn.execute("UPDATE ordens_producao SET status='Aberta' WHERE id=1")
+    conn.commit()
+    conn.close()
     programar()
     disp.registrar_inicio_linha(
         1, perfil="producao", agora=datetime.fromisoformat("2026-08-10T08:00-04:00")
@@ -364,6 +368,10 @@ def test_estados_principais_permanecem_compativeis(banco):
     disp.registrar_fim_linha(
         1, perfil="producao", agora=datetime.fromisoformat("2026-08-10T16:00-04:00")
     )
+    conn = banco()
+    conn.execute("UPDATE ordens_producao SET status='Encerrada' WHERE id=1")
+    conn.commit()
+    conn.close()
     assert resultado()["situacao"] == "CALCULAVEL"
 
 

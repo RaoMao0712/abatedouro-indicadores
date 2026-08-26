@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block conteudo %}
+<div class="operational-page">
+  <section class="hero-dashboard operational-hero">
+    <div><span class="eyebrow">Produ&ccedil;&atilde;o</span><h2>{{ titulo }}</h2>
+      <p>Indicadores audit&aacute;veis da Linha de Abate em America/Manaus.</p>
+      <div class="hero-resumo-inline"><span><strong>Per&iacute;odo:</strong> {{ filtros.data_inicio }} a {{ filtros.data_fim }}</span><span><strong>Base:</strong> programa&ccedil;&atilde;o + paradas + velocidade versionada</span></div>
+    </div>
+  </section>
+
+  <div class="card">
+    <form method="GET" class="form-grid">
+      <div><label>Data inicial</label><input type="date" name="data_inicio" value="{{ filtros.data_inicio }}"></div>
+      <div><label>Data final</label><input type="date" name="data_fim" value="{{ filtros.data_fim }}"></div>
+      <div><label>OP</label><input name="op_id" value="{{ filtros.op_id }}" placeholder="N&uacute;mero"></div>
+      <div><label>Status</label><select name="status">{% for item in ['Encerrada','Aberta','Historico','Todas'] %}<option value="{{ item }}" {% if filtros.status==item %}selected{% endif %}>{{ item }}</option>{% endfor %}</select></div>
+      <div><label>Fornecedor</label><select name="fornecedor"><option>Todos</option>{% for item in fornecedores %}<option value="{{ item }}" {% if filtros.fornecedor==item %}selected{% endif %}>{{ item }}</option>{% endfor %}</select></div>
+      <div><button type="submit">Filtrar</button></div>
+    </form>
+    <div class="acoes-op-topo">
+      <a class="botao-editar" href="{{ url_for('relatorio_producao_oficial',slug='disponibilidade',**filtros) }}">Disponibilidade</a>
+      <a class="botao-editar" href="{{ url_for('relatorio_producao_oficial',slug='performance',**filtros) }}">Performance</a>
+      <a class="botao-editar" href="{{ url_for('relatorio_producao_oficial',slug='oee',**filtros) }}">OEE</a>
+      <a class="botao-editar" href="{{ url_for('relatorio_producao_oficial_exportar',slug=slug,**filtros) }}">Exportar Excel</a>
+    </div>
+  </div>
+
+  <section class="card">
+    <div class="kpi-grid">
+      <div class="kpi-card"><span>OPs</span><strong>{{ totais.ops }}</strong></div>
+      <div class="kpi-card"><span>Tempo planejado</span><strong>{{ totais.tempo_planejado_minutos|br_numero(0) }} min</strong></div>
+      <div class="kpi-card"><span>Tempo operacional</span><strong>{{ totais.tempo_operacional_minutos|br_numero(0) }} min</strong></div>
+      <div class="kpi-card"><span>Disponibilidade</span><strong>{% if totais.disponibilidade is not none %}{{ totais.disponibilidade|br_numero(2) }}%{% else %}N/A{% endif %}</strong><small>{{ totais.situacao_disponibilidade|replace('_',' ') }}</small></div>
+      <div class="kpi-card"><span>Aves consideradas</span><strong>{{ totais.aves_consideradas|br_numero(0) }}</strong></div>
+      <div class="kpi-card"><span>Capacidade te&oacute;rica</span><strong>{{ totais.capacidade_teorica|br_numero(2) }}</strong></div>
+      <div class="kpi-card"><span>Performance</span><strong>{% if totais.performance is not none %}{{ totais.performance|br_numero(2) }}%{% else %}N/A{% endif %}</strong><small>{{ totais.situacao_performance|replace('_',' ') }}</small></div>
+      <div class="kpi-card"><span>Qualidade</span><strong>N/A</strong><small>{{ totais.situacao_qualidade|replace('_',' ') }}</small></div>
+      <div class="kpi-card"><span>OEE</span><strong>{% if totais.oee is not none %}{{ totais.oee|br_numero(2) }}%{% else %}N/A{% endif %}</strong><small>{{ totais.situacao_oee|replace('_',' ') }}</small></div>
+    </div>
+    <p class="obs">Disponibilidade consolidada = &Sigma; tempo operacional &divide; &Sigma; tempo planejado. Performance consolidada = &Sigma; aves consideradas &divide; &Sigma; capacidade te&oacute;rica. Percentuais individuais n&atilde;o s&atilde;o promediados.</p>
+  </section>
+
+  <section class="card">
+    <h2>Detalhamento por OP</h2>
+    <div class="table-responsive"><table><thead><tr>
+      <th>OP</th><th>Data</th><th>Status</th><th>Estado</th><th>Planejado</th><th>Paradas linha</th><th>Operacional</th><th>Aves consideradas</th><th>Velocidade</th><th>Capacidade</th><th>D</th><th>P</th><th>Q</th><th>OEE</th><th>Observa&ccedil;&otilde;es</th>
+    </tr></thead><tbody>
+    {% for linha in linhas %}{% set d=linha.disponibilidade %}{% set p=linha.performance %}{% set q=linha.qualidade %}<tr>
+      <td>OP-{{ '%05d'|format(linha.op_id) }}</td><td>{{ linha.data }}</td><td>{{ linha.status }}</td><td><strong>{{ linha.situacao|replace('_',' ') }}</strong></td>
+      <td>{{ d.tempo_planejado_liquido_minutos|br_numero(0) if d.tempo_planejado_liquido_minutos is not none else 'N/A' }}</td>
+      <td>{{ d.paradas_nao_planejadas_minutos|br_numero(0) if d.paradas_nao_planejadas_minutos is not none else 'N/A' }}</td>
+      <td>{{ d.tempo_operacional_minutos|br_numero(0) if d.tempo_operacional_minutos is not none else 'N/A' }}</td>
+      <td>{{ p.quantidade_total_considerada|br_numero(0) if p.quantidade_total_considerada is not none else 'N/A' }}</td>
+      <td>{{ p.velocidade_ideal_aves_hora|br_numero(2) if p.velocidade_ideal_aves_hora is not none else 'N/A' }}</td>
+      <td>{{ p.producao_teorica|br_numero(2) if p.producao_teorica is not none else 'N/A' }}</td>
+      <td>{{ (d.disponibilidade|br_numero(2) ~ '%') if d.disponibilidade is not none else 'N/A' }}</td>
+      <td>{{ (p.performance|br_numero(2) ~ '%') if p.performance is not none else 'N/A' }}</td>
+      <td>{{ (q.qualidade|br_numero(2) ~ '%') if q.qualidade is not none else 'N/A' }}</td>
+      <td>{{ (linha.oee|br_numero(2) ~ '%') if linha.oee is not none else 'N/A' }}</td>
+      <td>{% for motivo in linha.motivos %}<div>{{ motivo }}</div>{% endfor %}{% for alerta in linha.alertas %}<div class="alerta-operacional">{{ alerta }}</div>{% endfor %}</td>
+    </tr>{% else %}<tr><td colspan="15">Nenhuma OP encontrada para os filtros.</td></tr>{% endfor %}
+    </tbody></table></div>
+  </section>
+
+  <section class="card"><h2>Limita&ccedil;&otilde;es expl&iacute;citas</h2><ul>{% for item in limitacoes %}<li>{{ item }}</li>{% endfor %}</ul></section>
+</div>
+{% endblock %}

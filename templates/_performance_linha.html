@@ -2,7 +2,7 @@
 <section class="card situacao-{{ performance_linha.situacao|lower }}">
   <div class="titulo-com-status"><h2>Performance da Linha</h2><strong>{{ performance_linha.situacao|replace('_',' ') }}</strong></div>
   <div class="kpi-grid">
-    <div class="kpi-card"><span>Aves processadas</span><strong>{{ performance_linha.aves_processadas|br_numero(0) if performance_linha.aves_processadas is not none else '-' }}</strong></div>
+    <div class="kpi-card"><span>Aves consideradas</span><strong>{{ performance_linha.aves_processadas|br_numero(0) if performance_linha.aves_processadas is not none else '-' }}</strong></div>
     <div class="kpi-card"><span>Reprocessos v&aacute;lidos</span><strong>{{ performance_linha.reprocessos_validos|br_numero(0) if performance_linha.reprocessos_validos is not none else '-' }}</strong></div>
     <div class="kpi-card"><span>Velocidade ideal</span><strong>{{ performance_linha.velocidade_ideal_aves_hora|br_numero(2) if performance_linha.velocidade_ideal_aves_hora is not none else '-' }} aves/h</strong></div>
     <div class="kpi-card"><span>Tempo operacional</span><strong>{{ performance_linha.tempo_operacional_minutos|br_numero(0) if performance_linha.tempo_operacional_minutos is not none else '-' }} min</strong></div>
@@ -10,6 +10,7 @@
     <div class="kpi-card"><span>Performance</span><strong>{% if performance_linha.performance is not none %}{{ performance_linha.performance|br_numero(2) }}%{% else %}N&atilde;o calcul&aacute;vel{% endif %}</strong></div>
   </div>
   <p class="obs">Situa&ccedil;&atilde;o do snapshot: <strong>{{ performance_linha.snapshot_situacao|replace('_',' ') }}</strong>.</p>
+  <p class="obs">Base oficial: aves recebidas menos mortes pr&eacute;-pendura. N&atilde;o existe contagem independente de aves penduradas/processadas.</p>
   {% if performance_linha.configuracao %}<p class="obs">Snapshot v{{ performance_linha.snapshot_versao }}: {{ performance_linha.configuracao }}{% if performance_linha.sku %} / {{ performance_linha.sku }}{% endif %} &mdash; vig&ecirc;ncia {{ performance_linha.vigencia_inicio }} a {{ performance_linha.vigencia_fim or 'aberta' }}.</p>{% endif %}
   {% for motivo in performance_linha.motivos %}<p class="obs">{{ motivo }}</p>{% endfor %}
   {% for alerta in performance_linha.alertas %}<p class="alerta-operacional">{{ alerta }}</p>{% endfor %}
@@ -53,5 +54,20 @@
   {% endif %}
 
   {% if historico_performance_linha %}<details><summary>Trilha de auditoria da Performance</summary><div class="table-responsive"><table><thead><tr><th>Quando</th><th>A&ccedil;&atilde;o</th><th>Usu&aacute;rio</th><th>Perfil</th><th>Justificativa</th></tr></thead><tbody>{% for item in historico_performance_linha %}<tr><td>{{ item.criado_em }}</td><td>{{ item.acao }}</td><td>{{ item.usuario }}</td><td>{{ item.perfil }}</td><td>{{ item.justificativa or '-' }}</td></tr>{% endfor %}</tbody></table></div></details>{% endif %}
+</section>
+{% endif %}
+
+{% if oee_linha %}
+<section class="card situacao-{{ oee_linha.situacao|lower }}">
+  <div class="titulo-com-status"><h2>Qualidade e OEE</h2><strong>{{ oee_linha.situacao|replace('_',' ') }}</strong></div>
+  <div class="kpi-grid">
+    <div class="kpi-card"><span>Disponibilidade</span><strong>{% if oee_linha.disponibilidade.disponibilidade is not none %}{{ oee_linha.disponibilidade.disponibilidade|br_numero(2) }}%{% else %}N/A{% endif %}</strong></div>
+    <div class="kpi-card"><span>Performance</span><strong>{% if oee_linha.performance.performance is not none %}{{ oee_linha.performance.performance|br_numero(2) }}%{% else %}N/A{% endif %}</strong></div>
+    <div class="kpi-card"><span>Qualidade</span><strong>{% if oee_linha.qualidade.qualidade is not none %}{{ oee_linha.qualidade.qualidade|br_numero(2) }}%{% else %}N/A{% endif %}</strong></div>
+    <div class="kpi-card"><span>OEE</span><strong>{% if oee_linha.oee is not none %}{{ oee_linha.oee|br_numero(2) }}%{% else %}N/A{% endif %}</strong></div>
+  </div>
+  <p class="obs">OEE = Disponibilidade &times; Performance &times; Qualidade. O sistema n&atilde;o publica OEE parcial.</p>
+  {% for motivo in oee_linha.qualidade.motivos %}<p class="obs">{{ motivo }}</p>{% endfor %}
+  {% for alerta in oee_linha.alertas %}<p class="alerta-operacional">{{ alerta }}</p>{% endfor %}
 </section>
 {% endif %}

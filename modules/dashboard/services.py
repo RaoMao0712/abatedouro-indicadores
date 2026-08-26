@@ -4,6 +4,7 @@ from datetime import datetime
 from decimal import Decimal
 
 from .repositories import buscar_dados_dashboard
+from modules.producao.oee import montar_contexto_oee
 
 
 JORNADA_PADRAO = 8.8
@@ -38,6 +39,10 @@ def _normalizar_filtros(args):
 def montar_contexto_dashboard(args):
     data_inicio, data_fim, status_filtro, sku_filtro = _normalizar_filtros(args)
     dados = buscar_dados_dashboard(data_inicio, data_fim, status_filtro, sku_filtro)
+    oee_oficial = montar_contexto_oee({
+        "data_inicio": data_inicio, "data_fim": data_fim,
+        "status": status_filtro, "fornecedor": "Todos",
+    })
 
     ordens_periodo = dados["ordens_periodo"]
     datas_periodo = sorted({op["data"] for op in ordens_periodo})
@@ -179,6 +184,7 @@ def montar_contexto_dashboard(args):
         "descartes_por_setor": descartes_por_setor,
         "produtividade_setores": dados["produtividade_setores"],
         "produtividade_setores_hora": produtividade_setores_hora,
+        "oee_oficial": oee_oficial,
     }
 
 

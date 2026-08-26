@@ -30,6 +30,7 @@ from modules.producao.routes import register_producao_routes
 from modules.producao.correcoes_administrativas import criar_tabelas_correcoes_administrativas_op
 from modules.producao.disponibilidade import criar_tabelas_disponibilidade
 from modules.producao.performance import criar_tabelas_performance
+from modules.producao.oee import criar_tabelas_oee
 from modules.producao.operacoes_op import criar_tabelas_operacoes_op
 from modules.qualidade.routes import register_qualidade_routes
 from modules.qualidade.services import criar_tabelas_sgi
@@ -622,6 +623,7 @@ def inicializar_schema_aplicacao():
         criar_tabelas_correcoes_administrativas_op,
         criar_tabelas_disponibilidade,
         criar_tabelas_performance,
+        criar_tabelas_oee,
     ])
 
 

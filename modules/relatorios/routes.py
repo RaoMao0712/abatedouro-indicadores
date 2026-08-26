@@ -33,6 +33,7 @@ from .gerencial import (
     montar_contexto_dashboard_executivo,
     montar_contexto_relatorio_gerencial,
 )
+from modules.producao.oee import montar_contexto_oee, gerar_excel_oee
 
 
 def register_relatorios_routes(app):
@@ -78,11 +79,10 @@ def register_relatorios_routes(app):
     def relatorio_producao_oficial(slug):
         if slug not in RELATORIOS_PRODUCAO:
             abort(404)
-        template = (
-            "relatorio_eficiencia_producao.html"
-            if RELATORIOS_PRODUCAO[slug].get("familia") == "eficiencia"
-            else "relatorio_producao_oficial.html"
-        )
+        familia = RELATORIOS_PRODUCAO[slug].get("familia")
+        if familia == "oee":
+            return render_template("relatorio_oee.html", **montar_contexto_oee(request.args, slug))
+        template = "relatorio_eficiencia_producao.html" if familia == "eficiencia" else "relatorio_producao_oficial.html"
         return render_template(
             template,
             **montar_contexto_relatorio_producao(slug, request.args),
@@ -93,8 +93,12 @@ def register_relatorios_routes(app):
     def relatorio_producao_oficial_exportar(slug):
         if slug not in RELATORIOS_PRODUCAO:
             abort(404)
-        contexto = montar_contexto_relatorio_producao(slug, request.args)
-        arquivo = gerar_excel_relatorio_producao(contexto)
+        if RELATORIOS_PRODUCAO[slug].get("familia") == "oee":
+            contexto = montar_contexto_oee(request.args, slug)
+            arquivo = gerar_excel_oee(contexto)
+        else:
+            contexto = montar_contexto_relatorio_producao(slug, request.args)
+            arquivo = gerar_excel_relatorio_producao(contexto)
         nome = f"{slug}_{contexto['filtros']['data_inicio']}_{contexto['filtros']['data_fim']}.xlsx"
         return send_file(
             arquivo,

@@ -334,7 +334,7 @@ REGISTRO_INDICADORES = [
     {"id": "exp_peso_transferido", "nome": "Peso Transferido", "dominio": "Expedicao", "descricao": "Peso liquido transferido.", "origem": "Transferencias", "tipo_origem": "expedicao", "slug_origem": "transferencias", "campo_origem": "Peso liquido", "unidade": "kg", "referencia_temporal": "Data do evento", "status": STATUS_DISPONIVEL, "comparacao": "periodo_equivalente", "tendencia": "serie", "direcao": "neutra", "permissao": "pcp", "granularidades": ["dia", "semana", "mes"]},
     {"id": "exp_caixas_camara", "nome": "Caixas na Camara Fria", "dominio": "Expedicao", "descricao": "Caixas atualmente na Camara Fria LSM.", "origem": "Estoque Camara Fria", "tipo_origem": "expedicao", "slug_origem": "estoque-camara-fria", "campo_origem": "Caixas", "unidade": "caixas", "referencia_temporal": "Posicao atual", "status": STATUS_DISPONIVEL, "comparacao": "periodo_equivalente", "tendencia": "serie", "direcao": "neutra", "permissao": "pcp", "granularidades": ["mes"]},
     {"id": "cmv", "nome": "CMV", "dominio": "Almoxarifado", "descricao": "CMV congelado por decisao arquitetural.", "origem": "CMV", "tipo_origem": "bloqueado", "unidade": "R$", "referencia_temporal": "Nao aplicavel", "status": STATUS_CONGELADO, "comparacao": "bloqueado", "tendencia": "bloqueado", "direcao": "neutra", "permissao": "pcp", "granularidades": []},
-    {"id": "oee", "nome": "OEE", "dominio": "Producao", "descricao": "Indicador futuro, motor nao implantado.", "origem": "OEE", "tipo_origem": "bloqueado", "unidade": "%", "referencia_temporal": "Nao aplicavel", "status": STATUS_FUTURO, "comparacao": "bloqueado", "tendencia": "bloqueado", "direcao": "neutra", "permissao": "pcp", "granularidades": []},
+    {"id": "oee", "nome": "OEE", "dominio": "Producao", "descricao": "Motor oficial de D/P/Q/OEE; valor permanece N/A enquanto Qualidade nao possuir base oficial.", "origem": "OEE", "tipo_origem": "bloqueado", "unidade": "%", "referencia_temporal": "Data da OP e janela programada", "status": STATUS_EVOLUCAO, "comparacao": "bloqueado", "tendencia": "bloqueado", "direcao": "neutra", "permissao": "pcp", "granularidades": []},
 ]
 
 
@@ -676,6 +676,7 @@ DASHBOARD_LINKS = {
     "prod_rendimento": ("relatorio_producao_oficial", {"slug": "rendimento"}),
     "prod_perdas": ("relatorio_producao_oficial", {"slug": "perdas"}),
     "prod_produtividade_hora_setor": ("relatorio_producao_oficial", {"slug": "eficiencia"}),
+    "oee": ("relatorio_producao_oficial", {"slug": "oee"}),
     "alm_itens_saldo": ("relatorio_almoxarifado_oficial", {"slug": "estoque-atual"}),
     "exp_caixas_transferidas": ("relatorio_expedicao_oficial", {"slug": "transferencias"}),
     "exp_peso_transferido": ("relatorio_expedicao_oficial", {"slug": "transferencias"}),
@@ -685,7 +686,7 @@ DASHBOARD_LINKS = {
 
 DEPENDENCIAS_DASHBOARD_EXECUTIVO = [
     {"nome": "CMV", "status": STATUS_CONGELADO, "motivo": "Congelado ate existir criterio oficial definitivo de custo."},
-    {"nome": "OEE", "status": STATUS_FUTURO, "motivo": "Depende de motor oficial de disponibilidade, performance, qualidade e capacidade."},
+    {"nome": "OEE", "status": STATUS_EVOLUCAO, "motivo": "Motor D/P/Q implantado; Qualidade e OEE permanecem N/A por ausencia de unidades boas/processadas oficiais."},
     {"nome": "Vendas", "status": STATUS_ESTRUTURACAO, "motivo": "Depende de NF e Romaneio de Venda."},
     {"nome": "Rastreabilidade completa", "status": STATUS_ESTRUTURACAO, "motivo": "Depende do destino final e venda."},
     {"nome": "Giro", "status": STATUS_ESTRUTURACAO, "motivo": "Depende de historico consistente de consumo e saldo."},

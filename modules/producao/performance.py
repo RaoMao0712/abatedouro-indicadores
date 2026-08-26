@@ -556,8 +556,9 @@ def calcular_performance(op_id, *, conn=None, disponibilidade=None):
         if not op:
             motivos.append("OP nao encontrada.")
             return base
-        if str(op["status"] or "").strip().lower() in {"cancelada", "cancelado"}:
-            motivos.append("OP cancelada nao produz Performance calculavel.")
+        status_op = str(op["status"] or "").strip().upper()
+        if status_op in {"ESTORNADA", "ESTORNADO", "CANCELADA", "CANCELADO"}:
+            motivos.append("OP estornada/cancelada permanece somente no historico, sem Performance vigente.")
             return base
         cursor.execute(q("SELECT * FROM linha_performance_snapshots_op WHERE op_id=? AND atual=1 ORDER BY id DESC"), (op_id,))
         snapshots = cursor.fetchall()
@@ -597,14 +598,14 @@ def calcular_performance(op_id, *, conn=None, disponibilidade=None):
         disponibilidade = disponibilidade or calcular_disponibilidade(op_id, conn=conn)
         base["tempo_operacional_minutos"] = disponibilidade.get("tempo_operacional_minutos")
         situacao_disp = disponibilidade.get("situacao")
-        if situacao_disp == "EM_ANDAMENTO":
-            base["situacao"] = "EM_ANDAMENTO"
-            motivos.append("A Linha de Abate esta em andamento; nao ha percentual provisiorio.")
-            return base
         if situacao_disp == "INCONSISTENTE":
             base["situacao"] = "INCONSISTENTE"
             inconsistencias.append({"codigo": "DISPONIBILIDADE_INCONSISTENTE"})
             motivos.append("Regularize a Disponibilidade antes de calcular a Performance.")
+            return base
+        if status_op != "ENCERRADA" or situacao_disp == "EM_ANDAMENTO":
+            base["situacao"] = "EM_ANDAMENTO"
+            motivos.append("OP em andamento; a Performance final nao e publicada.")
             return base
         if situacao_disp != "CALCULAVEL":
             motivos.append("A Disponibilidade ainda nao esta calculavel.")

@@ -214,9 +214,47 @@
 </div>
 
 <div class="section-title">
-    <span class="eyebrow">Eficiência</span>
-    <h2>Tempo, Paradas e Produtividade</h2>
+    <span class="eyebrow">Efici&ecirc;ncia oficial</span>
+    <h2>Disponibilidade, Performance e OEE</h2>
 </div>
+{% set ot = oee_oficial.totais %}
+<div class="cards-executivos">
+    <div class="card kpi-card">
+        <span class="kpi-label">Tempo planejado</span><strong>{{ ot.tempo_planejado_minutos|br_numero(0) }} min</strong>
+        <small>{{ ot.ops_disponibilidade_calculavel }}/{{ ot.ops }} OPs com base completa</small>
+    </div>
+    <div class="card kpi-card">
+        <span class="kpi-label">Tempo operacional</span><strong>{{ ot.tempo_operacional_minutos|br_numero(0) }} min</strong>
+        <small>programa&ccedil;&atilde;o e paradas oficiais</small>
+    </div>
+    <div class="card kpi-card">
+        <span class="kpi-label">Disponibilidade</span><strong>{% if ot.disponibilidade is not none %}{{ ot.disponibilidade|br_numero(2) }}%{% else %}N/A{% endif %}</strong>
+        <small>{{ ot.situacao_disponibilidade|replace('_',' ') }}</small>
+    </div>
+    <div class="card kpi-card">
+        <span class="kpi-label">Capacidade te&oacute;rica</span><strong>{{ ot.capacidade_teorica|br_numero(2) }}</strong>
+        <small>{{ ot.ops_performance_calculavel }}/{{ ot.ops }} OPs com Performance completa</small>
+    </div>
+    <div class="card kpi-card">
+        <span class="kpi-label">Performance</span><strong>{% if ot.performance is not none %}{{ ot.performance|br_numero(2) }}%{% else %}N/A{% endif %}</strong>
+        <small>{{ ot.situacao_performance|replace('_',' ') }}</small>
+    </div>
+    <div class="card kpi-card">
+        <span class="kpi-label">Qualidade</span><strong>N/A</strong>
+        <small>sem unidades boas/processadas oficiais</small>
+    </div>
+    <div class="card kpi-card destaque">
+        <span class="kpi-label">OEE</span><strong>{% if ot.oee is not none %}{{ ot.oee|br_numero(2) }}%{% else %}N/A{% endif %}</strong>
+        <small>{{ ot.situacao_oee|replace('_',' ') }} &mdash; OEE parcial n&atilde;o permitido</small>
+    </div>
+</div>
+<p class="obs"><a href="{{ url_for('relatorio_producao_oficial',slug='oee',data_inicio=data_inicio,data_fim=data_fim,status=status_filtro) }}">Abrir detalhamento audit&aacute;vel por OP</a>.</p>
+
+<div class="section-title">
+    <span class="eyebrow">Produtividade legada</span>
+    <h2>Tempo, Paradas e Produtividade de m&atilde;o de obra</h2>
+</div>
+<p class="obs">Esta se&ccedil;&atilde;o usa jornada padr&atilde;o apenas para produtividade/HH e n&atilde;o calcula Disponibilidade, Performance ou OEE.</p>
 
 <div class="cards-executivos">
     <div class="card kpi-card alerta">

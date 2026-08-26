@@ -133,7 +133,7 @@
     </form>
     <div class="tabela-responsiva">
         <table>
-            <thead><tr><th>OP</th><th>Data</th><th>In&iacute;cio</th><th>T&eacute;rmino</th><th>Dura&ccedil;&atilde;o</th><th>Setor</th><th>Equipamento</th><th>Motivo</th><th>Natureza</th><th>Linha</th><th>Situa&ccedil;&atilde;o</th></tr></thead>
+            <thead><tr><th>OP</th><th>Data</th><th>In&iacute;cio</th><th>T&eacute;rmino</th><th>Dura&ccedil;&atilde;o</th><th>Setor</th><th>Equipamento</th><th>Motivo</th><th>Natureza</th><th>Linha</th><th>Registrado por</th><th>Situa&ccedil;&atilde;o</th></tr></thead>
             <tbody>
             {% for item in historico_paradas %}
             <tr class="{% if item.registro_orfao %}alerta-operacional{% endif %}">
@@ -141,9 +141,10 @@
                 <td>{{ item.data }}</td><td>{{ item.hora_inicio or '-' }}</td><td>{{ item.hora_fim or '-' }}</td><td>{{ item.horas_paradas }} h</td>
                 <td>{{ item.setor }}</td><td>{{ item.equipamento or '-' }}</td><td>{{ item.motivo }}</td><td>{{ item.natureza_disponibilidade or 'N&atilde;o classificada' }}</td>
                 <td>{% if item.afeta_linha_abate == 1 %}Sim{% elif item.afeta_linha_abate == 0 %}N&atilde;o{% else %}N&atilde;o classificada{% endif %}</td>
+                <td>{{ item.registrado_por or item.classificacao_alterada_por or '-' }}</td>
                 <td>{% if item.hora_fim %}Encerrada{% else %}Aberta{% endif %}</td>
             </tr>
-            {% else %}<tr><td colspan="11">Nenhuma parada localizada para os filtros.</td></tr>{% endfor %}
+            {% else %}<tr><td colspan="12">Nenhuma parada localizada para os filtros.</td></tr>{% endfor %}
             </tbody>
         </table>
     </div>

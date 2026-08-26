@@ -76,6 +76,24 @@ RELATORIOS_PRODUCAO = {
         "familia": "eficiencia",
         "agrupamento": "periodo",
     },
+    "disponibilidade": {
+        "catalogo_id": "producao-disponibilidade",
+        "titulo": "Disponibilidade da Linha",
+        "objetivo": "Auditar tempo planejado, operacional e disponibilidade oficial.",
+        "familia": "oee",
+    },
+    "performance": {
+        "catalogo_id": "producao-performance",
+        "titulo": "Performance da Linha",
+        "objetivo": "Auditar aves consideradas, velocidade, capacidade teorica e Performance.",
+        "familia": "oee",
+    },
+    "oee": {
+        "catalogo_id": "producao-oee",
+        "titulo": "OEE",
+        "objetivo": "Exibir componentes oficiais e impedir OEE parcial ou inventado.",
+        "familia": "oee",
+    },
 }
 
 

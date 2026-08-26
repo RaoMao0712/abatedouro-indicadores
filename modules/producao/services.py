@@ -705,7 +705,7 @@ def copiar_mao_obra_de_op(origem_op_id, destino_op_id, data_destino):
 
 
 
-def salvar_apontamento_parada(form):
+def salvar_apontamento_parada(form, *, usuario=None, usuario_id=None):
     op_id = int(form["op_id"])
     validar_op_aberta(op_id)
     afeta_raw = str(form.get("afeta_linha_abate") or "").strip().lower()
@@ -743,8 +743,9 @@ def salvar_apontamento_parada(form):
             cursor.execute(q("""
             INSERT INTO apontamentos_paradas (
                 evento_id, op_id, data, setor, motivo, hora_inicio, hora_fim,
-                horas_paradas, observacoes, afeta_linha_abate, natureza_disponibilidade
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                horas_paradas, observacoes, afeta_linha_abate, natureza_disponibilidade,
+                registrado_por, registrado_por_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """), (
                 evento_id,
                 op_id,
@@ -757,6 +758,8 @@ def salvar_apontamento_parada(form):
                 form.get("observacoes", ""),
                 afeta_linha_abate,
                 "NAO_PLANEJADA" if afeta_linha_abate is not None else None,
+                usuario or "Sistema",
+                usuario_id,
             ))
 
         conn.commit()
@@ -815,8 +818,8 @@ def salvar_apontamento_parada(form):
     INSERT INTO apontamentos_paradas (
         evento_id, op_id, data, data_fim, setor, motivo, equipamento, equipamento_id,
         hora_inicio, hora_fim, horas_paradas, observacoes, manutencao_aberta,
-        afeta_linha_abate, natureza_disponibilidade
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        afeta_linha_abate, natureza_disponibilidade, registrado_por, registrado_por_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """), (
         evento_id,
         op_id,
@@ -833,6 +836,8 @@ def salvar_apontamento_parada(form):
         "Sim" if abrir_os else "Nao",
         afeta_linha_abate,
         "NAO_PLANEJADA" if afeta_linha_abate is not None else None,
+        usuario or "Sistema",
+        usuario_id,
     ))
 
     conn.commit()
