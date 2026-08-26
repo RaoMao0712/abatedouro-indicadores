@@ -7,6 +7,7 @@ from openpyxl import load_workbook
 
 from modules.relatorios import producao
 from modules.dashboard import repositories as dashboard_repositories
+from modules.producao.services import calcular_resumo_op
 
 
 @pytest.fixture()
@@ -125,6 +126,28 @@ def test_producao_valida_usa_pa_liquido_ativo_e_exclui_estornos(banco):
     assert op1["peso_produzido"] == pytest.approx(105)
     assert op1["peso_produzido"] != 999
     assert op1["pnc_registros"] == 1
+
+
+def test_resumo_legado_da_op_reutiliza_a_fonte_fisica_oficial(banco):
+    oficial = next(
+        item for item in producao.buscar_ops_agregadas(filtros())
+        if item["op_id"] == 1
+    )
+    resumo = calcular_resumo_op(
+        {
+            "quantidade_aves": 100,
+            "mortes_antes_pendura": 2,
+            "peso_vivo": 200,
+        },
+        [{"quantidade": 999, "unidade": "kg"}],
+        [{"quantidade": 5, "unidade": "aves", "motivo": "Morte na gaiola"}],
+        producao_oficial=oficial,
+    )
+    assert resumo["aves_abatidas"] == 93
+    assert resumo["kg_produzidos"] == 105
+    assert resumo["rendimento"] == 52.5
+    assert resumo["viabilidade_percentual"] == pytest.approx(91.4, abs=.01)
+    assert resumo["rendimento_aplicavel"] is True
 
 
 def test_aves_consideradas_perdas_e_rendimentos_tem_denominador_oficial(banco):

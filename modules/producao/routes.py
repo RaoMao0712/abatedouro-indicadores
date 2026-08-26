@@ -9,6 +9,7 @@ from database import DATABASE_URL, conectar, q
 from modules.auth.decorators import login_obrigatorio, perfil_permitido
 from modules.auth.services import usuario_eh_admin
 from modules.qualidade import services as qualidade_service
+from modules.relatorios.producao import buscar_ops_agregadas, normalizar_filtros
 from utils import normalizar_chave_setor, setores_padrao
 
 from .services import (
@@ -1194,7 +1195,19 @@ def register_producao_routes(app, integracoes=None):
             tempos_setor = cursor.fetchall()
 
             if op:
-                resumo = calcular_resumo_op(op, producoes, descartes)
+                filtros_producao = normalizar_filtros({
+                    "data_inicio": op["data"],
+                    "data_fim": op["data"],
+                    "op_id": str(op_id),
+                    "escopo": "todas",
+                })
+                producao_oficial = buscar_ops_agregadas(
+                    filtros_producao, somente_encerradas=False, limite=1,
+                )
+                resumo = calcular_resumo_op(
+                    op, producoes, descartes,
+                    producao_oficial=producao_oficial[0] if producao_oficial else None,
+                )
                 correcoes_administrativas = buscar_correcoes_op(op_id)
                 disponibilidade_linha = calcular_disponibilidade(op_id, conn=conn)
                 performance_linha = calcular_performance(

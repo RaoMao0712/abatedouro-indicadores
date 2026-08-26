@@ -422,24 +422,28 @@ function abrirModalCorrecaoOp() {
     <div class="cards-resumo">
 
         <div class="card resumo">
-            <h3>Aves Abatidas</h3>
+            <h3>Aves consideradas</h3>
             <p>{{ resumo.aves_abatidas }}</p>
         </div>
 
         <div class="card resumo">
             <h3>Produção</h3>
             <p>{{ "%.2f"|format(resumo.kg_produzidos) }}</p>
-            <span>kg produzidos</span>
+            <span>kg líquidos de PA ativo</span>
         </div>
 
         <div class="card resumo">
-            <h3>Viabilidade</h3>
+            <h3>Aproveitamento em aves</h3>
             <p>{{ "%.2f"|format(resumo.viabilidade_percentual) }}%</p>
         </div>
 
         <div class="card resumo">
             <h3>Rendimento</h3>
-            <p>{{ "%.2f"|format(resumo.rendimento) }}%</p>
+            {% if resumo.rendimento_aplicavel %}
+                <p>{{ "%.2f"|format(resumo.rendimento) }}%</p>
+            {% else %}
+                <p>Não calculável</p>
+            {% endif %}
         </div>
 
         <div class="card resumo">

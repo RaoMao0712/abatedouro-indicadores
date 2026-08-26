@@ -12,6 +12,8 @@ A P2.1 estabiliza exclusivamente a leitura gerencial de Produção e Rendimento.
 
 O card de rendimento do dashboard foi alinhado à mesma fonte física: peso líquido rateado das caixas PA ativas de OPs encerradas. O dashboard deixou de usar `apontamentos_producao` como numerador desse card.
 
+Na homologação autenticada, a tela legada **Consultar OP** ainda apresentou o resumo baseado em `apontamentos_producao`. O fechamento da sprint alinhou também esses cards à mesma linha oficial da OP (aves consideradas, peso líquido de PA ativo, aproveitamento em aves e rendimento auditável), mantendo intactos os apontamentos e fluxos operacionais.
+
 Não houve migration. As estruturas de auditoria de reabertura/estorno e as fontes físicas de PI/PA já estavam disponíveis pelas entregas P0/P1.
 
 ## Mapa oficial das grandezas

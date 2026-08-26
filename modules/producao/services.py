@@ -560,7 +560,7 @@ def validar_op_aberta(op_id):
         raise ValueError("Esta OP já está encerrada. Novos lançamentos não são permitidos.")
 
 
-def calcular_resumo_op(op, producoes, descartes):
+def calcular_resumo_op(op, producoes, descartes, producao_oficial=None):
     total_descartes_aves = sum(
         item["quantidade"] for item in descartes
         if item["unidade"].lower() in ["aves", "ave", "unidade", "unidades"]
@@ -593,8 +593,20 @@ def calcular_resumo_op(op, producoes, descartes):
         viabilidade_percentual = (viabilidade / op["quantidade_aves"]) * 100
 
     rendimento = 0
+    rendimento_aplicavel = bool(op["peso_vivo"] > 0 and kg_produzidos > 0)
     if op["peso_vivo"] > 0:
         rendimento = (kg_produzidos / op["peso_vivo"]) * 100
+
+    aproveitamento_aves = viabilidade_percentual
+    if producao_oficial:
+        aves_abatidas = float(producao_oficial.get("aves_consideradas") or 0)
+        kg_produzidos = float(producao_oficial.get("peso_produzido") or 0)
+        aproveitamento_aves = float(producao_oficial.get("rendimento_aves") or 0)
+        rendimento_aplicavel = bool(producao_oficial.get("rendimento_aplicavel"))
+        rendimento = (
+            float(producao_oficial.get("rendimento") or 0)
+            if rendimento_aplicavel else None
+        )
 
     perdas_percentual = 0
     if op["peso_vivo"] > 0:
@@ -607,8 +619,9 @@ def calcular_resumo_op(op, producoes, descartes):
         "mortes_na_gaiola": mortes_na_gaiola,
         "kg_produzidos": kg_produzidos,
         "viabilidade": viabilidade,
-        "viabilidade_percentual": round(viabilidade_percentual, 2),
-        "rendimento": round(rendimento, 2),
+        "viabilidade_percentual": round(aproveitamento_aves, 2),
+        "rendimento": round(rendimento, 2) if rendimento is not None else None,
+        "rendimento_aplicavel": rendimento_aplicavel,
         "perdas_percentual": round(perdas_percentual, 2),
     }
 
