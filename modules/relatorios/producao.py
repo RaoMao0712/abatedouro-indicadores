@@ -2,6 +2,7 @@
 
 from collections import defaultdict
 from datetime import date, datetime
+from decimal import Decimal, InvalidOperation
 from io import BytesIO
 from urllib.parse import urlencode
 
@@ -47,7 +48,7 @@ RELATORIOS_PRODUCAO = {
     "rendimento": {
         "catalogo_id": "producao-rendimento",
         "titulo": "Rendimento",
-        "objetivo": "Preservar o calculo homologado de kg produzido sobre peso vivo.",
+        "objetivo": "Medir o peso liquido do PA ativo sobre o peso vivo oficial aplicavel.",
         "familia": "rendimento",
         "agrupamento": "periodo_fornecedor",
         "somente_encerradas": True,
@@ -94,6 +95,14 @@ def valor_float(valor):
         return 0.0
 
 
+def valor_decimal(valor):
+    """Converte grandezas fisicas sem introduzir arredondamento binario."""
+    try:
+        return Decimal(str(valor or 0))
+    except (InvalidOperation, TypeError, ValueError):
+        return Decimal("0")
+
+
 def valor_int(valor):
     try:
         return int(float(valor or 0))
@@ -102,10 +111,10 @@ def valor_int(valor):
 
 
 def percentual(numerador, denominador):
-    denominador = float(denominador or 0)
+    denominador = valor_decimal(denominador)
     if denominador <= 0:
         return 0.0
-    return round(float(numerador or 0) / denominador * 100, 2)
+    return float((valor_decimal(numerador) / denominador * Decimal("100")).quantize(Decimal("0.01")))
 
 
 def dividir(numerador, denominador):
@@ -144,6 +153,7 @@ def normalizar_filtros(args):
         "causa": args.get("causa") or "Todos",
         "setor": args.get("setor") or "Todos",
         "situacao": args.get("situacao") or "Todas",
+        "escopo": args.get("escopo") or "producao_valida",
         "granularidade": granularidade,
         "por_pagina": 200,
     }
@@ -160,7 +170,7 @@ def expressao_periodo(campo, granularidade):
 
 
 def montar_condicoes_ops(filtros, alias="o"):
-    condicoes = [f"{alias}.data BETWEEN ? AND ?", f"UPPER(COALESCE({alias}.status,'')) NOT IN ('ESTORNADA','ESTORNADO','CANCELADA','CANCELADO')"]
+    condicoes = [f"{alias}.data BETWEEN ? AND ?"]
     parametros = [filtros["data_inicio"], filtros["data_fim"]]
 
     if filtros["op_id"]:
@@ -171,8 +181,29 @@ def montar_condicoes_ops(filtros, alias="o"):
             condicoes.append("1 = 0")
 
     if filtros["status"] != "Todos":
-        condicoes.append(f"COALESCE({alias}.status, 'Aberta') = ?")
+        condicoes.append(f"UPPER(COALESCE({alias}.status, 'Aberta')) = UPPER(?)")
         parametros.append(filtros["status"])
+    else:
+        escopo = filtros.get("escopo") or "producao_valida"
+        if escopo == "producao_valida":
+            condicoes.append(f"UPPER(COALESCE({alias}.status,'')) = 'ENCERRADA'")
+        elif escopo == "andamento":
+            condicoes.append(
+                f"UPPER(COALESCE({alias}.status,'')) NOT IN "
+                "('ENCERRADA','ESTORNADA','ESTORNADO','CANCELADA','CANCELADO')"
+            )
+        elif escopo == "historico":
+            condicoes.append(
+                f"UPPER(COALESCE({alias}.status,'')) IN "
+                "('ESTORNADA','ESTORNADO','CANCELADA','CANCELADO')"
+            )
+        elif escopo == "operacional":
+            condicoes.append(
+                f"UPPER(COALESCE({alias}.status,'')) NOT IN "
+                "('ESTORNADA','ESTORNADO','CANCELADA','CANCELADO')"
+            )
+        elif escopo != "todas":
+            condicoes.append("1 = 0")
 
     if filtros["sku"] != "Todos":
         condicoes.append(f"COALESCE({alias}.sku, 'Galinha Cortada') = ?")
@@ -232,7 +263,8 @@ def cte_ops_agregadas(filtros, somente_encerradas=False):
             COALESCE(o.quantidade_aves, 0) AS aves_recebidas,
             COALESCE(o.mortes_antes_pendura, 0) AS mortes_antes_pendura,
             COALESCE(o.peso_vivo, 0) AS peso_vivo,
-            COALESCE(o.peso_medio, 0) AS peso_medio
+            COALESCE(o.peso_medio, 0) AS peso_medio,
+            COALESCE(o.versao_operacional, 0) AS versao_operacional
         FROM ordens_producao o
         WHERE {where_ops}
     ),
@@ -255,17 +287,58 @@ def cte_ops_agregadas(filtros, somente_encerradas=False):
         FROM embalagem_primaria_apontamentos
         GROUP BY op_id
     ),
-    pa AS (
+    pi AS (
+        SELECT
+            op_id,
+            COALESCE(SUM(CASE WHEN tipo IN ('ENTRADA_OP','ENTRADA_EMBALAGEM_PRIMARIA')
+                THEN quantidade_bandejas ELSE 0 END), 0) AS entrada_base,
+            COALESCE(SUM(CASE WHEN tipo = 'SAIDA_EMBALAGEM_SECUNDARIA'
+                THEN quantidade_bandejas ELSE 0 END), 0) AS consumo_bruto,
+            COALESCE(SUM(CASE WHEN tipo = 'ENTRADA_ESTORNO_CAIXA'
+                THEN quantidade_bandejas ELSE 0 END), 0) AS retorno_estorno_caixa,
+            COALESCE(SUM(CASE WHEN tipo = 'SAIDA_ESTORNO_OP'
+                THEN quantidade_bandejas ELSE 0 END), 0) AS estorno_integral,
+            COALESCE(SUM(CASE
+                WHEN tipo LIKE 'ENTRADA%%' THEN quantidade_bandejas
+                WHEN tipo LIKE 'SAIDA%%' THEN -quantidade_bandejas
+                ELSE quantidade_bandejas END), 0) AS saldo
+        FROM estoque_produto_intermediario
+        GROUP BY op_id
+    ),
+    pa_composicoes AS (
         SELECT
             comp.op_id,
-            COUNT(DISTINCT cx.id) AS caixas,
-            COALESCE(SUM(comp.quantidade_bandejas), 0) AS producao_secundaria,
-            COALESCE(SUM(cx.peso_liquido), 0) AS peso_liquido_pa,
-            COALESCE(SUM(cx.peso_bruto), 0) AS peso_bruto_pa
+            cx.id AS caixa_id,
+            comp.quantidade_bandejas,
+            cx.quantidade_bandejas AS bandejas_caixa,
+            cx.peso_liquido,
+            cx.peso_bruto,
+            CASE WHEN comp.id = (
+                SELECT MIN(comp_principal.id)
+                FROM pa_caixa_composicao comp_principal
+                WHERE comp_principal.caixa_id = comp.caixa_id
+            ) THEN 1 ELSE 0 END AS caixa_principal,
+            CASE WHEN (
+                SELECT COUNT(DISTINCT comp_mista.op_id)
+                FROM pa_caixa_composicao comp_mista
+                WHERE comp_mista.caixa_id = comp.caixa_id
+            ) > 1 THEN 1 ELSE 0 END AS caixa_compartilhada
         FROM pa_caixa_composicao comp
         INNER JOIN pa_caixas cx ON cx.id = comp.caixa_id
         WHERE UPPER(COALESCE(cx.status, '')) NOT IN ('CANCELADA','CANCELADO','ESTORNADA','ESTORNADO')
-        GROUP BY comp.op_id
+    ),
+    pa AS (
+        SELECT
+            op_id,
+            COALESCE(SUM(caixa_principal), 0) AS caixas,
+            COALESCE(SUM(caixa_compartilhada), 0) AS caixas_compartilhadas,
+            COALESCE(SUM(quantidade_bandejas), 0) AS producao_secundaria,
+            COALESCE(SUM(CASE WHEN COALESCE(bandejas_caixa,0) > 0
+                THEN peso_liquido * quantidade_bandejas / bandejas_caixa ELSE 0 END), 0) AS peso_liquido_pa,
+            COALESCE(SUM(CASE WHEN COALESCE(bandejas_caixa,0) > 0
+                THEN peso_bruto * quantidade_bandejas / bandejas_caixa ELSE 0 END), 0) AS peso_bruto_pa
+        FROM pa_composicoes
+        GROUP BY op_id
     ),
     perdas AS (
         SELECT
@@ -290,6 +363,21 @@ def cte_ops_agregadas(filtros, somente_encerradas=False):
                 THEN quantidade ELSE 0 END), 0) AS perdas_kg
         FROM apontamentos_descartes
         GROUP BY op_id
+    ),
+    operacoes AS (
+        SELECT op_id,
+            COALESCE(SUM(CASE WHEN tipo = 'REABERTURA' THEN 1 ELSE 0 END), 0) AS reaberturas,
+            COALESCE(SUM(CASE WHEN tipo = 'RETOMADA_EMBALAGEM_SECUNDARIA' THEN 1 ELSE 0 END), 0) AS retomadas,
+            COALESCE(SUM(CASE WHEN tipo = 'ESTORNO_INTEGRAL' THEN 1 ELSE 0 END), 0) AS estornos_integrais
+        FROM op_operacoes_auditoria
+        GROUP BY op_id
+    ),
+    pnc AS (
+        SELECT op_id, COUNT(*) AS pnc_registros,
+            COALESCE(SUM(quantidade), 0) AS pnc_quantidade,
+            COALESCE(SUM(peso), 0) AS pnc_peso_kg
+        FROM pa_nao_conformes
+        GROUP BY op_id
     )
     """
     return sql, parametros
@@ -308,7 +396,7 @@ def buscar_ops_agregadas(filtros, somente_encerradas=False, limite=500):
     cte, parametros = cte_ops_agregadas(filtros, somente_encerradas)
     sql = cte + f"""
     SELECT
-        op.op_id, op.data_op, op.fornecedor, op.sku, op.status,
+        op.op_id, op.data_op, op.fornecedor, op.sku, op.status, op.versao_operacional,
         op.aves_recebidas, op.peso_vivo, op.peso_medio,
         op.mortes_antes_pendura,
         COALESCE(perdas.mortes_na_gaiola, 0) AS mortes_na_gaiola,
@@ -316,17 +404,32 @@ def buscar_ops_agregadas(filtros, somente_encerradas=False, limite=500):
         COALESCE(perdas.condenacoes_aves, 0) AS condenacoes_aves,
         COALESCE(perdas.perdas_kg, 0) AS perdas_kg,
         COALESCE(primaria.producao_primaria, 0) AS producao_primaria,
+        COALESCE(pi.entrada_base, 0) AS pi_entrada_base,
+        COALESCE(pi.consumo_bruto, 0) AS pi_consumo_bruto,
+        COALESCE(pi.retorno_estorno_caixa, 0) AS pi_retorno_estorno,
+        COALESCE(pi.estorno_integral, 0) AS pi_estorno_integral,
+        COALESCE(pi.saldo, 0) AS pi_saldo,
         COALESCE(pa.producao_secundaria, 0) AS producao_secundaria,
         COALESCE(pa.caixas, 0) AS caixas,
+        COALESCE(pa.caixas_compartilhadas, 0) AS caixas_compartilhadas,
         COALESCE(pa.peso_liquido_pa, 0) AS peso_liquido_pa,
         COALESCE(pa.peso_bruto_pa, 0) AS peso_bruto_pa,
         COALESCE(prod.kg_produzidos, 0) AS kg_produzidos,
-        COALESCE(prod.unidades_finais, 0) AS unidades_finais
+        COALESCE(prod.unidades_finais, 0) AS unidades_finais,
+        COALESCE(operacoes.reaberturas, 0) AS reaberturas,
+        COALESCE(operacoes.retomadas, 0) AS retomadas,
+        COALESCE(operacoes.estornos_integrais, 0) AS estornos_integrais,
+        COALESCE(pnc.pnc_registros, 0) AS pnc_registros,
+        COALESCE(pnc.pnc_quantidade, 0) AS pnc_quantidade,
+        COALESCE(pnc.pnc_peso_kg, 0) AS pnc_peso_kg
     FROM op_base op
     LEFT JOIN prod ON prod.op_id = op.op_id
     LEFT JOIN primaria ON primaria.op_id = op.op_id
+    LEFT JOIN pi ON pi.op_id = op.op_id
     LEFT JOIN pa ON pa.op_id = op.op_id
     LEFT JOIN perdas ON perdas.op_id = op.op_id
+    LEFT JOIN operacoes ON operacoes.op_id = op.op_id
+    LEFT JOIN pnc ON pnc.op_id = op.op_id
     ORDER BY op.data_op DESC, op.op_id DESC
     LIMIT {int(limite)}
     """
@@ -342,7 +445,15 @@ def buscar_totais_ops_gerencial(filtros, somente_encerradas=False):
     SELECT
         COUNT(*) AS ops,
         COALESCE(SUM(op.aves_recebidas), 0) AS aves_recebidas,
+        COALESCE(SUM(CASE
+            WHEN op.aves_recebidas - COALESCE(op.mortes_antes_pendura,0)
+                 - COALESCE(perdas.mortes_na_gaiola,0) > 0
+            THEN op.aves_recebidas - COALESCE(op.mortes_antes_pendura,0)
+                 - COALESCE(perdas.mortes_na_gaiola,0)
+            ELSE 0 END), 0) AS aves_consideradas,
         COALESCE(SUM(op.peso_vivo), 0) AS peso_vivo,
+        COALESCE(SUM(CASE WHEN COALESCE(pa.peso_liquido_pa,0) > 0
+            THEN op.peso_vivo ELSE 0 END), 0) AS peso_base_rendimento,
         COALESCE(SUM(primaria.producao_primaria), 0) AS producao_primaria,
         COALESCE(SUM(pa.producao_secundaria), 0) AS producao_secundaria,
         COALESCE(SUM(pa.caixas), 0) AS caixas,
@@ -358,12 +469,7 @@ def buscar_totais_ops_gerencial(filtros, somente_encerradas=False):
             + COALESCE(perdas.descartes_aves, 0)
             + COALESCE(perdas.condenacoes_aves, 0)
         ), 0) AS perdas_aves_base,
-        COALESCE(SUM(
-            CASE
-                WHEN COALESCE(prod.kg_produzidos, 0) > 0 THEN COALESCE(prod.kg_produzidos, 0)
-                ELSE COALESCE(pa.peso_liquido_pa, 0)
-            END
-        ), 0) AS peso_produzido
+        COALESCE(SUM(pa.peso_liquido_pa), 0) AS peso_produzido
     FROM op_base op
     LEFT JOIN prod ON prod.op_id = op.op_id
     LEFT JOIN primaria ON primaria.op_id = op.op_id
@@ -371,7 +477,8 @@ def buscar_totais_ops_gerencial(filtros, somente_encerradas=False):
     LEFT JOIN perdas ON perdas.op_id = op.op_id
     """, parametros)
     totais = dict(linhas[0]) if linhas else {}
-    totais["rendimento"] = percentual(totais.get("peso_produzido"), totais.get("peso_vivo"))
+    totais["rendimento"] = percentual(totais.get("peso_produzido"), totais.get("peso_base_rendimento"))
+    totais["rendimento_aplicavel"] = valor_decimal(totais.get("peso_base_rendimento")) > 0
     totais["taxa_condenacao"] = percentual(totais.get("condenacoes_aves_base"), totais.get("aves_recebidas"))
     totais["taxa_perda"] = percentual(totais.get("perdas_aves_base"), totais.get("aves_recebidas"))
     return totais
@@ -494,6 +601,8 @@ def montar_resumos_eficiencia_gerenciais_periodos(filtros, periodos):
 def montar_resumos_gerenciais_producao_periodos(slug, args, periodos):
     config = RELATORIOS_PRODUCAO[slug]
     filtros = normalizar_filtros(args)
+    if config["familia"] == "eficiencia":
+        filtros["escopo"] = "operacional"
     periodos = [(str(chave), str(inicio), str(fim)) for chave, inicio, fim in periodos]
     if not periodos:
         return {}
@@ -533,6 +642,7 @@ def montar_resumo_gerencial_producao(slug, args):
     config = RELATORIOS_PRODUCAO[slug]
     filtros = normalizar_filtros(args)
     if config["familia"] == "eficiencia":
+        filtros["escopo"] = "operacional"
         totais = buscar_totais_eficiencia_gerencial(filtros)
         return {"totais": totais, "tem_dados": bool(totais.get("ops"))}
 
@@ -555,16 +665,39 @@ def montar_resumo_gerencial_producao(slug, args):
 def enriquecer_linha_op(linha):
     mortes_total = valor_float(linha.get("mortes_antes_pendura")) + valor_float(linha.get("mortes_na_gaiola"))
     perdas_aves = mortes_total + valor_float(linha.get("descartes_aves")) + valor_float(linha.get("condenacoes_aves"))
-    aves_recebidas = valor_float(linha.get("aves_recebidas"))
-    kg_base = valor_float(linha.get("kg_produzidos"))
-    if kg_base <= 0:
-        kg_base = valor_float(linha.get("peso_liquido_pa"))
+    aves_recebidas = valor_decimal(linha.get("aves_recebidas"))
+    aves_consideradas = max(Decimal("0"), aves_recebidas - valor_decimal(mortes_total))
+    aves_aproveitadas = valor_decimal(linha.get("producao_primaria"))
+    kg_base = valor_decimal(linha.get("peso_liquido_pa"))
+    pi_produzido_valido = max(
+        Decimal("0"),
+        valor_decimal(linha.get("producao_primaria")) - valor_decimal(linha.get("pi_estorno_integral")),
+    )
+    pi_consumido_valido = valor_decimal(linha.get("producao_secundaria"))
+    pi_saldo = valor_decimal(linha.get("pi_saldo"))
     linha["lote"] = f"OP-{valor_int(linha.get('op_id')):05d}"
     linha["mortes_total"] = round(mortes_total, 2)
+    linha["aves_consideradas"] = float(aves_consideradas)
+    linha["aves_aproveitadas"] = float(aves_aproveitadas)
     linha["perdas_aves"] = round(perdas_aves, 2)
-    linha["aves_viaveis"] = round(max(0, aves_recebidas - perdas_aves), 2)
-    linha["peso_produzido"] = round(kg_base, 2)
-    linha["rendimento"] = percentual(kg_base, linha.get("peso_vivo"))
+    linha["aves_viaveis"] = float(max(Decimal("0"), aves_recebidas - valor_decimal(perdas_aves)))
+    linha["peso_produzido"] = float(kg_base.quantize(Decimal("0.001")))
+    linha["pi_produzido_valido"] = float(pi_produzido_valido)
+    linha["pi_consumido_valido"] = float(pi_consumido_valido)
+    linha["pi_diferenca"] = float(pi_produzido_valido - pi_consumido_valido - pi_saldo)
+    linha["pi_reconciliado"] = abs(valor_decimal(linha["pi_diferenca"])) <= Decimal("0.0001")
+    linha["producao_valida"] = str(linha.get("status") or "").upper() == "ENCERRADA"
+    linha["indicador_reabertura"] = valor_int(linha.get("reaberturas")) > 0
+    linha["indicador_retomada"] = valor_int(linha.get("retomadas")) > 0
+    linha["indicador_estorno"] = str(linha.get("status") or "").upper() in {
+        "ESTORNADA", "ESTORNADO", "CANCELADA", "CANCELADO",
+    }
+    linha["rendimento_aplicavel"] = kg_base > 0 and valor_decimal(linha.get("peso_vivo")) > 0
+    linha["peso_base_rendimento"] = (
+        valor_float(linha.get("peso_vivo")) if linha["rendimento_aplicavel"] else 0
+    )
+    linha["rendimento"] = percentual(kg_base, linha["peso_base_rendimento"])
+    linha["rendimento_aves"] = percentual(aves_aproveitadas, aves_consideradas)
     linha["taxa_condenacao"] = percentual(linha.get("condenacoes_aves"), aves_recebidas)
     linha["taxa_perda"] = percentual(perdas_aves, aves_recebidas)
     linha["desvio_meta"] = round(linha["rendimento"] - META_RENDIMENTO, 2)
@@ -572,32 +705,38 @@ def enriquecer_linha_op(linha):
 
 
 def somar_ops(linhas):
-    totais = defaultdict(float)
+    totais = defaultdict(Decimal)
     for linha in linhas:
         for chave in [
-            "aves_recebidas", "peso_vivo", "producao_primaria", "producao_secundaria",
+            "aves_recebidas", "peso_vivo", "peso_base_rendimento", "producao_primaria", "producao_secundaria",
             "caixas", "peso_liquido_pa", "peso_bruto_pa", "kg_produzidos",
             "unidades_finais", "descartes_aves", "condenacoes_aves", "mortes_total",
-            "perdas_aves", "perdas_kg", "peso_produzido",
+            "perdas_aves", "perdas_kg", "peso_produzido", "aves_consideradas",
+            "aves_aproveitadas", "pi_produzido_valido", "pi_consumido_valido",
+            "pi_saldo", "pi_diferenca", "pnc_registros",
+            "pnc_quantidade", "pnc_peso_kg",
         ]:
-            totais[chave] += valor_float(linha.get(chave))
+            totais[chave] += valor_decimal(linha.get(chave))
     totais["ops"] = len(linhas)
-    totais["rendimento"] = percentual(totais["peso_produzido"], totais["peso_vivo"])
+    totais["rendimento"] = percentual(totais["peso_produzido"], totais["peso_base_rendimento"])
+    totais["rendimento_aplicavel"] = totais["peso_base_rendimento"] > 0
     totais["taxa_condenacao"] = percentual(totais["condenacoes_aves"], totais["aves_recebidas"])
     totais["taxa_perda"] = percentual(totais["perdas_aves"], totais["aves_recebidas"])
-    return dict(totais)
+    totais["rendimento_aves"] = percentual(totais["aves_aproveitadas"], totais["aves_consideradas"])
+    totais["pi_reconciliado"] = abs(totais["pi_diferenca"]) <= Decimal("0.0001")
+    return {chave: (float(valor) if isinstance(valor, Decimal) else valor) for chave, valor in totais.items()}
 
 
 def resumo_kpis(totais):
     return [
         {"rotulo": "OPs", "valor": valor_int(totais.get("ops")), "tipo": "numero", "unidade": "OPs"},
-        {"rotulo": "Aves recebidas", "valor": round(totais.get("aves_recebidas", 0), 2), "tipo": "numero", "unidade": "aves"},
-        {"rotulo": "Peso entrada", "valor": round(totais.get("peso_vivo", 0), 2), "tipo": "decimal", "unidade": "kg"},
-        {"rotulo": "PI produzido", "valor": round(totais.get("producao_primaria", 0), 2), "tipo": "numero", "unidade": "unid."},
+        {"rotulo": "Aves consideradas", "valor": round(totais.get("aves_consideradas", 0), 2), "tipo": "numero", "unidade": "aves"},
+        {"rotulo": "Peso vivo registrado", "valor": round(totais.get("peso_vivo", 0), 2), "tipo": "decimal", "unidade": "kg"},
+        {"rotulo": "PI produzido", "valor": round(totais.get("pi_produzido_valido", 0), 2), "tipo": "numero", "unidade": "unid."},
         {"rotulo": "Caixas PA", "valor": round(totais.get("caixas", 0), 2), "tipo": "numero", "unidade": "caixas"},
-        {"rotulo": "Peso produzido", "valor": round(totais.get("peso_produzido", 0), 2), "tipo": "decimal", "unidade": "kg"},
+        {"rotulo": "Peso líquido PA", "valor": round(totais.get("peso_produzido", 0), 3), "tipo": "decimal", "unidade": "kg"},
         {"rotulo": "Perdas", "valor": round(totais.get("perdas_aves", 0), 2), "tipo": "numero", "unidade": "aves"},
-        {"rotulo": "Rendimento", "valor": round(totais.get("rendimento", 0), 2), "tipo": "percentual", "unidade": "%"},
+        {"rotulo": "Rendimento", "valor": round(totais.get("rendimento", 0), 2), "tipo": "percentual", "unidade": "%", "aplicavel": bool(totais.get("rendimento_aplicavel"))},
     ]
 
 
@@ -617,7 +756,9 @@ def agrupar_linhas(linhas, chave):
             "grupo": grupo["chave"],
             "ops": valor_int(totais["ops"]),
             "aves_recebidas": round(totais["aves_recebidas"], 2),
+            "aves_consideradas": round(totais["aves_consideradas"], 2),
             "peso_vivo": round(totais["peso_vivo"], 2),
+            "rendimento_aplicavel": bool(totais.get("rendimento_aplicavel")),
             "producao_primaria": round(totais["producao_primaria"], 2),
             "producao_secundaria": round(totais["producao_secundaria"], 2),
             "caixas": round(totais["caixas"], 2),
@@ -655,7 +796,9 @@ def agrupar_periodo(linhas, granularidade):
             "grupo": periodo,
             "ops": valor_int(totais["ops"]),
             "aves_recebidas": round(totais["aves_recebidas"], 2),
+            "aves_consideradas": round(totais["aves_consideradas"], 2),
             "peso_vivo": round(totais["peso_vivo"], 2),
+            "rendimento_aplicavel": bool(totais.get("rendimento_aplicavel")),
             "producao_primaria": round(totais["producao_primaria"], 2),
             "producao_secundaria": round(totais["producao_secundaria"], 2),
             "caixas": round(totais["caixas"], 2),
@@ -689,6 +832,7 @@ def buscar_perdas_detalhadas(filtros, tipo="todas", limite=500):
     linhas = executar_lista(f"""
     SELECT
         d.id, d.op_id, o.data AS data_op, o.fornecedor, COALESCE(o.sku, 'Galinha Cortada') AS sku,
+        COALESCE(o.status, 'Aberta') AS status,
         d.data, COALESCE(d.setor, 'Sem setor') AS setor,
         COALESCE(d.categoria, '') AS categoria,
         COALESCE(d.motivo, 'Sem motivo') AS motivo,
@@ -722,6 +866,7 @@ def buscar_perdas_detalhadas(filtros, tipo="todas", limite=500):
             o.data AS data_op,
             o.fornecedor,
             COALESCE(o.sku, 'Galinha Cortada') AS sku,
+            COALESCE(o.status, 'Aberta') AS status,
             o.data AS data,
             'Recebimento' AS setor,
             'Morte' AS categoria,
@@ -1029,46 +1174,53 @@ def montar_contexto_relatorio_producao(slug, args):
     config = RELATORIOS_PRODUCAO[slug]
     filtros = normalizar_filtros(args)
     if config["familia"] == "eficiencia":
+        filtros["escopo"] = "operacional"
         return montar_contexto_eficiencia(config, filtros)
 
     somente_encerradas = bool(config.get("somente_encerradas"))
 
     detalhes = buscar_ops_agregadas(filtros, somente_encerradas=somente_encerradas)
+    detalhes_validos = [item for item in detalhes if item.get("producao_valida")]
     agrupamentos = []
     perdas_detalhes = []
     limitacoes = []
 
     if config["familia"] == "perdas":
         perdas_detalhes = buscar_perdas_detalhadas(filtros, config.get("tipo_perda", "todas"))
-        agrupamentos = agrupar_perdas(perdas_detalhes, config.get("tipo_perda", "todas"))
-        totais = somar_ops(detalhes)
-        totais["perdas_aves"] = sum(valor_float(i.get("quantidade")) for i in perdas_detalhes if str(i.get("unidade", "")).lower() != "kg")
-        totais["perdas_kg"] = sum(valor_float(i.get("quantidade")) for i in perdas_detalhes if str(i.get("unidade", "")).lower() == "kg")
+        perdas_validas = [item for item in perdas_detalhes if str(item.get("status") or "").upper() == "ENCERRADA"]
+        agrupamentos = agrupar_perdas(perdas_validas, config.get("tipo_perda", "todas"))
+        totais = somar_ops(detalhes_validos)
+        totais["perdas_aves"] = sum(valor_float(i.get("quantidade")) for i in perdas_validas if str(i.get("unidade", "")).lower() != "kg")
+        totais["perdas_kg"] = sum(valor_float(i.get("quantidade")) for i in perdas_validas if str(i.get("unidade", "")).lower() == "kg")
         if config.get("tipo_perda") == "condenacao":
             totais["condenacoes_aves"] = totais["perdas_aves"]
             limitacoes.append("Condenacoes em kg sao exibidas separadamente e nao sao convertidas em aves.")
         detalhes = perdas_detalhes
     elif config["agrupamento"] == "sku":
-        agrupamentos = agrupar_linhas(detalhes, "sku")
-        totais = somar_ops(detalhes)
+        agrupamentos = agrupar_linhas(detalhes_validos, "sku")
+        totais = somar_ops(detalhes_validos)
     elif config["agrupamento"] == "fornecedor":
-        agrupamentos = agrupar_linhas(detalhes, "fornecedor")
-        totais = somar_ops(detalhes)
+        agrupamentos = agrupar_linhas(detalhes_validos, "fornecedor")
+        totais = somar_ops(detalhes_validos)
     elif config["agrupamento"] == "periodo":
-        agrupamentos = agrupar_periodo(detalhes, filtros["granularidade"])
-        totais = somar_ops(detalhes)
+        agrupamentos = agrupar_periodo(detalhes_validos, filtros["granularidade"])
+        totais = somar_ops(detalhes_validos)
     elif config["agrupamento"] == "periodo_fornecedor":
-        agrupamentos = agrupar_linhas(detalhes, "fornecedor")
-        totais = somar_ops(detalhes)
-        limitacoes.append("Formula preservada: kg produzido em apontamentos_producao / peso vivo das OPs encerradas.")
+        agrupamentos = agrupar_linhas(detalhes_validos, "fornecedor")
+        totais = somar_ops(detalhes_validos)
+        limitacoes.append("Formula P2.1: peso liquido das caixas PA ativas / peso vivo oficial das OPs encerradas.")
         limitacoes.append(f"Meta homologada preservada: {META_RENDIMENTO:.1f}%.")
     else:
-        totais = somar_ops(detalhes)
+        totais = somar_ops(detalhes_validos)
 
     if not detalhes:
         limitacoes.append("Nenhum evento produtivo encontrado para os filtros selecionados.")
     if slug in ["producao-por-op", "producao-por-periodo"]:
         limitacoes.append("Data oficial utilizada: data da OP. Nao existe campo dedicado de data de encerramento.")
+    if any(not item.get("producao_valida") for item in detalhes):
+        limitacoes.append("OPs em andamento ou historicas aparecem apenas no detalhamento e nao compoem os indicadores consolidados.")
+    if any(not item.get("pi_reconciliado") for item in detalhes_validos):
+        limitacoes.append("Existe OP valida com divergencia entre PI produzido, PI consumido e saldo remanescente.")
     if slug == "perdas":
         limitacoes.append("Perdas em kg nao sao convertidas para aves e nao entram na taxa de perda em aves.")
 
@@ -1081,6 +1233,7 @@ def montar_contexto_relatorio_producao(slug, args):
         "totais": totais,
         "agrupamentos": agrupamentos,
         "detalhes": detalhes,
+        "detalhes_validos": detalhes_validos,
         "limitacoes": limitacoes,
         "query_string": urlencode({k: v for k, v in filtros.items() if v not in ["", "Todos", "Todas"]}),
         "granularidades": [("dia", "Dia"), ("semana", "Semana"), ("mes", "Mes")],
@@ -1088,6 +1241,18 @@ def montar_contexto_relatorio_producao(slug, args):
 
 
 def gerar_excel_relatorio_producao(contexto):
+    def valor_celula(chave, valor):
+        if chave in {"data", "data_op"} and valor:
+            try:
+                return date.fromisoformat(str(valor)[:10])
+            except ValueError:
+                return str(valor)
+        if isinstance(valor, Decimal):
+            return float(valor)
+        if isinstance(valor, bool):
+            return "Sim" if valor else "Nao"
+        return valor
+
     wb = Workbook()
     ws = wb.active
     ws.title = "Relatorio"
@@ -1112,7 +1277,7 @@ def gerar_excel_relatorio_producao(contexto):
                 valor = item.get(chave, "")
                 if isinstance(valor, set):
                     valor = len(valor)
-                linha.append(valor)
+                linha.append(valor_celula(chave, valor))
             ws.append(linha)
         ws.append([])
     ws.append(["Detalhes"])
@@ -1128,15 +1293,24 @@ def gerar_excel_relatorio_producao(contexto):
     else:
         colunas = [
             "op_id", "lote", "data_op", "fornecedor", "sku", "status",
-            "aves_recebidas", "peso_vivo", "producao_primaria", "producao_secundaria",
-            "caixas", "peso_produzido", "descartes_aves", "condenacoes_aves",
-            "mortes_total", "perdas_aves", "perdas_kg", "rendimento",
+            "producao_valida", "indicador_reabertura", "indicador_retomada", "indicador_estorno",
+            "aves_recebidas", "mortes_total", "aves_consideradas", "aves_aproveitadas",
+            "peso_vivo", "peso_base_rendimento", "rendimento_aplicavel",
+            "producao_primaria", "pi_produzido_valido", "pi_consumido_valido",
+            "pi_saldo", "pi_diferenca", "pi_reconciliado", "producao_secundaria",
+            "caixas", "caixas_compartilhadas", "peso_produzido", "descartes_aves", "condenacoes_aves",
+            "perdas_aves", "perdas_kg", "rendimento", "rendimento_aves",
             "taxa_condenacao", "taxa_perda", "tipo_perda", "motivo", "setor",
-            "quantidade", "unidade",
+            "quantidade", "unidade", "pnc_registros", "pnc_quantidade", "pnc_peso_kg",
         ]
     ws.append(colunas)
     for item in contexto["detalhes"]:
-        ws.append([item.get(coluna, "") for coluna in colunas])
+        ws.append([valor_celula(coluna, item.get(coluna, "")) for coluna in colunas])
+
+    for linha in ws.iter_rows():
+        for celula in linha:
+            if isinstance(celula.value, date):
+                celula.number_format = "dd/mm/yyyy"
 
     for cell in ws[1]:
         cell.font = Font(bold=True, color="FFFFFF")

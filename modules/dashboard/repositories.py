@@ -113,25 +113,29 @@ def buscar_dados_dashboard(data_inicio, data_fim, status_filtro, sku_filtro):
     unidades_produzidas = cursor.fetchone()["unidades"] or 0
 
     cursor.execute(q(f"""
-    SELECT COALESCE(SUM(p.quantidade), 0) as kg
-    FROM apontamentos_producao p
-    JOIN ordens_producao o ON o.id = p.op_id
+    WITH pa_op AS (
+        SELECT comp.op_id,
+               COALESCE(SUM(CASE WHEN COALESCE(cx.quantidade_bandejas,0) > 0
+                   THEN cx.peso_liquido * comp.quantidade_bandejas / cx.quantidade_bandejas
+                   ELSE 0 END), 0) AS peso_liquido
+        FROM pa_caixa_composicao comp
+        JOIN pa_caixas cx ON cx.id = comp.caixa_id
+        WHERE UPPER(COALESCE(cx.status,'')) NOT IN
+              ('CANCELADA','CANCELADO','ESTORNADA','ESTORNADO')
+        GROUP BY comp.op_id
+    )
+    SELECT COALESCE(SUM(pa_op.peso_liquido),0) AS kg,
+           COALESCE(SUM(CASE WHEN pa_op.peso_liquido > 0 THEN o.peso_vivo ELSE 0 END),0) AS peso_vivo
+    FROM ordens_producao o
+    LEFT JOIN pa_op ON pa_op.op_id = o.id
     WHERE o.data BETWEEN ? AND ?
-      AND LOWER(p.unidade) = 'kg'
-      AND COALESCE(p.vigente,1)=1
+      AND UPPER(COALESCE(o.status,'')) = 'ENCERRADA'
       AND COALESCE(o.sku, 'Galinha Cortada') = 'Galinha Cortada'
       {status_condicao_alias}
     """), (data_inicio, data_fim) + parametros_status)
-    kg_produzidos_rendimento = cursor.fetchone()["kg"] or 0
-
-    cursor.execute(q(f"""
-    SELECT COALESCE(SUM(peso_vivo), 0) as peso_vivo
-    FROM ordens_producao
-    WHERE data BETWEEN ? AND ?
-      AND COALESCE(sku, 'Galinha Cortada') = 'Galinha Cortada'
-      {status_condicao_op}
-    """), (data_inicio, data_fim) + parametros_status)
-    peso_entrada_rendimento = cursor.fetchone()["peso_vivo"] or 0
+    base_rendimento = cursor.fetchone()
+    kg_produzidos_rendimento = base_rendimento["kg"] or 0
+    peso_entrada_rendimento = base_rendimento["peso_vivo"] or 0
 
     cursor.execute(q(f"""
     SELECT COALESCE(o.sku, 'Galinha Cortada') as sku,

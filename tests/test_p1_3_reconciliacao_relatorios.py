@@ -123,7 +123,8 @@ def test_relatorio_producao_exclui_op_estornada_do_volume_operacional():
         "op_id": "", "fornecedor": "Todos", "status": "Todos", "causa": "Todos", "setor": "Todos",
     })
     sql, parametros = cte_ops_agregadas(filtros)
-    assert "NOT IN ('ESTORNADA','ESTORNADO','CANCELADA','CANCELADO')" in sql
+    assert "UPPER(COALESCE(o.status,'')) = 'ENCERRADA'" in sql
+    assert "peso_liquido * quantidade_bandejas / bandejas_caixa" in sql
     assert parametros == ["2026-08-01", "2026-08-31"]
 
 

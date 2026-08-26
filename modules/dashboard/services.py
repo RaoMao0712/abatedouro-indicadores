@@ -1,6 +1,7 @@
 """Regras de cálculo e montagem de contexto do Dashboard."""
 
 from datetime import datetime
+from decimal import Decimal
 
 from .repositories import buscar_dados_dashboard
 
@@ -56,7 +57,12 @@ def montar_contexto_dashboard(args):
     unidades_produzidas = dados["unidades_produzidas"]
     kg_produzidos_rendimento = dados["kg_produzidos_rendimento"]
     peso_entrada_rendimento = dados["peso_entrada_rendimento"]
-    rendimento_aplicavel = sku_filtro != "Galinha Inteira"
+    rendimento_aplicavel = (
+        sku_filtro != "Galinha Inteira"
+        and status_filtro != "Aberta"
+        and Decimal(str(peso_entrada_rendimento or 0)) > 0
+        and Decimal(str(kg_produzidos_rendimento or 0)) > 0
+    )
 
     kg_por_sku_mix = {
         item["sku"]: float(item["kg_produzidos"] or 0)
@@ -106,8 +112,12 @@ def montar_contexto_dashboard(args):
     viabilidade_percentual = (viabilidade / aves_recebidas * 100) if aves_recebidas > 0 else 0
 
     rendimento = 0
-    if rendimento_aplicavel and peso_entrada_rendimento > 0:
-        rendimento = (kg_produzidos_rendimento / peso_entrada_rendimento) * 100
+    if rendimento_aplicavel:
+        rendimento = float(
+            Decimal(str(kg_produzidos_rendimento))
+            / Decimal(str(peso_entrada_rendimento))
+            * Decimal("100")
+        )
 
     meta_viabilidade = 99.5
     meta_rendimento = 63.0

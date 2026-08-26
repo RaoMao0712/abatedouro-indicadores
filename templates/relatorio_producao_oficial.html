@@ -9,8 +9,8 @@
             <h2>{{ config.titulo }}</h2>
             <p>{{ config.objetivo }}</p>
             <div class="financeiro-hero-resumo">
-                <span class="financeiro-pill-info"><strong>Periodo</strong> {{ filtros.data_inicio }} a {{ filtros.data_fim }}</span>
-                <span class="financeiro-pill-info"><strong>Base</strong> Eventos produtivos oficiais</span>
+                <span class="financeiro-pill-info"><strong>Período</strong> {{ filtros.data_inicio|br_data }} a {{ filtros.data_fim|br_data }}</span>
+                <span class="financeiro-pill-info"><strong>Base</strong> OP encerrada + PA ativo</span>
                 <span class="financeiro-pill-info"><strong>Data</strong> OP</span>
             </div>
         </div>
@@ -35,6 +35,15 @@
                     {% for status in opcoes.status %}
                     <option value="{{ status }}" {% if filtros.status == status %}selected{% endif %}>{{ status }}</option>
                     {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label>Escopo</label>
+                <select name="escopo">
+                    <option value="producao_valida" {% if filtros.escopo == 'producao_valida' %}selected{% endif %}>Produção válida</option>
+                    <option value="andamento" {% if filtros.escopo == 'andamento' %}selected{% endif %}>Em andamento</option>
+                    <option value="historico" {% if filtros.escopo == 'historico' %}selected{% endif %}>Histórico sem efeito</option>
+                    <option value="todas" {% if filtros.escopo == 'todas' %}selected{% endif %}>Todos os estados</option>
                 </select>
             </div>
             <div>
@@ -94,7 +103,9 @@
         {% for item in resumo %}
         <div class="card relatorio-producao-kpi">
             <span>{{ item.rotulo }}</span>
-            {% if item.tipo == "percentual" %}
+            {% if item.aplicavel is defined and not item.aplicavel %}
+                <strong>Não calculável</strong>
+            {% elif item.tipo == "percentual" %}
                 <strong>{{ item.valor|br_percentual }}</strong>
             {% elif item.tipo == "decimal" %}
                 <strong>{{ item.valor|br_numero(2) }}</strong>
@@ -128,12 +139,12 @@
                     <tr>
                         <th>Grupo</th>
                         <th>OPs</th>
-                        <th>Aves</th>
+                        <th>Aves consideradas</th>
                         <th>Peso entrada kg</th>
                         <th>PI unid.</th>
-                        <th>PA unid.</th>
+                        <th>Bandejas PA</th>
                         <th>Caixas</th>
-                        <th>Peso produzido kg</th>
+                        <th>Peso líquido PA kg</th>
                         <th>Rendimento</th>
                         <th>Cond. aves</th>
                         <th>Perdas aves</th>
@@ -145,13 +156,13 @@
                     <tr>
                         <td><strong>{{ item.grupo }}</strong></td>
                         <td>{{ item.ops|default(item.ocorrencias|default(0))|br_numero(0) }}</td>
-                        <td>{{ item.aves_recebidas|default(item.quantidade_aves|default(0))|br_numero(0) }}</td>
+                        <td>{{ item.aves_consideradas|default(item.aves_recebidas|default(item.quantidade_aves|default(0)))|br_numero(0) }}</td>
                         <td>{{ item.peso_vivo|default(0)|br_numero(2) }}</td>
                         <td>{{ item.producao_primaria|default(0)|br_numero(0) }}</td>
                         <td>{{ item.producao_secundaria|default(0)|br_numero(0) }}</td>
                         <td>{{ item.caixas|default(0)|br_numero(0) }}</td>
                         <td>{{ item.peso_produzido|default(item.quantidade_kg|default(0))|br_numero(2) }}</td>
-                        <td>{{ item.rendimento|default(0)|br_percentual }}</td>
+                        <td>{% if item.rendimento_aplicavel is defined and not item.rendimento_aplicavel %}Não calculável{% else %}{{ item.rendimento|default(0)|br_percentual }}{% endif %}</td>
                         <td>{{ item.condenacoes_aves|default(0)|br_numero(0) }}</td>
                         <td>{{ item.perdas_aves|default(item.quantidade_aves|default(0))|br_numero(0) }}</td>
                         <td>{{ item.participacao|default(0)|br_percentual }}</td>
@@ -177,37 +188,50 @@
                     <tr>
                         <th>OP</th>
                         <th>Data</th>
-                        <th>Fornecedor</th>
-                        <th>SKU</th>
                         <th>Status</th>
-                        <th>Aves</th>
-                        <th>Peso entrada kg</th>
-                        <th>PI unid.</th>
-                        <th>PA unid.</th>
+                        <th>Fornecedor / SKU</th>
+                        <th>Aves recebidas</th>
+                        <th>Mortes pré-pendura</th>
+                        <th>Aves consideradas</th>
+                        <th>Condenações</th>
+                        <th>PI produzido</th>
+                        <th>PI consumido</th>
+                        <th>Saldo PI</th>
                         <th>Caixas</th>
-                        <th>Peso prod. kg</th>
+                        <th>Bandejas</th>
+                        <th>Peso líquido kg</th>
                         <th>Perdas aves</th>
-                        <th>Rend.</th>
-                        <th>Causa/tipo</th>
+                        <th>Rend. peso</th>
+                        <th>Aproveit. aves</th>
+                        <th>PNC</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for item in detalhes %}
                     <tr>
                         <td><strong>{{ item.lote|default("OP-" ~ item.op_id) }}</strong></td>
-                        <td>{{ item.data_op|default(item.data|default("")) }}</td>
-                        <td>{{ item.fornecedor|default("") }}</td>
-                        <td>{{ item.sku|default("") }}</td>
-                        <td>{{ item.status|default("") }}</td>
+                        <td>{{ item.data_op|default(item.data|default(""))|br_data }}</td>
+                        <td>
+                            {{ item.status|default("") }}
+                            {% if item.indicador_reabertura %}<small>Reaberta</small>{% endif %}
+                            {% if item.indicador_retomada %}<small>Retomada</small>{% endif %}
+                            {% if item.indicador_estorno %}<small>Sem efeito</small>{% endif %}
+                        </td>
+                        <td>{{ item.fornecedor|default("") }}<br><small>{{ item.sku|default("") }}</small></td>
                         <td>{{ item.aves_recebidas|default(0)|br_numero(0) }}</td>
-                        <td>{{ item.peso_vivo|default(0)|br_numero(2) }}</td>
-                        <td>{{ item.producao_primaria|default(0)|br_numero(0) }}</td>
-                        <td>{{ item.producao_secundaria|default(0)|br_numero(0) }}</td>
+                        <td>{{ item.mortes_total|default(0)|br_numero(0) }}</td>
+                        <td>{{ item.aves_consideradas|default(0)|br_numero(0) }}</td>
+                        <td>{{ item.condenacoes_aves|default(0)|br_numero(0) }}</td>
+                        <td>{{ item.pi_produzido_valido|default(0)|br_numero(0) }}</td>
+                        <td>{{ item.pi_consumido_valido|default(0)|br_numero(0) }}</td>
+                        <td>{{ item.pi_saldo|default(0)|br_numero(0) }}{% if not item.pi_reconciliado %}<small>Divergência {{ item.pi_diferenca|br_numero(2) }}</small>{% endif %}</td>
                         <td>{{ item.caixas|default(0)|br_numero(0) }}</td>
-                        <td>{{ item.peso_produzido|default(0)|br_numero(2) }}</td>
+                        <td>{{ item.producao_secundaria|default(0)|br_numero(0) }}</td>
+                        <td>{{ item.peso_produzido|default(0)|br_numero(3) }}</td>
                         <td>{{ item.perdas_aves|default(item.quantidade|default(0))|br_numero(0) }}</td>
-                        <td>{{ item.rendimento|default(item.taxa|default(0))|br_percentual }}</td>
-                        <td>{{ item.tipo_perda|default(item.motivo|default("")) }}</td>
+                        <td>{% if item.rendimento_aplicavel is defined and not item.rendimento_aplicavel %}Não calculável{% else %}{{ item.rendimento|default(item.taxa|default(0))|br_percentual }}{% endif %}</td>
+                        <td>{{ item.rendimento_aves|default(0)|br_percentual }}</td>
+                        <td>{{ item.pnc_registros|default(0)|br_numero(0) }}</td>
                     </tr>
                     {% endfor %}
                 </tbody>
