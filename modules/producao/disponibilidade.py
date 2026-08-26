@@ -584,7 +584,11 @@ def calcular_disponibilidade(op_id, *, agora=None, conn=None):
         inicio_r = _parse_data_hora(programacao["inicio_real"])
         fim_r = _parse_data_hora(programacao["fim_real"])
         if not inicio_r:
-            motivos.append("Inicio real da Linha de Abate ainda nao registrado.")
+            if op_em_andamento:
+                base["situacao"] = "EM_ANDAMENTO"
+                motivos.append("OP programada ainda sem inicio real; medicao da Linha de Abate em andamento.")
+            else:
+                motivos.append("Inicio real da Linha de Abate ainda nao registrado.")
             return base
         if not fim_r:
             base["situacao"] = "EM_ANDAMENTO"

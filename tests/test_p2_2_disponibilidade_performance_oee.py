@@ -142,6 +142,15 @@ def test_op_aberta_sem_programacao_e_em_andamento(banco):
     assert r["situacao"] == "EM_ANDAMENTO" and r["oee"] is None
 
 
+def test_op_aberta_programada_sem_inicio_real_e_em_andamento(banco):
+    disp.salvar_programacao(
+        3, "2026-08-12T08:00-04:00", "2026-08-12T17:00-04:00", [],
+        perfil="pcp", usuario="PCP",
+    )
+    r = disp.calcular_disponibilidade(3)
+    assert r["situacao"] == "EM_ANDAMENTO" and r["disponibilidade"] is None
+
+
 def test_parada_aberta_em_op_aberta_mantem_operacao_em_andamento(banco):
     conn = banco()
     conn.execute("UPDATE ordens_producao SET status='Aberta' WHERE id=1")
