@@ -51,6 +51,10 @@ STATUS_DEVOLVIDO = "DEVOLVIDO"
 STATUS_REPROCESSAMENTO = "REPROCESSAMENTO"
 STATUS_LEGADO = "LEGADO"
 STATUS_PENDENTE = "PENDENTE_OP"
+CICLO_HISTORICA = "HISTORICA"
+CICLO_TRANSICAO = "TRANSICAO_OPERACIONAL"
+CICLO_OPERACIONAL = "OPERACIONAL"
+CICLO_HISTORICA_REABERTA = "HISTORICA_REABERTA_FAIL_CLOSED"
 _SCHEMA_ESTOQUE_CONFIAVEL_INICIALIZADO = False
 
 
@@ -293,6 +297,52 @@ def registrar_evento_romaneio(
     )
 
 
+def classificar_ciclo_operacional_op(cursor, op, marco=None, movimento_em=None):
+    """Classifica a OP sem confundir fabricação com ciclo de estoque.
+
+    A classificação persistida representa a fotografia feita no Marco Zero.
+    Uma OP histórica reaberta continua fail-closed; somente uma rotina que
+    consiga rastrear movimentos posteriores ao evento de reabertura pode
+    promovê-los individualmente.
+    """
+    if not op:
+        raise ValueError("OP não encontrada para classificação do ciclo operacional.")
+
+    classificacao = str(op["estoque_classificacao"] or "").upper()
+    if classificacao == "POS_MARCO":
+        return CICLO_OPERACIONAL
+    if classificacao == CICLO_TRANSICAO:
+        return CICLO_TRANSICAO
+
+    marco = marco or {}
+    marco_ativado_em = str(marco.get("ativado_em") or "") if hasattr(marco, "get") else str(marco["ativado_em"] or "")
+    if DATABASE_URL:
+        cursor.execute("SELECT to_regclass('public.op_operacoes_auditoria') AS tabela")
+        auditoria_disponivel = bool(cursor.fetchone()["tabela"])
+    else:
+        cursor.execute("SELECT name AS tabela FROM sqlite_master WHERE type='table' AND name='op_operacoes_auditoria'")
+        auditoria_disponivel = bool(cursor.fetchone())
+
+    reabertura = None
+    if auditoria_disponivel:
+        cursor.execute(q("""
+        SELECT criado_em
+        FROM op_operacoes_auditoria
+        WHERE op_id = ?
+          AND tipo = 'REABERTURA'
+          AND criado_em >= ?
+        ORDER BY criado_em ASC, id ASC
+        LIMIT 1
+        """), (op["id"], marco_ativado_em))
+        reabertura = cursor.fetchone()
+
+    if reabertura:
+        if movimento_em and str(movimento_em) >= str(reabertura["criado_em"]):
+            return CICLO_OPERACIONAL
+        return CICLO_HISTORICA_REABERTA
+    return CICLO_HISTORICA
+
+
 def criar_tabelas_estoque_confiavel():
     """Aplica a migration aditiva e registra o marco zero uma única vez."""
     global _SCHEMA_ESTOQUE_CONFIAVEL_INICIALIZADO
@@ -482,7 +532,10 @@ def criar_tabelas_estoque_confiavel():
 
             cursor.execute(q("""
             UPDATE ordens_producao
-            SET estoque_classificacao = 'LEGADA',
+            SET estoque_classificacao = CASE
+                    WHEN COALESCE(status, '') = 'Encerrada' THEN 'LEGADA'
+                    ELSE 'TRANSICAO_OPERACIONAL'
+                END,
                 estoque_marco_id = ?
             WHERE id <= ?
             """), (marco_id, legacy_max_op_id))
@@ -493,14 +546,26 @@ def criar_tabelas_estoque_confiavel():
             WHERE id > ?
             """), (marco_id, legacy_max_op_id))
 
-            # O PA presente na ativação é preservado, porém deixa de ser estoque
-            # operacional e não pode ser selecionado em romaneio normal.
+            # Somente PA composto integralmente por OPs encerradas antes do
+            # corte é legado. Caixas de OPs abertas no corte permanecem
+            # pendentes até o encerramento operacional da respectiva OP.
             cursor.execute("""
-            UPDATE pa_caixas
+            UPDATE pa_caixas AS cx
             SET estoque_operacional = 0,
                 disponibilidade = 'LEGADO',
                 status = 'Histórico',
                 reservado_expedicao_id = NULL
+            WHERE EXISTS (
+                SELECT 1 FROM pa_caixa_composicao c
+                WHERE c.caixa_id = cx.id
+            )
+              AND NOT EXISTS (
+                SELECT 1
+                FROM pa_caixa_composicao c
+                INNER JOIN ordens_producao op ON op.id = c.op_id
+                WHERE c.caixa_id = cx.id
+                  AND COALESCE(op.estoque_classificacao, 'LEGADA') <> 'LEGADA'
+            )
             """)
         conn.commit()
         _SCHEMA_ESTOQUE_CONFIAVEL_INICIALIZADO = True
@@ -526,7 +591,7 @@ def ativar_estoque_op_encerrada(cursor, op_id):
     """Ativa uma única vez o PA elegível de uma OP encerrada.
 
     Caixas compostas por mais de uma OP só são ativadas quando todas forem
-    pós-marco e estiverem encerradas.
+    operacionais (pós-marco ou transição) e estiverem encerradas.
     """
     cursor.execute(q("""
     SELECT cx.*
@@ -543,7 +608,8 @@ def ativar_estoque_op_encerrada(cursor, op_id):
         INNER JOIN ordens_producao op ON op.id = c.op_id
         WHERE c.caixa_id = cx.id
           AND (
-              COALESCE(op.estoque_classificacao, 'LEGADA') <> 'POS_MARCO'
+              COALESCE(op.estoque_classificacao, 'LEGADA') NOT IN
+                  ('POS_MARCO', 'TRANSICAO_OPERACIONAL')
               OR COALESCE(op.status, '') <> 'Encerrada'
           )
       )

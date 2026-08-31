@@ -104,6 +104,12 @@ class ExpedicaoMarcoZeroTest(unittest.TestCase):
         ) VALUES ('2026-07-23', 'Fornecedor histórico', 100, 250, 2.5, 'Encerrada', 'Galinha Inteira')
         """)
         cls.op_legada = cursor.lastrowid
+        cursor.execute("""
+        INSERT INTO ordens_producao (
+            data, fornecedor, quantidade_aves, peso_vivo, peso_medio, status, sku
+        ) VALUES ('2026-07-23', 'Fornecedor transição', 50, 125, 2.5, 'Aberta', 'Galinha Cortada')
+        """)
+        cls.op_transicao = cursor.lastrowid
         conn.commit()
         conn.close()
 
@@ -199,8 +205,10 @@ class ExpedicaoMarcoZeroTest(unittest.TestCase):
 
     def test_01_marco_classifica_legado_sem_estoque_operacional(self):
         op = consultar_um("SELECT * FROM ordens_producao WHERE id = ?", (self.op_legada,))
+        transicao = consultar_um("SELECT * FROM ordens_producao WHERE id = ?", (self.op_transicao,))
         caixa = consultar_um("SELECT * FROM pa_caixas WHERE id = ?", (self.caixa_legada,))
         self.assertEqual(op["estoque_classificacao"], "LEGADA")
+        self.assertEqual(transicao["estoque_classificacao"], "TRANSICAO_OPERACIONAL")
         self.assertEqual(op["estoque_marco_id"], self.marco["id"])
         self.assertEqual(caixa["estoque_operacional"], 0)
         self.assertEqual(caixa["disponibilidade"], "LEGADO")
