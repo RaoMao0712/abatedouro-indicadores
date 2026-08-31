@@ -6,6 +6,7 @@ import pytest
 from modules.qualidade import produtos_nao_conformes as nc
 from modules.expedicao import estoque_service as estoque
 from modules.expedicao import services as expedicao_services
+from modules.expedicao import encerramento_op as encerramento
 from modules.producao import operacoes_op
 
 
@@ -99,9 +100,11 @@ def _registrar(banco, itens):
 def _preparar_finalizador(monkeypatch, banco):
     conectar, transacao = banco
     monkeypatch.setattr(expedicao_services, "transaction", transacao)
+    monkeypatch.setattr(encerramento, "transaction", transacao)
     monkeypatch.setattr(expedicao_services, "garantir_schema_producao", lambda: None)
     monkeypatch.setattr(expedicao_services, "criar_tabelas_estoque_pi_pa", lambda: None)
     monkeypatch.setattr(expedicao_services, "gerar_producao_automatica_setores", lambda **kwargs: None)
+    monkeypatch.setattr(encerramento, "gerar_producao_automatica_setores", lambda **kwargs: None)
     # O teste isola o encerramento; a migration de reabertura P0.2 possui sua
     # própria suíte e depende de tabelas que não fazem parte deste fixture.
     monkeypatch.setattr(operacoes_op, "criar_tabelas_operacoes_op", lambda: None)

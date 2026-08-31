@@ -5,6 +5,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -34,6 +35,8 @@ from modules.expedicao.estoque_service import (  # noqa: E402
 )
 from modules.expedicao.routes import register_expedicao_routes  # noqa: E402
 from modules.expedicao import estornos_embalagem as estornos_embalagem  # noqa: E402
+from modules.expedicao import encerramento_op  # noqa: E402
+from modules.expedicao.encerramento_op import preflight_encerramento_op  # noqa: E402
 from modules.expedicao.conferencia_embalagem import (  # noqa: E402
     confirmar_conferencia_op,
     obter_conferencia_op,
@@ -328,8 +331,8 @@ class ExpedicaoCorretivaTest(unittest.TestCase):
         producoes = consultar_um(
             "SELECT COUNT(*) total FROM apontamentos_producao WHERE op_id = ?", (op_id,)
         )["total"]
-        with self.assertRaises(ValueError):
-            finalizar_embalagem_secundaria_op(op_id)
+        repeticao = finalizar_embalagem_secundaria_op(op_id)
+        self.assertTrue(repeticao["ja_encerrada"])
         self.assertEqual(consultar_um(
             "SELECT COUNT(*) total FROM apontamentos_producao WHERE op_id = ?", (op_id,)
         )["total"], producoes)
@@ -347,7 +350,7 @@ class ExpedicaoCorretivaTest(unittest.TestCase):
             self.assertNotEqual(cliente.get("/embalagem-secundaria").status_code, 302)
             self.assertEqual(
                 cliente.post(f"/embalagem-secundaria/{op_id}/finalizar").status_code,
-                302,
+                409,
             )
             self.assertEqual(
                 consultar_um("SELECT status FROM ordens_producao WHERE id = ?", (op_id,))["status"],
@@ -565,26 +568,28 @@ class ExpedicaoCorretivaTest(unittest.TestCase):
             "INSERT INTO pa_caixa_composicao (caixa_id, op_id, quantidade_bandejas) VALUES (?, ?, 6)",
             (caixa_id, op_b),
         )
-        finalizar_embalagem_secundaria_op(op_a)
+        with self.assertRaisesRegex(ValueError, "composição mista"):
+            finalizar_embalagem_secundaria_op(op_a)
         self.assertEqual(
             consultar_um("SELECT estoque_operacional FROM pa_caixas WHERE id = ?", (caixa_id,))["estoque_operacional"],
             0,
         )
-        finalizar_embalagem_secundaria_op(op_b)
+        with self.assertRaisesRegex(ValueError, "composição mista"):
+            finalizar_embalagem_secundaria_op(op_b)
         self.assertEqual(
             consultar_um("SELECT estoque_operacional FROM pa_caixas WHERE id = ?", (caixa_id,))["estoque_operacional"],
-            1,
+            0,
         )
         pesos = consultar("""
         SELECT op_id, quantidade FROM apontamentos_producao
         WHERE op_id IN (?, ?) AND setor = 'Expedição' AND unidade = 'kg'
         ORDER BY op_id
         """, (op_a, op_b))
-        self.assertEqual(sum(item["quantidade"] for item in pesos), 10)
+        self.assertEqual(sum(item["quantidade"] for item in pesos), 0)
         self.assertEqual(consultar_um(
             "SELECT COUNT(*) total FROM estoque_eventos WHERE idempotency_key = ?",
             (f"FORMACAO-PA-{caixa_id}",),
-        )["total"], 1)
+        )["total"], 0)
 
     def test_13_idempotencia_da_inclusao_individual_usa_identidade_da_requisicao(self):
         self.contexto("pcp")
@@ -842,6 +847,111 @@ class ExpedicaoCorretivaTest(unittest.TestCase):
         self.assertEqual(consultar_um("""SELECT COUNT(*) total FROM estoque_eventos
             WHERE expedicao_id=? AND caixa_id=? AND acao='REMOCAO_RESERVA'""",
             (romaneio, caixa_id))["total"], 1)
+
+    def test_19_confirmacao_do_usuario_encerra_sem_segundo_clique(self):
+        op_id, _ = self.preparar_cortada("CX-CONFIRMA-E-ENCERRA")
+        cliente = self.app.test_client()
+        with cliente.session_transaction() as sessao:
+            sessao.update({"usuario_id": 1, "nome": "Operadora", "perfil": "pcp"})
+        self.assertEqual(cliente.get(f"/embalagem-secundaria?op_id={op_id}").status_code, 200)
+        conferencia = obter_conferencia_op(op_id)
+        with cliente.session_transaction() as sessao:
+            csrf = sessao["estorno_embalagem_csrf"]
+        resposta = cliente.post(
+            f"/embalagem-secundaria/{op_id}/conferencia/confirmar",
+            data={
+                "csrf_token": csrf, "confirmacao": "1",
+                "conferencia_hash": conferencia["hash"],
+                "idempotency_key": f"TESTE-CONFIRMA-{op_id}",
+                "versao_operacional": "0",
+            },
+        )
+        self.assertEqual(resposta.status_code, 302)
+        self.assertEqual(consultar_um(
+            "SELECT status FROM ordens_producao WHERE id=?", (op_id,)
+        )["status"], "Encerrada")
+
+    def test_20_preflight_pronta_e_livro_pi_com_estorno_compensado(self):
+        op_id, _ = self.preparar_cortada("CX-PI-ESTORNO-COMPENSADO")
+        executar("""INSERT INTO estoque_produto_intermediario(
+            data_movimentacao,op_id,sku,tipo,quantidade_bandejas,observacoes)
+            VALUES('2026-07-25',?,'Galinha Cortada','ENTRADA_ESTORNO_CAIXA',12,'estorno legítimo')""", (op_id,))
+        executar("""INSERT INTO estoque_produto_intermediario(
+            data_movimentacao,op_id,sku,tipo,quantidade_bandejas,observacoes)
+            VALUES('2026-07-25',?,'Galinha Cortada','SAIDA_EMBALAGEM_SECUNDARIA',12,'nova caixa após estorno')""", (op_id,))
+        preflight = preflight_encerramento_op(op_id)
+        self.assertTrue(preflight["pronta_para_encerramento"])
+        self.assertEqual(preflight["pi"]["saldo"], 0)
+
+    def test_21_saldo_real_pi_bloqueia_com_valores_explicitos(self):
+        op_id, _ = self.preparar_cortada("CX-PI-DIVERGENTE")
+        executar("""INSERT INTO estoque_produto_intermediario(
+            data_movimentacao,op_id,sku,tipo,quantidade_bandejas,observacoes)
+            VALUES('2026-07-25',?,'Galinha Cortada','ENTRADA_ESTORNO_CAIXA',3,'saldo não consumido')""", (op_id,))
+        preflight = preflight_encerramento_op(op_id)
+        self.assertFalse(preflight["permitido"])
+        self.assertIn("Esperado 0, encontrado 3", " ".join(preflight["bloqueios"]))
+        with self.assertRaisesRegex(ValueError, "Esperado 0, encontrado 3"):
+            finalizar_embalagem_secundaria_op(op_id)
+        self.assertEqual(consultar_um(
+            "SELECT status FROM ordens_producao WHERE id=?", (op_id,)
+        )["status"], "Aberta")
+
+    def test_22_conflito_de_versao_retorna_motivo_sem_mutacao(self):
+        op_id, caixa_id = self.preparar_cortada("CX-VERSAO-CONFLITO")
+        with self.assertRaisesRegex(ValueError, "Esperada 99, encontrada 0"):
+            finalizar_embalagem_secundaria_op(op_id, versao_esperada=99)
+        self.assertEqual(consultar_um(
+            "SELECT status FROM ordens_producao WHERE id=?", (op_id,)
+        )["status"], "Aberta")
+        self.assertEqual(consultar_um(
+            "SELECT disponibilidade FROM pa_caixas WHERE id=?", (caixa_id,)
+        )["disponibilidade"], "PENDENTE_OP")
+
+    def test_23_falha_na_auditoria_reverte_status_producao_e_pa(self):
+        op_id, caixa_id = self.preparar_cortada("CX-ROLLBACK-AUDITORIA")
+        with mock.patch.object(encerramento_op, "_auditar", side_effect=RuntimeError("auditoria indisponível")):
+            with self.assertRaisesRegex(RuntimeError, "auditoria indisponível"):
+                finalizar_embalagem_secundaria_op(
+                    op_id, idempotency_key=f"TESTE-AUDITORIA-{op_id}"
+                )
+        self.assertEqual(consultar_um(
+            "SELECT status FROM ordens_producao WHERE id=?", (op_id,)
+        )["status"], "Aberta")
+        caixa = consultar_um(
+            "SELECT estoque_operacional,disponibilidade FROM pa_caixas WHERE id=?", (caixa_id,)
+        )
+        self.assertEqual((caixa["estoque_operacional"], caixa["disponibilidade"]), (0, "PENDENTE_OP"))
+        self.assertEqual(consultar_um(
+            "SELECT COUNT(*) total FROM apontamentos_producao WHERE op_id=?", (op_id,)
+        )["total"], 0)
+
+    def test_24_idempotencia_preserva_financeiro_e_demais_ops(self):
+        executar("CREATE TABLE IF NOT EXISTS financeiro_guard_teste(id INTEGER PRIMARY KEY, estado TEXT, evento TEXT)")
+        executar("DELETE FROM financeiro_guard_teste")
+        executar("""INSERT INTO financeiro_guard_teste VALUES(
+            1,'FINANCEIRO_EM_RECONSTRUCAO','17d465d8-63d2-480a-98c1-b484cf62fbb7')""")
+        op_controle, _ = self.preparar_cortada("CX-OP-CONTROLE")
+        op_id, caixa_id = self.preparar_cortada("CX-IDEMP-AUDITADA")
+        chave = f"TESTE-IDEMP-{op_id}"
+        primeiro = finalizar_embalagem_secundaria_op(op_id, idempotency_key=chave)
+        segundo = finalizar_embalagem_secundaria_op(op_id, idempotency_key=chave)
+        self.assertTrue(primeiro["sucesso"] and segundo["ja_encerrada"])
+        self.assertEqual(consultar_um(
+            "SELECT COUNT(*) total FROM op_operacoes_auditoria WHERE idempotency_key=?", (chave,)
+        )["total"], 1)
+        self.assertEqual(consultar_um(
+            "SELECT COUNT(*) total FROM estoque_eventos WHERE idempotency_key=?",
+            (f"FORMACAO-PA-{caixa_id}",),
+        )["total"], 1)
+        self.assertEqual(consultar_um(
+            "SELECT status FROM ordens_producao WHERE id=?", (op_controle,)
+        )["status"], "Aberta")
+        guard = consultar_um("SELECT estado,evento FROM financeiro_guard_teste WHERE id=1")
+        self.assertEqual(
+            (guard["estado"], guard["evento"]),
+            ("FINANCEIRO_EM_RECONSTRUCAO", "17d465d8-63d2-480a-98c1-b484cf62fbb7"),
+        )
 
 
 if __name__ == "__main__":

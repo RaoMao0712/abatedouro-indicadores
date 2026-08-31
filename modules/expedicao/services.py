@@ -1594,9 +1594,12 @@ def calcular_fechamento_industrial_op(op_id, conn=None):
 
 
 def finalizar_embalagem_secundaria_op(op_id, checkpoint=None, nao_conformes=None,
-                                      conferencia_hash=None, exigir_conferencia=False):
-    """Valida, gera producao, encerra a OP e forma estoque em uma transacao."""
-    from .estoque_service import ativar_estoque_op_encerrada, criar_tabelas_estoque_confiavel
+                                      conferencia_hash=None, exigir_conferencia=False,
+                                      usuario=None, perfil=None, idempotency_key=None,
+                                      versao_esperada=None, ip_origem=None):
+    """Compatibilidade pública para o único serviço oficial de encerramento."""
+    from .encerramento_op import encerrar_op_oficial
+    from .estoque_service import criar_tabelas_estoque_confiavel
 
     garantir_schema_producao()
     # Garante o versionamento logico dos apontamentos antes de um eventual
@@ -1608,45 +1611,12 @@ def finalizar_embalagem_secundaria_op(op_id, checkpoint=None, nao_conformes=None
     if exigir_conferencia:
         from .conferencia_embalagem import criar_tabelas_conferencia_embalagem
         criar_tabelas_conferencia_embalagem()
-    with transaction() as conn:
-        if exigir_conferencia:
-            from .conferencia_embalagem import validar_conferencia_para_encerramento
-            validar_conferencia_para_encerramento(conn.cursor(), op_id, conferencia_hash)
-        fechamento = calcular_fechamento_industrial_op(op_id, conn=conn)
-        if not fechamento["pode_encerrar"]:
-            raise ValueError("Nao foi possivel encerrar a OP: " + " ".join(fechamento["pendencias"]))
-        op = fechamento["op"]
-        if checkpoint:
-            checkpoint("antes_formacao_estoque")
-        gerar_producao_automatica_setores(
-            op=op,
-            data_lancamento=op["data"],
-            hora_inicio="N/A",
-            hora_fim="N/A",
-            unidades_produzidas=fechamento["bandejas_consumidas"],
-            kg_produzidos=fechamento["peso_liquido_total"],
-            descontar_almoco=False,
-            conn=conn,
-        )
-        cursor = conn.cursor()
-        cursor.execute(q("""
-        UPDATE ordens_producao
-        SET status = ?
-        WHERE id = ? AND status <> 'Encerrada'
-        """), ("Encerrada", op_id))
-        if cursor.rowcount != 1:
-            raise ValueError("A OP foi encerrada por outra solicitacao.")
-        if checkpoint:
-            checkpoint("durante_formacao_estoque")
-        if nao_conformes:
-            from modules.qualidade.produtos_nao_conformes import registrar_itens_encerramento
-            registrar_itens_encerramento(
-                cursor, op_id, nao_conformes, checkpoint=checkpoint
-            )
-        ativar_estoque_op_encerrada(cursor, op_id)
-        if checkpoint:
-            checkpoint("apos_formacao_estoque")
-    return fechamento
+    return encerrar_op_oficial(
+        op_id, checkpoint=checkpoint, nao_conformes=nao_conformes,
+        conferencia_hash=conferencia_hash, exigir_conferencia=exigir_conferencia,
+        usuario=usuario, perfil=perfil, idempotency_key=idempotency_key,
+        versao_esperada=versao_esperada, ip_origem=ip_origem,
+    )
 
 
 def validar_reset_processamento_op(op_id):

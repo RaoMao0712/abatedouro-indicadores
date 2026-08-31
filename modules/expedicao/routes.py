@@ -34,7 +34,6 @@ from .services import (
     buscar_ops_para_embalagem_primaria,
     buscar_saldo_pa_por_local,
     buscar_saldos_estoque_pi,
-    calcular_fechamento_industrial_op,
     calcular_resumo_expedicao,
     calcular_resumo_estoques_pi_pa,
     calcular_resumo_itens_expedicao,
@@ -55,6 +54,7 @@ from .estornos_embalagem import (
     funcionalidade_estorno_habilitada,
 )
 from .conferencia_embalagem import confirmar_conferencia_op, obter_conferencia_op
+from .encerramento_op import preflight_encerramento_op
 from .relatorio_conferencia_embalagem import gerar_relatorio_conferencia_embalagem_pdf
 from .estoque_service import (
     DESTINOS_CONTROLADOS,
@@ -281,15 +281,32 @@ def register_expedicao_routes(app, integracoes=None):
                 op_id, nao_conformes=_itens_nc_caixas(request.form),
                 conferencia_hash=request.form.get("conferencia_hash"),
                 exigir_conferencia=True,
+                usuario=session.get("nome") or "Usuário",
+                perfil=session.get("perfil") or "",
+                idempotency_key=request.form.get("idempotency_key"),
+                versao_esperada=request.form.get("versao_operacional"),
+                ip_origem=request.access_route[0] if request.access_route else request.remote_addr,
             )
             flash(
-                "OP encerrada com sucesso. "
-                f"Peso oficial: {fechamento['peso_liquido_total']:.3f} kg | "
-                f"Caixas: {fechamento['caixas']} | "
+                ("A OP já estava encerrada; nenhum movimento foi duplicado. "
+                 if fechamento.get("ja_encerrada") else "OP encerrada com sucesso. ")
+                + f"PA operacional liberado: {fechamento['caixas_liberadas']} caixa(s) | "
+                f"Peso líquido: {fechamento['peso_liquido_total']:.3f} kg | "
                 f"Bandejas: {fechamento['bandejas_consumidas']:.0f}."
             )
-        except ValueError as erro:
-            flash(str(erro))
+        except (ValueError, PermissionError) as erro:
+            return render_template(
+                "erro_operacional.html", titulo=f"OP #{op_id} não encerrada",
+                mensagem=str(erro), retorno=url_for("embalagem_secundaria", op_id=op_id),
+            ), 409
+        except Exception:
+            app.logger.exception("Falha transacional ao encerrar a OP #%s", op_id)
+            return render_template(
+                "erro_operacional.html", titulo=f"OP #{op_id} não encerrada",
+                mensagem=("O encerramento falhou e foi revertido integralmente. "
+                          "Nenhum PI ou PA foi duplicado. Consulte o suporte com o número da OP."),
+                retorno=url_for("embalagem_secundaria", op_id=op_id),
+            ), 500
 
         return redirect(url_for("embalagem_secundaria", op_id=op_id))
 
@@ -365,13 +382,35 @@ def register_expedicao_routes(app, integracoes=None):
                 raise PermissionError("Sessão de confirmação expirada. Atualize a página e tente novamente.")
             if request.form.get("confirmacao") != "1":
                 raise ValueError("Confirme que conferiu os lançamentos da Embalagem Secundária.")
-            confirmar_conferencia_op(
+            conferencia = confirmar_conferencia_op(
                 op_id, usuario=session.get("nome") or "Usuário",
                 perfil=session.get("perfil") or "", hash_informado=request.form.get("conferencia_hash"),
             )
-            flash("Conferência registrada. O encerramento está liberado enquanto as caixas permanecerem inalteradas.")
+            resultado = finalizar_embalagem_secundaria_op(
+                op_id, conferencia_hash=conferencia["hash"], exigir_conferencia=True,
+                usuario=session.get("nome") or "Usuário", perfil=session.get("perfil") or "",
+                idempotency_key=request.form.get("idempotency_key"),
+                versao_esperada=request.form.get("versao_operacional"),
+                ip_origem=request.access_route[0] if request.access_route else request.remote_addr,
+            )
+            flash(
+                f"Conferência concluída e OP encerrada. PA operacional liberado: "
+                f"{resultado['caixas_liberadas']} caixa(s) | "
+                f"Peso líquido: {resultado['peso_liquido_total']:.3f} kg."
+            )
         except (ValueError, PermissionError) as erro:
-            flash(str(erro))
+            return render_template(
+                "erro_operacional.html", titulo=f"OP #{op_id} não encerrada",
+                mensagem=str(erro), retorno=url_for("embalagem_secundaria", op_id=op_id),
+            ), 409
+        except Exception:
+            app.logger.exception("Falha após conferência da OP #%s", op_id)
+            return render_template(
+                "erro_operacional.html", titulo=f"OP #{op_id} não encerrada",
+                mensagem=("A conferência foi preservada, mas o encerramento falhou e "
+                          "a transação operacional foi revertida integralmente."),
+                retorno=url_for("embalagem_secundaria", op_id=op_id),
+            ), 500
         return redirect(url_for("embalagem_secundaria", op_id=op_id, conferencia="1"))
 
 
@@ -512,9 +551,22 @@ def register_expedicao_routes(app, integracoes=None):
                 op_selecionada = next((item for item in saldos_pi if int(item["op_id"]) == op_id_int), None)
 
                 try:
-                    fechamento_op = calcular_fechamento_industrial_op(op_id_int)
-                except Exception:
-                    fechamento_op = None
+                    fechamento_op = preflight_encerramento_op(op_id_int)
+                except Exception as erro:
+                    app.logger.exception("Falha ao validar encerramento da OP #%s", op_id_int)
+                    op_base = buscar_op_por_id(op_id_int)
+                    fechamento_op = ({
+                        "op": op_base, "status": op_base["status"],
+                        "versao_operacional": int(op_base["versao_operacional"] or 0),
+                        "pronta_para_encerramento": False, "pode_encerrar": False,
+                        "bloqueios": [f"Não foi possível validar o encerramento: {erro}"],
+                        "pendencias": [f"Não foi possível validar o encerramento: {erro}"],
+                        "pi": {"saldo": 0}, "saldo_pi": 0, "caixas": 0,
+                        "aves_vivas": 0, "mortes_antes_pendura": 0,
+                        "bandejas_primaria": 0, "bandejas_consumidas": 0,
+                        "descartes": 0, "condenacoes": 0,
+                        "peso_liquido_total": 0,
+                    } if op_base else None)
 
                 # Quando o saldo PI chega a zero, a OP deixa de aparecer em saldos_pi.
                 # Ainda assim ela precisa permanecer carregada para conferência e encerramento.
@@ -526,7 +578,7 @@ def register_expedicao_routes(app, integracoes=None):
                         "op_id": op_id_int,
                         "data_op": op_base["data"],
                         "sku": op_base["sku"] or "Galinha Cortada",
-                        "saldo_bandejas": fechamento_op["saldo_pi"],
+                        "saldo_bandejas": fechamento_op["pi"]["saldo"],
                     }
 
                 try:
@@ -569,6 +621,7 @@ def register_expedicao_routes(app, integracoes=None):
             chave_inclusao_individual=str(uuid.uuid4()),
             chave_inclusao_lote=str(uuid.uuid4()),
             chave_retomada=str(uuid.uuid4()),
+            chave_encerramento=str(uuid.uuid4()),
             conferencia_op=conferencia_op,
             retomada_op=retomada_op,
             jobs_etiqueta=jobs_etiqueta,
