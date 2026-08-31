@@ -112,7 +112,10 @@ def _preparar_finalizador(monkeypatch, banco):
     def fechamento(op_id, conn=None):
         op = conn.execute("SELECT * FROM ordens_producao WHERE id=?", (op_id,)).fetchone()
         return {"pode_encerrar": True, "pendencias": [], "op": op,
-                "bandejas_consumidas": 12, "peso_liquido_total": 10.5}
+                "bandejas_consumidas": 22, "peso_liquido_total": 20,
+                "peso_bruto_total": 20, "aves_vivas": 22,
+                "mortes_antes_pendura": 0, "bandejas_primaria": 22,
+                "descartes": 0, "condenacoes": 0}
 
     def ativar(cursor, op_id):
         cursor.execute("""
@@ -122,6 +125,10 @@ def _preparar_finalizador(monkeypatch, banco):
         """, (op_id,))
 
     monkeypatch.setattr(expedicao_services, "calcular_fechamento_industrial_op", fechamento)
+    monkeypatch.setattr(
+        encerramento, "_calcular_fechamento_cursor",
+        lambda cursor, op: fechamento(op["id"], conn=cursor.connection),
+    )
     monkeypatch.setattr(estoque, "ativar_estoque_op_encerrada", ativar)
     return conectar
 

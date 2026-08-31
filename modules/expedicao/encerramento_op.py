@@ -79,14 +79,91 @@ def _livro_pi(cursor, op_id, bloquear=False):
     return cursor.fetchone()
 
 
-def _preflight_cursor(cursor, op, bloquear=False):
-    from .services import calcular_fechamento_industrial_op
+def _calcular_fechamento_cursor(cursor, op):
+    """Calcula as invariantes sem executar bootstrap, DDL ou commit implícito."""
+    op_id = int(op["id"])
+    cursor.execute(q("""
+        SELECT COALESCE(SUM(quantidade_bandejas),0) total
+        FROM embalagem_primaria_apontamentos WHERE op_id=?
+    """), (op_id,))
+    bandejas_primaria = float(cursor.fetchone()["total"] or 0)
+    cursor.execute(q("""
+        SELECT
+          COALESCE(SUM(CASE WHEN LOWER(COALESCE(categoria,'')) LIKE '%%conden%%'
+                            THEN quantidade ELSE 0 END),0) condenacoes,
+          COALESCE(SUM(CASE WHEN LOWER(COALESCE(categoria,'')) NOT LIKE '%%conden%%'
+                             AND LOWER(TRIM(COALESCE(motivo,'')))<>'morte na gaiola'
+                            THEN quantidade ELSE 0 END),0) descartes,
+          COALESCE(SUM(CASE WHEN LOWER(TRIM(COALESCE(motivo,'')))='morte na gaiola'
+                            THEN quantidade ELSE 0 END),0) mortes_na_gaiola
+        FROM apontamentos_descartes WHERE op_id=?
+          AND LOWER(unidade) IN ('aves','ave','unidade','unidades')
+    """), (op_id,))
+    perdas = cursor.fetchone()
+    condenacoes = float(perdas["condenacoes"] or 0)
+    descartes = float(perdas["descartes"] or 0)
+    mortes_antes_pendura = (
+        float(op["mortes_antes_pendura"] or 0) + float(perdas["mortes_na_gaiola"] or 0)
+    )
+    cursor.execute(q("""
+        SELECT COUNT(DISTINCT cx.id) caixas,
+          COALESCE(SUM(comp.quantidade_bandejas),0) bandejas_consumidas,
+          COALESCE(SUM(cx.peso_liquido*comp.quantidade_bandejas/
+            NULLIF((SELECT SUM(c2.quantidade_bandejas) FROM pa_caixa_composicao c2
+                    WHERE c2.caixa_id=comp.caixa_id),0)),0) peso_liquido_total,
+          COALESCE(SUM(cx.peso_bruto*comp.quantidade_bandejas/
+            NULLIF((SELECT SUM(c2.quantidade_bandejas) FROM pa_caixa_composicao c2
+                    WHERE c2.caixa_id=comp.caixa_id),0)),0) peso_bruto_total
+        FROM pa_caixa_composicao comp
+        JOIN pa_caixas cx ON cx.id=comp.caixa_id
+        WHERE comp.op_id=? AND UPPER(COALESCE(cx.status,''))
+          NOT IN ('CANCELADA','CANCELADO','ESTORNADA','ESTORNADO')
+    """), (op_id,))
+    caixas = cursor.fetchone()
+    aves_vivas = float(op["quantidade_aves"] or 0)
+    bandejas_consumidas = float(caixas["bandejas_consumidas"] or 0)
+    peso_liquido_total = float(caixas["peso_liquido_total"] or 0)
+    peso_bruto_total = float(caixas["peso_bruto_total"] or 0)
+    saldo_aves = aves_vivas - (
+        bandejas_primaria + descartes + condenacoes + mortes_antes_pendura
+    )
+    saldo_pi = bandejas_primaria - bandejas_consumidas
+    pendencias = []
+    if abs(saldo_aves) > 0.0001:
+        pendencias.append(
+            f"Balanço de aves divergente em {saldo_aves:g} aves. Revise Embalagem "
+            "Primária, descartes, condenações ou mortes na gaiola."
+        )
+    if abs(saldo_pi) > 0.0001:
+        pendencias.append(
+            (f"Existem {saldo_pi:g} bandejas sem pesagem. Lance uma caixa parcial antes de encerrar."
+             if saldo_pi > 0 else
+             f"A Embalagem Secundária consumiu {-saldo_pi:g} bandejas a mais que o PI produzido.")
+        )
+    if int(caixas["caixas"] or 0) == 0 or peso_liquido_total <= 0:
+        pendencias.append("Nenhuma caixa com peso líquido foi registrada para esta OP.")
+    if str(op["status"] or "") != "Aberta":
+        pendencias.append(f"Esta OP está em situação {op['status']} e não pode ser encerrada novamente.")
+    return {
+        "op": op, "aves_vivas": aves_vivas,
+        "mortes_antes_pendura": mortes_antes_pendura,
+        "bandejas_primaria": bandejas_primaria,
+        "descartes": descartes, "condenacoes": condenacoes,
+        "bandejas_consumidas": bandejas_consumidas,
+        "peso_liquido_total": peso_liquido_total,
+        "peso_bruto_total": peso_bruto_total,
+        "saldo_aves": saldo_aves, "saldo_pi": saldo_pi,
+        "pendencias": pendencias,
+        "pode_encerrar": not pendencias,
+    }
 
+
+def _preflight_cursor(cursor, op, bloquear=False):
     op_id = int(op["id"])
     caixas = _carregar_caixas(cursor, op_id, bloquear=bloquear)
     ativas = [c for c in caixas if str(c["status"] or "").upper() not in STATUS_INATIVOS]
     pi = _livro_pi(cursor, op_id, bloquear=bloquear)
-    fechamento = calcular_fechamento_industrial_op(op_id, conn=cursor.connection)
+    fechamento = _calcular_fechamento_cursor(cursor, op)
     bloqueios = list(fechamento["pendencias"])
     saldo_pi = Decimal(str(pi["saldo"] or 0))
     possui_movimentos_pa = _tabela_existe(cursor, "pa_movimentacoes")

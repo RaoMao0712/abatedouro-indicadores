@@ -953,6 +953,18 @@ class ExpedicaoCorretivaTest(unittest.TestCase):
             ("FINANCEIRO_EM_RECONSTRUCAO", "17d465d8-63d2-480a-98c1-b484cf62fbb7"),
         )
 
+    def test_25_preflight_nao_executa_bootstrap_ou_ddl(self):
+        op_id, _ = self.preparar_cortada("CX-PREFLIGHT-SOMENTE-SELECT")
+        with mock.patch(
+            "modules.expedicao.services.garantir_schema_producao",
+            side_effect=AssertionError("preflight tentou bootstrap de produção"),
+        ), mock.patch(
+            "modules.expedicao.services.criar_tabelas_estoque_pi_pa",
+            side_effect=AssertionError("preflight tentou DDL de estoque"),
+        ):
+            resultado = preflight_encerramento_op(op_id)
+        self.assertTrue(resultado["permitido"])
+
 
 if __name__ == "__main__":
     unittest.main()
