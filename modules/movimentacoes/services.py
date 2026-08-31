@@ -543,6 +543,9 @@ def sincronizar_movimentacoes_plano_contas(
     usuario_nome="CLI administrativo",
     perfil="admin",
 ):
+    from .reset_financeiro import require_financial_writes_enabled
+
+    require_financial_writes_enabled("Sincronizacao historica do plano de contas")
     global _PLANO_CONTAS_SYNC_EXECUTADO
     justificativa = (justificativa or "").strip()
     if not justificativa:
@@ -655,6 +658,9 @@ def corrigir_natureza_aportes_fluxo_caixa(
     usuario_nome="CLI administrativo",
     perfil="admin",
 ):
+    from .reset_financeiro import require_financial_writes_enabled
+
+    require_financial_writes_enabled("Hotfix historico de aportes")
     justificativa = (justificativa or "").strip()
     if not justificativa:
         raise ValueError("O hotfix exige justificativa explicita.")
@@ -774,6 +780,9 @@ def salvar_movimentacao_financeira(
     perfil="sistema",
     origem_acao="interface_manual",
 ):
+    from .reset_financeiro import require_financial_writes_enabled
+
+    require_financial_writes_enabled("Criacao manual de movimentacao financeira")
     criar_tabela_movimentacoes_financeiras()
     criar_tabelas_governanca_financeira()
 
@@ -1004,6 +1013,9 @@ def atualizar_movimentacao_financeira(
     perfil="sistema",
     origem_acao="interface_edicao",
 ):
+    from .reset_financeiro import require_financial_writes_enabled
+
+    require_financial_writes_enabled("Edicao, realizacao ou reabertura de movimentacao financeira")
     criar_tabela_movimentacoes_financeiras()
     justificativa = (form.get("justificativa") or "").strip()
     if not justificativa:
@@ -1095,6 +1107,9 @@ def excluir_movimentacao_financeira(
     origem_acao="alias_exclusao",
 ):
     """Compatibilidade do alias antigo: cancela e audita, sem exclusão física."""
+    from .reset_financeiro import require_financial_writes_enabled
+
+    require_financial_writes_enabled("Cancelamento de movimentacao financeira")
     criar_tabela_movimentacoes_financeiras()
     justificativa = (justificativa or "").strip()
     if not justificativa:
@@ -1146,6 +1161,9 @@ def alterar_origem_principal_movimentacao(
     perfil="pcp",
 ):
     """Altera uma origem já persistida com justificativa e trilha da Onda 0."""
+    from .reset_financeiro import require_financial_writes_enabled
+
+    require_financial_writes_enabled("Alteracao de origem de movimentacao financeira")
     criar_tabela_movimentacoes_financeiras()
     criar_tabelas_governanca_financeira()
     justificativa = (justificativa or "").strip()
@@ -3120,6 +3138,9 @@ def reclassificar_movimentacoes(
     usuario_nome="Sistema",
     perfil="sistema",
 ):
+    from .reset_financeiro import require_financial_writes_enabled
+
+    require_financial_writes_enabled("Reclassificacao financeira em lote")
     criar_tabela_movimentacoes_financeiras()
     justificativa = (justificativa or "").strip()
     if not justificativa:

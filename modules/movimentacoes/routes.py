@@ -11,6 +11,7 @@ from .origens import (
     listar_modos_origem_usados,
     montar_contexto_governanca_financeira,
 )
+from .reset_financeiro import financial_reconstruction_status
 from .services import (
     CATEGORIAS_FINANCEIRAS_ENTRADA,
     CATEGORIAS_FINANCEIRAS_SAIDA,
@@ -39,6 +40,22 @@ from .services import (
 
 
 def register_movimentacoes_routes(app):
+
+    financial_page_endpoints = {
+        "movimentacoes_entradas", "movimentacoes_despesas", "movimentacoes_estoque",
+        "movimentacoes_liquidacao", "importar_movimentacoes_financeiras",
+        "importar_vendas_financeiras", "movimentacoes_pendencias",
+        "movimentacoes_governanca", "movimentacoes_auditoria",
+        "editar_movimentacao_financeira", "fluxo_caixa", "dre_gerencial",
+        "plano_contas_gerencial", "relatorio_financeiro_oficial",
+    }
+
+    @app.context_processor
+    def contexto_reconstrucao_financeira():
+        if request.endpoint not in financial_page_endpoints:
+            return {}
+        estado = financial_reconstruction_status()
+        return {"estado_financeiro_reconstrucao": estado} if estado["active"] else {}
 
     def destino_movimentacao_por_tipo(tipo):
         if tipo == "Saída":

@@ -103,6 +103,13 @@
             {% endif %}
         {% endwith %}
 
+        {% if estado_financeiro_reconstrucao %}
+            <section class="financeiro-reconstrucao-aviso" role="status" aria-live="polite">
+                <strong>{{ estado_financeiro_reconstrucao.state|replace('_', ' ') }}</strong>
+                <span>{{ estado_financeiro_reconstrucao.message }}</span>
+            </section>
+        {% endif %}
+
         {% block conteudo %}{% endblock %}
     </main>
 </div>

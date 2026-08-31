@@ -22,9 +22,17 @@ from urllib.parse import unquote, urlparse
 from database import DATABASE_URL, DB_NAME, conectar, q
 
 
-CONFIRMATION_TOKEN = "RESET_FINANCEIRO_FRIGODATTA"
+CONFIRMATION_TOKEN = "RESET_TOTAL_FINANCEIRO_FRIGODATTA"
+OPERATION_NAME = CONFIRMATION_TOKEN
 REPORT_VERSION = 1
 AUDIT_TABLE = "reset_financeiro_auditoria"
+FINANCIAL_RECONSTRUCTION_STATE = "FINANCEIRO_EM_RECONSTRUCAO"
+FINANCIAL_RECONSTRUCTION_MESSAGE = (
+    "Base financeira em reconstrução. Os lançamentos históricos foram removidos "
+    "de forma controlada e os indicadores financeiros ainda não representam a "
+    "posição definitiva da operação. Aguarde a nova carga conciliada Sankhya → "
+    "FrigoDatta."
+)
 
 # Somente tabelas cuja finalidade financeira esta comprovada no codigo ou nas
 # migrations do projeto. Tabelas apenas "parecidas" sao bloqueadores do dry-run.
@@ -472,7 +480,7 @@ def build_dry_run(cursor=None):
         preservation = _preservation_snapshot(cursor, schema, ignored_columns)
         report = {
             "report_version": REPORT_VERSION,
-            "operation": "RESET_FINANCEIRO_FRIGODATTA",
+            "operation": OPERATION_NAME,
             "mode": "dry-run",
             "generated_at": _now_iso(),
             "environment": _environment_name(),
@@ -514,7 +522,7 @@ def load_verified_dry_run(path):
     report["dry_run_hash"] = expected
     if not expected or expected != actual:
         raise ResetSafetyError("Hash interno do relatorio de dry-run invalido.")
-    if report.get("report_version") != REPORT_VERSION or report.get("operation") != "RESET_FINANCEIRO_FRIGODATTA":
+    if report.get("report_version") != REPORT_VERSION or report.get("operation") != OPERATION_NAME:
         raise ResetSafetyError("Relatorio de dry-run incompativel.")
     if not report.get("executable") or report.get("blockers"):
         raise ResetSafetyError("Dry-run possui condicoes de parada.")
@@ -751,22 +759,64 @@ def execute_reset(*, confirmation, dry_run_report, backup_dir, reason, executor=
         conn.close()
 
 
-def financial_imports_blocked():
-    """Importacoes antigas ficam desabilitadas depois do reset bem-sucedido."""
+def financial_reconstruction_status():
+    """Retorna o estado duravel derivado somente do reset efetivamente commitado."""
     conn = conectar()
     cursor = conn.cursor()
     try:
         if AUDIT_TABLE not in set(_tables(cursor)):
-            return False
-        cursor.execute(f"SELECT COUNT(*) AS total FROM {AUDIT_TABLE} WHERE resultado='SUCCESS'")
-        return int(_row_dict(cursor.fetchone(), cursor.description)["total"] or 0) > 0
+            return {
+                "active": False,
+                "state": None,
+                "message": None,
+                "audit_event_id": None,
+                "activated_at": None,
+            }
+        cursor.execute(f"""
+            SELECT evento_id, executado_em
+            FROM {AUDIT_TABLE}
+            WHERE resultado='SUCCESS'
+            ORDER BY executado_em DESC, evento_id DESC
+            LIMIT 1
+        """)
+        row = cursor.fetchone()
+        if not row:
+            return {
+                "active": False,
+                "state": None,
+                "message": None,
+                "audit_event_id": None,
+                "activated_at": None,
+            }
+        event = _row_dict(row, cursor.description)
+        return {
+            "active": True,
+            "state": FINANCIAL_RECONSTRUCTION_STATE,
+            "message": FINANCIAL_RECONSTRUCTION_MESSAGE,
+            "audit_event_id": event["evento_id"],
+            "activated_at": event["executado_em"],
+        }
     finally:
         conn.close()
 
 
-def require_financial_imports_enabled():
-    if financial_imports_blocked():
+def financial_reconstruction_active():
+    return financial_reconstruction_status()["active"]
+
+
+def financial_imports_blocked():
+    """Alias de compatibilidade para a protecao introduzida no P0."""
+    return financial_reconstruction_active()
+
+
+def require_financial_writes_enabled(operation="escrita financeira"):
+    if financial_reconstruction_active():
         raise ResetSafetyError(
-            "Importacoes financeiras permanecem desabilitadas apos o reset P0; "
-            "aguarde a nova integracao Sankhya -> FrigoDatta."
+            f"{operation} bloqueada: {FINANCIAL_RECONSTRUCTION_STATE}. "
+            "As escritas financeiras estao desabilitadas; aguarde a nova carga "
+            "conciliada Sankhya -> FrigoDatta."
         )
+
+
+def require_financial_imports_enabled():
+    require_financial_writes_enabled("Importacao financeira legada")

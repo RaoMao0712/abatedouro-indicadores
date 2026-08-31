@@ -9445,6 +9445,28 @@ dialog.modal-correcao-op::backdrop {
     background: #fff7ed;
 }
 
+.financeiro-reconstrucao-aviso {
+    display: grid;
+    gap: .35rem;
+    margin: 0 0 1rem;
+    padding: 1rem 1.15rem;
+    border: 1px solid #f59e0b;
+    border-left: 6px solid #b45309;
+    border-radius: 10px;
+    background: #fff7ed;
+    color: #7c2d12;
+    box-shadow: 0 4px 14px rgba(180, 83, 9, .08);
+}
+
+.financeiro-reconstrucao-aviso strong {
+    font-size: .82rem;
+    letter-spacing: .05em;
+}
+
+.financeiro-reconstrucao-aviso span {
+    line-height: 1.45;
+}
+
 @media (max-width: 720px) {
     .pausa-planejada-linha,
     .disponibilidade-linha-card .kpi-grid {

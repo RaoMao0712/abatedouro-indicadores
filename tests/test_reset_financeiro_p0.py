@@ -13,7 +13,16 @@ import pytest
 
 from database import connection
 from modules.movimentacoes import reset_financeiro as reset
-from modules.movimentacoes.services import importar_movimentacoes_financeiras_excel
+from modules.movimentacoes.services import (
+    alterar_origem_principal_movimentacao,
+    atualizar_movimentacao_financeira,
+    corrigir_natureza_aportes_fluxo_caixa,
+    excluir_movimentacao_financeira,
+    importar_movimentacoes_financeiras_excel,
+    reclassificar_movimentacoes,
+    salvar_movimentacao_financeira,
+    sincronizar_movimentacoes_plano_contas,
+)
 
 
 SCHEMA = """
@@ -173,6 +182,7 @@ def test_dry_run_inventaria_sem_alterar_dados(reset_db, tmp_path):
     assert report["preservation_before"]["cadastros_financeiros"]["tables"]["plano_contas_mestre"]["records"] == 1
     assert report["preservation_before"]["auditoria_financeira_global"]["tables"]["movimentacoes_financeiras_auditoria"]["records"] == 1
     assert reset.load_verified_dry_run(path)["dry_run_hash"] == report["dry_run_hash"]
+    assert reset.financial_reconstruction_status()["active"] is False
 
 
 def test_execucao_real_backup_auditoria_preservacao_e_bloqueio_importacao(reset_db, tmp_path):
@@ -195,6 +205,14 @@ def test_execucao_real_backup_auditoria_preservacao_e_bloqueio_importacao(reset_
     restored = _all_rows(backup)
     assert len(restored["movimentacoes_financeiras"]) == 2
     assert reset.financial_imports_blocked() is True
+    estado = reset.financial_reconstruction_status()
+    assert estado == {
+        "active": True,
+        "state": "FINANCEIRO_EM_RECONSTRUCAO",
+        "message": reset.FINANCIAL_RECONSTRUCTION_MESSAGE,
+        "audit_event_id": result["audit_event_id"],
+        "activated_at": rows[reset.AUDIT_TABLE][0][2],
+    }
     with pytest.raises(reset.ResetSafetyError, match="desabilitadas"):
         reset.require_financial_imports_enabled()
     with pytest.raises(reset.ResetSafetyError, match="desabilitadas"):
@@ -211,6 +229,7 @@ def test_rollback_integral_em_falha_intermediaria(reset_db, tmp_path):
     with pytest.raises(RuntimeError, match="Falha intermediaria"):
         _execute(tmp_path, path, fail_after_table="movimentacoes_financeiras_origens")
     assert _all_rows(reset_db) == before
+    assert reset.financial_reconstruction_status()["active"] is False
 
 
 def test_idempotencia_na_segunda_execucao(reset_db, tmp_path):
@@ -226,6 +245,7 @@ def test_idempotencia_na_segunda_execucao(reset_db, tmp_path):
     assert result["result"] == "ALREADY_ZERO"
     assert len(_all_rows(reset_db)[reset.AUDIT_TABLE]) == 1
     assert len(list((tmp_path / "backups").glob("*.sqlite3"))) == backup_count
+    assert reset.financial_reconstruction_status()["active"] is True
 
 
 def test_bloqueia_token_backup_e_estado_divergente(reset_db, tmp_path, monkeypatch):
@@ -233,9 +253,10 @@ def test_bloqueia_token_backup_e_estado_divergente(reset_db, tmp_path, monkeypat
     before = _all_rows(reset_db)
     with pytest.raises(reset.ResetSafetyError, match="Confirmacao invalida"):
         reset.execute_reset(
-            confirmation="SIM", dry_run_report=path, backup_dir=tmp_path,
+            confirmation="RESET_FINANCEIRO_FRIGODATTA", dry_run_report=path, backup_dir=tmp_path,
             reason="motivo", executor="teste",
         )
+    assert reset.CONFIRMATION_TOKEN == "RESET_TOTAL_FINANCEIRO_FRIGODATTA"
 
     monkeypatch.setattr(reset, "create_full_backup", lambda _path: (_ for _ in ()).throw(reset.ResetSafetyError("backup indisponivel")))
     with pytest.raises(reset.ResetSafetyError, match="backup indisponivel"):
@@ -325,13 +346,24 @@ conn=conectar(); cur=conn.cursor()
 cur.execute("INSERT INTO usuarios(nome,email,senha_hash,perfil) VALUES (?,?,?,?)",("Admin","admin@teste","x","admin"))
 cur.execute("INSERT INTO movimentacoes_financeiras(data_vencimento,tipo,categoria,descricao,valor,status) VALUES (?,?,?,?,?,?)",("2026-08-31","Entrada","Receita Bruta","Smoke",100,"Pendente"))
 conn.commit(); conn.close()
-base=Path(sys.argv[2]); report=build_dry_run(); report_path=base/"dry.json"; write_report(report,report_path)
-result=execute_reset(confirmation=CONFIRMATION_TOKEN,dry_run_report=report_path,backup_dir=base/"backup",reason="smoke",executor="teste")
 client=app.app.test_client()
 with client.session_transaction() as session:
     session["usuario_id"]=1; session["nome"]="Admin"; session["perfil"]="admin"
-statuses={url:client.get(url).status_code for url in ("/movimentacoes/entradas","/fluxo-caixa","/dre-gerencial")}
-print(json.dumps({"result":result["result"],"statuses":statuses}))
+before=client.get("/movimentacoes/entradas").get_data(as_text=True)
+base=Path(sys.argv[2]); report=build_dry_run(); report_path=base/"dry.json"; write_report(report,report_path)
+result=execute_reset(confirmation=CONFIRMATION_TOKEN,dry_run_report=report_path,backup_dir=base/"backup",reason="smoke",executor="teste")
+financial_urls=("/movimentacoes/entradas","/fluxo-caixa","/dre-gerencial","/movimentacoes/importar","/movimentacoes/liquidacao")
+responses={url:client.get(url) for url in financial_urls}
+exports={url:client.get(url).status_code for url in ("/movimentacoes/liquidacao/exportar","/dre-gerencial/exportar-excel")}
+operational={url:client.get(url) for url in ("/inicio","/ordem-producao","/estoque-produtos")}
+print(json.dumps({
+    "result":result["result"],
+    "statuses":{url:response.status_code for url,response in responses.items()},
+    "banner_before":"FINANCEIRO EM RECONSTRUCAO" in before,
+    "banners_after":{url:"FINANCEIRO EM RECONSTRUCAO" in response.get_data(as_text=True) for url,response in responses.items()},
+    "exports":exports,
+    "operational":{url:{"status":response.status_code,"banner":"FINANCEIRO EM RECONSTRUCAO" in response.get_data(as_text=True)} for url,response in operational.items()},
+}))
 '''
     completed = subprocess.run(
         [sys.executable, "-c", script, str(db), str(tmp_path)],
@@ -341,5 +373,57 @@ print(json.dumps({"result":result["result"],"statuses":statuses}))
     payload = json.loads(completed.stdout.strip().splitlines()[-1])
     assert payload == {
         "result": "SUCCESS",
-        "statuses": {"/movimentacoes/entradas": 200, "/fluxo-caixa": 200, "/dre-gerencial": 200},
+        "statuses": {
+            "/movimentacoes/entradas": 200, "/fluxo-caixa": 200,
+            "/dre-gerencial": 200, "/movimentacoes/importar": 200,
+            "/movimentacoes/liquidacao": 200,
+        },
+        "banner_before": False,
+        "banners_after": {
+            "/movimentacoes/entradas": True, "/fluxo-caixa": True,
+            "/dre-gerencial": True, "/movimentacoes/importar": True,
+            "/movimentacoes/liquidacao": True,
+        },
+        "exports": {
+            "/movimentacoes/liquidacao/exportar": 200,
+            "/dre-gerencial/exportar-excel": 200,
+        },
+        "operational": {
+            "/inicio": {"status": 200, "banner": False},
+            "/ordem-producao": {"status": 200, "banner": False},
+            "/estoque-produtos": {"status": 200, "banner": False},
+        },
     }
+
+
+def test_estado_ativo_bloqueia_todas_as_escritas_financeiras(reset_db, tmp_path):
+    _, path = _approved_report(tmp_path)
+    _execute(tmp_path, path)
+
+    operacoes = (
+        ("criacao_manual", lambda: salvar_movimentacao_financeira({}, usuario_id=1, usuario_nome="Admin")),
+        ("edicao", lambda: atualizar_movimentacao_financeira(10, {"status": "Pendente"})),
+        ("baixa_realizacao", lambda: atualizar_movimentacao_financeira(10, {"status": "Realizado"})),
+        ("reabertura", lambda: atualizar_movimentacao_financeira(10, {"status": "Pendente"})),
+        ("cancelamento", lambda: excluir_movimentacao_financeira(10, "cancelar")),
+        ("alteracao_origem", lambda: alterar_origem_principal_movimentacao(
+            10, "IMPORTACAO_FINANCEIRA", "alterar", 1, "Admin"
+        )),
+        ("reclassificacao_em_lote", lambda: reclassificar_movimentacoes([10], 1, "reclassificar")),
+        ("importacao_financeira", lambda: importar_movimentacoes_financeiras_excel(
+            BytesIO(b"despesa"), usuario_id=1, usuario_nome="Admin"
+        )),
+        ("importacao_vendas", lambda: importar_movimentacoes_financeiras_excel(
+            BytesIO(b"venda"), natureza_padrao="RECEITA",
+            origem_importacao="IMPORTACAO VENDAS", usuario_id=1, usuario_nome="Admin",
+        )),
+        ("comando_sincronizacao", lambda: sincronizar_movimentacoes_plano_contas("sincronizar")),
+        ("comando_hotfix", lambda: corrigir_natureza_aportes_fluxo_caixa("corrigir")),
+    )
+    for nome, operacao in operacoes:
+        with pytest.raises(
+            reset.ResetSafetyError,
+            match="FINANCEIRO_EM_RECONSTRUCAO",
+        ) as bloqueio:
+            operacao()
+        assert nome and "desabilitadas" in str(bloqueio.value)
