@@ -1,7 +1,6 @@
 """Servicos de Financeiro e Movimentacoes."""
 
 import calendar
-import csv
 import hashlib
 import json
 import re
@@ -80,20 +79,6 @@ ACOES_AUDITORIA_FINANCEIRA = {
     "ALTERACAO_ORIGEM",
     "HOTFIX_APORTES",
 }
-
-TABELAS_RESET_FINANCEIRO = [
-    "movimentacoes_financeiras",
-    "vendas_diarias",
-    "custos_mensais",
-]
-
-TABELAS_FINANCEIRAS_OPCIONAIS = [
-    "financeiro",
-    "financeiro_lancamentos",
-    "importacoes_financeiras",
-    "logs_importacao_financeira",
-    "importacao_financeira_logs",
-]
 
 CAMPOS_PLANILHA_OFICIAL = [
     "Data do Documento",
@@ -551,124 +536,6 @@ def valor_realizado_movimentacao(movimentacao):
     except (TypeError, ValueError):
         valor_legado = 0.0
     return round(max(valor_legado, 0), 2)
-
-
-def listar_tabelas_banco(cursor):
-    if DATABASE_URL:
-        cursor.execute("""
-        SELECT table_name as name
-        FROM information_schema.tables
-        WHERE table_schema = 'public'
-        ORDER BY table_name
-        """)
-    else:
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
-    return [item["name"] for item in cursor.fetchall()]
-
-
-def contar_registros_tabela(cursor, tabela):
-    cursor.execute(f"SELECT COUNT(*) as total FROM {tabela}")
-    return int(cursor.fetchone()["total"] or 0)
-
-
-def tabelas_financeiras_existentes(cursor):
-    existentes = set(listar_tabelas_banco(cursor))
-    candidatas = TABELAS_RESET_FINANCEIRO + TABELAS_FINANCEIRAS_OPCIONAIS
-    return [tabela for tabela in candidatas if tabela in existentes]
-
-
-def auditar_reset_financeiro():
-    criar_tabela_movimentacoes_financeiras()
-    conn = conectar()
-    cursor = conn.cursor()
-    try:
-        tabelas = tabelas_financeiras_existentes(cursor)
-        return {
-            "tabelas_limpeza": [
-                {"tabela": tabela, "registros": contar_registros_tabela(cursor, tabela)}
-                for tabela in tabelas
-            ],
-            "tabelas_preservadas": [
-                "plano_contas_mestre",
-                "parametros_custos",
-                "usuarios",
-                "ordens_producao",
-                "apontamentos_producao",
-                "apontamentos_setor",
-                "apontamentos_descartes",
-                "almoxarifado_insumos",
-                "expedicoes",
-                "expedicao_itens",
-            ],
-        }
-    finally:
-        conn.close()
-
-
-def gerar_backup_reset_financeiro(pasta_base=None):
-    criar_tabela_movimentacoes_financeiras()
-    pasta_raiz = Path(pasta_base or "backups/reset_financeiro")
-    pasta_backup = pasta_raiz / datetime.now().strftime("%Y%m%d_%H%M%S")
-    pasta_backup.mkdir(parents=True, exist_ok=True)
-
-    conn = conectar()
-    cursor = conn.cursor()
-    manifest = {
-        "criado_em": datetime.now().isoformat(timespec="seconds"),
-        "tabelas": [],
-    }
-    try:
-        for tabela in tabelas_financeiras_existentes(cursor):
-            cursor.execute(f"SELECT * FROM {tabela}")
-            linhas = cursor.fetchall()
-            colunas = [desc[0] for desc in cursor.description]
-            caminho_csv = pasta_backup / f"{tabela}.csv"
-            with caminho_csv.open("w", newline="", encoding="utf-8-sig") as arquivo:
-                writer = csv.writer(arquivo)
-                writer.writerow(colunas)
-                for linha in linhas:
-                    writer.writerow([linha[coluna] for coluna in colunas])
-            manifest["tabelas"].append({
-                "tabela": tabela,
-                "registros": len(linhas),
-                "arquivo": caminho_csv.name,
-            })
-
-        (pasta_backup / "manifest.json").write_text(
-            json.dumps(manifest, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-        return {
-            "pasta": str(pasta_backup),
-            "manifest": manifest,
-        }
-    finally:
-        conn.close()
-
-
-def executar_reset_financeiro_controlado(pasta_backup=None, confirmar=False):
-    if not confirmar:
-        raise ValueError("Reset financeiro exige confirmacao explicita.")
-
-    backup = gerar_backup_reset_financeiro(pasta_backup)
-    conn = conectar()
-    cursor = conn.cursor()
-    limpas = []
-    try:
-        for item in backup["manifest"]["tabelas"]:
-            tabela = item["tabela"]
-            cursor.execute(f"DELETE FROM {tabela}")
-            limpas.append(tabela)
-        conn.commit()
-        return {
-            "backup": backup,
-            "tabelas_limpas": limpas,
-        }
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
 
 
 def sincronizar_movimentacoes_plano_contas(
@@ -2042,6 +1909,9 @@ def importar_movimentacoes_financeiras_excel(
     usuario_nome="",
     perfil="pcp",
 ):
+    from .reset_financeiro import require_financial_imports_enabled
+
+    require_financial_imports_enabled()
     inicio_processamento = time.perf_counter()
     criar_tabela_movimentacoes_financeiras()
     criar_tabelas_governanca_financeira()
