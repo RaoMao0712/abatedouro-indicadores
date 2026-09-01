@@ -1,4 +1,5 @@
 from contextlib import contextmanager
+from concurrent.futures import ThreadPoolExecutor
 import json
 from pathlib import Path
 import sqlite3
@@ -109,6 +110,59 @@ def _estornar(**extras):
                  idempotency_key="ESTORNAR-1", confirmacao=True, ip_origem="127.0.0.1")
     dados.update(extras)
     return operacoes.estornar_op_integral(7, **dados)
+
+
+def test_preflight_em_lote_tem_contagem_sql_constante_com_volume(banco, monkeypatch):
+    consultas = []
+
+    def conectar_contado():
+        conn = banco()
+        conn.set_trace_callback(
+            lambda sql: consultas.append(sql)
+            if sql.lstrip().upper().startswith("SELECT") else None
+        )
+        return conn
+
+    monkeypatch.setattr(operacoes, "conectar", conectar_contado)
+    operacoes.preflight_operacao_op(7, "ESTORNO_INTEGRAL")
+    uma_caixa = len(consultas)
+
+    conn = banco()
+    for caixa_id in range(2, 329):
+        conn.execute("""INSERT INTO pa_caixas(
+            id,codigo_caixa,sku,data_fabricacao,data_validade,peso_bruto,peso_tara,peso_liquido,
+            quantidade_bandejas,status,origem,observacoes,local_estoque_id,criado_em,
+            estoque_operacional,condicao,disponibilidade,reservado_expedicao_id,
+            quantidade_pacotes_reservados) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
+            caixa_id, f"CX-P02-{caixa_id}", "Galinha Cortada", "2026-08-25", "2027-08-25",
+            12.5, .5, 12, 12, "Em estoque", "Embalagem Secundária", "", 1,
+            "2026-08-25 08:00:00", 1, "CONFORME", "DISPONIVEL", None, 0,
+        ))
+        conn.execute("INSERT INTO pa_caixa_composicao(caixa_id,op_id,quantidade_bandejas) VALUES(?,?,12)", (caixa_id, 7))
+        conn.execute("""INSERT INTO estoque_produto_intermediario(
+            data_movimentacao,tipo,op_id,sku,quantidade_bandejas,origem,observacoes,caixa_id,idempotency_key)
+            VALUES('2026-08-25','SAIDA_EMBALAGEM_SECUNDARIA',7,'Galinha Cortada',12,
+                   'Embalagem Secundária',?,?,?)""",
+            (f"Bandejas consumidas na formação da caixa PA #{caixa_id}.", caixa_id, f"PI-SAIDA-{caixa_id}"))
+        conn.execute("INSERT INTO estoque_eventos(caixa_id,acao,idempotency_key) VALUES(?,'FORMACAO_ESTOQUE',?)",
+                     (caixa_id, f"FORM-{caixa_id}"))
+    conn.commit()
+    conn.close()
+
+    consultas.clear()
+    resultado = operacoes.preflight_operacao_op(7, "ESTORNO_INTEGRAL")
+    trezentas_e_vinte_e_oito_caixas = len(consultas)
+
+    assert resultado["caixas_ativas"] == 328
+    assert resultado["permitido"]
+    assert uma_caixa == trezentas_e_vinte_e_oito_caixas
+    assert trezentas_e_vinte_e_oito_caixas <= 15
+
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        leituras = list(executor.map(
+            lambda _: operacoes.preflight_operacao_op(7, "ESTORNO_INTEGRAL"), range(5)
+        ))
+    assert all(item["permitido"] and item["caixas_ativas"] == 328 for item in leituras)
 
 
 def test_reabertura_preserva_pi_pa_caixa_e_apontamento_e_invalida_conferencia(banco):

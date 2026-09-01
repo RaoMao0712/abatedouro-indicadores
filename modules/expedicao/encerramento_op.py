@@ -179,6 +179,24 @@ def _preflight_cursor(cursor, op, bloquear=False):
     possui_movimentos_pa = _tabela_existe(cursor, "pa_movimentacoes")
     possui_expedicao_itens = _tabela_existe(cursor, "expedicao_itens")
 
+    ids_ativas = [int(caixa["id"]) for caixa in ativas]
+    composicoes_por_caixa = {}
+    movimentos_por_caixa = {}
+    expedicoes_por_caixa = {}
+    if ids_ativas:
+        marcadores = ",".join("?" for _ in ids_ativas)
+        cursor.execute(q(f"""SELECT caixa_id,COUNT(DISTINCT op_id) total
+            FROM pa_caixa_composicao WHERE caixa_id IN ({marcadores}) GROUP BY caixa_id"""), ids_ativas)
+        composicoes_por_caixa = {int(item["caixa_id"]): int(item["total"] or 0) for item in cursor.fetchall()}
+        if possui_movimentos_pa:
+            cursor.execute(q(f"""SELECT caixa_id,COUNT(*) total FROM pa_movimentacoes
+                WHERE caixa_id IN ({marcadores}) GROUP BY caixa_id"""), ids_ativas)
+            movimentos_por_caixa = {int(item["caixa_id"]): int(item["total"] or 0) for item in cursor.fetchall()}
+        if possui_expedicao_itens:
+            cursor.execute(q(f"""SELECT caixa_id,COUNT(*) total FROM expedicao_itens
+                WHERE caixa_id IN ({marcadores}) GROUP BY caixa_id"""), ids_ativas)
+            expedicoes_por_caixa = {int(item["caixa_id"]): int(item["total"] or 0) for item in cursor.fetchall()}
+
     if saldo_pi != 0:
         bloqueios.append(
             f"Saldo real de PI divergente. Esperado 0, encontrado {saldo_pi.normalize()} bandeja(s)."
@@ -204,21 +222,15 @@ def _preflight_cursor(cursor, op, bloquear=False):
             str(_valor(caixa, "quantidade_pacotes_reservados", 0) or 0)
         ) > 0:
             bloqueios.append(f"Caixa {codigo}: possui reserva operacional ativa.")
-        cursor.execute(q(
-            "SELECT COUNT(DISTINCT op_id) total FROM pa_caixa_composicao WHERE caixa_id=?"
-        ), (caixa["id"],))
-        if int(cursor.fetchone()["total"] or 0) != 1:
+        caixa_id = int(caixa["id"])
+        if composicoes_por_caixa.get(caixa_id, 0) != 1:
             bloqueios.append(
                 f"Caixa {codigo}: composição mista impede encerramento atômico desta OP."
             )
-        if possui_movimentos_pa:
-            cursor.execute(q("SELECT COUNT(*) total FROM pa_movimentacoes WHERE caixa_id=?"), (caixa["id"],))
-            if int(cursor.fetchone()["total"] or 0):
-                bloqueios.append(f"Caixa {codigo}: possui movimentação de PA anterior ao encerramento.")
-        if possui_expedicao_itens:
-            cursor.execute(q("SELECT COUNT(*) total FROM expedicao_itens WHERE caixa_id=?"), (caixa["id"],))
-            if int(cursor.fetchone()["total"] or 0):
-                bloqueios.append(f"Caixa {codigo}: já está vinculada a romaneio ou expedição.")
+        if movimentos_por_caixa.get(caixa_id, 0):
+            bloqueios.append(f"Caixa {codigo}: possui movimentação de PA anterior ao encerramento.")
+        if expedicoes_por_caixa.get(caixa_id, 0):
+            bloqueios.append(f"Caixa {codigo}: já está vinculada a romaneio ou expedição.")
 
     bloqueios = list(dict.fromkeys(bloqueios))
     status = str(op["status"] or "")

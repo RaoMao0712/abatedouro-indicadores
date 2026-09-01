@@ -196,29 +196,60 @@ def _preflight_retomada_cursor(cursor, op, caixas, *, bloquear=False):
     }
 
 
+def _agrupar_por_caixa(linhas):
+    agrupado = {}
+    for linha in linhas:
+        agrupado.setdefault(int(linha["caixa_id"]), []).append(linha)
+    return agrupado
+
+
+def _dados_bloqueios_caixas(cursor, caixas):
+    """Carrega em lote os vínculos usados pelos preflights, sem reduzir validações."""
+    ids = [int(caixa["id"]) for caixa in caixas]
+    if not ids:
+        return {chave: {} for chave in ("composicoes", "expedicoes", "movimentacoes", "eventos", "pncs")}
+    marcadores = ",".join("?" for _ in ids)
+
+    cursor.execute(q(f"""SELECT caixa_id,id,op_id,quantidade_bandejas
+        FROM pa_caixa_composicao WHERE caixa_id IN ({marcadores}) ORDER BY caixa_id,id"""), ids)
+    composicoes = _agrupar_por_caixa(cursor.fetchall())
+    cursor.execute(q(f"""SELECT i.caixa_id,e.numero_romaneio,e.status,e.id
+        FROM expedicao_itens i JOIN expedicoes e ON e.id=i.expedicao_id
+        WHERE i.caixa_id IN ({marcadores}) ORDER BY i.caixa_id,e.id"""), ids)
+    expedicoes = _agrupar_por_caixa(cursor.fetchall())
+    cursor.execute(q(f"""SELECT caixa_id,tipo,id FROM pa_movimentacoes
+        WHERE caixa_id IN ({marcadores}) ORDER BY caixa_id,id"""), ids)
+    movimentacoes = _agrupar_por_caixa(cursor.fetchall())
+    cursor.execute(q(f"""SELECT caixa_id,acao,id FROM estoque_eventos
+        WHERE caixa_id IN ({marcadores})
+          AND acao NOT IN ('FORMACAO_ESTOQUE','ESTORNO_CAIXA_EMBALAGEM')
+        ORDER BY caixa_id,id"""), ids)
+    eventos = _agrupar_por_caixa(cursor.fetchall())
+    cursor.execute(q(f"""SELECT caixa_id,id,status,COALESCE(saldo_destinado_g,0) saldo_destinado_g
+        FROM pa_nao_conformes WHERE caixa_id IN ({marcadores}) ORDER BY caixa_id,id"""), ids)
+    pncs = _agrupar_por_caixa(cursor.fetchall())
+    return {
+        "composicoes": composicoes, "expedicoes": expedicoes,
+        "movimentacoes": movimentacoes, "eventos": eventos, "pncs": pncs,
+    }
+
+
 def _bloqueios_reabertura(cursor, op_id, caixas):
     bloqueios = []
+    dados = _dados_bloqueios_caixas(cursor, caixas)
     for caixa in caixas:
-        caixa_id = caixa["id"]
-        cursor.execute(q("SELECT COUNT(DISTINCT op_id) total FROM pa_caixa_composicao WHERE caixa_id=?"), (caixa_id,))
-        if int(cursor.fetchone()["total"] or 0) > 1:
+        caixa_id = int(caixa["id"])
+        if len({int(item["op_id"]) for item in dados["composicoes"].get(caixa_id, [])}) > 1:
             bloqueios.append(f"Caixa {caixa['codigo_caixa']}: composição mista com outra OP.")
-        cursor.execute(q("""SELECT e.numero_romaneio,e.status FROM expedicao_itens i
-            JOIN expedicoes e ON e.id=i.expedicao_id WHERE i.caixa_id=? ORDER BY e.id"""), (caixa_id,))
-        for item in cursor.fetchall():
+        for item in dados["expedicoes"].get(caixa_id, []):
             bloqueios.append(f"Caixa {caixa['codigo_caixa']}: Romaneio nº {item['numero_romaneio']} ({item['status']}).")
-        cursor.execute(q("SELECT tipo FROM pa_movimentacoes WHERE caixa_id=? ORDER BY id"), (caixa_id,))
-        for item in cursor.fetchall():
+        for item in dados["movimentacoes"].get(caixa_id, []):
             bloqueios.append(f"Caixa {caixa['codigo_caixa']}: movimentação posterior {item['tipo']}.")
-        cursor.execute(q("""SELECT acao FROM estoque_eventos WHERE caixa_id=?
-            AND acao NOT IN ('FORMACAO_ESTOQUE','ESTORNO_CAIXA_EMBALAGEM') ORDER BY id"""), (caixa_id,))
-        for item in cursor.fetchall():
+        for item in dados["eventos"].get(caixa_id, []):
             bloqueios.append(f"Caixa {caixa['codigo_caixa']}: evento sucessor {item['acao']}.")
         if caixa["reservado_expedicao_id"] or _decimal(caixa["quantidade_pacotes_reservados"]) > 0:
             bloqueios.append(f"Caixa {caixa['codigo_caixa']}: reserva operacional ativa.")
-        cursor.execute(q("""SELECT id,status,COALESCE(saldo_destinado_g,0) saldo_destinado_g
-            FROM pa_nao_conformes WHERE caixa_id=? ORDER BY id"""), (caixa_id,))
-        for pnc in cursor.fetchall():
+        for pnc in dados["pncs"].get(caixa_id, []):
             status = str(pnc["status"] or "").upper()
             if status in {"LIBERADO", "DESTINADO", "DESCARTADO", "FINALIZADO", "REPROCESSADO"} or int(pnc["saldo_destinado_g"] or 0) > 0:
                 bloqueios.append(f"Caixa {caixa['codigo_caixa']}: PNC nº {pnc['id']} já possui destinação ({pnc['status']}).")
@@ -247,16 +278,43 @@ def preflight_operacao_op(op_id, tipo):
                 bloqueios.append(f"A OP já está {op['status']}; nenhuma nova mutação será executada.")
             if not funcionalidade_estorno_habilitada():
                 bloqueios.append("O estorno de caixas está desativado pela feature flag.")
+            dados = _dados_bloqueios_caixas(cursor, ativas)
+            cursor.execute(q("""SELECT * FROM estoque_produto_intermediario
+                WHERE op_id=? AND tipo='SAIDA_EMBALAGEM_SECUNDARIA' ORDER BY id"""), (op_id,))
+            movimentos_op = cursor.fetchall()
             for caixa in ativas:
-                for detalhe in _buscar_bloqueios(cursor, caixa):
-                    bloqueios.append(f"Caixa {caixa['codigo_caixa']}: {detalhe}")
+                caixa_id = int(caixa["id"])
+                for item in dados["expedicoes"].get(caixa_id, []):
+                    bloqueios.append(f"Caixa {caixa['codigo_caixa']}: A caixa está vinculada ao Romaneio nº {item['numero_romaneio']} ({item['status']}).")
+                for item in dados["movimentacoes"].get(caixa_id, []):
+                    bloqueios.append(f"Caixa {caixa['codigo_caixa']}: A caixa possui movimentação posterior de estoque: {item['tipo']}.")
+                for item in dados["pncs"].get(caixa_id, []):
+                    bloqueios.append(f"Caixa {caixa['codigo_caixa']}: A caixa está vinculada ao Produto Não Conforme nº {item['id']} ({item['status']}).")
+                for item in dados["eventos"].get(caixa_id, []):
+                    bloqueios.append(f"Caixa {caixa['codigo_caixa']}: A caixa possui evento sucessor de estoque: {item['acao']}.")
+                if caixa["reservado_expedicao_id"]:
+                    bloqueios.append(f"Caixa {caixa['codigo_caixa']}: A caixa está reservada pelo romaneio interno #{caixa['reservado_expedicao_id']}.")
+                if _decimal(caixa["quantidade_pacotes_reservados"]) > 0:
+                    bloqueios.append(f"Caixa {caixa['codigo_caixa']}: A caixa possui {caixa['quantidade_pacotes_reservados']} unidades reservadas.")
+                disponibilidade = str(caixa["disponibilidade"] or "PENDENTE_OP").upper()
+                if disponibilidade not in {"PENDENTE_OP", "DISPONIVEL"}:
+                    bloqueios.append(f"Caixa {caixa['codigo_caixa']}: A caixa está na situação operacional {disponibilidade}.")
                 try:
-                    cursor.execute(q("SELECT * FROM pa_caixa_composicao WHERE caixa_id=? ORDER BY id"), (caixa["id"],))
-                    composicoes = cursor.fetchall()
+                    composicoes = dados["composicoes"].get(caixa_id, [])
                     ops = {int(item["op_id"]) for item in composicoes}
                     if ops != {int(op_id)}:
                         raise ValueError("A caixa possui composição ausente ou vinculada a múltiplas OPs.")
-                    _movimentos_pi_originais(cursor, op_id, caixa["id"], composicoes)
+                    movimentos = [item for item in movimentos_op if (
+                        item["caixa_id"] is not None and int(item["caixa_id"]) == caixa_id
+                    ) or (
+                        item["caixa_id"] is None and f"caixa PA #{caixa_id}." in str(item["observacoes"] or "")
+                    )]
+                    esperado = sum((_decimal(item["quantidade_bandejas"]) for item in composicoes), Decimal("0"))
+                    encontrado = sum((_decimal(item["quantidade_bandejas"]) for item in movimentos), Decimal("0"))
+                    if not movimentos or encontrado != esperado:
+                        raise ValueError(
+                            f"Os movimentos originais de PI da caixa não estão íntegros: esperado {esperado}, encontrado {encontrado}."
+                        )
                 except ValueError as erro:
                     bloqueios.append(f"Caixa {caixa['codigo_caixa']}: {erro}")
             cursor.execute(q("""SELECT COUNT(*) total FROM estoque_produto_intermediario
