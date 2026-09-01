@@ -40,6 +40,7 @@ from modules.qualidade.produtos_nao_conformes import criar_tabelas_pa_nao_confor
 from modules.qualidade.reprocessamento import garantir_schema as criar_tabelas_reprocessamento_pnc
 from modules.almoxarifado.routes import register_almoxarifado_routes
 from modules.navegacao import register_navegacao_routes
+from modules.observabilidade import registrar_observabilidade_performance
 from modules.expedicao.services import (
     criar_tabelas_expedicao,
     criar_tabelas_estoque_pi_pa,
@@ -71,6 +72,8 @@ app.config["PNC_DISCARD_WAYBILL_ENABLED"] = os.getenv(
 ).strip().lower() in {"1", "true", "yes", "on", "sim"}
 for _flag_etiqueta in ("LABEL_PRINTING_ENABLED", "BOX_LABEL_AUTO_PRINT_ENABLED", "LOCAL_PRINT_AGENT_ENABLED"):
     app.config[_flag_etiqueta] = os.getenv(_flag_etiqueta, "false").strip().lower() in {"1", "true", "yes", "on", "sim"}
+
+registrar_observabilidade_performance(app)
 
 
 # ============================================================
