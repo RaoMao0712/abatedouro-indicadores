@@ -5,7 +5,10 @@ import os
 import re
 import sqlite3
 import threading
-from database import DATABASE_URL, DB_NAME, conectar, inicializar_schema_uma_vez, q
+from database import (
+    DATABASE_URL, DB_NAME, conectar, habilitar_pool_postgres,
+    inicializar_schema_uma_vez, q,
+)
 from database.migrations import executar_alteracao_segura
 from database.data_migrations import remover_residuos_validacao_codex_manutencao
 from modules.auth import register_auth_routes
@@ -642,6 +645,7 @@ def inicializar_schema_aplicacao():
 
 
 inicializar_schema_aplicacao()
+habilitar_pool_postgres()
 
 
 if __name__ == "__main__":

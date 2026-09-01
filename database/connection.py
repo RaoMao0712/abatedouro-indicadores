@@ -19,6 +19,7 @@ DB_NAME = os.getenv("DB_NAME", "abatedouro.db")
 _metricas_sql = ContextVar("metricas_sql", default=None)
 _pool_postgres = None
 _pool_lock = Lock()
+_pool_postgres_habilitado = False
 
 
 def iniciar_metricas_sql():
@@ -147,6 +148,12 @@ def _obter_pool_postgres():
     return _pool_postgres
 
 
+def habilitar_pool_postgres():
+    """Ativa o pool somente depois das rotinas legadas de bootstrap do schema."""
+    global _pool_postgres_habilitado
+    _pool_postgres_habilitado = True
+
+
 def q(sql):
     if DATABASE_URL:
         return sql.replace("?", "%s")
@@ -157,8 +164,19 @@ def q(sql):
 def get_connection():
     if DATABASE_URL:
         inicio = time.perf_counter()
-        pool = _obter_pool_postgres()
-        conn = ConexaoPostgresPool(pool.getconn(), pool)
+        if _pool_postgres_habilitado:
+            pool = _obter_pool_postgres()
+            conn = ConexaoPostgresPool(pool.getconn(), pool)
+        else:
+            result = urlparse(DATABASE_URL)
+            conn = psycopg2.connect(
+                database=result.path[1:],
+                user=result.username,
+                password=result.password,
+                host=result.hostname,
+                port=result.port,
+                cursor_factory=CursorPostgresInstrumentado,
+            )
         _registrar_conexao((time.perf_counter() - inicio) * 1000)
         return conn
 
