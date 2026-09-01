@@ -5,16 +5,20 @@ from contextvars import ContextVar
 import os
 import re
 import sqlite3
+from threading import Lock
 import time
 from urllib.parse import urlparse
 
 import psycopg2
 import psycopg2.extras
+import psycopg2.pool
 
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 DB_NAME = os.getenv("DB_NAME", "abatedouro.db")
 _metricas_sql = ContextVar("metricas_sql", default=None)
+_pool_postgres = None
+_pool_lock = Lock()
 
 
 def iniciar_metricas_sql():
@@ -92,6 +96,57 @@ class ConexaoSQLiteInstrumentada(sqlite3.Connection):
         return super().cursor(factory)
 
 
+class ConexaoPostgresPool:
+    """Proxy que devolve a conexão ao pool quando o código legado chama close()."""
+
+    def __init__(self, conn, pool):
+        self._conn = conn
+        self._pool = pool
+        self._devolvida = False
+
+    def __getattr__(self, nome):
+        return getattr(self._conn, nome)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, tipo, valor, traceback):
+        if tipo is None:
+            self.commit()
+        else:
+            self.rollback()
+        self.close()
+        return False
+
+    def close(self):
+        if self._devolvida:
+            return
+        try:
+            self._conn.rollback()
+        finally:
+            self._pool.putconn(self._conn)
+            self._devolvida = True
+
+
+def _obter_pool_postgres():
+    global _pool_postgres
+    if _pool_postgres is None:
+        with _pool_lock:
+            if _pool_postgres is None:
+                result = urlparse(DATABASE_URL)
+                _pool_postgres = psycopg2.pool.ThreadedConnectionPool(
+                    1,
+                    max(1, int(os.getenv("DB_POOL_MAX", "5"))),
+                    database=result.path[1:],
+                    user=result.username,
+                    password=result.password,
+                    host=result.hostname,
+                    port=result.port,
+                    cursor_factory=CursorPostgresInstrumentado,
+                )
+    return _pool_postgres
+
+
 def q(sql):
     if DATABASE_URL:
         return sql.replace("?", "%s")
@@ -101,16 +156,9 @@ def q(sql):
 
 def get_connection():
     if DATABASE_URL:
-        result = urlparse(DATABASE_URL)
         inicio = time.perf_counter()
-        conn = psycopg2.connect(
-            database=result.path[1:],
-            user=result.username,
-            password=result.password,
-            host=result.hostname,
-            port=result.port,
-            cursor_factory=CursorPostgresInstrumentado,
-        )
+        pool = _obter_pool_postgres()
+        conn = ConexaoPostgresPool(pool.getconn(), pool)
         _registrar_conexao((time.perf_counter() - inicio) * 1000)
         return conn
 

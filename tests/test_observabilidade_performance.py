@@ -4,6 +4,7 @@ import logging
 from flask import Flask
 
 from modules.observabilidade import registrar_observabilidade_performance
+from database.connection import ConexaoPostgresPool
 
 
 def test_telemetria_expoe_metricas_sem_parametros_sensiveis(caplog):
@@ -29,3 +30,35 @@ def test_telemetria_expoe_metricas_sem_parametros_sensiveis(caplog):
     assert registro["rota"] == "/teste/<int:item_id>"
     assert registro["correlation_id"] == "REQ-PERF-83"
     assert "senha" not in linha and "nao-deve-aparecer" not in linha
+
+
+def test_proxy_postgres_devolve_conexao_limpa_uma_unica_vez():
+    class ConexaoFalsa:
+        def __init__(self):
+            self.rollbacks = 0
+            self.commits = 0
+
+        def rollback(self):
+            self.rollbacks += 1
+
+        def commit(self):
+            self.commits += 1
+
+    class PoolFalso:
+        def __init__(self):
+            self.devolvidas = []
+
+        def putconn(self, conn):
+            self.devolvidas.append(conn)
+
+    original = ConexaoFalsa()
+    pool = PoolFalso()
+    proxy = ConexaoPostgresPool(original, pool)
+
+    proxy.commit()
+    proxy.close()
+    proxy.close()
+
+    assert original.commits == 1
+    assert original.rollbacks == 1
+    assert pool.devolvidas == [original]
