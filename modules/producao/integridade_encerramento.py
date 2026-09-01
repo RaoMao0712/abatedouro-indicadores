@@ -154,7 +154,10 @@ def _carregar_snapshots(cursor, *, op_id=None, data_corte=None, limite=None,
           AND LOWER(unidade) IN ('aves','ave','unidade','unidades') GROUP BY op_id""", ids)
     pi = _agrupar(cursor, f"""SELECT op_id,
         COALESCE(SUM(CASE WHEN tipo LIKE 'ENTRADA%%' THEN quantidade_bandejas ELSE 0 END),0) entradas_pi,
-        COALESCE(SUM(CASE WHEN tipo LIKE 'SAIDA%%' THEN quantidade_bandejas ELSE 0 END),0) bandejas_pi,
+        COALESCE(SUM(CASE WHEN tipo='SAIDA_EMBALAGEM_SECUNDARIA'
+                          THEN quantidade_bandejas ELSE 0 END),0)
+          - COALESCE(SUM(CASE WHEN tipo='ENTRADA_ESTORNO_CAIXA'
+                              THEN quantidade_bandejas ELSE 0 END),0) bandejas_pi,
         COALESCE(SUM(CASE WHEN tipo LIKE 'ENTRADA%%' THEN quantidade_bandejas
                           WHEN tipo LIKE 'SAIDA%%' THEN -quantidade_bandejas
                           ELSE quantidade_bandejas END),0) saldo_pi

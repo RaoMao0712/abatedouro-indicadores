@@ -907,7 +907,7 @@ class ExpedicaoCorretivaTest(unittest.TestCase):
         )["status"], "Encerrada")
 
     def test_20_preflight_pronta_e_livro_pi_com_estorno_compensado(self):
-        op_id, _ = self.preparar_cortada("CX-PI-ESTORNO-COMPENSADO")
+        op_id, _ = self.preparar_cortada_integra("CX-PI-ESTORNO-COMPENSADO")
         executar("""INSERT INTO estoque_produto_intermediario(
             data_movimentacao,op_id,sku,tipo,quantidade_bandejas,observacoes)
             VALUES('2026-07-25',?,'Galinha Cortada','ENTRADA_ESTORNO_CAIXA',12,'estorno legítimo')""", (op_id,))
@@ -917,6 +917,9 @@ class ExpedicaoCorretivaTest(unittest.TestCase):
         preflight = preflight_encerramento_op(op_id)
         self.assertTrue(preflight["pronta_para_encerramento"])
         self.assertEqual(preflight["pi"]["saldo"], 0)
+        self.assertEqual(preflight["estado_funcional"], PRONTA_PARA_ENCERRAMENTO)
+        self.assertEqual(obter_estado_funcional_op(op_id)["estado_funcional"], PRONTA_PARA_ENCERRAMENTO)
+        self.assertEqual(auditar_integridade_encerramento(op_id=op_id)["criticos"], 0)
 
     def test_21_saldo_real_pi_bloqueia_com_valores_explicitos(self):
         op_id, _ = self.preparar_cortada("CX-PI-DIVERGENTE")

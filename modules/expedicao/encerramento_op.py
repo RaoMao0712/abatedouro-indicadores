@@ -73,6 +73,10 @@ def _livro_pi(cursor, op_id, bloquear=False):
         SELECT
           COALESCE(SUM(CASE WHEN tipo LIKE 'ENTRADA%%' THEN quantidade_bandejas ELSE 0 END),0) entradas,
           COALESCE(SUM(CASE WHEN tipo LIKE 'SAIDA%%' THEN quantidade_bandejas ELSE 0 END),0) saidas,
+          COALESCE(SUM(CASE WHEN tipo='SAIDA_EMBALAGEM_SECUNDARIA'
+                            THEN quantidade_bandejas ELSE 0 END),0)
+            - COALESCE(SUM(CASE WHEN tipo='ENTRADA_ESTORNO_CAIXA'
+                                THEN quantidade_bandejas ELSE 0 END),0) consumo_liquido,
           COALESCE(SUM(CASE WHEN tipo LIKE 'ENTRADA%%' THEN quantidade_bandejas
                             WHEN tipo LIKE 'SAIDA%%' THEN -quantidade_bandejas
                             ELSE quantidade_bandejas END),0) saldo
@@ -276,7 +280,8 @@ def _preflight_cursor(cursor, op, bloquear=False):
     snapshot_estado = {
         "status": status, "caixas": len(ativas), "caixas_pendentes": pendentes,
         "caixas_operacionais": operacionais, "eventos_formacao": 0,
-        "eventos_duplicados": 0, "saldo_pi": pi["saldo"], "bandejas_pi": pi["saidas"],
+        "eventos_duplicados": 0, "saldo_pi": pi["saldo"],
+        "bandejas_pi": pi["consumo_liquido"],
         "bandejas_caixas": fechamento["bandejas_consumidas"],
         "peso_liquido": fechamento["peso_liquido_total"], "caixas_mistas": 0,
         "codigos_duplicados": 0, "auditorias_sucesso": 0, "sucessos_incoerentes": 0,
