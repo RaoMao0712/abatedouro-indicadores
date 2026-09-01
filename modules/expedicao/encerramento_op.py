@@ -4,6 +4,8 @@ from datetime import datetime
 from decimal import Decimal
 import hashlib
 import json
+import time
+import uuid
 
 from database import DATABASE_URL, conectar, q, transaction
 from modules.producao.services import gerar_producao_automatica_setores
@@ -140,8 +142,12 @@ def _calcular_fechamento_cursor(cursor, op):
              if saldo_pi > 0 else
              f"A Embalagem Secundária consumiu {-saldo_pi:g} bandejas a mais que o PI produzido.")
         )
-    if int(caixas["caixas"] or 0) == 0 or peso_liquido_total <= 0:
-        pendencias.append("Nenhuma caixa com peso líquido foi registrada para esta OP.")
+    exige_peso = str(op["sku"] or "") != "Galinha Inteira"
+    if int(caixas["caixas"] or 0) == 0 or (exige_peso and peso_liquido_total <= 0):
+        pendencias.append(
+            "Nenhuma caixa com peso líquido foi registrada para esta OP."
+            if exige_peso else "Nenhuma posição de pacotes foi registrada para esta OP."
+        )
     if str(op["status"] or "") != "Aberta":
         pendencias.append(f"Esta OP está em situação {op['status']} e não pode ser encerrada novamente.")
     return {
@@ -177,10 +183,12 @@ def _preflight_cursor(cursor, op, bloquear=False):
         bloqueios.append("Nenhuma caixa ativa foi encontrada para a OP.")
 
     pendentes = 0
+    operacionais = 0
     for caixa in ativas:
         codigo = caixa["codigo_caixa"]
         disponibilidade = str(_valor(caixa, "disponibilidade", "") or "").upper()
         operacional = int(_valor(caixa, "estoque_operacional", 0) or 0)
+        operacionais += 1 if operacional else 0
         if disponibilidade == "PENDENTE_OP" and not operacional:
             pendentes += 1
         else:
@@ -230,7 +238,7 @@ def _preflight_cursor(cursor, op, bloquear=False):
             }} for item in caixas_itens
         ], ensure_ascii=False, sort_keys=True).encode("utf-8")
     ).hexdigest()
-    return {
+    resultado = {
         "op_id": op_id,
         "op": op,
         "status": status,
@@ -262,6 +270,28 @@ def _preflight_cursor(cursor, op, bloquear=False):
         "peso_bruto_total": fechamento.get("peso_bruto_total", fechamento["peso_liquido_total"]),
         "fechamento": fechamento,
     }
+    from modules.producao.integridade_encerramento import (
+        BLOQUEADA_PARA_ENCERRAMENTO, ESTADO_INCONSISTENTE, classificar_estado_funcional,
+    )
+    snapshot_estado = {
+        "status": status, "caixas": len(ativas), "caixas_pendentes": pendentes,
+        "caixas_operacionais": operacionais, "eventos_formacao": 0,
+        "eventos_duplicados": 0, "saldo_pi": pi["saldo"], "bandejas_pi": pi["saidas"],
+        "bandejas_caixas": fechamento["bandejas_consumidas"],
+        "peso_liquido": fechamento["peso_liquido_total"], "caixas_mistas": 0,
+        "codigos_duplicados": 0, "auditorias_sucesso": 0, "sucessos_incoerentes": 0,
+        "bandejas_primaria": fechamento["bandejas_primaria"],
+        "quantidade_aves": fechamento["aves_vivas"], "descartes": fechamento["descartes"],
+        "condenacoes": fechamento["condenacoes"],
+        "mortes_antes_pendura": fechamento["mortes_antes_pendura"], "mortes_na_gaiola": 0,
+        "sku": _valor(op, "sku", ""),
+    }
+    estado, motivos_estado = classificar_estado_funcional(snapshot_estado)
+    if bloqueios and estado != ESTADO_INCONSISTENTE:
+        estado, motivos_estado = BLOQUEADA_PARA_ENCERRAMENTO, bloqueios
+    resultado["estado_funcional"] = estado
+    resultado["motivos_estado"] = motivos_estado
+    return resultado
 
 
 def preflight_encerramento_op(op_id):
@@ -314,10 +344,140 @@ def _auditar(cursor, op_id, chave, usuario, perfil, preflight, resultado, ip_ori
     ))
 
 
-def encerrar_op_oficial(
+def _registrar_tentativa_inicio(*, correlation_id, request_id, op_id, chave, usuario,
+                                perfil, versao_recebida, ip_origem):
+    conn = conectar()
+    try:
+        cursor = conn.cursor()
+        if not _tabela_existe(cursor, "op_encerramento_tentativas"):
+            raise RuntimeError("Estrutura de auditoria das tentativas de encerramento indisponível.")
+        cursor.execute(q("""INSERT INTO op_encerramento_tentativas(
+            correlation_id,request_id,op_id,idempotency_key,usuario,perfil,
+            versao_recebida,validacoes_json,resultado,resultado_json,duracao_ms,
+            ip_origem,criado_em)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)"""), (
+            correlation_id, request_id, op_id, chave, usuario or "Sistema",
+            perfil or "sistema", None if versao_recebida in (None, "") else int(versao_recebida),
+            "{}", "EM_PROCESSAMENTO", "{}", 0, ip_origem, _agora(),
+        ))
+        conn.commit()
+        return True
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def _concluir_tentativa(correlation_id, *, telemetria, resultado, motivo, dados, duracao_ms):
+    conn = conectar()
+    try:
+        cursor = conn.cursor()
+        if not _tabela_existe(cursor, "op_encerramento_tentativas"):
+            return
+        cursor.execute(q("""UPDATE op_encerramento_tentativas SET
+            versao_encontrada=?,validacoes_json=?,motivo_rejeicao=?,resultado=?,
+            resultado_json=?,duracao_ms=?,concluido_em=? WHERE correlation_id=?"""), (
+            telemetria.get("versao_encontrada"),
+            json.dumps(telemetria.get("validacoes") or {}, ensure_ascii=False, default=str),
+            motivo, resultado, json.dumps(dados or {}, ensure_ascii=False, default=str),
+            int(duracao_ms), _agora(), correlation_id,
+        ))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+    finally:
+        conn.close()
+
+
+def _concluir_tentativa_sucesso_cursor(cursor, correlation_id, telemetria, resultado, duracao_ms):
+    cursor.execute(q("""UPDATE op_encerramento_tentativas SET
+        versao_encontrada=?,validacoes_json=?,motivo_rejeicao=NULL,resultado='SUCESSO',
+        resultado_json=?,duracao_ms=?,concluido_em=? WHERE correlation_id=?"""), (
+        telemetria.get("versao_encontrada"),
+        json.dumps(telemetria.get("validacoes") or {}, ensure_ascii=False, default=str),
+        json.dumps(resultado, ensure_ascii=False, default=str), int(duracao_ms), _agora(),
+        correlation_id,
+    ))
+    if cursor.rowcount != 1:
+        raise RuntimeError("A tentativa de encerramento não pôde ser concluída na auditoria.")
+
+
+def _validar_pos_condicoes(cursor, op_id, preflight, chave):
+    """Valida o estado que será commitado; qualquer falha aborta toda a transação."""
+    op_final = _carregar_op(cursor, op_id)
+    erros = []
+    if str(op_final["status"] or "") != "Encerrada":
+        erros.append("a OP não permaneceu Encerrada")
+    pi = _livro_pi(cursor, op_id)
+    if _decimal(pi["saldo"] if isinstance(pi, dict) else pi["saldo"]) != Decimal("0"):
+        erros.append(f"o saldo de PI permaneceu em {pi['saldo']}")
+    caixas = _carregar_caixas(cursor, op_id)
+    ativas = [c for c in caixas if str(c["status"] or "").upper() not in STATUS_INATIVOS]
+    if len(ativas) != int(preflight["caixas_ativas"]):
+        erros.append("a quantidade física de caixas foi alterada durante o encerramento")
+    pendentes = [c for c in ativas if str(_valor(c, "disponibilidade", "") or "").upper() == "PENDENTE_OP"]
+    nao_operacionais = [c for c in ativas if int(_valor(c, "estoque_operacional", 0) or 0) != 1]
+    if pendentes:
+        erros.append(f"{len(pendentes)} caixa(s) permaneceram em PENDENTE_OP")
+    if nao_operacionais:
+        erros.append(f"{len(nao_operacionais)} caixa(s) não ficaram operacionais")
+    cursor.execute(q("""SELECT COUNT(*) total FROM (
+        SELECT codigo_caixa FROM pa_caixas WHERE id IN(
+          SELECT caixa_id FROM pa_caixa_composicao WHERE op_id=?)
+        AND UPPER(COALESCE(status,'')) NOT IN ('ESTORNADA','ESTORNADO','CANCELADA','CANCELADO')
+        GROUP BY codigo_caixa HAVING COUNT(*)<>1) d"""), (op_id,))
+    if int(cursor.fetchone()["total"] or 0):
+        erros.append("há código de caixa duplicado")
+    cursor.execute(q("""SELECT COUNT(*) total FROM (
+        SELECT alvo.caixa_id FROM pa_caixa_composicao alvo
+        JOIN pa_caixa_composicao todas ON todas.caixa_id=alvo.caixa_id
+        WHERE alvo.op_id=? GROUP BY alvo.caixa_id
+        HAVING COUNT(DISTINCT todas.op_id)<>1) d"""), (op_id,))
+    if int(cursor.fetchone()["total"] or 0):
+        erros.append("há composição de caixa duplicada ou mista")
+    cursor.execute(q("""SELECT COUNT(*) total FROM (
+        SELECT cx.id FROM pa_caixas cx
+        JOIN pa_caixa_composicao c ON c.caixa_id=cx.id
+        LEFT JOIN estoque_eventos ev ON ev.caixa_id=cx.id AND ev.acao='FORMACAO_ESTOQUE'
+        WHERE c.op_id=? AND UPPER(COALESCE(cx.status,''))
+          NOT IN ('ESTORNADA','ESTORNADO','CANCELADA','CANCELADO')
+        GROUP BY cx.id HAVING COUNT(ev.id)<>1) d"""), (op_id,))
+    if int(cursor.fetchone()["total"] or 0):
+        erros.append("há movimento de formação de PA ausente ou duplicado")
+    depois = _preflight_cursor(cursor, op_final)
+    if depois["caixas_dados_hash"] != preflight["caixas_dados_hash"]:
+        erros.append("código, fabricação, validade ou composição física de caixa foi alterado")
+    peso_esperado = Decimal(str(preflight["peso_liquido_total"])).quantize(Decimal("0.001"))
+    peso_operacional = sum(
+        (Decimal(str(_valor(c, "peso_liquido", 0) or 0)) for c in ativas
+         if int(_valor(c, "estoque_operacional", 0) or 0) == 1), Decimal("0")
+    ).quantize(Decimal("0.001"))
+    if peso_operacional != peso_esperado:
+        erros.append(f"peso operacional {peso_operacional} kg diverge do físico {peso_esperado} kg")
+    if Decimal(str(depois["bandejas_consumidas"])) != Decimal(str(preflight["bandejas_consumidas"])):
+        erros.append("quantidade de bandejas diverge do consumo registrado")
+    cursor.execute(q("""SELECT COUNT(*) total FROM op_operacoes_auditoria
+        WHERE op_id=? AND tipo=? AND idempotency_key=?"""), (op_id, TIPO_AUDITORIA, chave))
+    if int(cursor.fetchone()["total"] or 0) != 1:
+        erros.append("a auditoria oficial não foi persistida exatamente uma vez")
+    if erros:
+        raise RuntimeError("Pós-validação do encerramento falhou: " + "; ".join(erros) + ".")
+    return {"op_encerrada": True, "caixas_pendentes": 0,
+            "caixas_operacionais": len(ativas), "saldo_pi": 0,
+            "peso_operacional": float(peso_operacional),
+            "bandejas": float(preflight["bandejas_consumidas"]),
+            "dados_fisicos_preservados": True}
+
+
+def _decimal(valor):
+    return Decimal(str(valor or 0))
+
+
+def _encerrar_op_transacional(
     op_id, *, checkpoint=None, nao_conformes=None, conferencia_hash=None,
     exigir_conferencia=False, usuario=None, perfil=None, idempotency_key=None,
-    versao_esperada=None, ip_origem=None,
+    versao_esperada=None, ip_origem=None, telemetria=None, preparador=None,
 ):
     """Encerra a OP e libera seu PA na mesma transação lógica."""
     from .conferencia_embalagem import validar_conferencia_para_encerramento
@@ -326,18 +486,36 @@ def encerrar_op_oficial(
     op_id = int(op_id)
     with transaction() as conn:
         cursor = conn.cursor()
+        if not DATABASE_URL:
+            # SQLite não possui SELECT ... FOR UPDATE. O lock de escrita no
+            # início reproduz a serialização da OP usada pelo PostgreSQL.
+            cursor.execute("BEGIN IMMEDIATE")
         existente = _resultado_idempotente(cursor, idempotency_key)
         if existente:
             existente["ja_encerrada"] = True
+            existente["correlation_id"] = telemetria["correlation_id"]
+            existente["request_id"] = telemetria["request_id"]
+            _concluir_tentativa_sucesso_cursor(
+                cursor, telemetria["correlation_id"], telemetria, existente,
+                round((time.perf_counter() - telemetria["inicio"]) * 1000),
+            )
             return existente
 
         op = _carregar_op(cursor, op_id, bloquear=True)
         versao_atual = int(_valor(op, "versao_operacional", 0) or 0)
+        if telemetria is not None:
+            telemetria["versao_encontrada"] = versao_atual
         chave = idempotency_key or f"ENCERRAMENTO-OP-{op_id}-V{versao_atual}"
         if str(op["status"] or "") == "Encerrada":
             anterior = _resultado_encerramento_anterior(cursor, op_id)
             if anterior:
                 anterior["ja_encerrada"] = True
+                anterior["correlation_id"] = telemetria["correlation_id"]
+                anterior["request_id"] = telemetria["request_id"]
+                _concluir_tentativa_sucesso_cursor(
+                    cursor, telemetria["correlation_id"], telemetria, anterior,
+                    round((time.perf_counter() - telemetria["inicio"]) * 1000),
+                )
                 return anterior
             raise ValueError(f"A OP #{op_id} já está encerrada; nenhuma operação foi repetida.")
         if versao_esperada not in (None, "") and int(versao_esperada) != versao_atual:
@@ -348,7 +526,17 @@ def encerrar_op_oficial(
         if exigir_conferencia:
             validar_conferencia_para_encerramento(cursor, op_id, conferencia_hash)
 
+        preparacao = preparador(cursor, op, checkpoint) if preparador else {}
+        preparacao = preparacao or {}
+        nao_conformes_efetivos = preparacao.get("nao_conformes", nao_conformes)
+
         preflight = _preflight_cursor(cursor, op, bloquear=True)
+        if telemetria is not None:
+            telemetria["validacoes"] = {
+                "estado": "PRONTA_PARA_ENCERRAMENTO" if preflight["permitido"] else "BLOQUEADA_PARA_ENCERRAMENTO",
+                "permitido": preflight["permitido"], "bloqueios": preflight["bloqueios"],
+                "saldo_pi": preflight["saldo_pi"], "caixas": preflight["caixas_ativas"],
+            }
         if not preflight["permitido"]:
             raise ValueError(
                 f"Não foi possível encerrar a OP #{op_id}: " + " ".join(preflight["bloqueios"])
@@ -359,7 +547,8 @@ def encerrar_op_oficial(
         gerar_producao_automatica_setores(
             op=op, data_lancamento=op["data"], hora_inicio="N/A", hora_fim="N/A",
             unidades_produzidas=fechamento["bandejas_consumidas"],
-            kg_produzidos=fechamento["peso_liquido_total"],
+            kg_produzidos=(None if str(op["sku"] or "") == "Galinha Inteira"
+                           else fechamento["peso_liquido_total"]),
             descontar_almoco=False, conn=conn,
         )
 
@@ -375,9 +564,9 @@ def encerrar_op_oficial(
             raise ValueError("A OP foi alterada por outra solicitação; encerramento cancelado integralmente.")
         if checkpoint:
             checkpoint("durante_formacao_estoque")
-        if nao_conformes:
+        if nao_conformes_efetivos:
             from modules.qualidade.produtos_nao_conformes import registrar_itens_encerramento
-            registrar_itens_encerramento(cursor, op_id, nao_conformes, checkpoint=checkpoint)
+            registrar_itens_encerramento(cursor, op_id, nao_conformes_efetivos, checkpoint=checkpoint)
         caixas_liberadas = ativar_estoque_op_encerrada(cursor, op_id)
         cursor.execute(q("""SELECT COUNT(*) total FROM pa_caixas cx
             WHERE EXISTS (SELECT 1 FROM pa_caixa_composicao c WHERE c.caixa_id=cx.id AND c.op_id=?)
@@ -407,8 +596,58 @@ def encerrar_op_oficial(
             "caixas_criadas": 0,
             "idempotency_key": chave,
         }
+        resultado.update(preparacao.get("resultado_extra") or {})
         if _tabela_existe(cursor, "op_operacoes_auditoria"):
             _auditar(cursor, op_id, chave, usuario, perfil, preflight, resultado, ip_origem)
         if checkpoint:
             checkpoint("apos_auditoria")
+        resultado["pos_condicoes"] = _validar_pos_condicoes(cursor, op_id, preflight, chave)
+        resultado["correlation_id"] = telemetria["correlation_id"]
+        resultado["request_id"] = telemetria["request_id"]
+        _concluir_tentativa_sucesso_cursor(
+            cursor, telemetria["correlation_id"], telemetria, resultado,
+            round((time.perf_counter() - telemetria["inicio"]) * 1000),
+        )
         return resultado
+
+
+def encerrar_op_oficial(
+    op_id, *, checkpoint=None, nao_conformes=None, conferencia_hash=None,
+    exigir_conferencia=False, usuario=None, perfil=None, idempotency_key=None,
+    versao_esperada=None, ip_origem=None, request_id=None, preparador=None,
+):
+    """Fachada observável: só devolve sucesso depois do commit da transação oficial."""
+    op_id = int(op_id)
+    correlation_id = str(uuid.uuid4())
+    request_id = str(request_id or correlation_id)
+    inicio = time.perf_counter()
+    telemetria = {
+        "versao_encontrada": None, "validacoes": {}, "correlation_id": correlation_id,
+        "request_id": request_id, "inicio": inicio,
+    }
+    try:
+        _registrar_tentativa_inicio(
+            correlation_id=correlation_id, request_id=request_id, op_id=op_id,
+            chave=idempotency_key, usuario=usuario, perfil=perfil,
+            versao_recebida=versao_esperada, ip_origem=ip_origem,
+        )
+        resultado = _encerrar_op_transacional(
+            op_id, checkpoint=checkpoint, nao_conformes=nao_conformes,
+            conferencia_hash=conferencia_hash, exigir_conferencia=exigir_conferencia,
+            usuario=usuario, perfil=perfil, idempotency_key=idempotency_key,
+            versao_esperada=versao_esperada, ip_origem=ip_origem, telemetria=telemetria,
+            preparador=preparador,
+        )
+        return resultado
+    except Exception as erro:
+        duracao = round((time.perf_counter() - inicio) * 1000)
+        motivo = str(erro) or erro.__class__.__name__
+        _concluir_tentativa(correlation_id, telemetria=telemetria, resultado="REJEITADA",
+                            motivo=motivo, dados={"sucesso": False}, duracao_ms=duracao)
+        mensagem = (f"Não foi possível encerrar a OP #{op_id}. A operação não foi gravada. "
+                    f"Motivo: {motivo} Identificador: {correlation_id}.")
+        if isinstance(erro, PermissionError):
+            raise PermissionError(mensagem) from erro
+        if isinstance(erro, ValueError):
+            raise ValueError(mensagem) from erro
+        raise RuntimeError(mensagem) from erro

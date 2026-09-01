@@ -288,6 +288,45 @@
     </div>
 </div>
 
+<section class="card" id="ops-prontas-encerramento" style="margin-bottom:1.5rem;">
+    <div class="section-title-row"><div><span class="eyebrow">Integridade operacional</span><h2>OPs prontas para encerramento</h2><p class="obs">Leitura derivada do estado real de PI, caixas e estoque. Nenhum dado é alterado por este painel.</p></div></div>
+    <div class="tabela-responsiva tabela-executiva"><table>
+        <thead><tr><th>OP</th><th>Data</th><th>Produto</th><th>Saldo PI</th><th>Caixas</th><th>Peso</th><th>Validações</th><th>Última tentativa</th><th>Última falha</th><th>Ação</th></tr></thead>
+        <tbody>{% for item in ops_prontas_encerramento.itens %}<tr>
+            <td><strong>#{{ item.op_id }}</strong></td><td>{{ item.data|br_data }}</td><td>{{ item.sku }}</td>
+            <td>{{ item.saldo_pi|br_numero }}</td><td>{{ item.caixas }}</td><td>{{ item.peso_liquido|br_numero(3) }} kg</td>
+            <td><span class="badge-expedicao concluido">{{ item.validacoes }}</span></td>
+            <td>{{ item.ultima_tentativa|br_data_hora if item.ultima_tentativa else 'Nenhuma' }}</td>
+            <td>{{ item.ultima_falha or '—' }}</td>
+            <td><a class="botao-principal" href="{{ url_for('embalagem_secundaria', op_id=item.op_id, conferencia='1') }}">Validar e encerrar</a></td>
+        </tr>{% else %}<tr><td colspan="10">Nenhuma OP pronta aguardando encerramento.</td></tr>{% endfor %}</tbody>
+    </table></div>
+    {% if ops_prontas_encerramento.tem_anterior or ops_prontas_encerramento.tem_proxima %}<nav class="paginacao">
+        {% if ops_prontas_encerramento.tem_anterior %}<a href="{{ url_for('dashboard', data_inicio=data_inicio, data_fim=data_fim, status=status_filtro, sku=sku_filtro, pagina_prontas=ops_prontas_encerramento.pagina-1, pagina_inconsistentes=estados_inconsistentes_producao.pagina) }}#ops-prontas-encerramento">Anterior</a>{% endif %}
+        <span>Página {{ ops_prontas_encerramento.pagina }}</span>
+        {% if ops_prontas_encerramento.tem_proxima %}<a href="{{ url_for('dashboard', data_inicio=data_inicio, data_fim=data_fim, status=status_filtro, sku=sku_filtro, pagina_prontas=ops_prontas_encerramento.pagina+1, pagina_inconsistentes=estados_inconsistentes_producao.pagina) }}#ops-prontas-encerramento">Próxima</a>{% endif %}
+    </nav>{% endif %}
+</section>
+
+<section class="card" id="estados-inconsistentes-producao" style="margin-bottom:1.5rem;">
+    <div class="section-title-row"><div><span class="eyebrow">Atenção administrativa</span><h2>Estados inconsistentes de produção</h2><p class="obs">Estados impossíveis ou divergentes são apenas apresentados; não há correção automática.</p></div></div>
+    <div class="tabela-responsiva tabela-executiva"><table>
+        <thead><tr><th>OP</th><th>Data</th><th>Produto</th><th>Estado cadastral</th><th>PI</th><th>Caixas</th><th>Diagnóstico</th><th>Última tentativa</th></tr></thead>
+        <tbody>{% for item in estados_inconsistentes_producao.itens %}<tr>
+            <td><a href="{{ url_for('consultar_op', op_id=item.op_id) }}"><strong>#{{ item.op_id }}</strong></a></td>
+            <td>{{ item.data|br_data }}</td><td>{{ item.sku }}</td><td>{{ item.status }}</td>
+            <td>{{ item.saldo_pi|br_numero }}</td><td>{{ item.caixas }} ({{ item.caixas_pendentes }} pendentes)</td>
+            <td><span class="badge-expedicao cancelado">{{ item.validacoes }}</span></td>
+            <td>{{ item.ultima_tentativa|br_data_hora if item.ultima_tentativa else 'Nenhuma' }}</td>
+        </tr>{% else %}<tr><td colspan="8">Nenhum estado inconsistente no período de integridade.</td></tr>{% endfor %}</tbody>
+    </table></div>
+    {% if estados_inconsistentes_producao.tem_anterior or estados_inconsistentes_producao.tem_proxima %}<nav class="paginacao">
+        {% if estados_inconsistentes_producao.tem_anterior %}<a href="{{ url_for('dashboard', data_inicio=data_inicio, data_fim=data_fim, status=status_filtro, sku=sku_filtro, pagina_prontas=ops_prontas_encerramento.pagina, pagina_inconsistentes=estados_inconsistentes_producao.pagina-1) }}#estados-inconsistentes-producao">Anterior</a>{% endif %}
+        <span>Página {{ estados_inconsistentes_producao.pagina }}</span>
+        {% if estados_inconsistentes_producao.tem_proxima %}<a href="{{ url_for('dashboard', data_inicio=data_inicio, data_fim=data_fim, status=status_filtro, sku=sku_filtro, pagina_prontas=ops_prontas_encerramento.pagina, pagina_inconsistentes=estados_inconsistentes_producao.pagina+1) }}#estados-inconsistentes-producao">Próxima</a>{% endif %}
+    </nav>{% endif %}
+</section>
+
 <div class="grid-dashboard">
     <div class="card painel-analitico">
         <div class="section-title-row">

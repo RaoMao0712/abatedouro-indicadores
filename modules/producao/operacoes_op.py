@@ -90,8 +90,26 @@ def criar_tabelas_operacoes_op():
                 criado_em {timestamp_type} NOT NULL
             )
         """)
+        cursor.execute(f"""
+            CREATE TABLE IF NOT EXISTS op_encerramento_tentativas (
+                id {id_pk}, correlation_id TEXT NOT NULL UNIQUE,
+                request_id TEXT, op_id INTEGER NOT NULL,
+                idempotency_key TEXT, usuario TEXT NOT NULL,
+                perfil TEXT NOT NULL, versao_recebida INTEGER,
+                versao_encontrada INTEGER, validacoes_json TEXT NOT NULL,
+                motivo_rejeicao TEXT, resultado TEXT NOT NULL,
+                resultado_json TEXT NOT NULL, duracao_ms INTEGER NOT NULL DEFAULT 0,
+                ip_origem TEXT, criado_em {timestamp_type} NOT NULL,
+                concluido_em {timestamp_type}
+            )
+        """)
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_op_operacoes_data ON op_operacoes_auditoria(op_id, criado_em)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_op_tentativas_op_data ON op_encerramento_tentativas(op_id, criado_em)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_op_tentativas_resultado ON op_encerramento_tentativas(resultado, criado_em)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_op_tentativas_idempotencia ON op_encerramento_tentativas(idempotency_key)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_apontamentos_producao_vigente ON apontamentos_producao(op_id, vigente)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ops_status_data_id ON ordens_producao(status, data, id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_estoque_eventos_caixa_acao ON estoque_eventos(caixa_id, acao)")
         conn.commit()
         _SCHEMA_INICIALIZADO = True
     except Exception:

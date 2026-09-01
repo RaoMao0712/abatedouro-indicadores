@@ -212,6 +212,7 @@
         method="post"
         action="{{ url_for('finalizar_embalagem_secundaria', op_id=op_selecionada.op_id) }}"
         onsubmit="return confirm('Confirmar encerramento industrial desta OP?')"
+        data-form-encerramento
         style="margin-top: 1rem;"
     >
         <input type="hidden" name="conferencia_hash" value="{{ conferencia_op.hash if conferencia_op else '' }}">
@@ -230,7 +231,7 @@
                 </tr>{% else %}<tr><td colspan="5">Nenhuma caixa ativa vinculada.</td></tr>{% endfor %}</tbody>
             </table></div>
         </section>
-        <button type="{% if conferencia_op and conferencia_op.confirmacao_valida %}submit{% else %}button{% endif %}" class="botao-principal" {% if not fechamento_op.pronta_para_encerramento %}disabled{% endif %} {% if not conferencia_op or not conferencia_op.confirmacao_valida %}data-abrir-conferencia{% endif %}>
+        <button type="{% if conferencia_op and conferencia_op.confirmacao_valida %}submit{% else %}button{% endif %}" class="botao-principal" data-botao-encerramento {% if not fechamento_op.pronta_para_encerramento %}disabled{% endif %} {% if not conferencia_op or not conferencia_op.confirmacao_valida %}data-abrir-conferencia{% endif %}>
             Validar e encerrar OP
         </button>
         {% if not conferencia_op or not conferencia_op.confirmacao_valida %}
@@ -570,13 +571,13 @@ document.addEventListener("DOMContentLoaded", function () {
     {% endif %}
 
     {% if conferencia_op %}
-    <form method="post" action="{{ url_for('confirmar_conferencia_embalagem_secundaria', op_id=op_selecionada.op_id) }}" style="margin-top:1.5rem; padding:1rem; border:1px solid #d0d5dd; border-radius:12px;">
+    <form method="post" action="{{ url_for('confirmar_conferencia_embalagem_secundaria', op_id=op_selecionada.op_id) }}" data-form-encerramento style="margin-top:1.5rem; padding:1rem; border:1px solid #d0d5dd; border-radius:12px;">
         <input type="hidden" name="csrf_token" value="{{ csrf_estorno }}">
         <input type="hidden" name="conferencia_hash" value="{{ conferencia_op.hash }}">
         <input type="hidden" name="idempotency_key" value="{{ chave_encerramento }}">
         <input type="hidden" name="versao_operacional" value="{{ fechamento_op.versao_operacional if fechamento_op else 0 }}">
         <label><input type="checkbox" name="confirmacao" value="1" required> <strong>Conferi os lançamentos da Embalagem Secundária desta OP.</strong></label>
-        <button type="submit" class="botao-principal" style="margin-top:.8rem;">Conferir e encerrar OP</button>
+        <button type="submit" class="botao-principal" data-botao-encerramento style="margin-top:.8rem;">Conferir e encerrar OP</button>
         {% if conferencia_op.confirmacao_valida %}<p><strong>Conferência válida e registrada.</strong> Qualquer inclusão ou estorno invalidará esta confirmação.</p>{% endif %}
     </form>
     {% endif %}
@@ -841,6 +842,21 @@ document.addEventListener("DOMContentLoaded", function () {
     if (abrirConferencia) abrirConferencia.addEventListener("click", function () {
         const painel = document.getElementById("conferencia-caixas");
         if (painel) painel.scrollIntoView({behavior: "smooth", block: "start"});
+    });
+    document.querySelectorAll("[data-form-encerramento]").forEach(function (form) {
+        form.addEventListener("submit", function (evento) {
+            if (form.dataset.enviando === "1") {
+                evento.preventDefault();
+                return;
+            }
+            form.dataset.enviando = "1";
+            form.setAttribute("aria-busy", "true");
+            const botao = form.querySelector("[data-botao-encerramento]");
+            if (botao) {
+                botao.disabled = true;
+                botao.textContent = "Encerrando com segurança...";
+            }
+        });
     });
 })();
 </script>

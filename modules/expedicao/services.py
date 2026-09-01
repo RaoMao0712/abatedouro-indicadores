@@ -641,10 +641,15 @@ def registrar_apontamento_embalagem_primaria(
     pacotes_2_aves=0,
     checkpoint=None,
     nao_conformes=None,
+    usuario=None,
+    perfil=None,
+    idempotency_key=None,
+    versao_esperada=None,
+    ip_origem=None,
+    request_id=None,
 ):
     criar_tabelas_estoque_pi_pa()
     from .estoque_service import (
-        ativar_estoque_op_encerrada,
         criar_tabelas_estoque_confiavel,
         marcar_pa_pendente,
     )
@@ -654,13 +659,12 @@ def registrar_apontamento_embalagem_primaria(
     if not op:
         raise ValueError("OP não encontrada.")
 
-    if op["status"] == "Encerrada":
-        raise ValueError("Esta OP já está encerrada.")
-
-    if op_possui_caixa_pa(op["id"]):
-        raise ValueError("Esta OP já possui caixas PA vinculadas. Não é possível reapontar a Embalagem Primária.")
-
     sku = op["sku"] or "Galinha Cortada"
+    if not sku_sem_embalagem_secundaria(sku):
+        if op["status"] == "Encerrada":
+            raise ValueError("Esta OP já está encerrada.")
+        if op_possui_caixa_pa(op["id"]):
+            raise ValueError("Esta OP já possui caixas PA vinculadas. Não é possível reapontar a Embalagem Primária.")
     bandejas = float(quantidade_bandejas or 0)
     if bandejas <= 0 and not sku_sem_embalagem_secundaria(sku):
         raise ValueError("Informe uma quantidade válida de bandejas produzidas.")
@@ -679,38 +683,35 @@ def registrar_apontamento_embalagem_primaria(
             raise ValueError("Informe separadamente os pacotes V1 e V2 de Galinha Inteira.")
 
         observacao_final = observacoes or f"Pacotes 1 ave: {pacotes_1:g} | Pacotes 2 aves: {pacotes_2:g}"
-        with transaction() as conn:
-            cursor = conn.cursor()
-            cursor.execute(q("SELECT status FROM ordens_producao WHERE id = ?"), (op["id"],))
-            estado = cursor.fetchone()
-            if not estado or estado["status"] == "Encerrada":
-                raise ValueError("Esta OP ja esta encerrada.")
-            perdas = calcular_perdas_aves_op(cursor, op["id"])
-            validar_balanco_aves_op(op, aves_embaladas, perdas)
-            cursor.execute(q("DELETE FROM estoque_produto_intermediario WHERE op_id = ?"), (op["id"],))
-            cursor.execute(q("DELETE FROM embalagem_primaria_apontamentos WHERE op_id = ?"), (op["id"],))
+
+        def preparar_galinha_inteira(cursor, op_bloqueada, _checkpoint_oficial):
+            cursor.execute(q("""SELECT COUNT(*) total FROM pa_caixa_composicao
+                WHERE op_id=?"""), (op_bloqueada["id"],))
+            if int(cursor.fetchone()["total"] or 0):
+                raise ValueError(
+                    "Esta OP já possui posições PA vinculadas. Não é possível reapontar a Embalagem Primária."
+                )
+            perdas = calcular_perdas_aves_op(cursor, op_bloqueada["id"])
+            validar_balanco_aves_op(op_bloqueada, aves_embaladas, perdas)
+            cursor.execute(q("DELETE FROM estoque_produto_intermediario WHERE op_id = ?"), (op_bloqueada["id"],))
+            cursor.execute(q("DELETE FROM embalagem_primaria_apontamentos WHERE op_id = ?"), (op_bloqueada["id"],))
             cursor.execute(q("""
             INSERT INTO embalagem_primaria_apontamentos (
                 op_id, data_apontamento, sku, quantidade_bandejas,
                 observacoes, pacotes_v1, pacotes_v2, total_galinhas
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """), (
-                op["id"], op["data"], sku, aves_embaladas,
+                op_bloqueada["id"], op_bloqueada["data"], sku, aves_embaladas,
                 observacao_final, pacotes_1, pacotes_2, aves_embaladas,
             ))
-            if checkpoint:
-                checkpoint("antes_formacao_estoque")
             posicoes = registrar_posicoes_pa_galinha_inteira(
-                cursor, op, pacotes_1, pacotes_2, observacao_final
+                cursor, op_bloqueada, pacotes_1, pacotes_2, observacao_final
             )
             for posicao in posicoes:
                 marcar_pa_pendente(cursor, posicao["id"])
-            if checkpoint:
-                checkpoint("durante_formacao_estoque")
+            itens_nc = []
             if nao_conformes:
-                from modules.qualidade.produtos_nao_conformes import registrar_itens_encerramento
                 por_apresentacao = {item.get("apresentacao"): item for item in nao_conformes}
-                itens_nc = []
                 for posicao in posicoes:
                     cursor.execute(q("SELECT * FROM pa_caixas WHERE id=?"), (posicao["id"],))
                     caixa_posicao = cursor.fetchone()
@@ -723,37 +724,26 @@ def registrar_apontamento_embalagem_primaria(
                             unidade="PACOTE", apresentacao=caixa_posicao["apresentacao"],
                         )
                         itens_nc.append(item)
-                registrar_itens_encerramento(cursor, op["id"], itens_nc, checkpoint=checkpoint)
-            gerar_producao_automatica_setores(
-                op=op,
-                data_lancamento=op["data"],
-                hora_inicio="N/A",
-                hora_fim="N/A",
-                unidades_produzidas=aves_embaladas,
-                kg_produzidos=None,
-                descontar_almoco=False,
-                conn=conn,
-            )
-            cursor.execute(q("""
-            UPDATE ordens_producao
-            SET status = ?
-            WHERE id = ? AND status <> 'Encerrada'
-            """), ("Encerrada", op["id"]))
-            if cursor.rowcount != 1:
-                raise ValueError("A OP foi encerrada por outra solicitacao.")
-            ativar_estoque_op_encerrada(cursor, op["id"])
-            if checkpoint:
-                checkpoint("apos_formacao_estoque")
+            return {
+                "nao_conformes": itens_nc,
+                "resultado_extra": {
+                    "tipo": "encerramento_primaria",
+                    "codigos_lote": [item["codigo"] for item in posicoes],
+                    "aves_embaladas": aves_embaladas,
+                    "unidades_vendaveis": unidades_vendaveis,
+                    "pacotes_v1": pacotes_1,
+                    "pacotes_v2": pacotes_2,
+                },
+            }
 
-        return {
-            "tipo": "encerramento_primaria",
-            "codigos_lote": [item["codigo"] for item in posicoes],
-            "aves_embaladas": aves_embaladas,
-            "unidades_vendaveis": unidades_vendaveis,
-            "pacotes_v1": pacotes_1,
-            "pacotes_v2": pacotes_2,
-        }
-
+        from modules.producao.operacoes_op import criar_tabelas_operacoes_op
+        from .encerramento_op import encerrar_op_oficial
+        criar_tabelas_operacoes_op()
+        return encerrar_op_oficial(
+            op["id"], checkpoint=checkpoint, preparador=preparar_galinha_inteira,
+            usuario=usuario, perfil=perfil, idempotency_key=idempotency_key,
+            versao_esperada=versao_esperada, ip_origem=ip_origem, request_id=request_id,
+        )
     # Substitui o apontamento anterior da mesma OP, se existir.
     remover_movimentacoes_estoque_pi_por_op(op["id"])
 
@@ -1596,7 +1586,7 @@ def calcular_fechamento_industrial_op(op_id, conn=None):
 def finalizar_embalagem_secundaria_op(op_id, checkpoint=None, nao_conformes=None,
                                       conferencia_hash=None, exigir_conferencia=False,
                                       usuario=None, perfil=None, idempotency_key=None,
-                                      versao_esperada=None, ip_origem=None):
+                                      versao_esperada=None, ip_origem=None, request_id=None):
     """Compatibilidade pública para o único serviço oficial de encerramento."""
     from .encerramento_op import encerrar_op_oficial
     from .estoque_service import criar_tabelas_estoque_confiavel
@@ -1615,7 +1605,7 @@ def finalizar_embalagem_secundaria_op(op_id, checkpoint=None, nao_conformes=None
         op_id, checkpoint=checkpoint, nao_conformes=nao_conformes,
         conferencia_hash=conferencia_hash, exigir_conferencia=exigir_conferencia,
         usuario=usuario, perfil=perfil, idempotency_key=idempotency_key,
-        versao_esperada=versao_esperada, ip_origem=ip_origem,
+        versao_esperada=versao_esperada, ip_origem=ip_origem, request_id=request_id,
     )
 
 

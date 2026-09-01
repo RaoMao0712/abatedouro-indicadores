@@ -217,6 +217,12 @@ def register_expedicao_routes(app, integracoes=None):
                     pacotes_1_ave=request.form.get("pacotes_1_ave"),
                     pacotes_2_aves=request.form.get("pacotes_2_aves"),
                     nao_conformes=_itens_nc_galinha_inteira(request.form),
+                    usuario=session.get("nome") or "Usuário",
+                    perfil=session.get("perfil") or "",
+                    idempotency_key=request.form.get("idempotency_key") or str(uuid.uuid4()),
+                    versao_esperada=request.form.get("versao_operacional"),
+                    ip_origem=request.access_route[0] if request.access_route else request.remote_addr,
+                    request_id=request.headers.get("X-Request-ID"),
                 )
                 if resultado.get("tipo") == "encerramento_primaria":
                     flash(
@@ -227,7 +233,7 @@ def register_expedicao_routes(app, integracoes=None):
                     )
                 else:
                     flash("Embalagem Primária apontada com sucesso. O Estoque PI foi atualizado e a OP permanece pendente para Embalagem Secundária.")
-            except ValueError as erro:
+            except (ValueError, PermissionError, RuntimeError) as erro:
                 flash(str(erro))
 
             return redirect(url_for("embalagem_primaria", op_id=request.form.get("op_id") or ""))
@@ -286,6 +292,7 @@ def register_expedicao_routes(app, integracoes=None):
                 idempotency_key=request.form.get("idempotency_key"),
                 versao_esperada=request.form.get("versao_operacional"),
                 ip_origem=request.access_route[0] if request.access_route else request.remote_addr,
+                request_id=request.headers.get("X-Request-ID"),
             )
             flash(
                 ("A OP já estava encerrada; nenhum movimento foi duplicado. "
@@ -299,12 +306,15 @@ def register_expedicao_routes(app, integracoes=None):
                 "erro_operacional.html", titulo=f"OP #{op_id} não encerrada",
                 mensagem=str(erro), retorno=url_for("embalagem_secundaria", op_id=op_id),
             ), 409
-        except Exception:
+        except Exception as erro:
             app.logger.exception("Falha transacional ao encerrar a OP #%s", op_id)
+            mensagem_publica = str(erro) if "Identificador:" in str(erro) else (
+                "O encerramento falhou e foi revertido integralmente. "
+                "Nenhum PI ou PA foi duplicado. Consulte o suporte com o número da OP."
+            )
             return render_template(
                 "erro_operacional.html", titulo=f"OP #{op_id} não encerrada",
-                mensagem=("O encerramento falhou e foi revertido integralmente. "
-                          "Nenhum PI ou PA foi duplicado. Consulte o suporte com o número da OP."),
+                mensagem=mensagem_publica,
                 retorno=url_for("embalagem_secundaria", op_id=op_id),
             ), 500
 
@@ -392,6 +402,7 @@ def register_expedicao_routes(app, integracoes=None):
                 idempotency_key=request.form.get("idempotency_key"),
                 versao_esperada=request.form.get("versao_operacional"),
                 ip_origem=request.access_route[0] if request.access_route else request.remote_addr,
+                request_id=request.headers.get("X-Request-ID"),
             )
             flash(
                 f"Conferência concluída e OP encerrada. PA operacional liberado: "
@@ -403,12 +414,15 @@ def register_expedicao_routes(app, integracoes=None):
                 "erro_operacional.html", titulo=f"OP #{op_id} não encerrada",
                 mensagem=str(erro), retorno=url_for("embalagem_secundaria", op_id=op_id),
             ), 409
-        except Exception:
+        except Exception as erro:
             app.logger.exception("Falha após conferência da OP #%s", op_id)
+            mensagem_publica = str(erro) if "Identificador:" in str(erro) else (
+                "A conferência foi preservada, mas o encerramento falhou e "
+                "a transação operacional foi revertida integralmente."
+            )
             return render_template(
                 "erro_operacional.html", titulo=f"OP #{op_id} não encerrada",
-                mensagem=("A conferência foi preservada, mas o encerramento falhou e "
-                          "a transação operacional foi revertida integralmente."),
+                mensagem=mensagem_publica,
                 retorno=url_for("embalagem_secundaria", op_id=op_id),
             ), 500
         return redirect(url_for("embalagem_secundaria", op_id=op_id, conferencia="1"))

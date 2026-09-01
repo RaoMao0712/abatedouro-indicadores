@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 import unittest
 from unittest import mock
 
@@ -52,7 +53,20 @@ from modules.expedicao.services import (  # noqa: E402
     registrar_caixa_pa_manual,
     salvar_romaneio_expedicao,
 )
-from modules.producao.operacoes_op import retomar_embalagem_secundaria  # noqa: E402
+from modules.producao.operacoes_op import (  # noqa: E402
+    criar_tabelas_operacoes_op,
+    retomar_embalagem_secundaria,
+)
+from modules.producao import integridade_encerramento as integridade  # noqa: E402
+from modules.producao.commands import register_producao_commands  # noqa: E402
+from modules.producao.integridade_encerramento import (  # noqa: E402
+    ENCERRADA,
+    ESTADO_INCONSISTENTE,
+    PRONTA_PARA_ENCERRAMENTO,
+    auditar_integridade_encerramento,
+    montar_paineis_encerramento,
+    obter_estado_funcional_op,
+)
 from modules.qualidade.produtos_nao_conformes import criar_tabelas_pa_nao_conforme  # noqa: E402
 
 
@@ -125,6 +139,7 @@ class ExpedicaoCorretivaTest(unittest.TestCase):
         criar_tabelas_expedicao()
         criar_tabelas_estoque_pi_pa()
         criar_tabelas_estoque_confiavel()
+        criar_tabelas_operacoes_op()
         cls.local_abatedouro = consultar_um(
             "SELECT id FROM locais_estoque WHERE nome = 'Abatedouro'"
         )["id"]
@@ -143,6 +158,7 @@ class ExpedicaoCorretivaTest(unittest.TestCase):
         cls.app.add_url_rule("/consultar-op", "consultar_op", lambda: "op")
         cls.app.add_url_rule("/apontamento-descartes", "apontamento_descartes", lambda: "qualidade")
         register_expedicao_routes(cls.app)
+        register_producao_commands(cls.app)
 
     @classmethod
     def tearDownClass(cls):
@@ -191,6 +207,20 @@ class ExpedicaoCorretivaTest(unittest.TestCase):
         """, (op_id,))
         return op_id, self.criar_caixa_cortada(op_id, codigo)
 
+    def preparar_cortada_integra(self, codigo):
+        op_id, caixa_id = self.preparar_cortada(codigo)
+        executar("""INSERT INTO estoque_produto_intermediario(
+            data_movimentacao,tipo,op_id,sku,quantidade_bandejas,origem,observacoes)
+            VALUES('2026-07-25','ENTRADA_EMBALAGEM_PRIMARIA',?,'Galinha Cortada',12,
+            'Embalagem Primária','Fixture íntegro')""", (op_id,))
+        executar("""INSERT INTO estoque_produto_intermediario(
+            data_movimentacao,tipo,op_id,sku,quantidade_bandejas,origem,caixa_id,
+            observacoes,idempotency_key)
+            VALUES('2026-07-25','SAIDA_EMBALAGEM_SECUNDARIA',?,'Galinha Cortada',12,
+            'Embalagem Secundária',?,'Fixture íntegro',?)""",
+            (op_id, caixa_id, f"FIXTURE-PI-{caixa_id}"))
+        return op_id, caixa_id
+
     def criar_romaneio(self, tipo="TRANSFERENCIA", destino="Câmara Fria LSM"):
         return executar("""
         INSERT INTO expedicoes (
@@ -224,10 +254,15 @@ class ExpedicaoCorretivaTest(unittest.TestCase):
         WHERE op_id = ? AND setor = 'Expedição' AND unidade = 'unidades'
         """, (op_id,))
         self.assertEqual(producao_final["quantidade"], 8)
-        with self.assertRaises(ValueError):
-            registrar_apontamento_embalagem_primaria(
-                op, None, pacotes_1_ave=4, pacotes_2_aves=2
-            )
+        repeticao = registrar_apontamento_embalagem_primaria(
+            op, None, pacotes_1_ave=4, pacotes_2_aves=2
+        )
+        self.assertTrue(repeticao["ja_encerrada"])
+        self.assertEqual(consultar_um(
+            "SELECT COUNT(*) total FROM estoque_eventos WHERE acao='FORMACAO_ESTOQUE' "
+            "AND caixa_id IN (SELECT caixa_id FROM pa_caixa_composicao WHERE op_id=?)",
+            (op_id,),
+        )["total"], 2)
         self.assertEqual(consultar_um(
             "SELECT COUNT(*) total FROM pa_caixa_composicao WHERE op_id = ?", (op_id,)
         )["total"], 2)
@@ -964,6 +999,135 @@ class ExpedicaoCorretivaTest(unittest.TestCase):
         ):
             resultado = preflight_encerramento_op(op_id)
         self.assertTrue(resultado["permitido"])
+
+    def test_26_estado_central_identifica_op_pronta(self):
+        op_id, _ = self.preparar_cortada_integra("CX-ESTADO-PRONTA")
+        estado = obter_estado_funcional_op(op_id)
+        self.assertEqual(estado["estado_funcional"], PRONTA_PARA_ENCERRAMENTO)
+        self.assertEqual(estado["saldo_pi"], 0)
+
+    def test_27_painel_mantem_pronta_e_expoe_ultima_rejeicao(self):
+        op_id, _ = self.preparar_cortada_integra("CX-PAINEL-REJEICAO")
+        with self.assertRaisesRegex(ValueError, "Identificador"):
+            finalizar_embalagem_secundaria_op(op_id, versao_esperada=999)
+        painel = montar_paineis_encerramento({"por_pagina_encerramento": "50"})
+        item = next(i for i in painel["ops_prontas_encerramento"]["itens"] if i["op_id"] == op_id)
+        self.assertIn("Conflito de versão", item["ultima_falha"])
+
+    def test_28_painel_identifica_estado_inconsistente(self):
+        op_id, caixa_id = self.preparar_cortada_integra("CX-PAINEL-INCONSISTENTE")
+        executar("UPDATE pa_caixas SET estoque_operacional=1,disponibilidade='DISPONIVEL' WHERE id=?", (caixa_id,))
+        painel = montar_paineis_encerramento({"por_pagina_encerramento": "50"})
+        item = next(i for i in painel["estados_inconsistentes_producao"]["itens"] if i["op_id"] == op_id)
+        self.assertEqual(item["estado_funcional"], ESTADO_INCONSISTENTE)
+        self.assertIn("OP aberta", item["validacoes"])
+
+    def test_29_auditor_retorna_zero_para_op_encerrada_integra(self):
+        op_id, _ = self.preparar_cortada_integra("CX-AUDITOR-INTEGRA")
+        finalizar_embalagem_secundaria_op(op_id, idempotency_key=f"AUDITOR-INTEGRA-{op_id}")
+        resultado = auditar_integridade_encerramento(op_id=op_id)
+        self.assertEqual(resultado["criticos"], 0)
+        self.assertEqual(obter_estado_funcional_op(op_id)["estado_funcional"], ENCERRADA)
+
+    def test_30_auditor_detecta_aberta_pi_zero_pendente(self):
+        op_id, _ = self.preparar_cortada_integra("CX-AUDITOR-PRONTA")
+        resultado = auditar_integridade_encerramento(op_id=op_id)
+        self.assertEqual(resultado["atencoes"], 1)
+        self.assertIn("PENDENTE_OP", resultado["achados"][0]["motivo"])
+
+    def test_31_auditor_detecta_encerrada_com_caixa_pendente(self):
+        op_id, _ = self.preparar_cortada_integra("CX-AUDITOR-FECHADA-PENDENTE")
+        executar("UPDATE ordens_producao SET status='Encerrada' WHERE id=?", (op_id,))
+        resultado = auditar_integridade_encerramento(op_id=op_id)
+        self.assertGreater(resultado["criticos"], 0)
+        self.assertTrue(any("encerrada" in i["motivo"].lower() and "PENDENTE_OP" in i["motivo"]
+                            for i in resultado["achados"]))
+
+    def test_32_auditor_detecta_pa_operacional_com_op_aberta(self):
+        op_id, caixa_id = self.preparar_cortada_integra("CX-AUDITOR-ABERTA-PA")
+        executar("UPDATE pa_caixas SET estoque_operacional=1,disponibilidade='DISPONIVEL' WHERE id=?", (caixa_id,))
+        resultado = auditar_integridade_encerramento(op_id=op_id)
+        self.assertTrue(any("OP aberta" in i["motivo"] for i in resultado["achados"]))
+
+    def test_33_pos_condicao_divergente_reverte_tudo(self):
+        op_id, caixa_id = self.preparar_cortada_integra("CX-POS-CONDICAO-ROLLBACK")
+        with mock.patch.object(
+            encerramento_op, "_validar_pos_condicoes",
+            side_effect=RuntimeError("peso operacional divergente"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "peso operacional divergente"):
+                finalizar_embalagem_secundaria_op(op_id, idempotency_key=f"POS-ROLLBACK-{op_id}")
+        self.assertEqual(consultar_um("SELECT status FROM ordens_producao WHERE id=?", (op_id,))["status"], "Aberta")
+        caixa = consultar_um("SELECT estoque_operacional,disponibilidade FROM pa_caixas WHERE id=?", (caixa_id,))
+        self.assertEqual((caixa["estoque_operacional"], caixa["disponibilidade"]), (0, "PENDENTE_OP"))
+
+    def test_34_tentativa_rejeitada_persiste_correlacao_e_motivo(self):
+        op_id, _ = self.preparar_cortada_integra("CX-TENTATIVA-CORRELACAO")
+        with self.assertRaisesRegex(ValueError, "Identificador"):
+            finalizar_embalagem_secundaria_op(
+                op_id, versao_esperada=71, request_id="REQ-TESTE-34",
+                idempotency_key=f"TENTATIVA-REJEITADA-{op_id}",
+            )
+        tentativa = consultar_um("""SELECT * FROM op_encerramento_tentativas
+            WHERE op_id=? ORDER BY id DESC LIMIT 1""", (op_id,))
+        self.assertEqual((tentativa["request_id"], tentativa["resultado"]), ("REQ-TESTE-34", "REJEITADA"))
+        self.assertIn("Conflito de versão", tentativa["motivo_rejeicao"])
+        self.assertTrue(tentativa["correlation_id"])
+
+    def test_35_consulta_do_painel_tem_contagem_sql_constante(self):
+        self.preparar_cortada_integra("CX-N1-BASE")
+
+        class CursorContador:
+            def __init__(self, cursor, contador): self._cursor, self._contador = cursor, contador
+            def execute(self, *args, **kwargs):
+                self._contador[0] += 1
+                return self._cursor.execute(*args, **kwargs)
+            def __getattr__(self, nome): return getattr(self._cursor, nome)
+
+        class ConexaoContadora:
+            def __init__(self, conn, contador): self._conn, self._contador = conn, contador
+            def cursor(self): return CursorContador(self._conn.cursor(), self._contador)
+            def __getattr__(self, nome): return getattr(self._conn, nome)
+
+        original = integridade.conectar
+        def medir():
+            contador = [0]
+            with mock.patch.object(integridade, "conectar", side_effect=lambda: ConexaoContadora(original(), contador)):
+                montar_paineis_encerramento({"por_pagina_encerramento": "50"})
+            return contador[0]
+        consultas_base = medir()
+        for indice in range(6):
+            self.preparar_cortada_integra(f"CX-N1-{indice}")
+        self.assertEqual(medir(), consultas_base)
+
+    def test_36_interface_impede_reenvio_e_mostra_processamento(self):
+        fonte = (ROOT / "templates" / "embalagem_secundaria.html").read_text(encoding="utf-8")
+        self.assertIn("data-form-encerramento", fonte)
+        self.assertIn('form.dataset.enviando === "1"', fonte)
+        self.assertIn("Encerrando com segurança...", fonte)
+
+    def test_37_duas_requisicoes_concorrentes_nao_duplicam_efeitos(self):
+        op_id, caixa_id = self.preparar_cortada_integra("CX-CONCORRENCIA-ENCERRAMENTO")
+        chave = f"CONCORRENTE-{op_id}"
+        def encerrar():
+            return finalizar_embalagem_secundaria_op(op_id, idempotency_key=chave)
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            resultados = [f.result() for f in [executor.submit(encerrar), executor.submit(encerrar)]]
+        self.assertEqual(sum(1 for r in resultados if not r["ja_encerrada"]), 1)
+        self.assertEqual(consultar_um("SELECT COUNT(*) total FROM op_operacoes_auditoria WHERE idempotency_key=?", (chave,))["total"], 1)
+        self.assertEqual(consultar_um("SELECT COUNT(*) total FROM estoque_eventos WHERE idempotency_key=?", (f"FORMACAO-PA-{caixa_id}",))["total"], 1)
+
+    def test_38_cli_json_e_exit_code_critico_sem_mutacao(self):
+        op_id, caixa_id = self.preparar_cortada_integra("CX-CLI-AUDITOR")
+        executar("UPDATE pa_caixas SET estoque_operacional=1,disponibilidade='DISPONIVEL' WHERE id=?", (caixa_id,))
+        antes = dict(consultar_um("SELECT status FROM ordens_producao WHERE id=?", (op_id,)))
+        resultado = self.app.test_cli_runner().invoke(
+            args=["auditar-encerramento-ops", "--op", str(op_id), "--json-output"]
+        )
+        self.assertEqual(resultado.exit_code, 2)
+        self.assertIn('"somente_leitura": true', resultado.output)
+        self.assertIn('"criticos":', resultado.output)
+        self.assertEqual(dict(consultar_um("SELECT status FROM ordens_producao WHERE id=?", (op_id,))), antes)
 
 
 if __name__ == "__main__":

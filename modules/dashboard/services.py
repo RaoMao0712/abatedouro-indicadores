@@ -5,6 +5,7 @@ from decimal import Decimal
 
 from .repositories import buscar_dados_dashboard
 from modules.producao.oee import montar_contexto_oee
+from modules.producao.integridade_encerramento import montar_paineis_encerramento
 
 
 JORNADA_PADRAO = 8.8
@@ -141,7 +142,7 @@ def montar_contexto_dashboard(args):
         mao_obra["colaboradores_medio_por_setor"],
     )
 
-    return {
+    contexto = {
         "data_inicio": data_inicio,
         "data_fim": data_fim,
         "status_filtro": status_filtro,
@@ -186,6 +187,8 @@ def montar_contexto_dashboard(args):
         "produtividade_setores_hora": produtividade_setores_hora,
         "oee_oficial": oee_oficial,
     }
+    contexto.update(montar_paineis_encerramento(args))
+    return contexto
 
 
 def _montar_descartes_por_setor(descartes_raw, mortes_antes_pendura, total_problemas_aves):

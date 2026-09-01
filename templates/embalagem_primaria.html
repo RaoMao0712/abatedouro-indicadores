@@ -53,7 +53,7 @@
         </div>
     </div>
 
-    <form method="post" class="form-grid">
+    <form method="post" class="form-grid" data-form-encerramento-primaria>
         <div>
             <label>OP</label>
             <select name="op_id" required>
@@ -102,7 +102,7 @@
         </section>
 
         <div class="form-span-2">
-            <button type="submit" class="botao-principal" id="botao-embalagem-primaria">{% if modo_edicao and apontamento_edicao %}Atualizar PI{% else %}Registrar PI{% endif %}</button>
+            <button type="submit" class="botao-principal" id="botao-embalagem-primaria" data-botao-encerramento-primaria>{% if modo_edicao and apontamento_edicao %}Atualizar PI{% else %}Registrar PI{% endif %}</button>
             {% if modo_edicao and apontamento_edicao %}
                 <a href="{{ url_for('embalagem_primaria') }}" class="botao-secundario" style="margin-left: 10px;">Cancelar edição</a>
             {% endif %}
@@ -263,6 +263,21 @@ document.addEventListener("DOMContentLoaded", function () {
     if (selectOp) {
         selectOp.addEventListener("change", atualizarTela);
     }
+
+    const form = document.querySelector("[data-form-encerramento-primaria]");
+    if (form) form.addEventListener("submit", function (evento) {
+        if (form.dataset.enviando === "1") {
+            evento.preventDefault();
+            return;
+        }
+        form.dataset.enviando = "1";
+        form.setAttribute("aria-busy", "true");
+        if (botao) {
+            botao.disabled = true;
+            botao.textContent = skuSelecionado() === "Galinha Inteira"
+                ? "Encerrando com segurança..." : "Registrando PI...";
+        }
+    });
 
     atualizarTela();
 });

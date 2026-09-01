@@ -28,6 +28,7 @@ from modules.pedidos_venda import criar_tabelas_pedidos_venda, register_pedidos_
 from modules.movimentacoes.routes import register_movimentacoes_routes
 from modules.movimentacoes.commands import register_movimentacoes_commands
 from modules.producao.routes import register_producao_routes
+from modules.producao.commands import register_producao_commands
 from modules.producao.correcoes_administrativas import criar_tabelas_correcoes_administrativas_op
 from modules.producao.disponibilidade import criar_tabelas_disponibilidade
 from modules.producao.performance import criar_tabelas_performance
@@ -596,6 +597,7 @@ register_pedidos_venda_routes(app)
 
 register_movimentacoes_routes(app)
 register_movimentacoes_commands(app)
+register_producao_commands(app)
 register_manutencao_routes(app)
 register_importacao_routes(app, {
     "criar_banco": criar_banco,
