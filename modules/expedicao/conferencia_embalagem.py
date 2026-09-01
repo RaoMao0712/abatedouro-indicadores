@@ -9,7 +9,7 @@ from database import DATABASE_URL, conectar, q, transaction
 
 from .estornos_embalagem import (
     STATUS_INATIVOS,
-    _buscar_bloqueios,
+    _buscar_bloqueios_lote,
     criar_tabelas_estornos_embalagem,
 )
 
@@ -235,8 +235,11 @@ def obter_conferencia_op(op_id, filtros=None):
     cursor = conn.cursor()
     caixas = _linhas_op(cursor, int(op_id))
     duplicadas = _marcar_duplicidades(caixas)
+    ativas = [caixa for caixa in caixas
+              if str(caixa.get("status") or "").upper() not in STATUS_INATIVOS]
+    bloqueios_por_caixa = _buscar_bloqueios_lote(cursor, ativas)
     for caixa in caixas:
-        caixa["bloqueios"] = _buscar_bloqueios(cursor, caixa) if str(caixa.get("status") or "").upper() not in STATUS_INATIVOS else []
+        caixa["bloqueios"] = bloqueios_por_caixa.get(int(caixa["id"]), [])
         caixa["selecionavel"] = not caixa["bloqueios"] and str(caixa.get("status") or "").upper() not in STATUS_INATIVOS
     totais = _totais(caixas)
     totais["saldo_pendente"] = _saldo_pendente(cursor, int(op_id))

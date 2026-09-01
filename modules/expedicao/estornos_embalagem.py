@@ -216,6 +216,58 @@ def _buscar_bloqueios(cursor, caixa):
     return list(dict.fromkeys(bloqueios))
 
 
+def _buscar_bloqueios_lote(cursor, caixas):
+    """Versão read-only em lote; a mutação revalida cada caixa sob lock."""
+    ids = [int(caixa["id"]) for caixa in caixas]
+    if not ids:
+        return {}
+    marcadores = ",".join("?" for _ in ids)
+
+    def agrupar(linhas):
+        resultado = {}
+        for linha in linhas:
+            resultado.setdefault(int(linha["caixa_id"]), []).append(linha)
+        return resultado
+
+    cursor.execute(q(f"""SELECT i.caixa_id,e.numero_romaneio,e.status,e.id
+        FROM expedicao_itens i JOIN expedicoes e ON e.id=i.expedicao_id
+        WHERE i.caixa_id IN ({marcadores}) ORDER BY i.caixa_id,e.id"""), ids)
+    expedicoes = agrupar(cursor.fetchall())
+    cursor.execute(q(f"""SELECT caixa_id,tipo,id FROM pa_movimentacoes
+        WHERE caixa_id IN ({marcadores}) ORDER BY caixa_id,id"""), ids)
+    movimentacoes = agrupar(cursor.fetchall())
+    cursor.execute(q(f"""SELECT caixa_id,id,status FROM pa_nao_conformes
+        WHERE caixa_id IN ({marcadores}) ORDER BY caixa_id,id"""), ids)
+    pncs = agrupar(cursor.fetchall())
+    cursor.execute(q(f"""SELECT caixa_id,acao,id FROM estoque_eventos
+        WHERE caixa_id IN ({marcadores})
+          AND acao NOT IN ('FORMACAO_ESTOQUE','ESTORNO_CAIXA_EMBALAGEM')
+        ORDER BY caixa_id,id"""), ids)
+    eventos = agrupar(cursor.fetchall())
+
+    por_caixa = {}
+    for caixa in caixas:
+        caixa_id = int(caixa["id"])
+        bloqueios = []
+        for item in expedicoes.get(caixa_id, []):
+            bloqueios.append(f"A caixa está vinculada ao Romaneio nº {item['numero_romaneio']} ({item['status']}).")
+        for item in movimentacoes.get(caixa_id, []):
+            bloqueios.append(f"A caixa possui movimentação posterior de estoque: {item['tipo']}.")
+        for item in pncs.get(caixa_id, []):
+            bloqueios.append(f"A caixa está vinculada ao Produto Não Conforme nº {item['id']} ({item['status']}).")
+        for item in eventos.get(caixa_id, []):
+            bloqueios.append(f"A caixa possui evento sucessor de estoque: {item['acao']}.")
+        if caixa["reservado_expedicao_id"]:
+            bloqueios.append(f"A caixa está reservada pelo romaneio interno #{caixa['reservado_expedicao_id']}.")
+        if _decimal(caixa["quantidade_pacotes_reservados"]) > 0:
+            bloqueios.append(f"A caixa possui {caixa['quantidade_pacotes_reservados']} unidades reservadas.")
+        disponibilidade = str(caixa["disponibilidade"] or "PENDENTE_OP").upper()
+        if disponibilidade not in {"PENDENTE_OP", "DISPONIVEL"}:
+            bloqueios.append(f"A caixa está na situação operacional {disponibilidade}.")
+        por_caixa[caixa_id] = list(dict.fromkeys(bloqueios))
+    return por_caixa
+
+
 def _movimentos_pi_originais(cursor, op_id, caixa_id, composicoes):
     cursor.execute(q("""SELECT * FROM estoque_produto_intermediario
         WHERE op_id=? AND tipo='SAIDA_EMBALAGEM_SECUNDARIA'
