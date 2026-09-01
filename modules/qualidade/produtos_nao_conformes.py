@@ -166,8 +166,9 @@ def criar_tabelas_pa_nao_conforme():
         conn.close()
 
 
-def listar_locais_segregacao():
-    criar_tabelas_pa_nao_conforme()
+def listar_locais_segregacao(*, garantir_schema=True):
+    if garantir_schema:
+        criar_tabelas_pa_nao_conforme()
     conn = conectar()
     try:
         cursor = conn.cursor()
@@ -520,8 +521,9 @@ def _situacao_aceita(registro, situacao):
     return ativo
 
 
-def consultar(filtros=None, *, paginar=False):
-    criar_tabelas_pa_nao_conforme()
+def consultar(filtros=None, *, paginar=False, garantir_schema=True):
+    if garantir_schema:
+        criar_tabelas_pa_nao_conforme()
     filtros = filtros or {}
     clausulas, params = ["1=1"], []
     mapa = {

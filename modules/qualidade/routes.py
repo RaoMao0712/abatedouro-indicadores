@@ -124,8 +124,12 @@ def register_qualidade_routes(app, integracoes=None):
             "local", "responsavel", "destinacao", "situacao", "pagina", "por_pagina",
         )}
         filtros["situacao"] = _normalizar_situacao_pnc(filtros["situacao"])
-        registros, paginacao = consultar_pa_nc(filtros, paginar=True)
-        registros_indicadores = consultar_pa_nc({**filtros, "pagina": ""})
+        registros, paginacao = consultar_pa_nc(
+            filtros, paginar=True, garantir_schema=False,
+        )
+        registros_indicadores = consultar_pa_nc(
+            {**filtros, "pagina": ""}, garantir_schema=False,
+        )
         args_paginacao = request.args.to_dict()
         args_paginacao["situacao"] = filtros["situacao"]
         url_anterior = url_proxima = None
@@ -144,7 +148,7 @@ def register_qualidade_routes(app, integracoes=None):
             url_anterior=url_anterior, url_proxima=url_proxima,
             motivos=MOTIVOS, status_opcoes=sorted(STATUS),
             status_labels=STATUS_LABELS,
-            locais=listar_locais_segregacao(),
+            locais=listar_locais_segregacao(garantir_schema=False),
         )
 
     @app.get("/qualidade/produtos-nao-conformes/exportar.csv")
