@@ -817,7 +817,15 @@ def buscar_caixas_por_op_e_peso(expedicao_id, op_id, peso):
         if not local:
             return []
         peso_canonico = format(peso, ".3f")
-        cursor.execute(q("""
+        peso_bruto_sql = (
+            "CAST(cx.peso_bruto AS NUMERIC(18, 3))"
+            if DATABASE_URL else "ROUND(cx.peso_bruto, 3)"
+        )
+        peso_liquido_sql = (
+            "CAST(cx.peso_liquido AS NUMERIC(18, 3))"
+            if DATABASE_URL else "ROUND(cx.peso_liquido, 3)"
+        )
+        cursor.execute(q(f"""
         SELECT DISTINCT
             cx.id, cx.codigo_caixa, cx.sku, cx.apresentacao,
             cx.data_fabricacao, cx.data_validade, cx.peso_bruto,
@@ -832,7 +840,10 @@ def buscar_caixas_por_op_e_peso(expedicao_id, op_id, peso):
           AND cx.status = 'Em estoque'
           AND cx.condicao = 'CONFORME'
           AND cx.disponibilidade = 'DISPONIVEL'
-          AND (cx.peso_bruto = CAST(? AS NUMERIC) OR cx.peso_liquido = CAST(? AS NUMERIC))
+          AND (
+              {peso_bruto_sql} = CAST(? AS NUMERIC)
+              OR {peso_liquido_sql} = CAST(? AS NUMERIC)
+          )
         ORDER BY cx.data_validade ASC, cx.id ASC
         """), (op["id"], local["id"], peso_canonico, peso_canonico))
         return [dict(item) for item in cursor.fetchall()]

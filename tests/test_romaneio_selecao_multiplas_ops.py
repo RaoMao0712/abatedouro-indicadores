@@ -179,6 +179,11 @@ class SelecaoMultiplasOpsTest(unittest.TestCase):
             ids = {item["id"] for item in buscar_caixas_por_op_e_peso(self.romaneio, 83, peso)}
             self.assertEqual(ids, {bruto, liquido})
 
+    def test_pesquisa_normaliza_real_legado_na_precisao_oficial(self):
+        caixa = self.criar_caixa("CX-REAL-LEGADO", 83, 3.1000001, 2.3500001)
+        encontrados = buscar_caixas_por_op_e_peso(self.romaneio, 83, "2,350")
+        self.assertEqual([item["id"] for item in encontrados], [caixa])
+
     def test_pesquisa_isolada_por_op_retorna_todas_as_correspondencias(self):
         ids_83 = {self.criar_caixa(f"CX-83-{i}", 83, 2.85, 2.35) for i in range(3)}
         self.criar_caixa("CX-84", 84, 2.85, 2.35)
