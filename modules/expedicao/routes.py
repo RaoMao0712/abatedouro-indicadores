@@ -61,11 +61,14 @@ from .estoque_service import (
     TIPOS_ROMANEIO,
     TIPOS_SAIDA,
     bloquear_produto,
+    atualizar_reserva_quantitativa,
     buscar_caixas_elegiveis_op,
     buscar_caixas_por_op_e_peso,
     buscar_estoque_operacional,
     buscar_historico_estoque,
+    buscar_modalidades_controle_op,
     buscar_op_para_romaneio,
+    buscar_saldos_quantitativos_op,
     cancelar_romaneio,
     concluir_romaneio,
     destinar_produto,
@@ -849,7 +852,24 @@ def register_expedicao_routes(app, integracoes=None):
             caixas = buscar_caixas_elegiveis_op(
                 expedicao_id, op_id, op_validada=op
             )
-            return jsonify({"ok": True, "op": op, "caixas": caixas})
+            saldos = buscar_saldos_quantitativos_op(
+                expedicao_id, op_id, op_validada=op
+            )
+            modalidades = buscar_modalidades_controle_op(
+                expedicao_id, op_id, op_validada=op
+            )
+            mensagem = None
+            if not caixas and not saldos:
+                mensagem = (
+                    "Esta OP não possui caixas disponíveis para inclusão no romaneio."
+                    if modalidades["controle_caixas"]
+                    else "Esta OP não possui saldo disponível para inclusão no romaneio."
+                )
+            return jsonify({
+                "ok": True, "op": op, "caixas": caixas,
+                "saldos_quantitativos": saldos,
+                "modalidades": modalidades, "mensagem": mensagem,
+            })
         except ValueError as erro:
             return jsonify({"ok": False, "mensagem": str(erro)}), 400
 
@@ -882,14 +902,49 @@ def register_expedicao_routes(app, integracoes=None):
         except (TypeError, ValueError) as erro:
             return jsonify({"ok": False, "mensagem": str(erro)}), 400
 
+    @app.put("/expedicao/<int:expedicao_id>/selecao-ops/<int:op_id>/saldos/<int:caixa_id>")
+    @perfil_permitido("pcp", "qualidade", "gerencia", "expedicao")
+    def atualizar_saldo_op_romaneio(expedicao_id, op_id, caixa_id):
+        dados = request.get_json(silent=True) or {}
+        try:
+            saldo = atualizar_reserva_quantitativa(
+                expedicao_id, op_id, caixa_id, dados.get("quantidade_aves")
+            )
+            return jsonify({
+                "ok": True,
+                "mensagem": "Quantidade de aves atualizada no romaneio.",
+                "saldo": saldo,
+                "op": buscar_op_para_romaneio(expedicao_id, op_id),
+            })
+        except (TypeError, ValueError) as erro:
+            return jsonify({"ok": False, "mensagem": str(erro)}), 400
+
+    @app.delete("/expedicao/<int:expedicao_id>/selecao-ops/<int:op_id>/saldos/<int:caixa_id>")
+    @perfil_permitido("pcp", "qualidade", "gerencia", "expedicao")
+    def remover_saldo_op_romaneio(expedicao_id, op_id, caixa_id):
+        try:
+            buscar_op_para_romaneio(expedicao_id, op_id)
+            remover_item_reservado(expedicao_id, caixa_id, op_id_esperada=op_id)
+            return jsonify({
+                "ok": True,
+                "mensagem": "Quantidade de aves removida do romaneio.",
+                "op": buscar_op_para_romaneio(expedicao_id, op_id),
+            })
+        except (TypeError, ValueError) as erro:
+            return jsonify({"ok": False, "mensagem": str(erro)}), 400
+
     @app.delete("/expedicao/<int:expedicao_id>/selecao-ops/<int:op_id>")
     @perfil_permitido("pcp", "qualidade", "gerencia", "expedicao")
     def remover_op_romaneio(expedicao_id, op_id):
         try:
             op = buscar_op_para_romaneio(expedicao_id, op_id)
             dados = request.get_json(silent=True) or {}
-            if op["selecionadas"] and dados.get("confirmar_remocao_caixas") is not True:
-                raise ValueError("Confirme a remoção das caixas selecionadas desta OP.")
+            confirmou = (
+                dados.get("confirmar_remocao_itens") is True
+                or dados.get("confirmar_remocao_caixas") is True
+            )
+            if op["selecionadas"] and not confirmou:
+                raise ValueError("Confirme a remoção dos itens selecionados desta OP.")
             removidas = remover_itens_reservados_op(expedicao_id, op_id)
             return jsonify({
                 "ok": True,

@@ -24,11 +24,14 @@ from flask import Flask  # noqa: E402
 from database import conectar, q  # noqa: E402
 import modules.expedicao.estoque_service as estoque_service  # noqa: E402
 from modules.expedicao.estoque_service import (  # noqa: E402
+    atualizar_reserva_quantitativa,
     buscar_caixas_elegiveis_op,
     buscar_caixas_por_op_e_peso,
     buscar_op_para_romaneio,
+    buscar_saldos_quantitativos_op,
     concluir_romaneio,
     criar_tabelas_estoque_confiavel,
+    remover_item_reservado,
     reservar_itens,
 )
 from modules.expedicao.routes import register_expedicao_routes  # noqa: E402
@@ -152,6 +155,25 @@ class SelecaoMultiplasOpsTest(unittest.TestCase):
         executar("""
         INSERT INTO pa_caixa_composicao (caixa_id, op_id, quantidade_bandejas)
         VALUES (?, ?, 12)
+        """, (caixa_id, op_id))
+        return caixa_id
+
+    def criar_saldo_quantitativo(self, codigo, op_id, pacotes, aves_por_pacote=1,
+                                  *, disponibilidade="DISPONIVEL", condicao="CONFORME"):
+        caixa_id = executar("""
+        INSERT INTO pa_caixas (
+            codigo_caixa, sku, data_fabricacao, data_validade, status, origem,
+            local_estoque_id, estoque_operacional, condicao, disponibilidade,
+            zona_estoque, unidade_estoque, apresentacao, galinhas_por_pacote,
+            quantidade_pacotes, quantidade_galinhas, quantidade_pacotes_reservados
+        ) VALUES (?, 'Produto configurado', '2026-09-02', '2027-09-02', 'Em estoque',
+                  'Embalagem Primária', ?, 1, ?, ?, 'Conforme', 'PACOTE', ?, ?, ?, ?, 0)
+        """, (codigo, self.local_abatedouro, condicao, disponibilidade,
+              f"Pacote oficial com {aves_por_pacote}", aves_por_pacote,
+              pacotes, pacotes * aves_por_pacote))
+        executar("""
+        INSERT INTO pa_caixa_composicao (caixa_id, op_id, quantidade_bandejas)
+        VALUES (?, ?, 0)
         """, (caixa_id, op_id))
         return caixa_id
 
@@ -293,7 +315,171 @@ class SelecaoMultiplasOpsTest(unittest.TestCase):
         self.assertEqual(set(removida.get_json()["caixa_ids"]), {a, b})
         self.assertEqual(consultar("SELECT * FROM expedicao_itens"), [])
         texto = (ROOT / "templates" / "romaneio_detalhe.html").read_text(encoding="utf-8")
-        self.assertIn("também retirará essas caixas", texto)
+        self.assertIn("também retirará esses itens", texto)
+
+    def test_op_quantitativa_carrega_saldo_sem_reservar_automaticamente(self):
+        saldo_id = self.criar_saldo_quantitativo("GI-OP83-V1", 83, 240)
+        resposta = self.cliente().get(
+            f"/expedicao/{self.romaneio}/selecao-ops/83"
+        ).get_json()
+        self.assertEqual(resposta["caixas"], [])
+        self.assertTrue(resposta["modalidades"]["controle_quantidade"])
+        self.assertFalse(resposta["modalidades"]["controle_caixas"])
+        self.assertIsNone(resposta["mensagem"])
+        self.assertEqual(resposta["saldos_quantitativos"][0]["id"], saldo_id)
+        self.assertEqual(resposta["saldos_quantitativos"][0]["quantidade_disponivel_aves"], 240)
+        self.assertEqual(resposta["saldos_quantitativos"][0]["quantidade_selecionada_aves"], 0)
+        self.assertEqual(consultar("SELECT * FROM expedicao_itens"), [])
+        self.assertEqual(calcular_resumo_itens_expedicao([])["total_itens"], 0)
+
+    def test_reserva_80_aves_de_240_mantem_160_disponiveis(self):
+        saldo_id = self.criar_saldo_quantitativo("GI-PARCIAL", 83, 240)
+        retorno = atualizar_reserva_quantitativa(self.romaneio, 83, saldo_id, "80")
+        self.assertEqual(retorno["quantidade_selecionada_aves"], 80)
+        self.assertEqual(retorno["quantidade_disponivel_aves"], 160)
+        itens = buscar_itens_expedicao(self.romaneio)
+        self.assertEqual(len(itens), 1)
+        self.assertEqual(itens[0]["op_id"], 83)
+        self.assertEqual(itens[0]["quantidade_galinhas"], 80)
+        self.assertEqual(itens[0]["quantidade_pacotes"], 80)
+        saldo = buscar_saldos_quantitativos_op(self.romaneio, 83)[0]
+        self.assertEqual(saldo["quantidade_disponivel_aves"], 160)
+        self.assertEqual(saldo["limite_edicao_aves"], 240)
+
+    def test_edicao_substitui_quantidade_sem_duplicar_e_devolve_saldo(self):
+        saldo_id = self.criar_saldo_quantitativo("GI-EDICAO", 83, 240)
+        atualizar_reserva_quantitativa(self.romaneio, 83, saldo_id, 80)
+        atualizar_reserva_quantitativa(self.romaneio, 83, saldo_id, 100)
+        self.assertEqual(len(buscar_itens_expedicao(self.romaneio)), 1)
+        self.assertEqual(buscar_itens_expedicao(self.romaneio)[0]["quantidade_galinhas"], 100)
+        reduzir = atualizar_reserva_quantitativa(self.romaneio, 83, saldo_id, 60)
+        self.assertEqual(reduzir["quantidade_disponivel_aves"], 180)
+        self.assertEqual(buscar_itens_expedicao(self.romaneio)[0]["quantidade_galinhas"], 60)
+        eventos_antes = consultar("SELECT COUNT(*) AS total FROM estoque_eventos")[0]["total"]
+        repetir = atualizar_reserva_quantitativa(self.romaneio, 83, saldo_id, 60)
+        eventos_depois = consultar("SELECT COUNT(*) AS total FROM estoque_eventos")[0]["total"]
+        self.assertEqual(repetir["quantidade_disponivel_aves"], 180)
+        self.assertEqual(eventos_depois, eventos_antes)
+        self.assertEqual(consultar(
+            "SELECT quantidade_pacotes_reservados FROM pa_caixas WHERE id=?", (saldo_id,)
+        )[0][0], 60)
+
+    def test_remocao_quantitativa_libera_integralmente_a_reserva(self):
+        saldo_id = self.criar_saldo_quantitativo("GI-REMOVER", 83, 100)
+        atualizar_reserva_quantitativa(self.romaneio, 83, saldo_id, 40)
+        remover_item_reservado(self.romaneio, saldo_id, op_id_esperada=83)
+        self.assertEqual(buscar_itens_expedicao(self.romaneio), [])
+        posicao = consultar(
+            "SELECT quantidade_pacotes_reservados,disponibilidade FROM pa_caixas WHERE id=?",
+            (saldo_id,),
+        )[0]
+        self.assertEqual(posicao["quantidade_pacotes_reservados"], 0)
+        self.assertEqual(posicao["disponibilidade"], "DISPONIVEL")
+
+    def test_remover_op_ignora_item_quantitativo_ja_inativo(self):
+        saldo_id = self.criar_saldo_quantitativo("GI-INATIVO", 83, 100)
+        atualizar_reserva_quantitativa(self.romaneio, 83, saldo_id, 40)
+        remover_item_reservado(self.romaneio, saldo_id, op_id_esperada=83)
+        self.assertEqual(
+            estoque_service.remover_itens_reservados_op(self.romaneio, 83), []
+        )
+        self.assertEqual(consultar(
+            "SELECT quantidade_pacotes_reservados FROM pa_caixas WHERE id=?", (saldo_id,)
+        )[0][0], 0)
+
+    def test_quantidade_de_aves_rejeita_vazio_zero_negativo_decimal_e_excesso(self):
+        saldo_id = self.criar_saldo_quantitativo("GI-VALIDACAO", 83, 10)
+        for valor in (None, "", "0", "-1", "1.5", "abc"):
+            with self.subTest(valor=valor), self.assertRaises(ValueError):
+                atualizar_reserva_quantitativa(self.romaneio, 83, saldo_id, valor)
+        with self.assertRaisesRegex(ValueError, "excede"):
+            atualizar_reserva_quantitativa(self.romaneio, 83, saldo_id, 11)
+        self.assertEqual(consultar("SELECT * FROM expedicao_itens"), [])
+
+    def test_apresentacoes_usam_fator_oficial_e_exigem_pacote_fechado(self):
+        v1 = self.criar_saldo_quantitativo("GI-V1", 83, 10, 1)
+        v2 = self.criar_saldo_quantitativo("GI-V2", 83, 10, 2)
+        v3 = self.criar_saldo_quantitativo("GI-V3", 83, 10, 3)
+        atualizar_reserva_quantitativa(self.romaneio, 83, v1, 7)
+        atualizar_reserva_quantitativa(self.romaneio, 83, v2, 20)
+        atualizar_reserva_quantitativa(self.romaneio, 83, v3, 9)
+        with self.assertRaisesRegex(ValueError, "pacotes completos de 2"):
+            atualizar_reserva_quantitativa(self.romaneio, 83, v2, 19)
+        itens = buscar_itens_expedicao(self.romaneio)
+        self.assertEqual(sum(item["quantidade_galinhas"] for item in itens), 36)
+        self.assertEqual({item["galinhas_por_pacote"] for item in itens}, {1, 2, 3})
+
+    def test_edicao_considera_reserva_propria_e_reservas_de_outros_romaneios(self):
+        saldo_id = self.criar_saldo_quantitativo("GI-CONCORRENCIA", 83, 100)
+        outro = self.criar_romaneio("ROM-OUTRO-QUANT")
+        atualizar_reserva_quantitativa(self.romaneio, 83, saldo_id, 20)
+        atualizar_reserva_quantitativa(outro, 83, saldo_id, 30)
+        saldo = buscar_saldos_quantitativos_op(self.romaneio, 83)[0]
+        self.assertEqual(saldo["quantidade_disponivel_aves"], 50)
+        self.assertEqual(saldo["limite_edicao_aves"], 70)
+        atualizar_reserva_quantitativa(self.romaneio, 83, saldo_id, 70)
+        with self.assertRaisesRegex(ValueError, "excede"):
+            atualizar_reserva_quantitativa(outro, 83, saldo_id, 31)
+        atualizar_reserva_quantitativa(self.romaneio, 83, saldo_id, 60)
+        self.assertEqual(buscar_saldos_quantitativos_op(outro, 83)[0]["quantidade_disponivel_aves"], 10)
+
+    def test_multiplas_ops_e_fluxo_misto_preservam_origens(self):
+        aves_83 = self.criar_saldo_quantitativo("GI-MISTA-83", 83, 100, 1)
+        aves_84 = self.criar_saldo_quantitativo("GI-MISTA-84", 84, 40, 2)
+        caixa_84 = self.criar_caixa("CX-MISTA-84", 84, 3, 2.5)
+        atualizar_reserva_quantitativa(self.romaneio, 83, aves_83, 80)
+        atualizar_reserva_quantitativa(self.romaneio, 84, aves_84, 40)
+        reservar_itens(self.romaneio, [caixa_84], op_id_esperada=84)
+        itens = buscar_itens_expedicao(self.romaneio)
+        self.assertEqual(len(itens), 3)
+        self.assertEqual({item["op_id"] for item in itens}, {83, 84})
+        self.assertEqual(sum(item["quantidade_galinhas"] or 0 for item in itens), 120)
+        self.assertEqual({item["caixa_id"] for item in itens}, {aves_83, aves_84, caixa_84})
+
+    def test_endpoints_quantitativos_atualizam_e_removem_sem_cruzar_ops(self):
+        saldo_id = self.criar_saldo_quantitativo("GI-API", 83, 50, 2)
+        cliente = self.cliente()
+        criada = cliente.put(
+            f"/expedicao/{self.romaneio}/selecao-ops/83/saldos/{saldo_id}",
+            json={"quantidade_aves": 20},
+        )
+        self.assertEqual(criada.status_code, 200)
+        self.assertEqual(criada.get_json()["op"]["aves_selecionadas"], 20)
+        indevida = cliente.delete(
+            f"/expedicao/{self.romaneio}/selecao-ops/84/saldos/{saldo_id}"
+        )
+        self.assertEqual(indevida.status_code, 400)
+        removida = cliente.delete(
+            f"/expedicao/{self.romaneio}/selecao-ops/83/saldos/{saldo_id}"
+        )
+        self.assertEqual(removida.status_code, 200)
+        self.assertEqual(removida.get_json()["op"]["aves_selecionadas"], 0)
+
+    def test_mensagens_distinguem_saldo_quantitativo_caixas_e_op_sem_item(self):
+        saldo_id = self.criar_saldo_quantitativo("GI-MENSAGEM", 83, 10)
+        carga_gi = self.cliente().get(
+            f"/expedicao/{self.romaneio}/selecao-ops/83"
+        ).get_json()
+        self.assertIsNone(carga_gi["mensagem"])
+        executar("UPDATE pa_caixas SET disponibilidade='TRANSFERIDO',status='Transferido' WHERE id=?", (saldo_id,))
+        self.criar_caixa("CX-SEM-SALDO", 84, 3, 2.5, disponibilidade="EXPEDIDO", status="Expedido")
+        carga_caixa = self.cliente().get(
+            f"/expedicao/{self.romaneio}/selecao-ops/84"
+        ).get_json()
+        self.assertEqual(
+            carga_caixa["mensagem"],
+            "Esta OP não possui caixas disponíveis para inclusão no romaneio.",
+        )
+
+    def test_interface_quantitativa_inicia_vazia_e_exibe_equivalencia_em_aves(self):
+        template = (ROOT / "templates" / "romaneio_detalhe.html").read_text(encoding="utf-8")
+        self.assertIn('label.textContent = "Quantidade de aves"', template)
+        self.assertIn('input.placeholder = "Informe as aves"', template)
+        self.assertIn('input.value = saldo.quantidade_selecionada_aves > 0', template)
+        self.assertIn("aves — ${aves / saldo.galinhas_por_pacote} pacotes", template)
+        self.assertIn("saldos_quantitativos", template)
+        self.assertIn("if (mode.controle_caixas) block.appendChild(search);", template)
+        self.assertNotIn("saldo.quantidade_disponivel_aves) : String", template)
 
     def test_um_romaneio_multiplas_ops_mantem_totais_e_conclui(self):
         a = self.criar_caixa("CX-TOTAL-A", 83, 3, 2.5)
