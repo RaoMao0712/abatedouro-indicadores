@@ -768,7 +768,7 @@ def _peso_romaneio(valor):
 
 
 def buscar_op_para_romaneio(expedicao_id, op_id):
-    """Valida a OP sem carregar suas caixas."""
+    """Valida uma OP que será usada na composição de um romaneio aberto."""
     criar_tabelas_estoque_confiavel()
     try:
         op_id = int(op_id)
@@ -798,10 +798,9 @@ def buscar_op_para_romaneio(expedicao_id, op_id):
         conn.close()
 
 
-def buscar_caixas_por_op_e_peso(expedicao_id, op_id, peso):
-    """Consulta pontual; a reserva continua sendo a fonte central de disponibilidade."""
-    op = buscar_op_para_romaneio(expedicao_id, op_id)
-    peso = _peso_romaneio(peso)
+def buscar_caixas_elegiveis_op(expedicao_id, op_id, *, op_validada=None):
+    """Lista, em uma única consulta, as caixas que a reserva normal pode aceitar."""
+    op = op_validada or buscar_op_para_romaneio(expedicao_id, op_id)
     conn = conectar()
     try:
         cursor = conn.cursor()
@@ -816,16 +815,7 @@ def buscar_caixas_por_op_e_peso(expedicao_id, op_id, peso):
         local = cursor.fetchone()
         if not local:
             return []
-        peso_canonico = format(peso, ".3f")
-        peso_bruto_sql = (
-            "CAST(cx.peso_bruto AS NUMERIC(18, 3))"
-            if DATABASE_URL else "ROUND(cx.peso_bruto, 3)"
-        )
-        peso_liquido_sql = (
-            "CAST(cx.peso_liquido AS NUMERIC(18, 3))"
-            if DATABASE_URL else "ROUND(cx.peso_liquido, 3)"
-        )
-        cursor.execute(q(f"""
+        cursor.execute(q("""
         SELECT DISTINCT
             cx.id, cx.codigo_caixa, cx.sku, cx.apresentacao,
             cx.data_fabricacao, cx.data_validade, cx.peso_bruto,
@@ -840,15 +830,38 @@ def buscar_caixas_por_op_e_peso(expedicao_id, op_id, peso):
           AND cx.status = 'Em estoque'
           AND cx.condicao = 'CONFORME'
           AND cx.disponibilidade = 'DISPONIVEL'
-          AND (
-              {peso_bruto_sql} = CAST(? AS NUMERIC)
-              OR {peso_liquido_sql} = CAST(? AS NUMERIC)
+          AND cx.reservado_expedicao_id IS NULL
+          AND NOT EXISTS (
+              SELECT 1
+              FROM expedicao_itens ei
+              WHERE ei.caixa_id = cx.id AND COALESCE(ei.ativo, 1) = 1
           )
         ORDER BY cx.data_validade ASC, cx.id ASC
-        """), (op["id"], local["id"], peso_canonico, peso_canonico))
-        return [dict(item) for item in cursor.fetchall()]
+        """), (op["id"], local["id"]))
+        caixas = [dict(item) for item in cursor.fetchall()]
+        for caixa in caixas:
+            for campo in ("peso_bruto", "peso_liquido"):
+                valor = caixa[campo]
+                caixa[f"{campo}_canonico"] = (
+                    None if valor in (None, "") else format(
+                        Decimal(str(valor)).quantize(Decimal("0.001")), ".3f"
+                    )
+                )
+        return caixas
     finally:
         conn.close()
+
+
+def buscar_caixas_por_op_e_peso(expedicao_id, op_id, peso):
+    """Aplica o filtro opcional sobre a coleção canônica de caixas elegíveis da OP."""
+    if peso is None or not str(peso).strip():
+        return buscar_caixas_elegiveis_op(expedicao_id, op_id)
+    peso_canonico = format(_peso_romaneio(peso), ".3f")
+    return [
+        caixa for caixa in buscar_caixas_elegiveis_op(expedicao_id, op_id)
+        if caixa["peso_bruto_canonico"] == peso_canonico
+        or caixa["peso_liquido_canonico"] == peso_canonico
+    ]
 
 
 def buscar_historico_estoque(limite=300):

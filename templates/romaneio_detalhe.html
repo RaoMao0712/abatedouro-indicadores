@@ -167,7 +167,7 @@
                  data-ops-selecionadas='{{ ops_selecionadas|tojson }}'
                  data-caixas-selecionadas='{{ caixas_selecionadas_ids|tojson }}'>
             <div class="romaneio-secao-titulo">
-                <div><h3>Itens elegíveis para reserva</h3><small>Localize caixas por OP e peso bruto ou líquido.</small></div>
+                <div><h3>Itens elegíveis para reserva</h3><small>Carregue uma OP, selecione as caixas e, se necessário, filtre por peso.</small></div>
             </div>
             <form id="form-adicionar-op" class="romaneio-op-adicionar">
                 <label for="numero-op-romaneio">OP</label>
@@ -360,6 +360,9 @@
     const initialOps = JSON.parse(root.dataset.opsSelecionadas || "{}");
     const storageKey = `frigodatta-romaneio-${expedicaoId}-ops`;
     const loaded = new Map();
+    const collections = new Map();
+    const filters = new Map();
+    const draftOrigins = new Map();
 
     const showMessage = (text, error = true) => {
         message.textContent = text || "";
@@ -379,60 +382,110 @@
         row.appendChild(td);
         return td;
     };
-    const renderResults = (block, caixas, opId) => {
+    const canonicalWeight = value => {
+        const text = String(value || "").trim().replace(",", ".");
+        const match = /^(\d+)(?:\.(\d{1,3}))?$/.exec(text);
+        if (!match) return null;
+        const whole = BigInt(match[1]).toString();
+        const fraction = (match[2] || "").padEnd(3, "0");
+        if (whole === "0" && fraction === "000") return null;
+        return `${whole}.${fraction}`;
+    };
+    const displayWeight = value => value ? `${String(value).replace(".", ",")} kg` : "-";
+    const pendingForOp = opId => [...draftOrigins.entries()]
+        .filter(([, origin]) => origin === Number(opId)).map(([id]) => id);
+    const renderResults = (block, opId, validationMessage = "") => {
         const result = block.querySelector("[data-op-result]");
         result.replaceChildren();
-        if (!caixas.length) return;
+        const allBoxes = collections.get(String(opId)) || [];
+        const filter = filters.get(String(opId));
+        const caixas = filter ? allBoxes.filter(caixa => (
+            caixa.peso_bruto_canonico === filter || caixa.peso_liquido_canonico === filter
+        )) : allBoxes;
+        if (validationMessage) {
+            const warning = document.createElement("p");
+            warning.className = "romaneio-form-error";
+            warning.textContent = validationMessage;
+            result.appendChild(warning);
+            return;
+        }
+        if (!allBoxes.length) {
+            const empty = document.createElement("p");
+            empty.className = "romaneio-empty-state";
+            empty.textContent = "Nenhuma caixa elegível disponível para esta OP.";
+            result.appendChild(empty);
+            return;
+        }
         const form = document.createElement("form");
         const wrap = document.createElement("div");
         wrap.className = "tabela-responsiva tabela-executiva expedicao-tabela";
-        const table = document.createElement("table");
-        const head = document.createElement("thead");
-        head.innerHTML = "<tr><th></th><th>Identificação/lote</th><th>SKU</th><th>Apresentação</th><th>Peso bruto</th><th>Peso líquido</th><th>Produção</th><th>Validade</th></tr>";
-        const body = document.createElement("tbody");
-        caixas.forEach(caixa => {
-            const row = document.createElement("tr");
-            const choose = document.createElement("td");
-            const checkbox = document.createElement("input");
-            checkbox.type = "checkbox";
-            checkbox.name = "caixa_ids";
-            checkbox.value = caixa.id;
-            checkbox.disabled = selected.has(Number(caixa.id));
-            choose.appendChild(checkbox);
-            row.appendChild(choose);
-            cell(row, caixa.codigo_caixa);
-            cell(row, caixa.sku);
-            cell(row, caixa.apresentacao || "Caixa");
-            cell(row, `${Number(caixa.peso_bruto).toLocaleString("pt-BR", {minimumFractionDigits: 3})} kg`);
-            cell(row, `${Number(caixa.peso_liquido).toLocaleString("pt-BR", {minimumFractionDigits: 3})} kg`);
-            cell(row, caixa.data_fabricacao);
-            cell(row, caixa.data_validade);
-            body.appendChild(row);
-        });
-        table.append(head, body);
-        wrap.appendChild(table);
+        if (caixas.length) {
+            const table = document.createElement("table");
+            const head = document.createElement("thead");
+            head.innerHTML = "<tr><th></th><th>Identificação/lote</th><th>SKU</th><th>Apresentação</th><th>Peso bruto</th><th>Peso líquido</th><th>Produção</th><th>Validade</th></tr>";
+            const body = document.createElement("tbody");
+            caixas.forEach(caixa => {
+                const id = Number(caixa.id);
+                const origin = draftOrigins.get(id);
+                const row = document.createElement("tr");
+                const choose = document.createElement("td");
+                const checkbox = document.createElement("input");
+                checkbox.type = "checkbox";
+                checkbox.name = "caixa_ids";
+                checkbox.value = caixa.id;
+                checkbox.checked = selected.has(id) || origin === Number(opId);
+                checkbox.disabled = selected.has(id) || (origin !== undefined && origin !== Number(opId));
+                checkbox.addEventListener("change", () => {
+                    if (checkbox.checked) draftOrigins.set(id, Number(opId));
+                    else if (draftOrigins.get(id) === Number(opId)) draftOrigins.delete(id);
+                    const reserveButton = block.querySelector("[data-reserve]");
+                    if (reserveButton) reserveButton.textContent = `Reservar selecionadas (${pendingForOp(opId).length})`;
+                    loaded.forEach((otherBlock, otherOpId) => {
+                        if (otherBlock !== block) renderResults(otherBlock, otherOpId);
+                    });
+                });
+                choose.appendChild(checkbox);
+                row.appendChild(choose);
+                cell(row, caixa.codigo_caixa);
+                cell(row, caixa.sku);
+                cell(row, caixa.apresentacao || "Caixa");
+                cell(row, displayWeight(caixa.peso_bruto_canonico));
+                cell(row, displayWeight(caixa.peso_liquido_canonico));
+                cell(row, caixa.data_fabricacao);
+                cell(row, caixa.data_validade);
+                body.appendChild(row);
+            });
+            table.append(head, body);
+            wrap.appendChild(table);
+        } else {
+            const empty = document.createElement("p");
+            empty.className = "romaneio-empty-state";
+            empty.textContent = "Nenhuma caixa desta OP corresponde ao peso informado.";
+            wrap.appendChild(empty);
+        }
         const button = document.createElement("button");
         button.type = "submit";
         button.className = "romaneio-btn romaneio-btn-primary";
-        button.textContent = "Reservar selecionadas";
+        button.dataset.reserve = "";
+        button.textContent = `Reservar selecionadas (${pendingForOp(opId).length})`;
         form.append(wrap, button);
         form.addEventListener("submit", async event => {
             event.preventDefault();
-            const ids = [...form.querySelectorAll('input[name="caixa_ids"]:checked')].map(input => Number(input.value));
+            const ids = pendingForOp(opId);
             if (!ids.length) return showMessage("Selecione ao menos uma caixa.");
             try {
                 const data = await api(`/expedicao/${expedicaoId}/selecao-ops/${opId}/reservar`, {
                     method: "POST", headers: {"Content-Type": "application/json"},
                     body: JSON.stringify({caixa_ids: ids})
                 });
-                ids.forEach(id => selected.add(id));
+                ids.forEach(id => { selected.add(id); draftOrigins.delete(id); });
                 block.querySelector("[data-op-count]").textContent = data.op.selecionadas;
                 const conclusionForm = document.getElementById("form-concluir");
                 if (conclusionForm) {
                     conclusionForm.dataset.serverAllowed = "1";
                     conclusionForm.querySelector("input[type=checkbox]")?.dispatchEvent(new Event("change"));
                 }
-                renderResults(block, [], opId);
+                loaded.forEach((loadedBlock, loadedOpId) => renderResults(loadedBlock, loadedOpId));
                 showMessage(data.mensagem, false);
             } catch (error) { showMessage(error.message); }
         });
@@ -460,24 +513,39 @@
         const input = document.createElement("input");
         input.type = "text";
         input.inputMode = "decimal";
-        input.required = true;
-        input.placeholder = "0,000";
+        input.placeholder = "Digite o peso";
         label.appendChild(input);
         const button = document.createElement("button");
         button.type = "submit";
         button.className = "romaneio-btn romaneio-btn-primary";
         button.textContent = "Pesquisar";
-        search.append(label, button);
+        const clear = document.createElement("button");
+        clear.type = "button";
+        clear.className = "romaneio-btn romaneio-btn-secondary";
+        clear.textContent = "Limpar filtro";
+        search.append(label, button, clear);
         const result = document.createElement("div");
         result.dataset.opResult = "";
         search.addEventListener("submit", async event => {
             event.preventDefault();
-            try {
-                const data = await api(`/expedicao/${expedicaoId}/selecao-ops/${op.id}/caixas?peso=${encodeURIComponent(input.value)}`);
-                renderResults(block, data.caixas, op.id);
-                showMessage(data.mensagem || "", Boolean(data.mensagem));
-            } catch (error) { renderResults(block, [], op.id); showMessage(error.message); }
+            const raw = input.value.trim();
+            if (!raw) {
+                filters.delete(String(op.id));
+                renderResults(block, op.id);
+                return;
+            }
+            const filter = canonicalWeight(raw);
+            if (!filter) return renderResults(block, op.id, "Informe um peso válido com até três casas decimais.");
+            filters.set(String(op.id), filter);
+            renderResults(block, op.id);
         });
+        const clearFilter = () => {
+            input.value = "";
+            filters.delete(String(op.id));
+            renderResults(block, op.id);
+        };
+        clear.addEventListener("click", clearFilter);
+        input.addEventListener("input", () => { if (!input.value.trim()) clearFilter(); });
         remove.addEventListener("click", async () => {
             const total = Number(block.querySelector("[data-op-count]").textContent || 0);
             if (total && !confirm(`A OP ${op.id} possui ${total} caixa(s) selecionada(s). Removê-la também retirará essas caixas do romaneio. Continuar?`)) return;
@@ -495,8 +563,14 @@
                     }
                 }
                 loaded.delete(String(op.id));
+                collections.delete(String(op.id));
+                filters.delete(String(op.id));
+                [...draftOrigins.entries()].forEach(([id, origin]) => {
+                    if (origin === Number(op.id)) draftOrigins.delete(id);
+                });
                 block.remove();
                 persist();
+                loaded.forEach((loadedBlock, loadedOpId) => renderResults(loadedBlock, loadedOpId));
                 showMessage(total ? "OP e caixas selecionadas removidas do romaneio." : "OP removida da seleção.", false);
             } catch (error) { showMessage(error.message); }
         });
@@ -504,12 +578,14 @@
         container.appendChild(block);
         loaded.set(String(op.id), block);
         persist();
+        renderResults(block, op.id);
         return input;
     };
     const loadOp = async (opId, focus = true) => {
         const key = String(Number(opId));
         if (loaded.has(key)) throw new Error("Esta OP já foi adicionada ao romaneio.");
         const data = await api(`/expedicao/${expedicaoId}/selecao-ops/${key}`);
+        collections.set(key, data.caixas || []);
         const input = createBlock(data.op);
         if (focus) input.focus();
     };

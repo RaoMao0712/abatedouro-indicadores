@@ -5,6 +5,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -21,7 +22,9 @@ os.environ.pop("DATABASE_URL", None)
 from flask import Flask  # noqa: E402
 
 from database import conectar, q  # noqa: E402
+import modules.expedicao.estoque_service as estoque_service  # noqa: E402
 from modules.expedicao.estoque_service import (  # noqa: E402
+    buscar_caixas_elegiveis_op,
     buscar_caixas_por_op_e_peso,
     buscar_op_para_romaneio,
     concluir_romaneio,
@@ -158,9 +161,16 @@ class SelecaoMultiplasOpsTest(unittest.TestCase):
             sessao.update({"usuario_id": 1, "nome": "PCP", "perfil": "pcp"})
         return cliente
 
-    def test_carrega_uma_e_varias_ops_sem_buscar_caixas(self):
+    def test_carrega_uma_e_varias_ops_com_caixas_imediatamente(self):
+        caixa_83 = self.criar_caixa("CX-CARGA-83", 83, 3, 2.5)
+        caixa_84 = self.criar_caixa("CX-CARGA-84", 84, 4, 3.5)
         self.assertEqual(buscar_op_para_romaneio(self.romaneio, self.op83)["id"], 83)
         self.assertEqual(buscar_op_para_romaneio(self.romaneio, self.op84)["id"], 84)
+        cliente = self.cliente()
+        carga_83 = cliente.get(f"/expedicao/{self.romaneio}/selecao-ops/83").get_json()
+        carga_84 = cliente.get(f"/expedicao/{self.romaneio}/selecao-ops/84").get_json()
+        self.assertEqual([item["id"] for item in carga_83["caixas"]], [caixa_83])
+        self.assertEqual([item["id"] for item in carga_84["caixas"]], [caixa_84])
         texto = self.cliente().get(f"/expedicao/{self.romaneio}").get_data(as_text=True)
         self.assertIn("Carregar OP", texto)
         self.assertNotIn("CX-", texto)
@@ -190,10 +200,23 @@ class SelecaoMultiplasOpsTest(unittest.TestCase):
         encontrados = buscar_caixas_por_op_e_peso(self.romaneio, 83, "2,350")
         self.assertEqual({item["id"] for item in encontrados}, ids_83)
 
-    def test_peso_vazio_zero_negativo_invalido_e_precisao_excessiva(self):
-        for peso in ("", "0", "-1", "abc", "2,5004"):
+    def test_peso_vazio_restaura_lista_e_rejeita_valores_invalidos(self):
+        caixa = self.criar_caixa("CX-FILTRO-VAZIO", 83, 3, 2.5)
+        self.assertEqual(
+            [item["id"] for item in buscar_caixas_por_op_e_peso(self.romaneio, 83, "")],
+            [caixa],
+        )
+        for peso in ("0", "-1", "abc", "2,5004"):
             with self.subTest(peso=peso), self.assertRaises(ValueError):
                 buscar_caixas_por_op_e_peso(self.romaneio, 83, peso)
+
+    def test_lista_completa_tem_pesos_canonicos_e_ordem_estavel(self):
+        segunda = self.criar_caixa("CX-SEGUNDA", 83, 3.1000001, 2.3500001)
+        primeira = self.criar_caixa("CX-PRIMEIRA", 83, 3.1, 2.35)
+        caixas = buscar_caixas_elegiveis_op(self.romaneio, 83)
+        self.assertEqual([item["id"] for item in caixas], [segunda, primeira])
+        self.assertTrue(all(item["peso_bruto_canonico"] == "3.100" for item in caixas))
+        self.assertTrue(all(item["peso_liquido_canonico"] == "2.350" for item in caixas))
 
     def test_indisponiveis_estornadas_consumidas_reservadas_e_bloqueadas_nao_aparecem(self):
         self.criar_caixa("CX-RES", 83, 3, 2.5, disponibilidade="RESERVADO")
@@ -202,6 +225,17 @@ class SelecaoMultiplasOpsTest(unittest.TestCase):
         self.criar_caixa("CX-EST", 83, 3, 2.5, disponibilidade="DISPONIVEL", status="Estornado")
         self.criar_caixa("CX-LEG", 83, 3, 2.5, operacional=0)
         self.assertEqual(buscar_caixas_por_op_e_peso(self.romaneio, 83, "2.5"), [])
+
+    def test_vinculo_ativo_inconsistente_falha_fechado_na_listagem(self):
+        caixa = self.criar_caixa("CX-JA-VINCULADA", 83, 3, 2.5)
+        outro = self.criar_romaneio("ROM-VINCULO-ATIVO")
+        reservar_itens(outro, [caixa], op_id_esperada=83)
+        executar("""
+        UPDATE pa_caixas
+        SET disponibilidade='DISPONIVEL', reservado_expedicao_id=NULL
+        WHERE id=?
+        """, (caixa,))
+        self.assertEqual(buscar_caixas_elegiveis_op(self.romaneio, 83), [])
 
     def test_pesquisa_nao_seleciona_automaticamente(self):
         caixa = self.criar_caixa("CX-SEM-AUTO", 83, 3, 2.5)
@@ -276,6 +310,12 @@ class SelecaoMultiplasOpsTest(unittest.TestCase):
     def test_endpoints_json_preservam_resultado_por_op_e_validam_permissao(self):
         caixa = self.criar_caixa("CX-API", 83, 3, 2.5)
         cliente = self.cliente()
+        carga = cliente.get(f"/expedicao/{self.romaneio}/selecao-ops/83")
+        self.assertEqual(carga.status_code, 200)
+        self.assertEqual(carga.get_json()["caixas"][0]["id"], caixa)
+        sem_filtro = cliente.get(f"/expedicao/{self.romaneio}/selecao-ops/83/caixas?peso=")
+        self.assertEqual(sem_filtro.get_json()["caixas"][0]["id"], caixa)
+        self.assertIsNone(sem_filtro.get_json()["mensagem"])
         resposta = cliente.get(f"/expedicao/{self.romaneio}/selecao-ops/83/caixas?peso=2,500")
         self.assertEqual(resposta.status_code, 200)
         self.assertEqual(resposta.get_json()["caixas"][0]["id"], caixa)
@@ -300,6 +340,38 @@ class SelecaoMultiplasOpsTest(unittest.TestCase):
         self.assertIn("idx_pa_composicao_op", detalhe)
         template = (ROOT / "templates" / "romaneio_detalhe.html").read_text(encoding="utf-8")
         self.assertIn("await fetch(url, options)", template)
+        self.assertIn("collections.set(key, data.caixas || [])", template)
+        self.assertNotIn("/caixas?peso=${encodeURIComponent(input.value)}", template)
+
+    def test_interface_trata_peso_como_filtro_opcional_e_preserva_selecao(self):
+        template = (ROOT / "templates" / "romaneio_detalhe.html").read_text(encoding="utf-8")
+        self.assertIn('input.placeholder = "Digite o peso"', template)
+        self.assertNotIn('input.placeholder = "0,000"', template)
+        self.assertNotIn("input.required = true", template)
+        self.assertIn("const draftOrigins = new Map()", template)
+        self.assertIn("filters.delete(String(op.id))", template)
+        self.assertIn("Nenhuma caixa desta OP corresponde ao peso informado.", template)
+        self.assertIn("const ids = pendingForOp(opId)", template)
+
+    def test_carregamento_da_op_faz_quantidade_constante_de_selects(self):
+        for indice in range(40):
+            self.criar_caixa(f"CX-VOLUME-{indice:03d}", 83, 3, 2.5)
+        selects = []
+        conectar_real = estoque_service.conectar
+
+        def conectar_instrumentado():
+            conn = conectar_real()
+            conn.set_trace_callback(
+                lambda sql: selects.append(sql)
+                if sql.lstrip().upper().startswith("SELECT") else None
+            )
+            return conn
+
+        # A consulta consolidada deve devolver o volume sem executar uma consulta por caixa.
+        with patch.object(estoque_service, "conectar", side_effect=conectar_instrumentado):
+            caixas = buscar_caixas_elegiveis_op(self.romaneio, 83)
+        self.assertEqual(len(caixas), 40)
+        self.assertLessEqual(len(selects), 6)
 
     def test_pdf_e_apresentacao_final_nao_recebem_controles_de_selecao(self):
         impressao = (ROOT / "templates" / "romaneio_impressao.html").read_text(encoding="utf-8")

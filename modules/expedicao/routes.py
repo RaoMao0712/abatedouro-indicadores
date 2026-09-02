@@ -61,6 +61,7 @@ from .estoque_service import (
     TIPOS_ROMANEIO,
     TIPOS_SAIDA,
     bloquear_produto,
+    buscar_caixas_elegiveis_op,
     buscar_caixas_por_op_e_peso,
     buscar_estoque_operacional,
     buscar_historico_estoque,
@@ -844,7 +845,11 @@ def register_expedicao_routes(app, integracoes=None):
     @perfil_permitido("pcp", "qualidade", "gerencia", "expedicao")
     def carregar_op_romaneio(expedicao_id, op_id):
         try:
-            return jsonify({"ok": True, "op": buscar_op_para_romaneio(expedicao_id, op_id)})
+            op = buscar_op_para_romaneio(expedicao_id, op_id)
+            caixas = buscar_caixas_elegiveis_op(
+                expedicao_id, op_id, op_validada=op
+            )
+            return jsonify({"ok": True, "op": op, "caixas": caixas})
         except ValueError as erro:
             return jsonify({"ok": False, "mensagem": str(erro)}), 400
 
@@ -853,7 +858,11 @@ def register_expedicao_routes(app, integracoes=None):
     def pesquisar_caixas_op_romaneio(expedicao_id, op_id):
         try:
             caixas = buscar_caixas_por_op_e_peso(expedicao_id, op_id, request.args.get("peso"))
-            mensagem = None if caixas else "Nenhuma caixa disponível desta OP corresponde ao peso informado."
+            peso_informado = bool(str(request.args.get("peso") or "").strip())
+            mensagem = (
+                "Nenhuma caixa desta OP corresponde ao peso informado."
+                if peso_informado and not caixas else None
+            )
             return jsonify({"ok": True, "caixas": caixas, "mensagem": mensagem})
         except ValueError as erro:
             return jsonify({"ok": False, "mensagem": str(erro)}), 400
