@@ -61,8 +61,10 @@ from .estoque_service import (
     TIPOS_ROMANEIO,
     TIPOS_SAIDA,
     bloquear_produto,
+    buscar_caixas_por_op_e_peso,
     buscar_estoque_operacional,
     buscar_historico_estoque,
+    buscar_op_para_romaneio,
     cancelar_romaneio,
     concluir_romaneio,
     destinar_produto,
@@ -75,6 +77,7 @@ from .estoque_service import (
     registrar_emissao_romaneio,
     registrar_itens_historicos,
     remover_item_reservado,
+    remover_itens_reservados_op,
     reservar_itens,
 )
 from modules.qualidade.produtos_nao_conformes import listar_locais_segregacao, MOTIVOS
@@ -800,21 +803,26 @@ def register_expedicao_routes(app, integracoes=None):
 
         expedicao = buscar_expedicao_por_id(expedicao_id)
         itens = buscar_itens_expedicao(expedicao_id)
+        ops_selecionadas = {}
+        caixas_selecionadas_ids = []
+        for item in itens:
+            if item["caixa_id"]:
+                caixas_selecionadas_ids.append(int(item["caixa_id"]))
+                if item["op_id"]:
+                    chave_op = int(item["op_id"])
+                    ops_selecionadas[chave_op] = ops_selecionadas.get(chave_op, 0) + 1
         resumo_itens = calcular_resumo_itens_expedicao(itens)
         resumo_mz = calcular_resumo_mz(itens)
         caixas_disponiveis = []
-        if expedicao["status"] == "Aberto":
+        if (expedicao["status"] == "Aberto"
+                and expedicao["tipo_movimentacao"] in {
+                    "DESCARTE", "DEVOLUCAO", "TRANSFERENCIA_AUTORIZADA"
+                }):
             estoque, _ = buscar_estoque_operacional()
-            if expedicao["tipo_movimentacao"] in {"TRANSFERENCIA", "VENDA_DIRETA"}:
-                caixas_disponiveis = [
-                    item for item in estoque
-                    if item["condicao"] == "CONFORME" and item["disponibilidade"] == "DISPONIVEL"
-                ]
-            elif expedicao["tipo_movimentacao"] in {"DESCARTE", "DEVOLUCAO", "TRANSFERENCIA_AUTORIZADA"}:
-                caixas_disponiveis = [
-                    item for item in estoque
-                    if item["condicao"] == "NAO_CONFORME" and item["disponibilidade"] == "BLOQUEADO"
-                ]
+            caixas_disponiveis = [
+                item for item in estoque
+                if item["condicao"] == "NAO_CONFORME" and item["disponibilidade"] == "BLOQUEADO"
+            ]
 
         return render_template(
             "romaneio_detalhe.html",
@@ -823,12 +831,64 @@ def register_expedicao_routes(app, integracoes=None):
             resumo_itens=resumo_itens,
             resumo_mz=resumo_mz,
             caixas_disponiveis=caixas_disponiveis,
+            ops_selecionadas=ops_selecionadas,
+            caixas_selecionadas_ids=caixas_selecionadas_ids,
             plano_pedido=plano_romaneio(expedicao_id),
             saldos_legados=saldos_legados_operacionais() if expedicao["tipo_movimentacao"] in {"TRANSFERENCIA", "VENDA_DIRETA"} else [],
             tipo_descricao=TIPOS_SAIDA.get(expedicao["tipo_saida"], TIPOS_ROMANEIO.get(
                 expedicao["tipo_movimentacao"], expedicao["tipo_movimentacao"])),
             skus=["Galinha Cortada", "Galinha Inteira"]
         )
+
+    @app.get("/expedicao/<int:expedicao_id>/selecao-ops/<int:op_id>")
+    @perfil_permitido("pcp", "qualidade", "gerencia", "expedicao")
+    def carregar_op_romaneio(expedicao_id, op_id):
+        try:
+            return jsonify({"ok": True, "op": buscar_op_para_romaneio(expedicao_id, op_id)})
+        except ValueError as erro:
+            return jsonify({"ok": False, "mensagem": str(erro)}), 400
+
+    @app.get("/expedicao/<int:expedicao_id>/selecao-ops/<int:op_id>/caixas")
+    @perfil_permitido("pcp", "qualidade", "gerencia", "expedicao")
+    def pesquisar_caixas_op_romaneio(expedicao_id, op_id):
+        try:
+            caixas = buscar_caixas_por_op_e_peso(expedicao_id, op_id, request.args.get("peso"))
+            mensagem = None if caixas else "Nenhuma caixa disponível desta OP corresponde ao peso informado."
+            return jsonify({"ok": True, "caixas": caixas, "mensagem": mensagem})
+        except ValueError as erro:
+            return jsonify({"ok": False, "mensagem": str(erro)}), 400
+
+    @app.post("/expedicao/<int:expedicao_id>/selecao-ops/<int:op_id>/reservar")
+    @perfil_permitido("pcp", "qualidade", "gerencia", "expedicao")
+    def reservar_caixas_op_romaneio(expedicao_id, op_id):
+        dados = request.get_json(silent=True) or {}
+        caixa_ids = dados.get("caixa_ids") or []
+        try:
+            reservar_itens(expedicao_id, caixa_ids, op_id_esperada=op_id)
+            return jsonify({
+                "ok": True,
+                "mensagem": "Caixas selecionadas e acumuladas no romaneio.",
+                "op": buscar_op_para_romaneio(expedicao_id, op_id),
+            })
+        except (TypeError, ValueError) as erro:
+            return jsonify({"ok": False, "mensagem": str(erro)}), 400
+
+    @app.delete("/expedicao/<int:expedicao_id>/selecao-ops/<int:op_id>")
+    @perfil_permitido("pcp", "qualidade", "gerencia", "expedicao")
+    def remover_op_romaneio(expedicao_id, op_id):
+        try:
+            op = buscar_op_para_romaneio(expedicao_id, op_id)
+            dados = request.get_json(silent=True) or {}
+            if op["selecionadas"] and dados.get("confirmar_remocao_caixas") is not True:
+                raise ValueError("Confirme a remoção das caixas selecionadas desta OP.")
+            removidas = remover_itens_reservados_op(expedicao_id, op_id)
+            return jsonify({
+                "ok": True,
+                "caixas_removidas": len(removidas),
+                "caixa_ids": removidas,
+            })
+        except ValueError as erro:
+            return jsonify({"ok": False, "mensagem": str(erro)}), 400
 
     @app.route("/expedicao/estoque")
     @perfil_permitido("pcp", "qualidade")

@@ -161,6 +161,23 @@
     </section>
     {% else %}
         {% if documento_aberto %}
+        {% if expedicao.tipo_movimentacao in ('TRANSFERENCIA', 'VENDA_DIRETA') %}
+        <section class="card romaneio-secao romaneio-selecao-ops" id="selecao-ops"
+                 data-expedicao-id="{{ expedicao.id }}"
+                 data-ops-selecionadas='{{ ops_selecionadas|tojson }}'
+                 data-caixas-selecionadas='{{ caixas_selecionadas_ids|tojson }}'>
+            <div class="romaneio-secao-titulo">
+                <div><h3>Itens elegíveis para reserva</h3><small>Localize caixas por OP e peso bruto ou líquido.</small></div>
+            </div>
+            <form id="form-adicionar-op" class="romaneio-op-adicionar">
+                <label for="numero-op-romaneio">OP</label>
+                <input id="numero-op-romaneio" type="number" min="1" step="1" inputmode="numeric" required>
+                <button type="submit" class="romaneio-btn romaneio-btn-primary">Carregar OP</button>
+            </form>
+            <p id="mensagem-selecao-ops" class="romaneio-form-error" hidden></p>
+            <div id="blocos-ops" class="romaneio-op-blocos" aria-live="polite"></div>
+        </section>
+        {% else %}
         <section class="card romaneio-secao">
             <h3>Itens elegíveis para reserva</h3>
             {% if caixas_disponiveis %}
@@ -186,6 +203,7 @@
             </form>
             {% else %}<p class="romaneio-empty-state">Nenhum item elegível para este tipo de romaneio.</p>{% endif %}
         </section>
+        {% endif %}
         {% endif %}
         {% if documento_aberto and saldos_legados %}
         <section class="card romaneio-secao">
@@ -327,6 +345,182 @@
     if (cancelReason) cancelReason.addEventListener("input", refreshCancel);
     if (cancelCheck) cancelCheck.addEventListener("change", refreshCancel);
     refresh();
+})();
+</script>
+<script>
+(() => {
+    const root = document.getElementById("selecao-ops");
+    if (!root) return;
+    const expedicaoId = root.dataset.expedicaoId;
+    const container = document.getElementById("blocos-ops");
+    const message = document.getElementById("mensagem-selecao-ops");
+    const addForm = document.getElementById("form-adicionar-op");
+    const opInput = document.getElementById("numero-op-romaneio");
+    const selected = new Set(JSON.parse(root.dataset.caixasSelecionadas || "[]").map(Number));
+    const initialOps = JSON.parse(root.dataset.opsSelecionadas || "{}");
+    const storageKey = `frigodatta-romaneio-${expedicaoId}-ops`;
+    const loaded = new Map();
+
+    const showMessage = (text, error = true) => {
+        message.textContent = text || "";
+        message.hidden = !text;
+        message.classList.toggle("romaneio-op-sucesso", !error);
+    };
+    const persist = () => sessionStorage.setItem(storageKey, JSON.stringify([...loaded.keys()]));
+    const api = async (url, options) => {
+        const response = await fetch(url, options);
+        const data = await response.json();
+        if (!response.ok || !data.ok) throw new Error(data.mensagem || "Não foi possível concluir a operação.");
+        return data;
+    };
+    const cell = (row, value) => {
+        const td = document.createElement("td");
+        td.textContent = value ?? "-";
+        row.appendChild(td);
+        return td;
+    };
+    const renderResults = (block, caixas, opId) => {
+        const result = block.querySelector("[data-op-result]");
+        result.replaceChildren();
+        if (!caixas.length) return;
+        const form = document.createElement("form");
+        const wrap = document.createElement("div");
+        wrap.className = "tabela-responsiva tabela-executiva expedicao-tabela";
+        const table = document.createElement("table");
+        const head = document.createElement("thead");
+        head.innerHTML = "<tr><th></th><th>Identificação/lote</th><th>SKU</th><th>Apresentação</th><th>Peso bruto</th><th>Peso líquido</th><th>Produção</th><th>Validade</th></tr>";
+        const body = document.createElement("tbody");
+        caixas.forEach(caixa => {
+            const row = document.createElement("tr");
+            const choose = document.createElement("td");
+            const checkbox = document.createElement("input");
+            checkbox.type = "checkbox";
+            checkbox.name = "caixa_ids";
+            checkbox.value = caixa.id;
+            checkbox.disabled = selected.has(Number(caixa.id));
+            choose.appendChild(checkbox);
+            row.appendChild(choose);
+            cell(row, caixa.codigo_caixa);
+            cell(row, caixa.sku);
+            cell(row, caixa.apresentacao || "Caixa");
+            cell(row, `${Number(caixa.peso_bruto).toLocaleString("pt-BR", {minimumFractionDigits: 3})} kg`);
+            cell(row, `${Number(caixa.peso_liquido).toLocaleString("pt-BR", {minimumFractionDigits: 3})} kg`);
+            cell(row, caixa.data_fabricacao);
+            cell(row, caixa.data_validade);
+            body.appendChild(row);
+        });
+        table.append(head, body);
+        wrap.appendChild(table);
+        const button = document.createElement("button");
+        button.type = "submit";
+        button.className = "romaneio-btn romaneio-btn-primary";
+        button.textContent = "Reservar selecionadas";
+        form.append(wrap, button);
+        form.addEventListener("submit", async event => {
+            event.preventDefault();
+            const ids = [...form.querySelectorAll('input[name="caixa_ids"]:checked')].map(input => Number(input.value));
+            if (!ids.length) return showMessage("Selecione ao menos uma caixa.");
+            try {
+                const data = await api(`/expedicao/${expedicaoId}/selecao-ops/${opId}/reservar`, {
+                    method: "POST", headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify({caixa_ids: ids})
+                });
+                ids.forEach(id => selected.add(id));
+                block.querySelector("[data-op-count]").textContent = data.op.selecionadas;
+                const conclusionForm = document.getElementById("form-concluir");
+                if (conclusionForm) {
+                    conclusionForm.dataset.serverAllowed = "1";
+                    conclusionForm.querySelector("input[type=checkbox]")?.dispatchEvent(new Event("change"));
+                }
+                renderResults(block, [], opId);
+                showMessage(data.mensagem, false);
+            } catch (error) { showMessage(error.message); }
+        });
+        result.appendChild(form);
+    };
+    const createBlock = op => {
+        const block = document.createElement("article");
+        block.className = "romaneio-op-bloco";
+        block.dataset.opId = op.id;
+        const header = document.createElement("div");
+        header.className = "romaneio-op-cabecalho";
+        const title = document.createElement("strong");
+        title.textContent = `OP ${op.id}`;
+        const count = document.createElement("small");
+        count.innerHTML = `Caixas selecionadas: <b data-op-count>${op.selecionadas}</b>`;
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "romaneio-btn romaneio-btn-secondary";
+        remove.textContent = "Remover OP";
+        header.append(title, count, remove);
+        const search = document.createElement("form");
+        search.className = "romaneio-op-pesquisa";
+        const label = document.createElement("label");
+        label.textContent = "Peso bruto ou líquido";
+        const input = document.createElement("input");
+        input.type = "text";
+        input.inputMode = "decimal";
+        input.required = true;
+        input.placeholder = "0,000";
+        label.appendChild(input);
+        const button = document.createElement("button");
+        button.type = "submit";
+        button.className = "romaneio-btn romaneio-btn-primary";
+        button.textContent = "Pesquisar";
+        search.append(label, button);
+        const result = document.createElement("div");
+        result.dataset.opResult = "";
+        search.addEventListener("submit", async event => {
+            event.preventDefault();
+            try {
+                const data = await api(`/expedicao/${expedicaoId}/selecao-ops/${op.id}/caixas?peso=${encodeURIComponent(input.value)}`);
+                renderResults(block, data.caixas, op.id);
+                showMessage(data.mensagem || "", Boolean(data.mensagem));
+            } catch (error) { renderResults(block, [], op.id); showMessage(error.message); }
+        });
+        remove.addEventListener("click", async () => {
+            const total = Number(block.querySelector("[data-op-count]").textContent || 0);
+            if (total && !confirm(`A OP ${op.id} possui ${total} caixa(s) selecionada(s). Removê-la também retirará essas caixas do romaneio. Continuar?`)) return;
+            try {
+                if (total) {
+                    const data = await api(`/expedicao/${expedicaoId}/selecao-ops/${op.id}`, {
+                        method: "DELETE", headers: {"Content-Type": "application/json"},
+                        body: JSON.stringify({confirmar_remocao_caixas: true})
+                    });
+                    data.caixa_ids.forEach(id => selected.delete(Number(id)));
+                    const conclusionForm = document.getElementById("form-concluir");
+                    if (conclusionForm && selected.size === 0) {
+                        conclusionForm.dataset.serverAllowed = "0";
+                        conclusionForm.querySelector("input[type=checkbox]")?.dispatchEvent(new Event("change"));
+                    }
+                }
+                loaded.delete(String(op.id));
+                block.remove();
+                persist();
+                showMessage(total ? "OP e caixas selecionadas removidas do romaneio." : "OP removida da seleção.", false);
+            } catch (error) { showMessage(error.message); }
+        });
+        block.append(header, search, result);
+        container.appendChild(block);
+        loaded.set(String(op.id), block);
+        persist();
+        return input;
+    };
+    const loadOp = async (opId, focus = true) => {
+        const key = String(Number(opId));
+        if (loaded.has(key)) throw new Error("Esta OP já foi adicionada ao romaneio.");
+        const data = await api(`/expedicao/${expedicaoId}/selecao-ops/${key}`);
+        const input = createBlock(data.op);
+        if (focus) input.focus();
+    };
+    addForm.addEventListener("submit", async event => {
+        event.preventDefault();
+        try { await loadOp(opInput.value); opInput.value = ""; showMessage(""); }
+        catch (error) { showMessage(error.message); }
+    });
+    const stored = JSON.parse(sessionStorage.getItem(storageKey) || "[]");
+    const restore = [...new Set([...Object.keys(initialOps), ...stored.map(String)])];
+    restore.reduce((promise, opId) => promise.then(() => loadOp(opId, false).catch(() => {})), Promise.resolve());
 })();
 </script>
 {% endblock %}
