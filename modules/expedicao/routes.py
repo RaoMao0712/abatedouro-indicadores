@@ -907,8 +907,13 @@ def register_expedicao_routes(app, integracoes=None):
     def atualizar_saldo_op_romaneio(expedicao_id, op_id, caixa_id):
         dados = request.get_json(silent=True) or {}
         try:
+            if "quantidade_anterior_aves" not in dados:
+                raise ValueError(
+                    "A reserva foi alterada ou removida por outro usuário. Recarregue a OP."
+                )
             saldo = atualizar_reserva_quantitativa(
-                expedicao_id, op_id, caixa_id, dados.get("quantidade_aves")
+                expedicao_id, op_id, caixa_id, dados.get("quantidade_aves"),
+                dados.get("quantidade_anterior_aves"),
             )
             return jsonify({
                 "ok": True,
@@ -917,7 +922,8 @@ def register_expedicao_routes(app, integracoes=None):
                 "op": buscar_op_para_romaneio(expedicao_id, op_id),
             })
         except (TypeError, ValueError) as erro:
-            return jsonify({"ok": False, "mensagem": str(erro)}), 400
+            conflito = "alterada ou removida por outro usuário" in str(erro)
+            return jsonify({"ok": False, "mensagem": str(erro)}), 409 if conflito else 400
 
     @app.delete("/expedicao/<int:expedicao_id>/selecao-ops/<int:op_id>/saldos/<int:caixa_id>")
     @perfil_permitido("pcp", "qualidade", "gerencia", "expedicao")

@@ -498,7 +498,10 @@
                 try {
                     const data = await api(`/expedicao/${expedicaoId}/selecao-ops/${opId}/saldos/${saldo.id}`, {
                         method: "PUT", headers: {"Content-Type": "application/json"},
-                        body: JSON.stringify({quantidade_aves: input.value})
+                        body: JSON.stringify({
+                            quantidade_aves: input.value,
+                            quantidade_anterior_aves: saldo.quantidade_selecionada_aves
+                        })
                     });
                     await refreshOp(opId);
                     showMessage(data.mensagem, false);

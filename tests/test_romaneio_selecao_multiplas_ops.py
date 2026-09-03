@@ -2,6 +2,7 @@
 
 import os
 from pathlib import Path
+import inspect
 import sys
 import tempfile
 import unittest
@@ -387,6 +388,171 @@ class SelecaoMultiplasOpsTest(unittest.TestCase):
             "SELECT quantidade_pacotes_reservados FROM pa_caixas WHERE id=?", (saldo_id,)
         )[0][0], 0)
 
+    def test_edicao_obsoleta_nao_recria_reserva_removida(self):
+        saldo_id = self.criar_saldo_quantitativo("GI-EDICAO-OBSOLETA", 83, 240)
+        atualizar_reserva_quantitativa(self.romaneio, 83, saldo_id, 80, 0)
+        estoque_service.remover_itens_reservados_op(self.romaneio, 83)
+
+        with self.assertRaisesRegex(ValueError, "alterada ou removida"):
+            atualizar_reserva_quantitativa(self.romaneio, 83, saldo_id, 100, 80)
+
+        self.assertEqual(buscar_itens_expedicao(self.romaneio), [])
+        self.assertEqual(consultar(
+            "SELECT quantidade_pacotes_reservados FROM pa_caixas WHERE id=?", (saldo_id,)
+        )[0][0], 0)
+
+    def test_endpoint_retorna_409_para_edicao_obsoleta(self):
+        saldo_id = self.criar_saldo_quantitativo("GI-CONFLITO-HTTP", 83, 240)
+        atualizar_reserva_quantitativa(self.romaneio, 83, saldo_id, 80, 0)
+        estoque_service.remover_itens_reservados_op(self.romaneio, 83)
+
+        resposta = self.cliente().put(
+            f"/expedicao/{self.romaneio}/selecao-ops/83/saldos/{saldo_id}",
+            json={"quantidade_aves": 100, "quantidade_anterior_aves": 80},
+        )
+
+        self.assertEqual(resposta.status_code, 409)
+        self.assertIn("Recarregue a OP", resposta.get_json()["mensagem"])
+
+    def test_quantidade_anterior_invalida_e_rejeitada_sem_mutacao(self):
+        saldo_id = self.criar_saldo_quantitativo("GI-VERSAO-INVALIDA", 83, 240)
+        with self.assertRaisesRegex(ValueError, "quantidade anterior"):
+            atualizar_reserva_quantitativa(self.romaneio, 83, saldo_id, 80, "inválida")
+        self.assertEqual(buscar_itens_expedicao(self.romaneio), [])
+
+    def test_remocao_integral_revalida_romaneio_fechado_sob_lock(self):
+        saldo_id = self.criar_saldo_quantitativo("GI-ROMANEIO-FECHADO", 83, 240)
+        atualizar_reserva_quantitativa(self.romaneio, 83, saldo_id, 80, 0)
+        executar("UPDATE expedicoes SET status='Concluído' WHERE id=?", (self.romaneio,))
+        with self.assertRaisesRegex(ValueError, "abertos"):
+            estoque_service.remover_itens_reservados_op(self.romaneio, 83)
+        self.assertEqual(consultar(
+            "SELECT quantidade_pacotes_reservados FROM pa_caixas WHERE id=?", (saldo_id,)
+        )[0][0], 80)
+
+    def test_retry_da_remocao_da_op_e_idempotente(self):
+        saldo_id = self.criar_saldo_quantitativo("GI-RETRY", 83, 100)
+        atualizar_reserva_quantitativa(self.romaneio, 83, saldo_id, 80)
+        eventos_antes = consultar("SELECT COUNT(*) total FROM estoque_eventos")[0]["total"]
+
+        self.assertEqual(
+            estoque_service.remover_itens_reservados_op(self.romaneio, 83), [saldo_id]
+        )
+        self.assertEqual(
+            estoque_service.remover_itens_reservados_op(self.romaneio, 83), []
+        )
+
+        eventos_depois = consultar("SELECT COUNT(*) total FROM estoque_eventos")[0]["total"]
+        self.assertEqual(eventos_depois - eventos_antes, 1)
+        self.assertEqual(consultar(
+            "SELECT quantidade_pacotes_reservados FROM pa_caixas WHERE id=?", (saldo_id,)
+        )[0][0], 0)
+
+    def test_remocao_da_op_faz_rollback_se_evento_falhar(self):
+        saldo_id = self.criar_saldo_quantitativo("GI-ROLLBACK-EVENTO", 83, 100)
+        atualizar_reserva_quantitativa(self.romaneio, 83, saldo_id, 80)
+        eventos_antes = consultar("SELECT COUNT(*) total FROM estoque_eventos")[0]["total"]
+
+        with patch.object(estoque_service, "_inserir_evento", side_effect=RuntimeError("falha")):
+            with self.assertRaisesRegex(RuntimeError, "falha"):
+                estoque_service.remover_itens_reservados_op(self.romaneio, 83)
+
+        itens = buscar_itens_expedicao(self.romaneio)
+        self.assertEqual(len(itens), 1)
+        self.assertEqual(itens[0]["quantidade_galinhas"], 80)
+        self.assertEqual(consultar(
+            "SELECT quantidade_pacotes_reservados FROM pa_caixas WHERE id=?", (saldo_id,)
+        )[0][0], 80)
+        self.assertEqual(
+            consultar("SELECT COUNT(*) total FROM estoque_eventos")[0]["total"],
+            eventos_antes,
+        )
+
+    def test_remocao_da_op_faz_rollback_se_exclusao_falhar(self):
+        saldo_id = self.criar_saldo_quantitativo("GI-ROLLBACK-DELETE", 83, 100)
+        atualizar_reserva_quantitativa(self.romaneio, 83, saldo_id, 80)
+        executar("""
+        CREATE TRIGGER falhar_delete_reserva BEFORE DELETE ON expedicao_itens
+        BEGIN SELECT RAISE(ABORT, 'falha simulada no delete'); END
+        """)
+        try:
+            with self.assertRaisesRegex(Exception, "falha simulada"):
+                estoque_service.remover_itens_reservados_op(self.romaneio, 83)
+        finally:
+            executar("DROP TRIGGER falhar_delete_reserva")
+
+        self.assertEqual(len(buscar_itens_expedicao(self.romaneio)), 1)
+        self.assertEqual(consultar(
+            "SELECT quantidade_pacotes_reservados FROM pa_caixas WHERE id=?", (saldo_id,)
+        )[0][0], 80)
+
+    def test_protocolo_de_locks_declara_ordem_canonica_e_deterministica(self):
+        for funcao in (
+            estoque_service.atualizar_reserva_quantitativa,
+            estoque_service.remover_item_reservado,
+            estoque_service.remover_itens_reservados_op,
+        ):
+            fonte = inspect.getsource(funcao)
+            self.assertLess(fonte.index("FROM expedicoes"), fonte.index("FROM expedicao_itens"))
+            self.assertLess(fonte.index("FROM expedicao_itens"), fonte.index("FROM pa_caixas"))
+            self.assertIn("FOR UPDATE", fonte)
+        fonte_lote = inspect.getsource(estoque_service.remover_itens_reservados_op)
+        self.assertIn("sorted({int(item", fonte_lote)
+
+    def test_remover_op_com_multiplos_saldos_preserva_outra_op_e_caixa(self):
+        saldo_83_a = self.criar_saldo_quantitativo("GI-83-A", 83, 100)
+        saldo_83_b = self.criar_saldo_quantitativo("GI-83-B", 83, 100)
+        saldo_84 = self.criar_saldo_quantitativo("GI-84", 84, 100)
+        caixa_84 = self.criar_caixa("CX-84-PRESERVADA", 84, 3, 2.5)
+        atualizar_reserva_quantitativa(self.romaneio, 83, saldo_83_a, 80)
+        atualizar_reserva_quantitativa(self.romaneio, 83, saldo_83_b, 40)
+        atualizar_reserva_quantitativa(self.romaneio, 84, saldo_84, 30)
+        reservar_itens(self.romaneio, [caixa_84], op_id_esperada=84)
+
+        removidos = estoque_service.remover_itens_reservados_op(self.romaneio, 83)
+
+        self.assertEqual(removidos, [saldo_83_a, saldo_83_b])
+        itens = buscar_itens_expedicao(self.romaneio)
+        self.assertEqual({item["caixa_id"] for item in itens}, {saldo_84, caixa_84})
+        self.assertEqual({item["op_id"] for item in itens}, {84})
+        self.assertEqual(consultar(
+            "SELECT quantidade_pacotes_reservados FROM pa_caixas WHERE id=?", (saldo_84,)
+        )[0][0], 30)
+        self.assertEqual(consultar(
+            "SELECT disponibilidade FROM pa_caixas WHERE id=?", (caixa_84,)
+        )[0][0], "RESERVADO")
+
+    def test_smoke_autenticado_reserva_80_remove_op_e_preserva_outra(self):
+        saldo_83 = self.criar_saldo_quantitativo("GI-SMOKE-83", 83, 240)
+        saldo_84 = self.criar_saldo_quantitativo("GI-SMOKE-84", 84, 100)
+        cliente = self.cliente()
+        reserva_83 = cliente.put(
+            f"/expedicao/{self.romaneio}/selecao-ops/83/saldos/{saldo_83}",
+            json={"quantidade_aves": 80, "quantidade_anterior_aves": 0},
+        )
+        reserva_84 = cliente.put(
+            f"/expedicao/{self.romaneio}/selecao-ops/84/saldos/{saldo_84}",
+            json={"quantidade_aves": 40, "quantidade_anterior_aves": 0},
+        )
+        self.assertEqual((reserva_83.status_code, reserva_84.status_code), (200, 200))
+
+        remocao = cliente.delete(
+            f"/expedicao/{self.romaneio}/selecao-ops/83",
+            json={"confirmar_remocao_itens": True},
+        )
+
+        self.assertEqual(remocao.status_code, 200)
+        self.assertEqual(remocao.get_json()["caixa_ids"], [saldo_83])
+        itens = buscar_itens_expedicao(self.romaneio)
+        self.assertEqual([(item["op_id"], item["quantidade_galinhas"]) for item in itens], [(84, 40)])
+        saldos = consultar(
+            "SELECT id,quantidade_pacotes_reservados FROM pa_caixas WHERE id IN (?,?) ORDER BY id",
+            (saldo_83, saldo_84),
+        )
+        self.assertEqual([(item["id"], item["quantidade_pacotes_reservados"]) for item in saldos], [
+            (saldo_83, 0), (saldo_84, 40),
+        ])
+
     def test_quantidade_de_aves_rejeita_vazio_zero_negativo_decimal_e_excesso(self):
         saldo_id = self.criar_saldo_quantitativo("GI-VALIDACAO", 83, 10)
         for valor in (None, "", "0", "-1", "1.5", "abc"):
@@ -441,7 +607,7 @@ class SelecaoMultiplasOpsTest(unittest.TestCase):
         cliente = self.cliente()
         criada = cliente.put(
             f"/expedicao/{self.romaneio}/selecao-ops/83/saldos/{saldo_id}",
-            json={"quantidade_aves": 20},
+            json={"quantidade_aves": 20, "quantidade_anterior_aves": 0},
         )
         self.assertEqual(criada.status_code, 200)
         self.assertEqual(criada.get_json()["op"]["aves_selecionadas"], 20)
