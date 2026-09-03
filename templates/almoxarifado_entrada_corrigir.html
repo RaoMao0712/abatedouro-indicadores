@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+<section class="hero-dashboard almoxarifado-hero">
+    <div><span class="eyebrow">Almoxarifado · Entrada #{{ entrada.id }}</span><h2>Corrigir entrada</h2></div>
+    <a href="{{ url_for('detalhe_entrada_estoque_almoxarifado', entrada_id=entrada.id) }}" class="botao-dre-exportar">Cancelar</a>
+</section>
+
+<form method="POST" action="{{ url_for('corrigir_entrada_estoque', entrada_id=entrada.id) }}" id="form-correcao-entrada">
+    <input type="hidden" name="idempotency_key" value="{{ idempotency_key }}">
+    <input type="hidden" name="versao" value="{{ entrada.versao }}">
+    <input type="hidden" name="insumo_id" value="{{ entrada.insumo_id }}">
+
+    <div class="card correcao-entrada-card">
+        <div class="section-title-row"><div><span class="eyebrow">Somente leitura</span><h2>Dados originais da entrada</h2></div></div>
+        <dl class="correcao-dados-grid">
+            <div><dt>Material</dt><dd>{{ entrada.insumo }}</dd></div>
+            <div><dt>Unidade</dt><dd>{{ entrada.unidade }}</dd></div>
+            <div><dt>Quantidade</dt><dd>{{ "%.4f"|format(entrada.quantidade_inicial) }}</dd></div>
+            <div><dt>Valor unitário</dt><dd>R$ {{ entrada.valor_unitario|br_numero(4) }}</dd></div>
+            <div><dt>Valor total</dt><dd>{{ entrada.valor_total|br_moeda }}</dd></div>
+            <div><dt>Data</dt><dd>{{ entrada.data_entrada }}</dd></div>
+            <div><dt>Fornecedor</dt><dd>{{ entrada.fornecedor or '-' }}</dd></div>
+            <div><dt>Documento / NF</dt><dd>{{ entrada.numero_nf or '-' }}</dd></div>
+            <div><dt>Lote</dt><dd>{{ entrada.lote or '-' }}</dd></div>
+            <div><dt>Validade</dt><dd>{{ entrada.validade or '-' }}</dd></div>
+            <div><dt>Usuário</dt><dd>{{ entrada.usuario_entrada }}</dd></div>
+            <div><dt>Registro</dt><dd>{{ entrada.criado_em }}</dd></div>
+        </dl>
+    </div>
+
+    <div class="card correcao-entrada-card">
+        <div class="section-title-row"><div><span class="eyebrow">Dados corrigidos</span><h2>Informe os valores corretos</h2></div></div>
+        <div class="form-grid">
+            <div><label>Quantidade</label><input id="quantidade" name="quantidade" inputmode="decimal" value="{{ '%.4f'|format(entrada.quantidade_inicial) }}" required></div>
+            <div><label>Valor unitário</label><input id="valor-unitario" name="valor_unitario" inputmode="decimal" value="{{ '%.4f'|format(entrada.valor_unitario) }}" required></div>
+            <div><label>Fornecedor</label><input name="fornecedor" value="{{ entrada.fornecedor or '' }}"></div>
+            <div><label>Documento / nota fiscal</label><input name="numero_nf" value="{{ entrada.numero_nf or '' }}"></div>
+            <div><label>Lote</label><input name="lote" value="{{ entrada.lote or '' }}"></div>
+            <div><label>Validade</label><input type="date" name="validade" value="{{ entrada.validade or '' }}"></div>
+        </div>
+        <label>Observação</label><textarea name="observacoes" rows="3">{{ entrada.observacoes or '' }}</textarea>
+        <label>Motivo da correção</label><textarea name="motivo_correcao" rows="3" required placeholder="Ex.: Valor unitário digitado incorretamente na entrada inicial."></textarea>
+    </div>
+
+    <div class="card correcao-impacto-card">
+        <div class="section-title-row"><div><span class="eyebrow">Prévia informativa</span><h2>Impacto da correção</h2></div></div>
+        <div class="correcao-impacto-grid">
+            <div><span>Quantidade</span><strong><span id="qtd-anterior">{{ '%.4f'|format(entrada.quantidade_inicial) }}</span> → <span id="qtd-nova"></span> {{ entrada.unidade }}</strong></div>
+            <div><span>Valor unitário</span><strong>R$ {{ entrada.valor_unitario|br_numero(4) }} → R$ <span id="unit-novo"></span></strong></div>
+            <div><span>Valor total</span><strong>{{ entrada.valor_total|br_moeda }} → R$ <span id="total-novo"></span></strong></div>
+            <div><span>Diferença na entrada</span><strong id="diferenca"></strong></div>
+            <div><span>Saldo físico</span><strong>{{ '%.4f'|format(entrada.quantidade_atual) }} → <span id="saldo-novo"></span> {{ entrada.unidade }}</strong></div>
+            <div><span>Impacto estimado no estoque</span><strong id="impacto-estoque"></strong></div>
+        </div>
+        <p class="obs">O backend recalculará e validará todos os valores novamente dentro da transação.</p>
+        <label class="correcao-confirmacao"><input type="checkbox" name="confirmacao" value="sim" required> Confirmo que revisei os valores antigos, os novos e o impacto apresentado.</label>
+        <button type="submit">Confirmar correção</button>
+    </div>
+</form>
+
+<script>
+(() => {
+    const quantidade = document.getElementById('quantidade');
+    const unitario = document.getElementById('valor-unitario');
+    const totalAnterior = Number('{{ entrada.valor_total }}');
+    const numero = valor => Number(String(valor).trim().replace(',', '.'));
+    const moeda = valor => Number.isFinite(valor) ? valor.toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '—';
+    const atualizar = () => {
+        const q = numero(quantidade.value), u = numero(unitario.value), total = q * u, diferenca = total - totalAnterior;
+        document.getElementById('qtd-nova').textContent = Number.isFinite(q) ? q.toLocaleString('pt-BR', {minimumFractionDigits: 4, maximumFractionDigits: 4}) : '—';
+        document.getElementById('unit-novo').textContent = Number.isFinite(u) ? u.toLocaleString('pt-BR', {minimumFractionDigits: 4, maximumFractionDigits: 4}) : '—';
+        document.getElementById('total-novo').textContent = moeda(total);
+        document.getElementById('saldo-novo').textContent = Number.isFinite(q) ? q.toLocaleString('pt-BR', {minimumFractionDigits: 4, maximumFractionDigits: 4}) : '—';
+        document.getElementById('diferenca').textContent = Number.isFinite(diferenca) ? `${diferenca < 0 ? '-' : '+'}R$ ${moeda(Math.abs(diferenca))}` : '—';
+        document.getElementById('impacto-estoque').textContent = Number.isFinite(diferenca) ? `${diferenca < 0 ? '-' : '+'}R$ ${moeda(Math.abs(diferenca))}` : '—';
+    };
+    quantidade.addEventListener('input', atualizar); unitario.addEventListener('input', atualizar); atualizar();
+})();
+</script>
+{% endblock %}

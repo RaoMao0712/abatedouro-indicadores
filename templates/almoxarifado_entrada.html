@@ -97,6 +97,11 @@
                     <label>Lote</label>
                     <input type="text" name="lote" placeholder="Lote interno ou fornecedor">
                 </div>
+
+                <div>
+                    <label>Validade</label>
+                    <input type="date" name="validade">
+                </div>
             </div>
 
             <label>Observações</label>
@@ -182,6 +187,7 @@
                     <th>Qtd. atual</th>
                     <th>Valor unit.</th>
                     <th>Status</th>
+                    <th>Ações</th>
                 </tr>
             </thead>
             <tbody>
@@ -195,6 +201,7 @@
                     <td>{{ "%.4f"|format(lote.quantidade_atual) }} {{ lote.unidade }}</td>
                     <td>R$ {{ "%.4f"|format(lote.valor_unitario) }}</td>
                     <td>{{ lote.status }}</td>
+                    <td><a href="{{ url_for('detalhe_entrada_estoque_almoxarifado', entrada_id=lote.id) }}" class="botao-tabela-almoxarifado">Detalhes</a></td>
                 </tr>
                 {% endfor %}
             </tbody>

@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+<section class="hero-dashboard almoxarifado-hero">
+    <div>
+        <span class="eyebrow">Almoxarifado · Entrada #{{ entrada.id }}</span>
+        <h2>Detalhes da entrada</h2>
+        <div class="hero-resumo-inline">
+            <span><strong>Material:</strong> {{ entrada.insumo }}</span>
+            {% if entrada.total_correcoes %}<span><strong>Entrada corrigida</strong></span>{% endif %}
+        </div>
+    </div>
+    <div class="dre-acoes-topo dre-acoes-compactas">
+        <a href="{{ url_for('rastreabilidade_almoxarifado') }}" class="botao-dre-exportar">Voltar</a>
+        {% if pode_corrigir %}
+        <a href="{{ url_for('corrigir_entrada_estoque', entrada_id=entrada.id) }}" class="botao-dre-exportar">Corrigir entrada</a>
+        {% endif %}
+    </div>
+</section>
+
+<div class="card correcao-entrada-card">
+    <div class="section-title-row"><div><span class="eyebrow">Fonte oficial</span><h2>Dados atuais</h2></div></div>
+    <dl class="correcao-dados-grid">
+        <div><dt>Material</dt><dd>{{ entrada.insumo }}</dd></div>
+        <div><dt>Quantidade inicial</dt><dd>{{ entrada.quantidade_inicial|br_numero(4) }} {{ entrada.unidade }}</dd></div>
+        <div><dt>Saldo físico</dt><dd>{{ entrada.quantidade_atual|br_numero(4) }} {{ entrada.unidade }}</dd></div>
+        <div><dt>Valor unitário</dt><dd>R$ {{ entrada.valor_unitario|br_numero(4) }}</dd></div>
+        <div><dt>Valor total</dt><dd>{{ entrada.valor_total|br_moeda }}</dd></div>
+        <div><dt>Data da entrada</dt><dd>{{ entrada.data_entrada }}</dd></div>
+        <div><dt>Fornecedor</dt><dd>{{ entrada.fornecedor or '-' }}</dd></div>
+        <div><dt>Documento / NF</dt><dd>{{ entrada.numero_nf or '-' }}</dd></div>
+        <div><dt>Lote</dt><dd>{{ entrada.lote or '-' }}</dd></div>
+        <div><dt>Validade</dt><dd>{{ entrada.validade or '-' }}</dd></div>
+        <div><dt>Registrada por</dt><dd>{{ entrada.usuario_entrada }}</dd></div>
+        <div><dt>Registrada em</dt><dd>{{ entrada.criado_em }}</dd></div>
+    </dl>
+</div>
+
+<div class="card correcao-entrada-card" id="historico-correcoes">
+    <div class="section-title-row"><div><span class="eyebrow">Auditoria imutável</span><h2>Histórico de correções</h2></div></div>
+    {% if historico %}
+    <div class="tabela-responsiva tabela-executiva almoxarifado-tabela"><table>
+        <thead><tr><th>Data/hora</th><th>Usuário</th><th>Motivo</th><th>Quantidade</th><th>Valor unitário</th><th>Total</th><th>Impacto</th><th>Método</th></tr></thead>
+        <tbody>{% for item in historico %}<tr>
+            <td>{{ item.criado_em }}</td><td>{{ item.usuario }}</td><td>{{ item.motivo }}</td>
+            <td>{{ item.quantidade_anterior }} → {{ item.quantidade_nova }} {{ entrada.unidade }}</td>
+            <td>R$ {{ item.valor_unitario_anterior|br_numero(4) }} → R$ {{ item.valor_unitario_novo|br_numero(4) }}</td>
+            <td>{{ item.total_anterior|br_moeda }} → {{ item.total_novo|br_moeda }}</td>
+            <td>{{ item.impacto_financeiro|br_moeda }}</td><td>{{ item.metodo }}</td>
+        </tr>{% endfor %}</tbody>
+    </table></div>
+    {% else %}<p class="obs">Esta entrada ainda não possui correções.</p>{% endif %}
+</div>
+{% endblock %}
