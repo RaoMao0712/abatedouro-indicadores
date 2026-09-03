@@ -1,3 +1,7 @@
+BEGIN;
+
+-- O FrigoDatta autoriza a acao pelo perfil da sessao; nao existe cadastro
+-- persistente de permissoes. CORRIGIR_ENTRADA_ESTOQUE = admin/gerencia no servico.
 ALTER TABLE almoxarifado_lotes ADD COLUMN IF NOT EXISTS validade TEXT;
 ALTER TABLE almoxarifado_lotes ADD COLUMN IF NOT EXISTS criado_por TEXT;
 ALTER TABLE almoxarifado_lotes ADD COLUMN IF NOT EXISTS versao INTEGER NOT NULL DEFAULT 0;
@@ -17,3 +21,5 @@ CREATE TABLE IF NOT EXISTS almoxarifado_correcoes_entrada (
     criado_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_almox_correcoes_entrada ON almoxarifado_correcoes_entrada (entrada_id, id);
+
+COMMIT;
