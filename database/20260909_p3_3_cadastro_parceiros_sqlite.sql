@@ -1,0 +1,13 @@
+BEGIN;
+CREATE TABLE parceiros (id INTEGER PRIMARY KEY AUTOINCREMENT,uuid TEXT NOT NULL UNIQUE,tipo_pessoa TEXT NOT NULL CHECK(tipo_pessoa IN ('PF','PJ')),razao_social TEXT NOT NULL,nome_fantasia TEXT,documento TEXT,telefone TEXT,email TEXT,endereco TEXT,complemento TEXT,bairro TEXT,cidade TEXT,uf TEXT,cep TEXT,observacoes TEXT,status TEXT NOT NULL DEFAULT 'Ativo' CHECK(status IN ('Ativo','Inativo')),criado_por TEXT NOT NULL,atualizado_por TEXT NOT NULL,criado_em TEXT NOT NULL,atualizado_em TEXT NOT NULL);
+CREATE TABLE parceiro_papeis (id INTEGER PRIMARY KEY AUTOINCREMENT,parceiro_id INTEGER NOT NULL,papel TEXT NOT NULL CHECK(papel IN ('CLIENTE','FORNECEDOR','PRESTADOR_SERVICOS','COLABORADOR_CLT')),ativo INTEGER NOT NULL DEFAULT 1,adicionado_por TEXT NOT NULL,adicionado_em TEXT NOT NULL,removido_por TEXT,removido_em TEXT,UNIQUE(parceiro_id,papel),FOREIGN KEY(parceiro_id) REFERENCES parceiros(id));
+CREATE TABLE parceiro_eventos (id INTEGER PRIMARY KEY AUTOINCREMENT,parceiro_id INTEGER NOT NULL,acao TEXT NOT NULL,papel TEXT,estado_anterior TEXT,estado_posterior TEXT,usuario TEXT NOT NULL,perfil TEXT NOT NULL,criado_em TEXT NOT NULL,FOREIGN KEY(parceiro_id) REFERENCES parceiros(id));
+CREATE UNIQUE INDEX uq_parceiros_documento ON parceiros(documento) WHERE documento IS NOT NULL;
+CREATE INDEX idx_parceiros_busca ON parceiros(status,tipo_pessoa,razao_social);
+CREATE INDEX idx_parceiro_papeis_elegibilidade ON parceiro_papeis(papel,ativo,parceiro_id);
+CREATE INDEX idx_parceiro_eventos_historico ON parceiro_eventos(parceiro_id,criado_em);
+ALTER TABLE apontamentos_mao_obra ADD COLUMN parceiro_id INTEGER REFERENCES parceiros(id);
+ALTER TABLE apontamentos_mao_obra ADD COLUMN parceiro_nome_snapshot TEXT;
+ALTER TABLE apontamentos_mao_obra ADD COLUMN natureza_vinculo TEXT;
+CREATE INDEX idx_apontamentos_mao_obra_parceiro ON apontamentos_mao_obra(parceiro_id,op_id);
+COMMIT;

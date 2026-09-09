@@ -113,8 +113,22 @@
             </div>
 
             <div>
-                <label>Colaborador</label>
-                <input type="text" name="colaborador" required>
+                <label>Parceiro</label>
+                <select name="parceiro_id" id="parceiro-mao-obra" required>
+                    <option value="">Selecione</option>
+                    {% for parceiro in parceiros_elegiveis %}
+                    <option value="{{ parceiro.id }}" data-papeis="{{ parceiro.papeis|join(',') }}">{{ parceiro.razao_social }}{% if parceiro.nome_fantasia %} — {{ parceiro.nome_fantasia }}{% endif %}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div>
+                <label>Natureza do vínculo</label>
+                <select name="natureza_vinculo" id="natureza-vinculo" required>
+                    <option value="">Selecione o parceiro</option>
+                    <option value="COLABORADOR_CLT">Colaborador CLT</option>
+                    <option value="PRESTADOR_SERVICOS">Prestador de Serviços</option>
+                </select>
             </div>
 
             <div>
@@ -144,5 +158,25 @@
         <button type="submit">Salvar Mão de Obra</button>
     </form>
 </div>
+
+<script>
+(() => {
+  const parceiro = document.getElementById('parceiro-mao-obra');
+  const natureza = document.getElementById('natureza-vinculo');
+  if (!parceiro || !natureza) return;
+  const atualizar = () => {
+    const papeis = (parceiro.selectedOptions[0]?.dataset.papeis || '').split(',');
+    [...natureza.options].forEach((opcao) => {
+      if (!opcao.value) return;
+      opcao.hidden = !papeis.includes(opcao.value);
+      opcao.disabled = opcao.hidden;
+    });
+    const validas = [...natureza.options].filter((opcao) => opcao.value && !opcao.disabled);
+    natureza.value = validas.length === 1 ? validas[0].value : '';
+  };
+  parceiro.addEventListener('change', atualizar);
+  atualizar();
+})();
+</script>
 
 {% endblock %}
