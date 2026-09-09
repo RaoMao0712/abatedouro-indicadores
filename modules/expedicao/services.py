@@ -1830,8 +1830,8 @@ def buscar_expedicoes(data_inicio=None, data_fim=None, status=None, tipo_movimen
         filtros.append("p.numero LIKE ?")
         parametros.append(f"%{pedido_numero.strip()}%")
     if cliente_id:
-        filtros.append("e.cliente_id = ?")
-        parametros.append(int(cliente_id))
+        filtros.append("(e.cliente_parceiro_id=? OR EXISTS(SELECT 1 FROM clientes cf WHERE cf.id=e.cliente_id AND cf.parceiro_id=?))")
+        parametros.extend((int(cliente_id), int(cliente_id)))
     if destino:
         filtros.append("e.destino LIKE ?")
         parametros.append(f"%{destino.strip()}%")
@@ -1983,8 +1983,11 @@ def salvar_romaneio_expedicao(form):
 
     criar_tabelas_expedicao()
     criar_tabelas_estoque_confiavel()
-    from modules.clientes.services import buscar_cliente, criar_tabelas_clientes
-    criar_tabelas_clientes()
+    from modules.parceiros.services import (
+        PAPEL_CLIENTE, buscar_parceiro, id_legado_do_parceiro,
+        migrar_clientes_fornecedores_legados, obter_parceiro_por_papel,
+        snapshot_parceiro,
+    )
 
     data_romaneio = (form.get("data") or "").strip()
     tipo_saida = (form.get("tipo_saida") or "").strip()
@@ -2000,15 +2003,17 @@ def salvar_romaneio_expedicao(form):
         raise ValueError("Tipo de romaneio inválido.")
     origem = (form.get("origem") or LOCAL_ESTOQUE_ABATEDOURO).strip()
     destino = DESTINOS_CONTROLADOS[tipo_movimentacao]
-    cliente_id = form.get("cliente_id") or None
+    cliente_parceiro_id = form.get("cliente_id") or None
     cliente = None
+    cliente_id_legado = None
     if tipo_saida == "VENDA_DIRETA":
-        if not cliente_id:
+        if not cliente_parceiro_id:
             raise ValueError("Venda Direta exige cliente ativo.")
-        cliente = buscar_cliente(int(cliente_id))
-        if not cliente or cliente["status"] != "Ativo":
-            raise ValueError("Venda Direta exige cliente ativo.")
-    elif cliente_id:
+        if not buscar_parceiro(cliente_parceiro_id):
+            migrar_clientes_fornecedores_legados(executor="P3.4 lazy compatibility")
+        cliente = obter_parceiro_por_papel(cliente_parceiro_id, PAPEL_CLIENTE)
+        cliente_id_legado = id_legado_do_parceiro("CLIENTE", cliente["id"])
+    elif cliente_parceiro_id:
         raise ValueError("Transferência para LSM não deve possuir cliente.")
     responsavel = (form.get("responsavel") or "").strip()
     observacoes = (form.get("observacoes") or "").strip()
@@ -2049,8 +2054,8 @@ def salvar_romaneio_expedicao(form):
             criado_por,
             perfil_criacao,
             atualizado_em
-            ,tipo_saida,cliente_id,veiculo,motorista
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ,tipo_saida,cliente_id,cliente_parceiro_id,cliente_snapshot,veiculo,motorista
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """), (
             numero_romaneio,
             data_romaneio,
@@ -2064,7 +2069,9 @@ def salvar_romaneio_expedicao(form):
             perfil_atual() or "sistema",
             datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             tipo_saida,
-            int(cliente_id) if cliente_id else None,
+            cliente_id_legado,
+            cliente["id"] if cliente else None,
+            json.dumps(snapshot_parceiro(cliente), ensure_ascii=False, sort_keys=True) if cliente else None,
             veiculo,
             motorista,
         ))
@@ -2085,7 +2092,8 @@ def salvar_romaneio_expedicao(form):
                 "responsavel": responsavel,
                 "observacoes": observacoes,
                 "tipo_saida": tipo_saida,
-                "cliente_id": int(cliente_id) if cliente_id else None,
+                "cliente_id": cliente_id_legado,
+                "cliente_parceiro_id": cliente["id"] if cliente else None,
                 "cliente": cliente["razao_social"] if cliente else None,
                 "veiculo": veiculo,
                 "motorista": motorista,

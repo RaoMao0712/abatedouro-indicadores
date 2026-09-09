@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 
 from database import DATABASE_URL, conectar, q
 from modules.auth.services import nome_usuario_atual, usuario_eh_admin
-from modules.parceiros.services import obter_parceiro_elegivel
+from modules.parceiros.services import listar_fornecedores_ativos, obter_parceiro_elegivel
 from services import manutencao_service
 from utils import calcular_horas_programadas, normalizar_chave_setor, setores_padrao
 from .etiquetas import montar_payload_etiqueta
@@ -495,19 +495,7 @@ def cancelar_ultima_caixa_pesagem_op(op_id):
 
 
 def buscar_fornecedores():
-    conn = conectar()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-    SELECT *
-    FROM fornecedores
-    ORDER BY nome
-    """)
-
-    fornecedores = cursor.fetchall()
-    conn.close()
-
-    return fornecedores
+    return listar_fornecedores_ativos()
 
 
 def buscar_ordens():

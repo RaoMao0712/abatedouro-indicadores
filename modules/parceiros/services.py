@@ -1,12 +1,9 @@
-"""Regras do Cadastro Mestre de Parceiros.
-
-Clientes e fornecedores legados permanecem deliberadamente desacoplados. Este
-módulo é a fonte cadastral apenas para os novos fluxos explicitamente integrados.
-"""
+"""Regras do Cadastro Mestre de Parceiros e compatibilidade com legados."""
 
 from datetime import datetime
 import json
 import re
+import unicodedata
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
@@ -32,7 +29,7 @@ ROTULOS_PAPEIS = {
     PAPEL_CLT: "Colaborador CLT",
 }
 
-PERFIS_CONSULTA = {"admin", "gerencia", "pcp", "producao"}
+PERFIS_CONSULTA = {"admin", "gerencia", "pcp", "producao", "expedicao"}
 PERFIS_EDICAO = {"admin", "gerencia", "pcp"}
 PERFIS_STATUS = {"admin", "gerencia"}
 
@@ -98,7 +95,34 @@ def criar_tabelas_parceiros():
         _adicionar_coluna(cursor, "ALTER TABLE apontamentos_mao_obra ADD COLUMN IF NOT EXISTS parceiro_id INTEGER", "ALTER TABLE apontamentos_mao_obra ADD COLUMN parceiro_id INTEGER")
         _adicionar_coluna(cursor, "ALTER TABLE apontamentos_mao_obra ADD COLUMN IF NOT EXISTS parceiro_nome_snapshot TEXT", "ALTER TABLE apontamentos_mao_obra ADD COLUMN parceiro_nome_snapshot TEXT")
         _adicionar_coluna(cursor, "ALTER TABLE apontamentos_mao_obra ADD COLUMN IF NOT EXISTS natureza_vinculo TEXT", "ALTER TABLE apontamentos_mao_obra ADD COLUMN natureza_vinculo TEXT")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_apontamentos_mao_obra_parceiro ON apontamentos_mao_obra(parceiro_id,op_id)")
+        _adicionar_coluna(cursor, "ALTER TABLE clientes ADD COLUMN IF NOT EXISTS parceiro_id INTEGER", "ALTER TABLE clientes ADD COLUMN parceiro_id INTEGER")
+        _adicionar_coluna(cursor, "ALTER TABLE fornecedores ADD COLUMN IF NOT EXISTS parceiro_id INTEGER", "ALTER TABLE fornecedores ADD COLUMN parceiro_id INTEGER")
+        for coluna in (
+            "documento TEXT", "status TEXT DEFAULT 'Ativo'", "tipo_pessoa TEXT DEFAULT 'PJ'",
+            "telefone TEXT", "email TEXT", "endereco TEXT", "complemento TEXT",
+            "bairro TEXT", "cidade TEXT", "uf TEXT", "cep TEXT", "observacoes TEXT",
+        ):
+            _adicionar_coluna(cursor, f"ALTER TABLE fornecedores ADD COLUMN IF NOT EXISTS {coluna}",
+                              f"ALTER TABLE fornecedores ADD COLUMN {coluna}")
+        _adicionar_coluna(cursor, "ALTER TABLE expedicoes ADD COLUMN IF NOT EXISTS cliente_parceiro_id INTEGER", "ALTER TABLE expedicoes ADD COLUMN cliente_parceiro_id INTEGER")
+        _adicionar_coluna(cursor, "ALTER TABLE ordens_producao ADD COLUMN IF NOT EXISTS fornecedor_parceiro_id INTEGER", "ALTER TABLE ordens_producao ADD COLUMN fornecedor_parceiro_id INTEGER")
+        cursor.execute(f"""CREATE TABLE IF NOT EXISTS parceiro_migracoes_legado (
+            id {pk}, tipo_legado TEXT NOT NULL, id_legado INTEGER NOT NULL,
+            parceiro_id INTEGER, parceiro_criado INTEGER NOT NULL DEFAULT 0,
+            papel_adicionado INTEGER NOT NULL DEFAULT 0, resultado TEXT NOT NULL,
+            detalhes TEXT, executor TEXT NOT NULL, executado_em {timestamp} NOT NULL,
+            UNIQUE(tipo_legado,id_legado)
+        )""")
+        _adicionar_coluna(cursor,
+                          "CREATE INDEX IF NOT EXISTS idx_apontamentos_mao_obra_parceiro ON apontamentos_mao_obra(parceiro_id,op_id)",
+                          "CREATE INDEX IF NOT EXISTS idx_apontamentos_mao_obra_parceiro ON apontamentos_mao_obra(parceiro_id,op_id)")
+        for indice in (
+            "CREATE INDEX IF NOT EXISTS idx_clientes_parceiro ON clientes(parceiro_id)",
+            "CREATE INDEX IF NOT EXISTS idx_fornecedores_parceiro ON fornecedores(parceiro_id)",
+            "CREATE INDEX IF NOT EXISTS idx_expedicoes_cliente_parceiro ON expedicoes(cliente_parceiro_id,data)",
+            "CREATE INDEX IF NOT EXISTS idx_ops_fornecedor_parceiro ON ordens_producao(fornecedor_parceiro_id,data)",
+        ):
+            _adicionar_coluna(cursor, indice, indice)
         conn.commit()
     except Exception:
         conn.rollback()
@@ -110,6 +134,12 @@ def criar_tabelas_parceiros():
 def normalizar_documento(valor):
     documento = re.sub(r"\D", "", str(valor or ""))
     return documento or None
+
+
+def normalizar_nome(valor):
+    texto = unicodedata.normalize("NFKD", str(valor or ""))
+    texto = "".join(caractere for caractere in texto if not unicodedata.combining(caractere))
+    return " ".join(texto.casefold().split())
 
 
 def _digitos_cpf(base):
@@ -353,6 +383,250 @@ def listar_parceiros(busca="", status="Todos", tipo_pessoa="Todos", papel="Todos
         return _anexar_papeis(cursor, cursor.fetchall())
     finally:
         conn.close()
+
+
+def listar_parceiros_por_papel(papel, somente_ativos=True):
+    """Fonte oficial de opções cadastrais para Cliente e Fornecedor."""
+    if papel not in PAPEIS_VALIDOS:
+        raise ValueError("Papel de parceiro inválido.")
+    return listar_parceiros(
+        status=STATUS_ATIVO if somente_ativos else "Todos",
+        papel=papel,
+    )
+
+
+def listar_clientes_ativos():
+    return listar_parceiros_por_papel(PAPEL_CLIENTE)
+
+
+def listar_fornecedores_ativos():
+    fornecedores = listar_parceiros_por_papel(PAPEL_FORNECEDOR)
+    for fornecedor in fornecedores:
+        fornecedor["nome"] = fornecedor["razao_social"]
+    return fornecedores
+
+
+def id_legado_do_parceiro(tipo_legado, parceiro_id):
+    """Retorna o vínculo técnico legado, quando existe, sem torná-lo canônico."""
+    tabela = {"CLIENTE": "clientes", "FORNECEDOR": "fornecedores"}.get(
+        str(tipo_legado or "").upper()
+    )
+    if not tabela:
+        raise ValueError("Tipo legado inválido.")
+    criar_tabelas_parceiros()
+    conn = conectar()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(q(f"SELECT id FROM {tabela} WHERE parceiro_id=? ORDER BY id LIMIT 1"),
+                       (int(parceiro_id),))
+        linha = cursor.fetchone()
+        return int(linha["id"]) if linha else None
+    finally:
+        conn.close()
+
+
+def snapshot_parceiro(parceiro):
+    """Snapshot comercial imutável compatível com os documentos históricos."""
+    return {
+        "id": parceiro["id"], "razao_social": parceiro["razao_social"],
+        "nome_fantasia": parceiro.get("nome_fantasia"),
+        "documento": parceiro.get("documento"), "endereco": parceiro.get("endereco"),
+        "complemento": parceiro.get("complemento"), "bairro": parceiro.get("bairro"),
+        "cidade": parceiro.get("cidade"), "uf": parceiro.get("uf"),
+    }
+
+
+def obter_parceiro_por_papel(parceiro_id, papel, exigir_ativo=True):
+    try:
+        parceiro_id = int(parceiro_id or 0)
+    except (TypeError, ValueError):
+        parceiro_id = 0
+    parceiro = buscar_parceiro(parceiro_id) if parceiro_id else None
+    rotulo = ROTULOS_PAPEIS.get(papel, papel)
+    if not parceiro or papel not in parceiro.get("papeis", []):
+        raise ValueError(f"Selecione um parceiro com papel {rotulo}.")
+    if exigir_ativo and parceiro["status"] != STATUS_ATIVO:
+        raise ValueError(f"Selecione um parceiro {rotulo} ativo.")
+    return parceiro
+
+
+def resolver_parceiro_legado(tipo_legado, id_legado):
+    """Resolve um ID legado sem alterar o documento histórico."""
+    tabela = {"CLIENTE": "clientes", "FORNECEDOR": "fornecedores"}.get(
+        str(tipo_legado or "").upper()
+    )
+    if not tabela:
+        raise ValueError("Tipo legado inválido.")
+    criar_tabelas_parceiros()
+    conn = conectar()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(q(f"SELECT parceiro_id FROM {tabela} WHERE id=?"), (int(id_legado),))
+        linha = cursor.fetchone()
+        return buscar_parceiro(linha["parceiro_id"]) if linha and linha["parceiro_id"] else None
+    finally:
+        conn.close()
+
+
+def _registrar_migracao(cursor, tipo, legado_id, parceiro_id, criado, papel_adicionado,
+                        resultado, detalhes, executor, agora):
+    valores = (parceiro_id, int(criado), int(papel_adicionado), resultado,
+               _json(detalhes), executor, agora, tipo, legado_id)
+    cursor.execute(q("""UPDATE parceiro_migracoes_legado SET parceiro_id=?,parceiro_criado=?,
+        papel_adicionado=?,resultado=?,detalhes=?,executor=?,executado_em=?
+        WHERE tipo_legado=? AND id_legado=?"""), valores)
+    if cursor.rowcount == 0:
+        cursor.execute(q("""INSERT INTO parceiro_migracoes_legado
+            (tipo_legado,id_legado,parceiro_id,parceiro_criado,papel_adicionado,
+             resultado,detalhes,executor,executado_em) VALUES (?,?,?,?,?,?,?,?,?)"""),
+            (tipo, legado_id, parceiro_id, int(criado), int(papel_adicionado),
+             resultado, _json(detalhes), executor, agora))
+
+
+def _tabela_existe(cursor, tabela):
+    if DATABASE_URL:
+        cursor.execute("SELECT 1 FROM information_schema.tables WHERE table_schema=current_schema() AND table_name=%s", (tabela,))
+    else:
+        cursor.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (tabela,))
+    return bool(cursor.fetchone())
+
+
+def _candidatos_nome(cursor, nome):
+    cursor.execute("SELECT id,razao_social,status FROM parceiros ORDER BY id")
+    alvo = normalizar_nome(nome)
+    return [dict(item) for item in cursor.fetchall()
+            if normalizar_nome(item["razao_social"]) == alvo]
+
+
+def _adicionar_papel_migracao(cursor, parceiro_id, papel, executor, agora):
+    cursor.execute(q("SELECT id,ativo FROM parceiro_papeis WHERE parceiro_id=? AND papel=?"),
+                   (parceiro_id, papel))
+    existente = cursor.fetchone()
+    if existente and int(existente["ativo"] or 0) == 1:
+        return False
+    if existente:
+        cursor.execute(q("""UPDATE parceiro_papeis SET ativo=1,adicionado_por=?,adicionado_em=?,
+            removido_por=NULL,removido_em=NULL WHERE id=?"""),
+            (executor, agora, existente["id"]))
+    else:
+        cursor.execute(q("""INSERT INTO parceiro_papeis
+            (parceiro_id,papel,ativo,adicionado_por,adicionado_em) VALUES (?,?,?,?,?)"""),
+            (parceiro_id, papel, 1, executor, agora))
+    return True
+
+
+def migrar_clientes_fornecedores_legados(*, executor="P3.4 migration"):
+    """Backfill aditivo, auditável e idempotente dos dois cadastros legados."""
+    criar_tabelas_parceiros()
+    agora = _agora()
+    resumo = {"migrados": 0, "criados": 0, "reutilizados": 0,
+              "ambiguos": 0, "conflitos": 0}
+    with transaction() as conn:
+        cursor = conn.cursor()
+        fontes = (
+            ("CLIENTE", "clientes", PAPEL_CLIENTE,
+             "razao_social,nome_fantasia,tipo_pessoa,documento,telefone,endereco,complemento,bairro,cidade,uf,cep,observacoes,status"),
+            ("FORNECEDOR", "fornecedores", PAPEL_FORNECEDOR,
+             "nome,tipo_pessoa,documento,telefone,email,endereco,complemento,bairro,cidade,uf,cep,observacoes,status"),
+        )
+        for tipo, tabela, papel, colunas in fontes:
+            if not _tabela_existe(cursor, tabela):
+                continue
+            cursor.execute(f"SELECT id,{colunas},parceiro_id FROM {tabela} ORDER BY id")
+            for bruto in cursor.fetchall():
+                legado = dict(bruto)
+                legado_id = legado["id"]
+                if legado.get("parceiro_id"):
+                    _registrar_migracao(cursor, tipo, legado_id, legado["parceiro_id"],
+                                        False, False, "JA_VINCULADO", {}, executor, agora)
+                    resumo["reutilizados"] += 1
+                    continue
+                nome = legado.get("razao_social") or legado.get("nome")
+                documento = normalizar_documento(legado.get("documento"))
+                candidatos = []
+                if documento:
+                    cursor.execute(q("SELECT id,razao_social,status FROM parceiros WHERE documento=?"),
+                                   (documento,))
+                    candidatos = [dict(item) for item in cursor.fetchall()]
+                if not candidatos:
+                    candidatos = _candidatos_nome(cursor, nome)
+                if len(candidatos) > 1:
+                    _registrar_migracao(cursor, tipo, legado_id, None, False, False,
+                                        "AMBIGUO", {"candidatos": [x["id"] for x in candidatos]},
+                                        executor, agora)
+                    resumo["ambiguos"] += 1
+                    continue
+                status_legado = legado.get("status") or STATUS_ATIVO
+                criado = not candidatos
+                if candidatos and candidatos[0]["status"] != status_legado:
+                    _registrar_migracao(cursor, tipo, legado_id, candidatos[0]["id"], False,
+                                        False, "CONFLITO_STATUS",
+                                        {"legado": status_legado, "parceiro": candidatos[0]["status"]},
+                                        executor, agora)
+                    resumo["conflitos"] += 1
+                    continue
+                if candidatos:
+                    parceiro_id = candidatos[0]["id"]
+                    resumo["reutilizados"] += 1
+                else:
+                    dados = {
+                        "tipo_pessoa": legado.get("tipo_pessoa") or "PJ",
+                        "razao_social": nome,
+                        "nome_fantasia": legado.get("nome_fantasia") or "",
+                        "documento": documento,
+                        "telefone": legado.get("telefone") or "",
+                        "email": legado.get("email") or "", "endereco": legado.get("endereco") or "",
+                        "complemento": legado.get("complemento") or "",
+                        "bairro": legado.get("bairro") or "", "cidade": legado.get("cidade") or "",
+                        "uf": legado.get("uf") or "", "cep": legado.get("cep") or "",
+                        "observacoes": legado.get("observacoes") or "",
+                    }
+                    campos = tuple(dados.values())
+                    sql = """INSERT INTO parceiros
+                        (uuid,tipo_pessoa,razao_social,nome_fantasia,documento,telefone,email,
+                         endereco,complemento,bairro,cidade,uf,cep,observacoes,status,criado_por,
+                         atualizado_por,criado_em,atualizado_em) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"""
+                    valores = (str(uuid4()),) + campos + (status_legado, executor, executor, agora, agora)
+                    if DATABASE_URL:
+                        cursor.execute(q(sql + " RETURNING id"), valores)
+                        parceiro_id = cursor.fetchone()["id"]
+                    else:
+                        cursor.execute(q(sql), valores)
+                        parceiro_id = cursor.lastrowid
+                    resumo["criados"] += 1
+                    _evento(cursor, parceiro_id, "PARCEIRO_CRIADO_POR_MIGRACAO", None,
+                            {"tipo_legado": tipo, "id_legado": legado_id}, executor, "sistema")
+                papel_adicionado = _adicionar_papel_migracao(
+                    cursor, parceiro_id, papel, executor, agora)
+                if papel_adicionado:
+                    _evento(cursor, parceiro_id, "PAPEL_ADICIONADO_POR_MIGRACAO", None,
+                            {"tipo_legado": tipo, "id_legado": legado_id}, executor, "sistema", papel)
+                cursor.execute(q(f"UPDATE {tabela} SET parceiro_id=? WHERE id=?"),
+                               (parceiro_id, legado_id))
+                _registrar_migracao(cursor, tipo, legado_id, parceiro_id, criado,
+                                    papel_adicionado, "MIGRADO", {}, executor, agora)
+                resumo["migrados"] += 1
+        # Chaves canônicas são preenchidas sem reescrever snapshots nem textos
+        # históricos. A OP continua exibindo o fornecedor gravado à época.
+        if _tabela_existe(cursor, "pedidos_venda") and _tabela_existe(cursor, "clientes"):
+            cursor.execute("""UPDATE pedidos_venda SET cliente_parceiro_id=(
+                SELECT c.parceiro_id FROM clientes c WHERE c.id=pedidos_venda.cliente_id)
+                WHERE cliente_parceiro_id IS NULL AND cliente_id IS NOT NULL""")
+        if _tabela_existe(cursor, "expedicoes") and _tabela_existe(cursor, "clientes"):
+            cursor.execute("""UPDATE expedicoes SET cliente_parceiro_id=(
+                SELECT c.parceiro_id FROM clientes c WHERE c.id=expedicoes.cliente_id)
+                WHERE cliente_parceiro_id IS NULL AND cliente_id IS NOT NULL""")
+        if _tabela_existe(cursor, "fornecedores") and _tabela_existe(cursor, "ordens_producao"):
+            cursor.execute("SELECT id,nome,parceiro_id FROM fornecedores WHERE parceiro_id IS NOT NULL")
+            fornecedores = [dict(item) for item in cursor.fetchall()]
+            cursor.execute("SELECT id,fornecedor FROM ordens_producao WHERE fornecedor_parceiro_id IS NULL")
+            for op in cursor.fetchall():
+                correspondencias = [f for f in fornecedores
+                                     if normalizar_nome(f["nome"]) == normalizar_nome(op["fornecedor"])]
+                if len(correspondencias) == 1:
+                    cursor.execute(q("UPDATE ordens_producao SET fornecedor_parceiro_id=? WHERE id=?"),
+                                   (correspondencias[0]["parceiro_id"], op["id"]))
+    return resumo
 
 
 def listar_parceiros_elegiveis():

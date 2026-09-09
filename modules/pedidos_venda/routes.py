@@ -7,7 +7,9 @@ import secrets
 from flask import flash, redirect, render_template, request, send_file, session, url_for
 
 from modules.auth.decorators import perfil_permitido
-from modules.clientes.services import listar_clientes
+from modules.parceiros.services import (
+    PAPEL_CLIENTE, listar_clientes_ativos, listar_parceiros_por_papel,
+)
 from modules.engenharia_produtos.services import listar_catalogo
 from modules.expedicao.estoque_service import formatar_data_brasileira
 from .pdf import gerar_pdf_pedido
@@ -18,7 +20,7 @@ from .services import (CONDICOES_PAGAMENTO, FORMAS_PAGAMENTO, STATUS, UNIDADES,
 
 
 def _dados_formulario(pedido=None):
-    clientes = [dict(cliente) for cliente in listar_clientes(somente_ativos=True)]
+    clientes = listar_clientes_ativos()
     destinos = {}
     for cliente in clientes:
         partes = [cliente.get("endereco"), cliente.get("complemento"), cliente.get("bairro")]
@@ -46,7 +48,7 @@ def register_pedidos_venda_routes(app):
         filtros={k:request.args.get(k) or "" for k in ("numero","data_inicio","data_fim","cliente_id","destino","produto","status","responsavel","forma_pagamento","condicao_pagamento")}
         pedidos=listar_pedidos(filtros)
         return render_template("pedidos_venda.html",pedidos=pedidos,resumo=resumo_pedidos(pedidos),filtros=filtros,
-            clientes=listar_clientes(somente_ativos=False),status_opcoes=STATUS,formas=FORMAS_PAGAMENTO,condicoes=CONDICOES_PAGAMENTO)
+            clientes=listar_parceiros_por_papel(PAPEL_CLIENTE, somente_ativos=False),status_opcoes=STATUS,formas=FORMAS_PAGAMENTO,condicoes=CONDICOES_PAGAMENTO)
 
     @app.route("/pedidos-venda/novo",methods=["GET","POST"])
     @perfil_permitido("pcp", "expedicao", "gerencia")

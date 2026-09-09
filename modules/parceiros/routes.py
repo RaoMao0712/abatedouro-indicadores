@@ -11,7 +11,7 @@ from .services import (
 
 def register_parceiros_routes(app):
     @app.get("/cadastros/parceiros")
-    @perfil_permitido("gerencia", "pcp", "producao")
+    @perfil_permitido("gerencia", "pcp", "producao", "expedicao")
     def parceiros():
         filtros = {
             "busca": request.args.get("busca", ""),
@@ -33,16 +33,17 @@ def register_parceiros_routes(app):
             except (ValueError, PermissionError) as erro:
                 flash(str(erro))
         return render_template("parceiro_form.html", parceiro=None, eventos=[],
-                               papeis_validos=sorted(PAPEIS_VALIDOS), rotulos_papeis=ROTULOS_PAPEIS)
+                               papeis_validos=sorted(PAPEIS_VALIDOS), rotulos_papeis=ROTULOS_PAPEIS,
+                               papeis_preselecionados={request.args.get("papel")} & PAPEIS_VALIDOS)
 
     @app.route("/cadastros/parceiros/<int:parceiro_id>", methods=["GET", "POST"])
-    @perfil_permitido("gerencia", "pcp", "producao")
+    @perfil_permitido("gerencia", "pcp", "producao", "expedicao")
     def editar_parceiro(parceiro_id):
         parceiro = buscar_parceiro(parceiro_id)
         if not parceiro:
             flash("Parceiro não encontrado.")
             return redirect(url_for("parceiros"))
-        somente_leitura = session.get("perfil") == "producao"
+        somente_leitura = session.get("perfil") in {"producao", "expedicao"}
         if request.method == "POST" and not somente_leitura:
             try:
                 salvar_parceiro(request.form, parceiro_id)

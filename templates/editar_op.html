@@ -32,10 +32,10 @@
                     <option value="">Selecione</option>
                     {% for fornecedor in fornecedores %}
                     <option
-                        value="{{ fornecedor.nome }}"
-                        {% if fornecedor.nome == op.fornecedor %}selected{% endif %}
+                        value="{{ fornecedor.id }}"
+                        {% if fornecedor.id == op.fornecedor_parceiro_id or (not op.fornecedor_parceiro_id and fornecedor.razao_social == op.fornecedor) %}selected{% endif %}
                     >
-                        {{ fornecedor.nome }}
+                        {{ fornecedor.razao_social }}
                     </option>
                     {% endfor %}
                 </select>

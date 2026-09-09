@@ -8,7 +8,9 @@ from flask import flash, redirect, render_template, request, session, url_for
 from database import DATABASE_URL, conectar, q
 from modules.auth.decorators import login_obrigatorio, perfil_permitido
 from modules.auth.services import usuario_eh_admin
-from modules.parceiros.services import listar_parceiros_elegiveis
+from modules.parceiros.services import (
+    PAPEL_FORNECEDOR, listar_parceiros_elegiveis, obter_parceiro_por_papel,
+)
 from modules.qualidade import services as qualidade_service
 from modules.relatorios.producao import buscar_ops_agregadas, normalizar_filtros
 from utils import normalizar_chave_setor, setores_padrao
@@ -92,12 +94,21 @@ def register_producao_routes(app, integracoes=None):
         if request.method == "POST":
             data = request.form["data"]
             sku = request.form.get("sku", "Galinha Cortada")
-            fornecedor = request.form["fornecedor"]
+            try:
+                parceiro_fornecedor = obter_parceiro_por_papel(
+                    request.form.get("fornecedor"), PAPEL_FORNECEDOR)
+                quantidade_aves = int(request.form["quantidade_aves"])
+                peso_vivo = float(request.form["peso_vivo"])
+            except (ValueError, TypeError) as erro:
+                flash(str(erro))
+                return render_template(
+                    "ordem_producao.html", hoje=data, ordens=buscar_ordens()[:10],
+                    fornecedores=buscar_fornecedores(), categorias_pausa=sorted(CATEGORIAS_PAUSA),
+                )
+            fornecedor = parceiro_fornecedor["razao_social"]
             gta = request.form["gta"]
             nota_fiscal = request.form["nota_fiscal"]
-            quantidade_aves = int(request.form["quantidade_aves"])
             mortes_antes_pendura = 0
-            peso_vivo = float(request.form["peso_vivo"])
             observacoes = request.form["observacoes"]
 
             peso_medio = peso_vivo / quantidade_aves if quantidade_aves else 0
@@ -106,13 +117,13 @@ def register_producao_routes(app, integracoes=None):
             cursor = conn.cursor()
             sql_op = """
             INSERT INTO ordens_producao (
-                data, sku, fornecedor, gta, nota_fiscal, quantidade_aves,
+                data, sku, fornecedor, fornecedor_parceiro_id, gta, nota_fiscal, quantidade_aves,
                 mortes_antes_pendura, peso_vivo, peso_medio, observacoes, status
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """
             parametros_op = (
-                data, sku, fornecedor, gta, nota_fiscal, quantidade_aves,
+                data, sku, fornecedor, parceiro_fornecedor["id"], gta, nota_fiscal, quantidade_aves,
                 mortes_antes_pendura, peso_vivo, peso_medio, observacoes, "Aberta"
             )
             try:
@@ -556,12 +567,19 @@ def register_producao_routes(app, integracoes=None):
         if request.method == "POST":
             data = request.form["data"]
             sku = request.form.get("sku", "Galinha Cortada")
-            fornecedor = request.form["fornecedor"]
+            try:
+                parceiro_fornecedor = obter_parceiro_por_papel(
+                    request.form.get("fornecedor"), PAPEL_FORNECEDOR)
+                quantidade_aves = int(request.form["quantidade_aves"])
+                peso_vivo = float(request.form["peso_vivo"])
+            except (ValueError, TypeError) as erro:
+                conn.close()
+                flash(str(erro))
+                return redirect(url_for("editar_op", op_id=op_id))
+            fornecedor = parceiro_fornecedor["razao_social"]
             gta = request.form["gta"]
             nota_fiscal = request.form["nota_fiscal"]
-            quantidade_aves = int(request.form["quantidade_aves"])
             mortes_antes_pendura = 0
-            peso_vivo = float(request.form["peso_vivo"])
             observacoes = request.form["observacoes"]
             peso_medio = peso_vivo / quantidade_aves if quantidade_aves else 0
 
@@ -569,12 +587,12 @@ def register_producao_routes(app, integracoes=None):
             try:
                 cursor.execute(q("""
                 UPDATE ordens_producao
-                SET data = ?, sku = ?, fornecedor = ?, gta = ?, nota_fiscal = ?,
+                SET data = ?, sku = ?, fornecedor = ?, fornecedor_parceiro_id = ?, gta = ?, nota_fiscal = ?,
                     quantidade_aves = ?, mortes_antes_pendura = ?, peso_vivo = ?,
                     peso_medio = ?, observacoes = ?
                 WHERE id = ?
                 """), (
-                    data, sku, fornecedor, gta, nota_fiscal, quantidade_aves,
+                    data, sku, fornecedor, parceiro_fornecedor["id"], gta, nota_fiscal, quantidade_aves,
                     mortes_antes_pendura, peso_vivo, peso_medio, observacoes, op_id
                 ))
                 inicio_programado = request.form.get("inicio_programado")

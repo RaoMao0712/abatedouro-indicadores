@@ -91,8 +91,16 @@ from modules.qualidade.liberacoes import (
     saldos_legados_operacionais,
 )
 from modules.label_printing.services import listar_jobs_caixas, solicitar_reimpressao
-from modules.clientes.services import listar_clientes
+from modules.parceiros.services import (
+    PAPEL_CLIENTE, listar_clientes_ativos, listar_parceiros_por_papel,
+)
 from .relatorio_entregas import gerar_relatorio_entregas_pdf
+
+
+def listar_clientes(*, somente_ativos=True):
+    """Alias transitório para testes/extensões; a fonte continua sendo Parceiros."""
+    return (listar_clientes_ativos() if somente_ativos else
+            listar_parceiros_por_papel(PAPEL_CLIENTE, somente_ativos=False))
 
 
 def _csrf_estorno_valido():

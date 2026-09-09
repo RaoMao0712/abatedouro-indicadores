@@ -221,8 +221,6 @@ NAVEGACAO = [
         "itens": [
             {"titulo": "Parceiros", "endpoint": "parceiros", "perfis": ("admin", "gerencia", "pcp", "producao"), "principal": True, "active_endpoints": ("parceiros", "novo_parceiro", "editar_parceiro")},
             {"titulo": "Pedidos de Venda", "endpoint": "pedidos_venda", "perfis": ("gerencia",), "principal": True, "active_endpoints": ("pedidos_venda", "novo_pedido_venda", "editar_pedido_venda", "detalhe_pedido_venda", "imprimir_pedido_venda")},
-            {"titulo": "Fornecedores", "endpoint": "fornecedores", "perfis": ADMIN_PCP},
-            {"titulo": "Clientes", "endpoint": "clientes", "perfis": ("admin", "gerencia", "pcp")},
             {
                 "titulo": "Engenharia de Produtos",
                 "endpoint": "engenharia_produtos",

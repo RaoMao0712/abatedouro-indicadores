@@ -17,6 +17,7 @@ from modules.manutencao import register_manutencao_routes
 from modules.cadastros import register_cadastros_routes
 from modules.clientes import criar_tabelas_clientes, register_clientes_routes
 from modules.parceiros import criar_tabelas_parceiros, register_parceiros_routes
+from modules.parceiros.services import migrar_clientes_fornecedores_legados
 from modules.cadastros.services import criar_tabela_vendas, criar_tabelas_receitas_sku, criar_tabela_fornecedores
 from modules.engenharia_produtos import criar_tabelas_engenharia_produtos, register_engenharia_produtos_routes
 from modules.importacao_oficial import register_importacao_routes
@@ -640,6 +641,7 @@ def inicializar_schema_aplicacao():
         criar_tabelas_clientes,
         criar_tabelas_parceiros,
         criar_tabelas_pedidos_venda,
+        migrar_clientes_fornecedores_legados,
         criar_tabelas_correcoes_administrativas_op,
         criar_tabelas_disponibilidade,
         criar_tabelas_performance,

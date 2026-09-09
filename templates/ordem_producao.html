@@ -39,8 +39,8 @@
                     <select name="fornecedor" required>
                         <option value="">Selecione</option>
                         {% for fornecedor in fornecedores %}
-                        <option value="{{ fornecedor.nome }}">
-                            {{ fornecedor.nome }}
+                        <option value="{{ fornecedor.id }}">
+                            {{ fornecedor.razao_social }}
                         </option>
                         {% endfor %}
                     </select>
