@@ -601,6 +601,7 @@ function abrirModalCorrecaoOp() {
 
                     <span class="item-detalhe-operacional">
                         {{ item.setor }} | {{ item.funcao }} | {{ item.turno or 'Sem turno' }}
+                        {% if item.natureza_vinculo %}| {{ 'Colaborador CLT' if item.natureza_vinculo == 'COLABORADOR_CLT' else 'Prestador de Serviços' }}{% endif %}
                     </span>
                 </label>
 

@@ -9268,6 +9268,11 @@ small {
 .badge-expedicao.concluido{background:#dff4e9!important;color:#176541!important}
 .badge-expedicao.cancelado{background:#fee5e3!important;color:#a6241e!important}
 .badge-expedicao.estornado{background:#e8ecea!important;color:#4d5b56!important}
+
+/* P3.3 — Cadastro Mestre de Parceiros */
+.parceiros-page{min-width:0}.parceiros-filtros{grid-template-columns:minmax(240px,2fr) repeat(3,minmax(130px,1fr)) auto!important}.parceiro-badges{display:flex;flex-wrap:wrap;gap:4px}.parceiro-badge{display:inline-flex;padding:3px 7px;border-radius:99px;background:#e5f0ec;color:#245c4d;font-size:.65rem;font-weight:850}.parceiro-sem-papel{color:#71807b;font-size:.7rem;font-style:italic}.parceiro-form-card textarea{width:100%;min-height:76px}.parceiro-campo-largo{grid-column:1/-1}.parceiro-papeis{margin:4px 0;padding:14px;border:1px solid #dce6e2;border-radius:10px}.parceiro-papeis legend{padding:0 7px;font-weight:850;color:#244d42}.parceiro-papeis-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.parceiro-papeis-grid label{display:flex;align-items:center;gap:7px;padding:10px;border:1px solid #e0e8e5;border-radius:8px;background:#fafcfb}.parceiro-papeis-grid input{width:auto}
+@media(max-width:900px){.parceiros-filtros,.parceiro-papeis-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
+@media(max-width:600px){.parceiros-filtros,.parceiro-papeis-grid{grid-template-columns:1fr!important}.parceiro-campo-largo{grid-column:auto}}
 .romaneio-vazio,.romaneio-empty-state{padding:18px!important;color:#66756f;text-align:center}
 .romaneio-titulo-linha{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .romaneio-header-actions{display:flex;gap:7px;flex-wrap:wrap}

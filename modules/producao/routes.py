@@ -8,6 +8,7 @@ from flask import flash, redirect, render_template, request, session, url_for
 from database import DATABASE_URL, conectar, q
 from modules.auth.decorators import login_obrigatorio, perfil_permitido
 from modules.auth.services import usuario_eh_admin
+from modules.parceiros.services import listar_parceiros_elegiveis
 from modules.qualidade import services as qualidade_service
 from modules.relatorios.producao import buscar_ops_agregadas, normalizar_filtros
 from utils import normalizar_chave_setor, setores_padrao
@@ -23,6 +24,7 @@ from .services import (
     cancelar_ultima_caixa_pesagem_op,
     contexto_apontamento,
     copiar_mao_obra_de_op,
+    atualizar_apontamento_mao_obra,
     registrar_peso_caixa_op,
     salvar_apontamento_mao_obra,
     salvar_apontamento_parada,
@@ -221,6 +223,7 @@ def register_producao_routes(app, integracoes=None):
 
         contexto = contexto_apontamento()
         contexto["ordens_origem"] = buscar_ordens()
+        contexto["parceiros_elegiveis"] = listar_parceiros_elegiveis()
 
         return render_template(
             "apontamento_mao_obra.html",
@@ -643,34 +646,16 @@ def register_producao_routes(app, integracoes=None):
             return redirect(url_for("consultar_op", op_id=op_id))
 
         if request.method == "POST":
-            colaborador = request.form["colaborador"]
-            funcao = request.form["funcao"]
-            setor = request.form["setor"]
-            turno = request.form.get("turno", "")
-            observacoes = request.form.get("observacoes", "")
-
-            cursor.execute(q("""
-            UPDATE apontamentos_mao_obra
-            SET colaborador = ?,
-                funcao = ?,
-                setor = ?,
-                turno = ?,
-                observacoes = ?
-            WHERE id = ?
-            """), (
-                colaborador,
-                funcao,
-                setor,
-                turno,
-                observacoes,
-                mao_obra_id
-            ))
-
-            conn.commit()
             op_id = apontamento["op_id"]
             conn.close()
-
-            flash("Apontamento de mão de obra atualizado com sucesso.")
+            try:
+                atualizar_apontamento_mao_obra(
+                    mao_obra_id, request.form, apontamento["parceiro_id"]
+                )
+                flash("Apontamento de mão de obra atualizado com sucesso.")
+            except ValueError as erro:
+                flash(str(erro))
+                return redirect(url_for("editar_mao_obra", mao_obra_id=mao_obra_id))
             return redirect(url_for("consultar_op", op_id=op_id))
 
         conn.close()
@@ -701,9 +686,12 @@ def register_producao_routes(app, integracoes=None):
             "Outra"
         ]
 
+        parceiros_elegiveis = listar_parceiros_elegiveis()
         return render_template(
             "editar_mao_obra.html",
             apontamento=apontamento,
+            parceiros_elegiveis=parceiros_elegiveis,
+            parceiros_elegiveis_ids={item["id"] for item in parceiros_elegiveis},
             setores=setores_padrao(),
             lista_funcoes=lista_funcoes
         )

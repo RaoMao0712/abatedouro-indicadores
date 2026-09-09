@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 
 from database import DATABASE_URL, conectar, q
 from modules.auth.services import nome_usuario_atual, usuario_eh_admin
+from modules.parceiros.services import obter_parceiro_elegivel
 from services import manutencao_service
 from utils import calcular_horas_programadas, normalizar_chave_setor, setores_padrao
 from .etiquetas import montar_payload_etiqueta
@@ -631,23 +632,63 @@ def salvar_apontamento_mao_obra(form):
     op_id = int(form["op_id"])
     validar_op_aberta(op_id)
 
+    parceiro, natureza = obter_parceiro_elegivel(
+        form.get("parceiro_id"), form.get("natureza_vinculo")
+    )
+    nome_snapshot = parceiro["razao_social"]
+
     conn = conectar()
     cursor = conn.cursor()
 
     cursor.execute(q("""
     INSERT INTO apontamentos_mao_obra (
-        op_id, data, colaborador, funcao, setor, turno, observacoes
-    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        op_id, data, colaborador, funcao, setor, turno, observacoes,
+        parceiro_id, parceiro_nome_snapshot, natureza_vinculo
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """), (
         op_id,
         form["data"],
-        form["colaborador"],
+        nome_snapshot,
         form["funcao"],
         form["setor"],
         form.get("turno", ""),
-        form.get("observacoes", "")
+        form.get("observacoes", ""),
+        parceiro["id"],
+        nome_snapshot,
+        natureza,
     ))
 
+    conn.commit()
+    conn.close()
+
+
+def atualizar_apontamento_mao_obra(mao_obra_id, form, parceiro_id_atual=None):
+    """Edita o apontamento sem recalcular snapshots por mudanças cadastrais.
+
+    Se o parceiro não for trocado, nome e natureza históricos permanecem
+    intocados, inclusive após inativação ou remoção de papel.
+    """
+    parceiro_id_novo = int(form.get("parceiro_id") or 0)
+    trocar_parceiro = parceiro_id_novo and parceiro_id_novo != int(parceiro_id_atual or 0)
+    snapshot = natureza = None
+    if trocar_parceiro or not parceiro_id_atual:
+        parceiro, natureza = obter_parceiro_elegivel(
+            parceiro_id_novo, form.get("natureza_vinculo")
+        )
+        parceiro_id_novo = parceiro["id"]
+        snapshot = parceiro["razao_social"]
+
+    conn = conectar()
+    cursor = conn.cursor()
+    if snapshot is None:
+        cursor.execute(q("""UPDATE apontamentos_mao_obra SET funcao=?,setor=?,turno=?,observacoes=?
+            WHERE id=?"""), (form["funcao"], form["setor"], form.get("turno", ""),
+                              form.get("observacoes", ""), mao_obra_id))
+    else:
+        cursor.execute(q("""UPDATE apontamentos_mao_obra SET colaborador=?,funcao=?,setor=?,turno=?,
+            observacoes=?,parceiro_id=?,parceiro_nome_snapshot=?,natureza_vinculo=? WHERE id=?"""),
+            (snapshot, form["funcao"], form["setor"], form.get("turno", ""),
+             form.get("observacoes", ""), parceiro_id_novo, snapshot, natureza, mao_obra_id))
     conn.commit()
     conn.close()
 
@@ -686,8 +727,9 @@ def copiar_mao_obra_de_op(origem_op_id, destino_op_id, data_destino):
     for item in registros_origem:
         cursor.execute(q("""
         INSERT INTO apontamentos_mao_obra (
-            op_id, data, colaborador, funcao, setor, turno, observacoes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            op_id, data, colaborador, funcao, setor, turno, observacoes,
+            parceiro_id, parceiro_nome_snapshot, natureza_vinculo
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """), (
             destino_op_id,
             data_destino,
@@ -695,7 +737,10 @@ def copiar_mao_obra_de_op(origem_op_id, destino_op_id, data_destino):
             item["funcao"],
             item["setor"],
             item["turno"],
-            item["observacoes"]
+            item["observacoes"],
+            item["parceiro_id"],
+            item["parceiro_nome_snapshot"],
+            item["natureza_vinculo"],
         ))
 
     conn.commit()
