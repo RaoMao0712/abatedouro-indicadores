@@ -61,6 +61,12 @@ def criar_tabelas_clientes():
         cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_clientes_documento ON clientes(documento) WHERE documento IS NOT NULL")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_clientes_busca ON clientes(status,razao_social,cidade)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_cliente_eventos ON cliente_eventos(cliente_id,criado_em)")
+        _alterar(
+            cursor,
+            "ALTER TABLE clientes ADD COLUMN IF NOT EXISTS parceiro_id INTEGER",
+            "ALTER TABLE clientes ADD COLUMN parceiro_id INTEGER",
+        )
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_clientes_parceiro ON clientes(parceiro_id)")
         for coluna in (
             "tipo_saida TEXT", "cliente_id INTEGER", "cliente_snapshot TEXT",
             "veiculo TEXT", "motorista TEXT",

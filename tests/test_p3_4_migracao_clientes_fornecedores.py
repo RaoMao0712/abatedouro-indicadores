@@ -181,6 +181,28 @@ def test_30_31_rotas_legadas_sao_redirects():
     assert "redirect(url_for(\"parceiros\", papel=\"FORNECEDOR\"))" in fornecedores_src
 
 
+def test_buscar_cliente_garante_coluna_de_vinculo_sem_bootstrap_de_parceiros(
+        tmp_path, monkeypatch):
+    caminho = str(tmp_path / "cliente-isolado.sqlite")
+    monkeypatch.setattr(db, "DB_NAME", caminho)
+    monkeypatch.setattr(db, "DATABASE_URL", None)
+    monkeypatch.setattr(clientes, "DATABASE_URL", None)
+    executar(caminho, """CREATE TABLE expedicoes(
+        id INTEGER PRIMARY KEY,data TEXT,tipo_movimentacao TEXT,status TEXT
+        )""")
+    clientes.criar_tabelas_clientes()
+    agora = "2026-09-09 08:00:00"
+    executar(caminho, """INSERT INTO clientes(
+        razao_social,tipo_pessoa,status,criado_por,atualizado_por,criado_em,atualizado_em
+        ) VALUES(?,?,?,?,?,?,?)""",
+        ("Cliente isolado", "PJ", "Ativo", "Teste", "Teste", agora, agora))
+
+    registro = clientes.buscar_cliente(1)
+
+    assert "parceiro_id" in registro.keys()
+    assert registro["parceiro_id"] is None
+
+
 def test_ambiguidade_e_conflito_de_status_ficam_auditados(banco):
     parceiro(banco, "Nome Ambíguo"); parceiro(banco, "NOME AMBIGUO")
     cliente(banco, "Nome Ambíguo")
