@@ -66,6 +66,7 @@ from modules.almoxarifado.services import (
     criar_tabelas_almoxarifado,
     criar_tabelas_estoque_almoxarifado,
 )
+from modules.almoxarifado.requisicoes import criar_tabelas_requisicoes_almoxarifado
 from modules.custos.services import criar_tabelas_custos
 from modules.manutencao import services as manutencao_service
 
@@ -640,6 +641,7 @@ def inicializar_schema_aplicacao():
         criar_tabelas_reprocessamento_pnc,
         criar_tabelas_clientes,
         criar_tabelas_parceiros,
+        criar_tabelas_requisicoes_almoxarifado,
         criar_tabelas_pedidos_venda,
         migrar_clientes_fornecedores_legados,
         criar_tabelas_correcoes_administrativas_op,

@@ -155,10 +155,11 @@ NAVEGACAO = [
         "titulo": "Almoxarifado",
         "descricao": "Insumos, entradas, saldos e rastreabilidade.",
         "icone": "box",
-        "perfis": ADMIN_PCP,
+        "perfis": GESTAO_PERFIS,
         "card": True,
         "itens": [
             {"titulo": "Central", "endpoint": "almoxarifado", "perfis": ADMIN_PCP, "principal": True, "active_endpoints": ("almoxarifado", "editar_insumo_almoxarifado")},
+            {"titulo": "Requisições", "endpoint": "requisicoes_almoxarifado", "perfis": GESTAO_PERFIS, "principal": True, "active_endpoints": ("requisicoes_almoxarifado", "nova_requisicao_almoxarifado", "detalhe_requisicao_almoxarifado", "imprimir_requisicao_almoxarifado")},
             {"titulo": "Entradas", "endpoint": "entrada_estoque_almoxarifado", "perfis": ADMIN_PCP},
             {"titulo": "Saldos", "endpoint": "saldo_almoxarifado", "perfis": ADMIN_PCP},
             {"titulo": "Movimentações", "endpoint": "movimentacoes_almoxarifado", "perfis": ADMIN_PCP},

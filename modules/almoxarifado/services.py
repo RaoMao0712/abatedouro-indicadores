@@ -89,6 +89,7 @@ def criar_tabelas_almoxarifado():
             unidade TEXT NOT NULL,
             ativo TEXT DEFAULT 'Sim',
             observacoes TEXT,
+            origem_baixa TEXT,
             criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         """)
@@ -101,11 +102,17 @@ def criar_tabelas_almoxarifado():
             unidade TEXT NOT NULL,
             ativo TEXT DEFAULT 'Sim',
             observacoes TEXT,
+            origem_baixa TEXT,
             criado_em TEXT DEFAULT CURRENT_TIMESTAMP
         )
         """)
 
     conn.commit()
+    _alterar_coluna(
+        cursor, conn,
+        "ALTER TABLE almoxarifado_insumos ADD COLUMN IF NOT EXISTS origem_baixa TEXT",
+        "ALTER TABLE almoxarifado_insumos ADD COLUMN origem_baixa TEXT",
+    )
     conn.close()
 
 
@@ -117,6 +124,16 @@ def salvar_insumo_almoxarifado(form):
     unidade = form.get("unidade", "").strip()
     ativo = form.get("ativo", "Sim").strip()
     observacoes = form.get("observacoes", "").strip()
+    origem_baixa = form.get("origem_baixa", "").strip() or (
+        "ORDEM_PRODUCAO" if categoria in {"Embalagem", "Matéria-prima"}
+        else "REQUISICAO_ALMOXARIFADO"
+    )
+
+    # A fonte oficial e derivada da categoria e nao pode ser reclassificada no formulario.
+    origem_baixa = (
+        "ORDEM_PRODUCAO" if categoria in {"Embalagem", "Matéria-prima"}
+        else "REQUISICAO_ALMOXARIFADO"
+    )
 
     if not descricao:
         raise ValueError("Informe a descrição do insumo.")
@@ -127,19 +144,23 @@ def salvar_insumo_almoxarifado(form):
     if unidade not in UNIDADES_ALMOXARIFADO:
         raise ValueError("Unidade inválida.")
 
+    if origem_baixa not in {"REQUISICAO_ALMOXARIFADO", "ORDEM_PRODUCAO"}:
+        raise ValueError("Origem oficial de baixa inválida.")
+
     conn = conectar()
     cursor = conn.cursor()
 
     cursor.execute(q("""
     INSERT INTO almoxarifado_insumos (
-        descricao, categoria, unidade, ativo, observacoes
-    ) VALUES (?, ?, ?, ?, ?)
+        descricao, categoria, unidade, ativo, observacoes, origem_baixa
+    ) VALUES (?, ?, ?, ?, ?, ?)
     """), (
         descricao,
         categoria,
         unidade,
         ativo,
-        observacoes
+        observacoes,
+        origem_baixa
     ))
 
     conn.commit()
@@ -198,6 +219,21 @@ def buscar_insumo_almoxarifado_por_id(insumo_id):
 def atualizar_insumo_almoxarifado(insumo_id, form):
     criar_tabelas_almoxarifado()
 
+    categoria = form.get("categoria", "").strip()
+    origem_baixa = form.get("origem_baixa", "").strip() or (
+        "ORDEM_PRODUCAO" if categoria in {"Embalagem", "Matéria-prima"}
+        else "REQUISICAO_ALMOXARIFADO"
+    )
+    # Recalcula a fonte oficial quando a categoria e alterada.
+    origem_baixa = (
+        "ORDEM_PRODUCAO" if categoria in {"Embalagem", "Matéria-prima"}
+        else "REQUISICAO_ALMOXARIFADO"
+    )
+    if categoria not in CATEGORIAS_ALMOXARIFADO:
+        raise ValueError("Categoria inválida.")
+    if origem_baixa not in {"REQUISICAO_ALMOXARIFADO", "ORDEM_PRODUCAO"}:
+        raise ValueError("Origem oficial de baixa inválida.")
+
     conn = conectar()
     cursor = conn.cursor()
 
@@ -207,14 +243,16 @@ def atualizar_insumo_almoxarifado(insumo_id, form):
         categoria = ?,
         unidade = ?,
         ativo = ?,
-        observacoes = ?
+        observacoes = ?,
+        origem_baixa = ?
     WHERE id = ?
     """), (
         form.get("descricao", "").strip(),
-        form.get("categoria", "").strip(),
+        categoria,
         form.get("unidade", "").strip(),
         form.get("ativo", "Sim").strip(),
         form.get("observacoes", "").strip(),
+        origem_baixa,
         insumo_id
     ))
 
@@ -847,8 +885,8 @@ def buscar_movimentacoes_almoxarifado_filtrado(data_inicio, data_fim, tipo_filtr
         parametros.append(tipo_filtro)
 
     if termo:
-        condicoes.append("LOWER(i.descricao) LIKE ?")
-        parametros.append(f"%{termo.lower()}%")
+        condicoes.append("(LOWER(i.descricao) LIKE ? OR LOWER(COALESCE(r.numero,'')) LIKE ? OR LOWER(COALESCE(r.solicitante_nome,'')) LIKE ?)")
+        parametros.extend([f"%{termo.lower()}%"] * 3)
 
     where_sql = " AND ".join(condicoes)
 
@@ -860,9 +898,12 @@ def buscar_movimentacoes_almoxarifado_filtrado(data_inicio, data_fim, tipo_filtr
         m.*,
         i.descricao as insumo,
         i.unidade as unidade,
-        i.categoria as categoria
+        i.categoria as categoria,
+        r.numero as requisicao_numero,
+        r.solicitante_nome as requisicao_solicitante
     FROM almoxarifado_movimentacoes m
     JOIN almoxarifado_insumos i ON i.id = m.insumo_id
+    LEFT JOIN almoxarifado_requisicoes r ON r.id = m.requisicao_id
     WHERE {where_sql}
     ORDER BY m.data_movimentacao DESC, m.id DESC
     LIMIT ?

@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block conteudo %}
+<section class="hero-dashboard almoxarifado-hero">
+  <div><span class="eyebrow">Almoxarifado</span><h2>Emitir requisição</h2>
+    <div class="hero-resumo-inline"><span>A emissão reserva o material, sem alterar o saldo físico.</span></div>
+  </div>
+  <a class="botao-hero-filtro" href="{{ url_for('requisicoes_almoxarifado') }}">Voltar</a>
+</section>
+
+<form method="post" class="card" id="form-requisicao">
+  <input type="hidden" name="idempotency_key" value="{{ idempotency_key }}">
+  <div class="almoxarifado-grid">
+    <div><label>Solicitante ativo *</label><select name="parceiro_id" required>
+      <option value="">Selecione</option>
+      {% for parceiro in parceiros %}<option value="{{ parceiro.id }}">{{ parceiro.razao_social }}</option>{% endfor %}
+    </select></div>
+    <div><label>Papel do solicitante *</label><select name="solicitante_papel" required>
+      <option value="COLABORADOR_CLT">Colaborador CLT</option><option value="PRESTADOR_SERVICOS">Prestador de Serviços</option>
+    </select></div>
+    <div><label>Setor *</label><input name="setor" required maxlength="120"></div>
+    <div><label>Finalidade *</label><input name="finalidade" required maxlength="240"></div>
+  </div>
+  <div><label>Justificativa da exceção</label><textarea name="justificativa" rows="3" placeholder="Obrigatória quando houver Embalagem ou Matéria-prima"></textarea></div>
+
+  <div class="section-title-row"><div><span class="eyebrow">Materiais</span><h3>Itens da requisição</h3></div>
+    <button type="button" class="botao-tabela-almoxarifado" id="adicionar-item">Adicionar item</button></div>
+  <div class="tabela-responsiva"><table><thead><tr><th>Insumo / disponível</th><th>Origem oficial</th><th>Quantidade</th><th></th></tr></thead>
+    <tbody id="itens-requisicao"></tbody></table></div>
+  <p><small>Itens de origem ORDEM DE PRODUÇÃO são exceções: somente Admin emite e outro Admin/Gerência deve aprovar.</small></p>
+  <button type="submit" class="botao-hero-filtro">Emitir e reservar</button>
+</form>
+
+<template id="modelo-item"><tr>
+  <td><select name="insumo_id" required><option value="">Selecione</option>
+    {% for item in insumos %}<option value="{{ item.id }}">{{ item.descricao }} — disponível {{ '%.4f'|format(item.disponivel) }} {{ item.unidade }} — cobertura {{ item.cobertura_dias ~ ' dias' if item.cobertura_dias is not none else item.cobertura_status }}</option>{% endfor %}
+  </select></td>
+  <td><span data-origem>—</span></td>
+  <td><input type="number" name="quantidade" min="0.0001" step="0.0001" required></td>
+  <td><button type="button" class="botao-tabela-almoxarifado" data-remover>Remover</button></td>
+</tr></template>
+<script>
+(() => {
+  const mapa = {
+    {% for item in insumos %}"{{ item.id }}": "{{ item.origem_baixa }}"{% if not loop.last %},{% endif %}{% endfor %}
+  };
+  const corpo = document.getElementById('itens-requisicao');
+  const adicionar = () => {
+    const linha = document.getElementById('modelo-item').content.cloneNode(true);
+    const select = linha.querySelector('select'); const origem = linha.querySelector('[data-origem]');
+    select.addEventListener('change', () => { origem.textContent = (mapa[select.value] || '—').replaceAll('_', ' '); });
+    linha.querySelector('[data-remover]').addEventListener('click', e => e.target.closest('tr').remove());
+    corpo.appendChild(linha);
+  };
+  document.getElementById('adicionar-item').addEventListener('click', adicionar); adicionar();
+})();
+</script>
+{% endblock %}

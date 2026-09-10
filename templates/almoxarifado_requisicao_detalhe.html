@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block conteudo %}
+<section class="hero-dashboard almoxarifado-hero">
+  <div><span class="eyebrow">Requisição de Almoxarifado</span><h2>{{ requisicao.numero }}</h2>
+    <div class="hero-resumo-inline"><span><strong>Estado:</strong> {{ requisicao.status|replace('_',' ') }}</span>
+      <span><strong>Solicitante:</strong> {{ requisicao.solicitante_nome }}</span></div>
+  </div>
+  <div><a class="botao-hero-filtro" target="_blank" href="{{ url_for('imprimir_requisicao_almoxarifado', requisicao_id=requisicao.id) }}">Imprimir</a>
+    <a class="botao-hero-filtro" href="{{ url_for('requisicoes_almoxarifado') }}">Voltar</a></div>
+</section>
+
+{% if requisicao.excepcional %}<div class="card"><strong>EXCEÇÃO CONTROLADA:</strong> contém item cuja origem oficial é Ordem de Produção. Justificativa: {{ requisicao.justificativa }}</div>{% endif %}
+
+<div class="cards-executivos almoxarifado-kpis">
+  <div class="card kpi-card"><span class="kpi-label">Setor</span><strong>{{ requisicao.setor }}</strong></div>
+  <div class="card kpi-card"><span class="kpi-label">Finalidade</span><strong>{{ requisicao.finalidade }}</strong></div>
+  <div class="card kpi-card"><span class="kpi-label">Emitido por</span><strong>{{ requisicao.emitido_por_nome }}</strong><small>{{ requisicao.emitido_em|data_hora_br }}</small></div>
+  <div class="card kpi-card"><span class="kpi-label">Versão</span><strong>{{ requisicao.versao }}</strong></div>
+</div>
+
+<div class="card tabela-card"><div class="section-title-row"><h3>Itens e reservas</h3></div><div class="tabela-responsiva"><table>
+  <thead><tr><th>Item</th><th>Categoria</th><th>Origem oficial</th><th>Solicitado</th><th>Reservado</th><th>Entregue</th><th>Estado</th></tr></thead>
+  <tbody>{% for item in requisicao.itens %}<tr><td>{{ item.insumo_descricao }}</td><td>{{ item.categoria }}</td><td>{{ item.origem_baixa|replace('_',' ') }}</td>
+    <td>{{ item.quantidade_solicitada }} {{ item.unidade }}</td><td>{{ item.quantidade_reservada }}</td><td>{{ item.quantidade_entregue }}</td><td>{{ item.status|replace('_',' ') }}</td></tr>{% endfor %}</tbody>
+</table></div></div>
+
+{% if requisicao.status == 'AGUARDANDO_APROVACAO' and perfil in ['admin','gerencia'] %}
+<form method="post" action="{{ url_for('decidir_requisicao_almoxarifado', requisicao_id=requisicao.id) }}" class="card">
+  <input type="hidden" name="versao" value="{{ requisicao.versao }}"><input type="hidden" name="idempotency_key" value="{{ chave_acao }}">
+  <h3>Decisão da exceção</h3><p>O emissor não pode decidir a própria solicitação.</p>
+  <label>Motivo (obrigatório para rejeição)</label><textarea name="motivo" rows="2"></textarea>
+  <button name="decisao" value="aprovar" class="botao-hero-filtro">Aprovar</button>
+  <button name="decisao" value="rejeitar" class="botao-tabela-almoxarifado">Rejeitar</button>
+</form>
+{% endif %}
+
+{% if requisicao.status == 'EMITIDA' and perfil in ['admin','pcp'] %}
+<form method="post" action="{{ url_for('confirmar_requisicao_almoxarifado', requisicao_id=requisicao.id) }}" class="card">
+  <input type="hidden" name="versao" value="{{ requisicao.versao }}"><input type="hidden" name="idempotency_key" value="{{ chave_acao }}">
+  <h3>Confirmar entrega física</h3>
+  {% for item in requisicao.itens %}<input type="hidden" name="item_id" value="{{ item.id }}">
+    <label>{{ item.insumo_descricao }} — entregue (máximo {{ item.quantidade_reservada }} {{ item.unidade }})</label>
+    <input type="number" name="quantidade_{{ item.id }}" min="0" max="{{ item.quantidade_reservada }}" step="0.0001" value="{{ item.quantidade_reservada }}" required>
+  {% endfor %}
+  <label><input type="checkbox" name="documento_confirmado" value="sim" required> Recebi e conferi o documento físico assinado.</label>
+  <button class="botao-hero-filtro">Confirmar e baixar FIFO</button>
+</form>
+{% endif %}
+
+{% if requisicao.status in ['AGUARDANDO_APROVACAO','EMITIDA'] and perfil in ['admin','pcp'] %}
+<form method="post" action="{{ url_for('cancelar_requisicao_almoxarifado', requisicao_id=requisicao.id) }}" class="card">
+  <input type="hidden" name="versao" value="{{ requisicao.versao }}"><input type="hidden" name="idempotency_key" value="{{ chave_acao }}-cancelar">
+  <h3>Cancelar e liberar reserva</h3><label>Motivo *</label><input name="motivo" required>
+  <button class="botao-tabela-almoxarifado">Cancelar requisição</button>
+</form>
+{% endif %}
+
+{% if requisicao.status in ['BAIXADA','PARCIALMENTE_ATENDIDA'] and perfil in ['admin','gerencia'] %}
+<form method="post" action="{{ url_for('estornar_requisicao_almoxarifado', requisicao_id=requisicao.id) }}" class="card">
+  <input type="hidden" name="versao" value="{{ requisicao.versao }}"><input type="hidden" name="idempotency_key" value="{{ chave_acao }}-estornar">
+  <h3>Estorno compensatório</h3><label>Justificativa *</label><input name="motivo" required>
+  <button class="botao-tabela-almoxarifado">Estornar baixa</button>
+</form>
+{% endif %}
+
+<div class="card tabela-card"><h3>Trilha de auditoria</h3><div class="tabela-responsiva"><table>
+  <thead><tr><th>Data/hora</th><th>Evento</th><th>Transição</th><th>Usuário</th><th>Detalhes</th></tr></thead>
+  <tbody>{% for evento in requisicao.eventos %}<tr><td>{{ evento.criado_em|data_hora_br }}</td><td>{{ evento.evento|replace('_',' ') }}</td>
+    <td>{{ evento.status_anterior or '—' }} → {{ evento.status_novo }}</td><td>{{ evento.usuario_nome }} ({{ evento.perfil }})</td><td>{{ evento.detalhes or '—' }}</td></tr>{% endfor %}</tbody>
+</table></div></div>
+
+{% if requisicao.movimentacoes %}<div class="card tabela-card"><h3>Movimentos de estoque</h3><div class="tabela-responsiva"><table>
+  <thead><tr><th>ID</th><th>Origem</th><th>Item</th><th>Lote</th><th>Quantidade</th><th>Saldo anterior</th><th>Saldo posterior</th><th>Usuário</th></tr></thead>
+  <tbody>{% for mov in requisicao.movimentacoes %}<tr><td>{{ mov.id }}</td><td>{{ mov.origem|replace('_',' ') }}</td><td>{{ mov.insumo_descricao }}</td><td>{{ mov.lote or mov.lote_id }}</td>
+    <td>{{ mov.quantidade }} {{ mov.unidade }}</td><td>{{ mov.saldo_anterior }}</td><td>{{ mov.saldo_posterior }}</td><td>{{ mov.criado_por }}</td></tr>{% endfor %}</tbody>
+</table></div></div>{% endif %}
+{% endblock %}

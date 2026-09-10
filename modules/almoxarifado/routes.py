@@ -3,9 +3,24 @@
 from datetime import datetime
 from uuid import uuid4
 
-from flask import flash, redirect, render_template, request, session, url_for
+from flask import flash, redirect, render_template, request, send_file, session, url_for
 
 from modules.auth.decorators import perfil_permitido
+from modules.parceiros.services import listar_parceiros_elegiveis
+
+from .requisicoes import (
+    ConflitoRequisicao,
+    buscar_requisicao,
+    cancelar_requisicao,
+    confirmar_requisicao,
+    decidir_excecao,
+    emitir_requisicao,
+    estornar_requisicao,
+    gerar_pdf_requisicao,
+    listar_insumos_requisicao,
+    listar_requisicoes,
+    normalizar_itens_form,
+)
 
 from .services import (
     CATEGORIAS_ALMOXARIFADO,
@@ -255,6 +270,183 @@ def register_almoxarifado_routes(app):
             fornecedor=fornecedor,
             numero_nf=numero_nf,
             entrada_id=entrada_id,
+        )
+
+
+    def _usuario_sessao():
+        return {
+            "id": session.get("usuario_id"),
+            "nome": session.get("nome") or "Sistema",
+            "perfil": session.get("perfil") or "",
+        }
+
+
+    @app.route("/almoxarifado/requisicoes")
+    @perfil_permitido("pcp", "gerencia")
+    def requisicoes_almoxarifado():
+        filtros = {
+            "status": request.args.get("status") or "Todos",
+            "tipo": request.args.get("tipo") or "Todos",
+            "parceiro_id": request.args.get("parceiro_id") or "",
+            "data_inicio": request.args.get("data_inicio") or "",
+            "data_fim": request.args.get("data_fim") or "",
+            "termo": request.args.get("termo") or "",
+        }
+        return render_template(
+            "almoxarifado_requisicoes.html",
+            requisicoes=listar_requisicoes(filtros),
+            parceiros=listar_parceiros_elegiveis(),
+            filtros=filtros,
+            pode_emitir=session.get("perfil") in {"admin", "pcp"},
+        )
+
+
+    @app.route("/almoxarifado/requisicoes/nova", methods=["GET", "POST"])
+    @perfil_permitido("pcp")
+    def nova_requisicao_almoxarifado():
+        if request.method == "POST":
+            try:
+                resultado = emitir_requisicao(
+                    request.form,
+                    normalizar_itens_form(request.form),
+                    usuario=_usuario_sessao(),
+                    idempotency_key=request.form.get("idempotency_key"),
+                )
+                if resultado.get("reaplicada"):
+                    flash("Requisição já havia sido emitida; nenhum lançamento foi duplicado.")
+                elif resultado["status"] == "AGUARDANDO_APROVACAO":
+                    flash("Requisição excepcional emitida e enviada para aprovação distinta.")
+                else:
+                    flash("Requisição emitida e estoque reservado sem baixa física.")
+                return redirect(url_for("detalhe_requisicao_almoxarifado", requisicao_id=resultado["id"]))
+            except (ValueError, PermissionError, ConflitoRequisicao) as erro:
+                flash(str(erro))
+            except Exception:
+                app.logger.exception("Falha ao emitir requisição de almoxarifado")
+                flash("Não foi possível emitir a requisição. Nenhuma alteração foi gravada.")
+        return render_template(
+            "almoxarifado_requisicao_nova.html",
+            parceiros=listar_parceiros_elegiveis(),
+            insumos=listar_insumos_requisicao(),
+            idempotency_key=str(uuid4()),
+        )
+
+
+    @app.route("/almoxarifado/requisicoes/<int:requisicao_id>")
+    @perfil_permitido("pcp", "gerencia")
+    def detalhe_requisicao_almoxarifado(requisicao_id):
+        requisicao = buscar_requisicao(requisicao_id)
+        if not requisicao:
+            flash("Requisição não encontrada.")
+            return redirect(url_for("requisicoes_almoxarifado"))
+        return render_template(
+            "almoxarifado_requisicao_detalhe.html",
+            requisicao=requisicao,
+            perfil=session.get("perfil"),
+            usuario_id=session.get("usuario_id"),
+            chave_acao=str(uuid4()),
+        )
+
+
+    @app.route("/almoxarifado/requisicoes/<int:requisicao_id>/decidir", methods=["POST"])
+    @perfil_permitido("gerencia")
+    def decidir_requisicao_almoxarifado(requisicao_id):
+        try:
+            aprovar = request.form.get("decisao") == "aprovar"
+            decidir_excecao(
+                requisicao_id,
+                aprovar=aprovar,
+                motivo=request.form.get("motivo"),
+                usuario=_usuario_sessao(),
+                versao=request.form.get("versao"),
+                idempotency_key=request.form.get("idempotency_key"),
+            )
+            flash("Exceção aprovada e liberada para entrega." if aprovar else "Exceção rejeitada e reserva liberada.")
+        except (ValueError, PermissionError, ConflitoRequisicao) as erro:
+            flash(str(erro))
+        except Exception:
+            app.logger.exception("Falha ao decidir requisição %s", requisicao_id)
+            flash("Não foi possível registrar a decisão. Nenhuma alteração foi gravada.")
+        return redirect(url_for("detalhe_requisicao_almoxarifado", requisicao_id=requisicao_id))
+
+
+    @app.route("/almoxarifado/requisicoes/<int:requisicao_id>/confirmar", methods=["POST"])
+    @perfil_permitido("pcp")
+    def confirmar_requisicao_almoxarifado(requisicao_id):
+        entregas = [
+            {"item_id": item_id, "quantidade": request.form.get(f"quantidade_{item_id}", "0")}
+            for item_id in request.form.getlist("item_id")
+        ]
+        try:
+            confirmar_requisicao(
+                requisicao_id,
+                entregas,
+                documento_confirmado=request.form.get("documento_confirmado"),
+                usuario=_usuario_sessao(),
+                versao=request.form.get("versao"),
+                idempotency_key=request.form.get("idempotency_key"),
+            )
+            flash("Entrega confirmada, baixa FIFO registrada e reserva remanescente liberada.")
+        except (ValueError, PermissionError, ConflitoRequisicao) as erro:
+            flash(str(erro))
+        except Exception:
+            app.logger.exception("Falha ao confirmar requisição %s", requisicao_id)
+            flash("Não foi possível confirmar a entrega. Nenhuma alteração foi gravada.")
+        return redirect(url_for("detalhe_requisicao_almoxarifado", requisicao_id=requisicao_id))
+
+
+    @app.route("/almoxarifado/requisicoes/<int:requisicao_id>/cancelar", methods=["POST"])
+    @perfil_permitido("pcp")
+    def cancelar_requisicao_almoxarifado(requisicao_id):
+        try:
+            cancelar_requisicao(
+                requisicao_id,
+                motivo=request.form.get("motivo"),
+                usuario=_usuario_sessao(),
+                versao=request.form.get("versao"),
+                idempotency_key=request.form.get("idempotency_key"),
+            )
+            flash("Requisição cancelada e reserva liberada sem baixa física.")
+        except (ValueError, PermissionError, ConflitoRequisicao) as erro:
+            flash(str(erro))
+        except Exception:
+            app.logger.exception("Falha ao cancelar requisição %s", requisicao_id)
+            flash("Não foi possível cancelar a requisição. Nenhuma alteração foi gravada.")
+        return redirect(url_for("detalhe_requisicao_almoxarifado", requisicao_id=requisicao_id))
+
+
+    @app.route("/almoxarifado/requisicoes/<int:requisicao_id>/estornar", methods=["POST"])
+    @perfil_permitido("gerencia")
+    def estornar_requisicao_almoxarifado(requisicao_id):
+        try:
+            estornar_requisicao(
+                requisicao_id,
+                motivo=request.form.get("motivo"),
+                usuario=_usuario_sessao(),
+                versao=request.form.get("versao"),
+                idempotency_key=request.form.get("idempotency_key"),
+            )
+            flash("Baixa estornada por movimentos compensatórios; histórico preservado.")
+        except (ValueError, PermissionError, ConflitoRequisicao) as erro:
+            flash(str(erro))
+        except Exception:
+            app.logger.exception("Falha ao estornar requisição %s", requisicao_id)
+            flash("Não foi possível estornar a requisição. Nenhuma alteração foi gravada.")
+        return redirect(url_for("detalhe_requisicao_almoxarifado", requisicao_id=requisicao_id))
+
+
+    @app.route("/almoxarifado/requisicoes/<int:requisicao_id>/pdf")
+    @perfil_permitido("pcp", "gerencia")
+    def imprimir_requisicao_almoxarifado(requisicao_id):
+        requisicao = buscar_requisicao(requisicao_id)
+        if not requisicao:
+            flash("Requisição não encontrada.")
+            return redirect(url_for("requisicoes_almoxarifado"))
+        return send_file(
+            __import__("io").BytesIO(gerar_pdf_requisicao(requisicao_id)),
+            mimetype="application/pdf",
+            as_attachment=False,
+            download_name=f"{requisicao['numero']}.pdf",
         )
 
 

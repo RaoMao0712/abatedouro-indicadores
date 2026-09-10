@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block conteudo %}
+<section class="hero-dashboard almoxarifado-hero">
+  <div>
+    <span class="eyebrow">Almoxarifado</span>
+    <h2>Requisições de materiais</h2>
+    <div class="hero-resumo-inline">
+      <span><strong>Emissão:</strong> reserva o disponível</span>
+      <span><strong>Entrega:</strong> baixa somente após documento assinado</span>
+    </div>
+  </div>
+  {% if pode_emitir %}<a class="botao-hero-filtro" href="{{ url_for('nova_requisicao_almoxarifado') }}">Nova requisição</a>{% endif %}
+</section>
+
+<div class="card">
+  <form method="get" class="almoxarifado-filtro-form">
+    <div><label>Busca</label><input name="termo" value="{{ filtros.termo }}" placeholder="Número, item ou solicitante"></div>
+    <div><label>Estado</label><select name="status">
+      <option>Todos</option>
+      {% for status in ['AGUARDANDO_APROVACAO','EMITIDA','BAIXADA','PARCIALMENTE_ATENDIDA','CANCELADA','REJEITADA','ESTORNADA'] %}
+      <option value="{{ status }}" {% if filtros.status == status %}selected{% endif %}>{{ status|replace('_',' ') }}</option>
+      {% endfor %}
+    </select></div>
+    <div><label>Tipo</label><select name="tipo">
+      <option value="Todos">Todos</option><option value="COMUM" {% if filtros.tipo == 'COMUM' %}selected{% endif %}>Comum</option>
+      <option value="EXCECAO" {% if filtros.tipo == 'EXCECAO' %}selected{% endif %}>Exceção produtiva</option>
+    </select></div>
+    <div><label>Solicitante</label><select name="parceiro_id"><option value="">Todos</option>
+      {% for parceiro in parceiros %}<option value="{{ parceiro.id }}" {% if filtros.parceiro_id|string == parceiro.id|string %}selected{% endif %}>{{ parceiro.razao_social }}</option>{% endfor %}
+    </select></div>
+    <div><label>De</label><input type="date" name="data_inicio" value="{{ filtros.data_inicio }}"></div>
+    <div><label>Até</label><input type="date" name="data_fim" value="{{ filtros.data_fim }}"></div>
+    <button class="botao-hero-filtro">Filtrar</button>
+  </form>
+</div>
+
+<div class="card tabela-card">
+  <div class="tabela-responsiva"><table>
+    <thead><tr><th>Número</th><th>Emissão</th><th>Solicitante</th><th>Finalidade</th><th>Itens</th><th>Estado</th><th></th></tr></thead>
+    <tbody>
+      {% for req in requisicoes %}
+      <tr>
+        <td><strong>{{ req.numero }}</strong>{% if req.excepcional %}<br><small>Exceção controlada</small>{% endif %}</td>
+        <td>{{ req.emitido_em|data_hora_br }}</td><td>{{ req.solicitante_nome }}</td><td>{{ req.finalidade }}</td>
+        <td>{{ req.total_itens }}</td><td>{{ req.status|replace('_',' ') }}</td>
+        <td><a class="botao-tabela-almoxarifado" href="{{ url_for('detalhe_requisicao_almoxarifado', requisicao_id=req.id) }}">Detalhes</a></td>
+      </tr>
+      {% else %}<tr><td colspan="7">Nenhuma requisição encontrada.</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+</div>
+{% endblock %}
