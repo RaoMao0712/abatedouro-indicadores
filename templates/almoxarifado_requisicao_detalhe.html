@@ -14,7 +14,7 @@
 <div class="cards-executivos almoxarifado-kpis">
   <div class="card kpi-card"><span class="kpi-label">Setor</span><strong>{{ requisicao.setor }}</strong></div>
   <div class="card kpi-card"><span class="kpi-label">Finalidade</span><strong>{{ requisicao.finalidade }}</strong></div>
-  <div class="card kpi-card"><span class="kpi-label">Emitido por</span><strong>{{ requisicao.emitido_por_nome }}</strong><small>{{ requisicao.emitido_em|data_hora_br }}</small></div>
+  <div class="card kpi-card"><span class="kpi-label">Emitido por</span><strong>{{ requisicao.emitido_por_nome }}</strong><small>{{ requisicao.emitido_em|br_data_hora }}</small></div>
   <div class="card kpi-card"><span class="kpi-label">Versão</span><strong>{{ requisicao.versao }}</strong></div>
 </div>
 
@@ -65,7 +65,7 @@
 
 <div class="card tabela-card"><h3>Trilha de auditoria</h3><div class="tabela-responsiva"><table>
   <thead><tr><th>Data/hora</th><th>Evento</th><th>Transição</th><th>Usuário</th><th>Detalhes</th></tr></thead>
-  <tbody>{% for evento in requisicao.eventos %}<tr><td>{{ evento.criado_em|data_hora_br }}</td><td>{{ evento.evento|replace('_',' ') }}</td>
+  <tbody>{% for evento in requisicao.eventos %}<tr><td>{{ evento.criado_em|br_data_hora }}</td><td>{{ evento.evento|replace('_',' ') }}</td>
     <td>{{ evento.status_anterior or '—' }} → {{ evento.status_novo }}</td><td>{{ evento.usuario_nome }} ({{ evento.perfil }})</td><td>{{ evento.detalhes or '—' }}</td></tr>{% endfor %}</tbody>
 </table></div></div>
 

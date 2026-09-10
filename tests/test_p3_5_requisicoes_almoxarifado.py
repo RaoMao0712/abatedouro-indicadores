@@ -183,7 +183,7 @@ def test_pdf_e_indicador_nao_inventam_historico(banco):
 def test_rotas_renderizam_emitem_e_exigem_autenticacao(banco):
     app = Flask(__name__, template_folder=str(routes.__file__).replace("modules\\almoxarifado\\routes.py", "templates"))
     app.secret_key = "teste"
-    app.jinja_env.filters["data_hora_br"] = lambda valor: str(valor or "")
+    app.jinja_env.filters["br_data_hora"] = lambda valor: str(valor or "")
 
     @app.route("/inicio")
     def inicio():
