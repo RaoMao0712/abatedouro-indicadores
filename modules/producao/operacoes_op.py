@@ -67,9 +67,15 @@ def criar_tabelas_operacoes_op():
     try:
         id_pk = "SERIAL PRIMARY KEY" if DATABASE_URL else "INTEGER PRIMARY KEY AUTOINCREMENT"
         timestamp_type = "TIMESTAMP" if DATABASE_URL else "TEXT"
-        _alterar(cursor,
-                 "ALTER TABLE ordens_producao ADD COLUMN IF NOT EXISTS versao_operacional INTEGER NOT NULL DEFAULT 0",
-                 "ALTER TABLE ordens_producao ADD COLUMN versao_operacional INTEGER NOT NULL DEFAULT 0")
+        if not DATABASE_URL:
+            # Em producao a coluna ja e provisionada pela migration versionada
+            # database/20260825_p0_2_estorno_reabertura_op.sql. Repetir o ALTER
+            # TABLE a cada boot de worker exige lock ACCESS EXCLUSIVE em
+            # ordens_producao e pode enfileirar leituras concorrentes (ex.:
+            # /op/<id>/editar) atras dele. Mantido apenas para SQLite.
+            _alterar(cursor,
+                     "ALTER TABLE ordens_producao ADD COLUMN IF NOT EXISTS versao_operacional INTEGER NOT NULL DEFAULT 0",
+                     "ALTER TABLE ordens_producao ADD COLUMN versao_operacional INTEGER NOT NULL DEFAULT 0")
         _alterar(cursor,
                  "ALTER TABLE apontamentos_producao ADD COLUMN IF NOT EXISTS vigente INTEGER NOT NULL DEFAULT 1",
                  "ALTER TABLE apontamentos_producao ADD COLUMN vigente INTEGER NOT NULL DEFAULT 1")

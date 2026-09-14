@@ -105,7 +105,16 @@ def criar_tabelas_parceiros():
             _adicionar_coluna(cursor, f"ALTER TABLE fornecedores ADD COLUMN IF NOT EXISTS {coluna}",
                               f"ALTER TABLE fornecedores ADD COLUMN {coluna}")
         _adicionar_coluna(cursor, "ALTER TABLE expedicoes ADD COLUMN IF NOT EXISTS cliente_parceiro_id INTEGER", "ALTER TABLE expedicoes ADD COLUMN cliente_parceiro_id INTEGER")
-        _adicionar_coluna(cursor, "ALTER TABLE ordens_producao ADD COLUMN IF NOT EXISTS fornecedor_parceiro_id INTEGER", "ALTER TABLE ordens_producao ADD COLUMN fornecedor_parceiro_id INTEGER")
+        if not DATABASE_URL:
+            # Em producao a coluna ja e provisionada pela migration versionada
+            # database/20260909_p3_4_migracao_clientes_fornecedores_parceiros.sql.
+            # criar_tabelas_parceiros() nao tem guarda de processo e e chamada
+            # a cada requisicao (ex.: listar_parceiros_elegiveis/
+            # obter_parceiro_por_papel, usadas por /op/<id>/editar), entao
+            # repetir este ALTER TABLE a cada request exigiria lock
+            # ACCESS EXCLUSIVE em ordens_producao e poderia enfileirar
+            # leituras concorrentes atras dele. Mantido apenas para SQLite.
+            _adicionar_coluna(cursor, "ALTER TABLE ordens_producao ADD COLUMN IF NOT EXISTS fornecedor_parceiro_id INTEGER", "ALTER TABLE ordens_producao ADD COLUMN fornecedor_parceiro_id INTEGER")
         cursor.execute(f"""CREATE TABLE IF NOT EXISTS parceiro_migracoes_legado (
             id {pk}, tipo_legado TEXT NOT NULL, id_legado INTEGER NOT NULL,
             parceiro_id INTEGER, parceiro_criado INTEGER NOT NULL DEFAULT 0,
