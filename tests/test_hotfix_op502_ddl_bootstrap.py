@@ -363,3 +363,95 @@ class TestPostgresParceirosSemDDLRedundante:
             f"criar_tabelas_parceiros() executou ALTER TABLE ordens_producao: {alters}"
         )
 
+
+@pytest.mark.skipif(not TEST_DATABASE_URL, reason="TEST_DATABASE_URL ausente; suíte PostgreSQL-only")
+class TestPostgresConcorrenciaSemLockAccessExclusive:
+    """Etapa C, item 15: prova, sob concorrência real, que nenhuma das 4
+    funções tenta adquirir um lock incompatível com leituras/gravações
+    comuns em ordens_producao (ACCESS EXCLUSIVE é o que ALTER TABLE exige).
+
+    Não reproduz o incidente produtivo exato (não há como, sem o pg_locks do
+    horário real). Em vez disso, prova a ausência do mecanismo removido: uma
+    conexão mantém uma linha de ordens_producao travada com
+    `SELECT ... FOR UPDATE` (uma trava comum, do dia a dia, que conflita
+    diretamente com ACCESS EXCLUSIVE mas não com leituras/gravações comuns);
+    se qualquer uma das 4 funções ainda tentasse `ALTER TABLE
+    ordens_producao`, ela ficaria enfileirada atrás dessa trava e estouraria
+    o `statement_timeout` curto configurado no banco de teste.
+    """
+
+    def setup_method(self, _metodo):
+        _limpar_schema_publico()
+        _preparar_schema_minimo()
+        _resetar_guards_em_memoria()
+        conn = conexao.get_connection()
+        cursor = conn.cursor()
+        # Schema completo (igual ao definido por criar_tabelas_parceiros()),
+        # para que a chamada da função no teste seja um no-op de verdade.
+        cursor.execute("""
+        CREATE TABLE parceiros (
+            id SERIAL PRIMARY KEY, uuid TEXT NOT NULL UNIQUE, tipo_pessoa TEXT NOT NULL,
+            razao_social TEXT NOT NULL, nome_fantasia TEXT, documento TEXT,
+            telefone TEXT, email TEXT, endereco TEXT, complemento TEXT,
+            bairro TEXT, cidade TEXT, uf TEXT, cep TEXT, observacoes TEXT,
+            status TEXT NOT NULL DEFAULT 'Ativo', criado_por TEXT NOT NULL,
+            atualizado_por TEXT NOT NULL, criado_em TIMESTAMP NOT NULL,
+            atualizado_em TIMESTAMP NOT NULL
+        )""")
+        cursor.execute("INSERT INTO ordens_producao (data) VALUES ('2026-09-14')")
+        conn.commit()
+        conn.close()
+        _aplicar_migrations_ordens_producao()
+        conn = conexao.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(MIGRATION_PARCEIROS.read_text(encoding="utf-8"))
+        conn.commit()
+        conn.close()
+        # Novas conexões passam a herdar um statement_timeout curto: qualquer
+        # comando que fique preso atrás da trava da conexão A estoura aqui,
+        # em vez de travar o teste indefinidamente.
+        conn = conexao.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("ALTER DATABASE " + conexao.urlparse(TEST_DATABASE_URL).path[1:]
+                        + " SET statement_timeout = '2000'")
+        conn.commit()
+        conn.close()
+
+    def test_quatro_funcoes_e_leitura_concorrente_nao_bloqueiam_sob_trava_comum(self, monkeypatch):
+        import psycopg2
+        from urllib.parse import urlparse
+
+        resultado = urlparse(TEST_DATABASE_URL)
+        conexao_a = psycopg2.connect(
+            database=resultado.path[1:], user=resultado.username,
+            password=resultado.password, host=resultado.hostname, port=resultado.port,
+        )
+        conexao_a.autocommit = False
+        cursor_a = conexao_a.cursor()
+        cursor_a.execute("SELECT id FROM ordens_producao FOR UPDATE")
+
+        try:
+            monkeypatch.setattr(operacoes_op_mod, "criar_tabelas_estornos_embalagem", lambda: None)
+            import modules.expedicao.conferencia_embalagem as conferencia_mod
+            monkeypatch.setattr(conferencia_mod, "criar_tabelas_conferencia_embalagem", lambda: None)
+
+            # As 4 funções, sob a trava da conexão A: se alguma tentasse
+            # ACCESS EXCLUSIVE em ordens_producao, enfileiraria e estouraria
+            # o statement_timeout de 2s configurado no setup.
+            estoque_mod.criar_tabelas_estoque_confiavel()
+            operacoes_op_mod.criar_tabelas_operacoes_op()
+            correcoes_mod.criar_tabelas_correcoes_administrativas_op()
+            parceiros_mod.criar_tabelas_parceiros()
+
+            # Leitura concorrente equivalente à de /op/<id>/editar: também
+            # não pode ficar presa atrás de nada que as funções acima
+            # tenham deixado pendente.
+            conn_leitura = conexao.get_connection()
+            cursor_leitura = conn_leitura.cursor()
+            cursor_leitura.execute("SELECT * FROM ordens_producao WHERE id = 1")
+            assert cursor_leitura.fetchone() is not None
+            conn_leitura.close()
+        finally:
+            conexao_a.rollback()
+            conexao_a.close()
+
