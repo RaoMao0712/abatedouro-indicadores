@@ -3,47 +3,18 @@
 {% block conteudo %}
 
 {% set qualidade_os_concluida = session.get("perfil") == "qualidade" and ordem.status == "Concluida" %}
-{% set pode_editar_materiais = session.get("perfil") in perfis_materiais and ordem.status != "Cancelada" and not qualidade_os_concluida %}
 {% set pode_executar = session.get("perfil") in ["admin", "manutencao", "qualidade", "gerencia"] and ordem.status != "Cancelada" and not qualidade_os_concluida %}
 {% set pode_editar_dados_gerais = session.get("perfil") in perfis_dados_gerais and ordem.status != "Cancelada" and not qualidade_os_concluida %}
-{% set pode_salvar = pode_editar_materiais or pode_executar %}
+{# P3.6: materiais deixaram de ser editaveis pela OS; pode_salvar nao depende mais de perfis_materiais. #}
+{% set pode_salvar = pode_editar_dados_gerais or pode_executar %}
+{% set pode_vincular_requisicao = session.get("perfil") in perfis_vinculo_requisicao and ordem.status != "Cancelada" %}
+{% set pode_criar_requisicao = session.get("perfil") in ["admin", "pcp"] and ordem.status != "Cancelada" %}
 {% set pode_cancelar = session.get("perfil") in perfis_cancelamento and ordem.status == "Aberta" and not ordem.parada_id and not ordem.sgi_nc_id and not ordem.diagnostico and not ordem.solucao and not ordem.data_conclusao and not ordem.hora_conclusao and not ordem.pecas_utilizadas and not ordem.observacoes_finais and (ordem.horas_paradas|float) == 0 and (ordem.custo_real|float) == 0 %}
 
 {% macro campo_leitura(titulo, valor) %}
 <p><strong>{{ titulo }}</strong><br>{{ valor or "-" }}</p>
 {% endmacro %}
 
-{% macro linha_recurso(recurso=None) %}
-<div class="manutencao-recurso-linha" data-recurso-linha>
-    <input type="hidden" name="recurso_id[]" value="{{ recurso.id if recurso else '' }}">
-    <input type="hidden" name="remover[]" value="Nao" data-recurso-remover>
-    <div>
-        <label>Tipo</label>
-        <select name="recurso_tipo[]" {% if not pode_editar_materiais %}disabled{% endif %}>
-            {% for tipo_recurso in tipos_recurso %}
-                {% if tipo_recurso != "Mao de obra externa" or recurso and recurso.tipo == tipo_recurso %}
-                <option value="{{ tipo_recurso }}" {% if recurso and recurso.tipo == tipo_recurso %}selected{% endif %}>{% if tipo_recurso == "Material" %}Material/Peca{% elif tipo_recurso == "Servico" %}Servico{% else %}{{ tipo_recurso }}{% endif %}</option>
-                {% endif %}
-            {% endfor %}
-        </select>
-    </div>
-    <div class="manutencao-recurso-descricao">
-        <label>Material, servico ou aquisicao</label>
-        <input type="text" name="recurso_descricao[]" value="{{ recurso.descricao if recurso else '' }}" placeholder="Descricao do item" {% if not pode_editar_materiais %}readonly{% endif %}>
-    </div>
-    <div><label>Qtd.</label><input type="number" step="0.01" min="0" name="recurso_quantidade[]" value="{{ recurso.quantidade if recurso else 1 }}" data-recurso-quantidade {% if not pode_editar_materiais %}readonly{% endif %}></div>
-    <div><label>Un.</label><input type="text" name="recurso_unidade[]" value="{{ recurso.unidade if recurso else '' }}" {% if not pode_editar_materiais %}readonly{% endif %}></div>
-    <div><label>Valor estimado</label><input type="number" step="0.01" min="0" name="recurso_valor_estimado[]" value="{{ recurso.valor_estimado if recurso else 0 }}" data-recurso-valor {% if not pode_editar_materiais %}readonly{% endif %}></div>
-    <div><label>Situacao</label><select name="recurso_status[]" {% if not pode_editar_materiais %}disabled{% endif %}>{% for status_item in status_recurso %}<option value="{{ status_item }}" {% if recurso and recurso.status == status_item %}selected{% endif %}>{{ status_item }}</option>{% endfor %}</select></div>
-    <div><label>Observacao</label><input type="text" name="recurso_observacoes[]" value="{{ recurso.observacoes if recurso else '' }}" {% if not pode_editar_materiais %}readonly{% endif %}></div>
-    <input type="hidden" name="recurso_insumo_id[]" value="{{ (recurso.insumo_id or '') if recurso else '' }}">
-    <input type="hidden" name="recurso_descricao_complementar[]" value="{{ (recurso.descricao_complementar or '') if recurso else '' }}">
-    <input type="hidden" name="recurso_fornecedor[]" value="{{ (recurso.fornecedor or '') if recurso else '' }}">
-    {% if pode_editar_materiais %}
-    <button type="button" class="botao-tabela-almoxarifado manutencao-btn-tabela manutencao-btn-remover" data-remover-recurso>Remover</button>
-    {% endif %}
-</div>
-{% endmacro %}
 
 <div class="manutencao-page manutencao-detalhe manutencao-ficha-os">
     <header class="manutencao-cabecalho manutencao-ficha-topo">
@@ -167,19 +138,98 @@
     </section>
 
     <section class="card expedicao-card manutencao-card">
-        <div class="section-title-row manutencao-grade-header">
-            <div><span class="eyebrow">C</span><h2>Materiais e Aquisicoes Necessarias</h2></div>
-            {% if pode_editar_materiais %}<button type="button" class="botao-dre-exportar manutencao-btn secundario" data-adicionar-recurso>Adicionar linha</button>{% endif %}
+        <div class="section-title-row"><div><span class="eyebrow">C</span><h2>Materiais e Aquisicoes (Historico)</h2></div></div>
+        <p class="obs">A partir da P3.6 a OS nao registra mais materiais diretamente. Os itens abaixo sao historico preservado; novas necessidades de material devem ser tratadas por uma Requisicao de Almoxarifado (ver secao Documentos Relacionados).</p>
+        {% if recursos %}
+        <div class="tabela-responsiva tabela-executiva expedicao-tabela manutencao-tabela">
+            <table>
+                <thead><tr><th>Tipo</th><th>Descricao</th><th>Qtd.</th><th>Un.</th><th>Fornecedor</th><th>Valor estimado</th><th>Situacao</th><th>Observacoes</th></tr></thead>
+                <tbody>
+                {% for recurso in recursos %}
+                    <tr>
+                        <td>{{ recurso.tipo }}</td>
+                        <td>{{ recurso.descricao }}</td>
+                        <td>{{ recurso.quantidade }}</td>
+                        <td>{{ recurso.unidade or "-" }}</td>
+                        <td>{{ recurso.fornecedor or "-" }}</td>
+                        <td>{{ recurso.valor_estimado|br_moeda if recurso.valor_estimado else "-" }}</td>
+                        <td>{{ recurso.status }}</td>
+                        <td>{{ recurso.observacoes or "-" }}</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
         </div>
-        <div class="manutencao-recursos-lista" data-recursos-lista data-vazio="Nenhum material necessario registrado para esta OS.">
-            {% for recurso in recursos %}
-                {{ linha_recurso(recurso) }}
+        {% else %}
+        <p class="obs">Nenhum material historico registrado para esta OS.</p>
+        {% endif %}
+    </section>
+
+    <section class="card expedicao-card manutencao-card">
+        <div class="section-title-row"><div><span class="eyebrow">Documentos</span><h2>Documentos Relacionados</h2></div></div>
+
+        <h3>Origem</h3>
+        {% if origens_documentais %}
+        <div class="manutencao-info-grid">
+            {% for item_origem in origens_documentais %}
+            <p>
+                <strong>{{ item_origem.tipo }}</strong><br>
+                {% if item_origem.link %}<a href="{{ item_origem.link }}">{{ item_origem.numero }}</a>{% else %}{{ item_origem.numero }}{% endif %}
+                {% if item_origem.situacao %} — {{ item_origem.situacao }}{% endif %}
+            </p>
             {% endfor %}
         </div>
-        <div class="manutencao-grade-total">
-            <span>Total estimado da grade</span>
-            <strong data-total-recursos>R$ 0,00</strong>
+        {% else %}
+        <p class="obs">Origem: {{ ordem.origem or "Manual" }} (sem documento estruturado de origem).</p>
+        {% endif %}
+
+        <h3>Desdobramentos — Requisicoes de Almoxarifado</h3>
+        {% if requisicoes_vinculadas %}
+        <div class="tabela-responsiva tabela-executiva expedicao-tabela manutencao-tabela">
+            <table>
+                <thead><tr><th>Numero</th><th>Situacao</th><th>Solicitante</th><th></th></tr></thead>
+                <tbody>
+                {% for requisicao in requisicoes_vinculadas %}
+                    <tr>
+                        <td>{{ requisicao.numero }}</td>
+                        <td>{{ requisicao.status|replace('_', ' ') }}</td>
+                        <td>{{ requisicao.solicitante_nome }}</td>
+                        <td><a href="{{ url_for('detalhe_requisicao_almoxarifado', requisicao_id=requisicao.id) }}" class="botao-tabela-almoxarifado manutencao-btn-tabela">Detalhes</a></td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
         </div>
+        {% else %}
+        <p class="obs">Nenhuma requisicao vinculada a esta OS.</p>
+        {% endif %}
+
+        {% if pode_criar_requisicao or pode_vincular_requisicao %}
+        <div class="manutencao-grade-header">
+            {% if pode_criar_requisicao %}
+            <a href="{{ url_for('nova_requisicao_almoxarifado', ordem_servico_id=ordem.id) }}" class="botao-dre-exportar manutencao-btn secundario">Criar Requisicao</a>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        {% if pode_vincular_requisicao and requisicoes_vinculaveis %}
+        <form method="POST" action="{{ url_for('vincular_requisicao_ordem_manutencao', ordem_id=ordem.id) }}" class="form-grid manutencao-update-form">
+            <input type="hidden" name="idempotency_key" value="{{ chave_vinculo_requisicao }}">
+            <div>
+                <label>Vincular Requisicao existente
+                    <select name="requisicao_id" required>
+                        <option value="">Selecione</option>
+                        {% for requisicao in requisicoes_vinculaveis %}
+                        <option value="{{ requisicao.id }}">{{ requisicao.numero }} — {{ requisicao.solicitante_nome }} ({{ requisicao.status|replace('_', ' ') }})</option>
+                        {% endfor %}
+                    </select>
+                </label>
+            </div>
+            <div><button type="submit" class="botao-principal manutencao-btn">Vincular</button></div>
+        </form>
+        {% elif pode_vincular_requisicao %}
+        <p class="obs">Nenhuma requisicao disponivel para vincular no momento.</p>
+        {% endif %}
     </section>
 
     <section class="card expedicao-card manutencao-card">
@@ -260,8 +310,6 @@
 </div>
 
 <script>
-const tiposRecursoOrdem = {{ tipos_recurso|tojson }};
-const statusRecursoOrdem = {{ status_recurso|tojson }};
 function atualizarObjetoOrdem() {
     const seletorTipo = document.querySelector("[data-tipo-objeto-os]");
     if (!seletorTipo) return;
@@ -279,76 +327,10 @@ function atualizarObjetoOrdem() {
         complemento.hidden = tipo !== "PREDIAL" || localPredial.value !== "Outros";
     }
 }
-function optionRecurso(valor, rotulo) { return `<option value="${valor}">${rotulo || valor}</option>`; }
-function rotuloTipoRecurso(tipo) {
-    if (tipo === "Material") return "Material/Peca";
-    if (tipo === "Servico") return "Servico";
-    if (tipo === "Outra aquisicao") return "Outra aquisicao";
-    return tipo;
-}
-function criarLinhaRecurso() {
-    const linha = document.createElement("div");
-    linha.className = "manutencao-recurso-linha";
-    linha.setAttribute("data-recurso-linha", "");
-    linha.innerHTML = `<input type="hidden" name="recurso_id[]" value=""><input type="hidden" name="remover[]" value="Nao" data-recurso-remover>
-        <div><label>Tipo</label><select name="recurso_tipo[]">${tiposRecursoOrdem.filter((tipo) => tipo !== "Mao de obra externa").map((tipo) => optionRecurso(tipo, rotuloTipoRecurso(tipo))).join("")}</select></div>
-        <div class="manutencao-recurso-descricao"><label>Material, servico ou aquisicao</label><input type="text" name="recurso_descricao[]" placeholder="Descricao do item"></div>
-        <div><label>Qtd.</label><input type="number" step="0.01" min="0.01" name="recurso_quantidade[]" value="1" data-recurso-quantidade></div>
-        <div><label>Un.</label><input type="text" name="recurso_unidade[]" placeholder="un, h, kg"></div>
-        <div><label>Valor estimado</label><input type="number" step="0.01" min="0" name="recurso_valor_estimado[]" value="0" data-recurso-valor></div>
-        <div><label>Situacao</label><select name="recurso_status[]">${statusRecursoOrdem.map((status) => optionRecurso(status)).join("")}</select></div>
-        <div><label>Observacao</label><input type="text" name="recurso_observacoes[]"></div>
-        <input type="hidden" name="recurso_insumo_id[]" value=""><input type="hidden" name="recurso_descricao_complementar[]" value=""><input type="hidden" name="recurso_fornecedor[]" value="">
-        <button type="button" class="botao-tabela-almoxarifado manutencao-btn-tabela manutencao-btn-remover" data-remover-recurso>Remover</button>`;
-    return linha;
-}
-function atualizarTotalRecursos() {
-    let total = 0;
-    document.querySelectorAll("[data-recurso-linha]:not(.removida) [data-recurso-valor]").forEach((input) => {
-        total += Number(input.value || 0);
-    });
-    document.querySelectorAll("[data-total-recursos]").forEach((el) => {
-        el.textContent = total.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-    });
-}
-function atualizarVazioRecursos(lista) {
-    if (!lista) return;
-    const temLinha = lista.querySelector("[data-recurso-linha]:not(.removida)");
-    lista.classList.toggle("vazia", !temLinha);
-}
-document.addEventListener("click", function(evento) {
-    const adicionar = evento.target.closest("[data-adicionar-recurso]");
-    if (adicionar) {
-        const lista = adicionar.closest(".manutencao-card").querySelector("[data-recursos-lista]");
-        lista.appendChild(criarLinhaRecurso());
-        atualizarVazioRecursos(lista);
-        atualizarTotalRecursos();
-        return;
-    }
-    const remover = evento.target.closest("[data-remover-recurso]");
-    if (remover) {
-        const linha = remover.closest("[data-recurso-linha]");
-        const lista = linha.closest("[data-recursos-lista]");
-        const id = linha.querySelector("input[name='recurso_id[]']").value;
-        if (id) {
-            linha.querySelector("[data-recurso-remover]").value = "Sim";
-            linha.classList.add("removida");
-        } else {
-            linha.remove();
-        }
-        atualizarVazioRecursos(lista);
-        atualizarTotalRecursos();
-    }
-});
-document.addEventListener("input", function(evento) {
-    if (evento.target.matches("[data-recurso-valor]")) atualizarTotalRecursos();
-});
 document.addEventListener("change", function(evento) {
     if (evento.target.matches("[data-tipo-objeto-os], [data-local-predial]")) atualizarObjetoOrdem();
 });
 atualizarObjetoOrdem();
-document.querySelectorAll("[data-recursos-lista]").forEach(atualizarVazioRecursos);
-atualizarTotalRecursos();
 </script>
 
 {% endblock %}

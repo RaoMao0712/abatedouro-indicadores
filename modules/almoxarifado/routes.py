@@ -324,11 +324,21 @@ def register_almoxarifado_routes(app):
             except Exception:
                 app.logger.exception("Falha ao emitir requisição de almoxarifado")
                 flash("Não foi possível emitir a requisição. Nenhuma alteração foi gravada.")
+        ordem_servico_id = request.values.get("ordem_servico_id") or ""
+        ordem_servico = None
+        if ordem_servico_id:
+            from repositories.manutencao_repository import buscar_ordem_por_id
+            ordem_servico = buscar_ordem_por_id(ordem_servico_id)
+            if not ordem_servico:
+                flash("Ordem de Serviço informada não foi encontrada; requisição será emitida sem vínculo.")
+                ordem_servico_id = ""
         return render_template(
             "almoxarifado_requisicao_nova.html",
             parceiros=listar_parceiros_elegiveis(),
             insumos=listar_insumos_requisicao(),
             idempotency_key=str(uuid4()),
+            ordem_servico_id=ordem_servico_id,
+            ordem_servico=ordem_servico,
         )
 
 

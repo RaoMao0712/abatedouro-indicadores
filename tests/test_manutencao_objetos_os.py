@@ -163,28 +163,34 @@ def test_abertura_por_equipamento_preserva_fluxo_antigo():
     assert ordem["solicitante_perfil"] == "pcp"
 
 
-def test_abertura_com_materiais_servico_aquisicao_e_custo_transacional():
+def test_abertura_ignora_materiais_e_usa_custo_do_formulario():
+    """P3.6: a abertura da OS nao aceita mais lancamento de materiais.
+
+    Mesmo que um payload antigo (ex.: link salvo, script externo) ainda
+    envie os campos recurso_*, o backend ignora esses campos silenciosamente
+    (nao ha formulario que os envie mais) e nao cria nenhuma linha em
+    manutencao_ordem_recursos; o custo estimado passa a vir sempre do campo
+    do formulario, nunca mais somado a partir de linhas de material.
+    """
     equipamento = criar_equipamento("EQ-GRID")
-    ordem_id = manutencao_service.salvar_ordem_manutencao(
-        form_materiais_variados(equipamento["id"]), 10, "Solicitante", "pcp")
+    payload = form_materiais_variados(equipamento["id"])
+    payload["custo_estimado"] = "77.30"
+    ordem_id = manutencao_service.salvar_ordem_manutencao(payload, 10, "Solicitante", "pcp")
 
     ordem = manutencao_service.repo.buscar_ordem_por_id(ordem_id)
-    recursos = manutencao_service.repo.listar_recursos_por_ordens([ordem_id])[str(ordem_id)]
+    recursos = manutencao_service.repo.listar_recursos_por_ordens([ordem_id]).get(str(ordem_id), [])
 
-    assert len(recursos) == 3
-    assert {recurso["tipo"] for recurso in recursos} == {"Material", "Servico", "Outra aquisicao"}
-    assert round(float(ordem["custo_estimado"] or 0), 2) == 380.50
+    assert recursos == []
+    assert round(float(ordem["custo_estimado"] or 0), 2) == 77.30
 
-    dados_invalidos = form_materiais_variados(equipamento["id"])
-    dados_invalidos.setlist("recurso_descricao[]", ["Linha invalida"])
-    dados_invalidos.setlist("recurso_quantidade[]", ["0"])
+    # Antiga linha invalida (quantidade zerada) tambem nao tem mais efeito:
+    # como os campos de recurso sao ignorados, a abertura simplesmente
+    # funciona sem nenhuma validacao de material.
+    dados_antiga_invalida = form_materiais_variados(equipamento["id"])
+    dados_antiga_invalida.setlist("recurso_quantidade[]", ["0", "0", "0"])
     total_antes = len(manutencao_service.buscar_ordens_manutencao())
-    try:
-        manutencao_service.salvar_ordem_manutencao(dados_invalidos, 11, "Solicitante", "pcp")
-        assert False, "linha com quantidade zerada deveria falhar"
-    except ValueError:
-        pass
-    assert len(manutencao_service.buscar_ordens_manutencao()) == total_antes
+    manutencao_service.salvar_ordem_manutencao(dados_antiga_invalida, 11, "Solicitante", "pcp")
+    assert len(manutencao_service.buscar_ordens_manutencao()) == total_antes + 1
 
 
 def test_equipamento_inexistente_ou_inativo_e_rejeitado():
@@ -317,8 +323,10 @@ def test_rotas_renderizam_campos_oficiais():
     assert "Manutencao Predial" in html_abrir
     assert 'name="categoria_predial"' in html_abrir
     assert 'name="veiculo_id"' in html_abrir
-    assert "Materiais e aquisicoes necessarias" in html_abrir
-    assert 'name="recurso_valor_estimado[]"' in html_abrir
+    # P3.6: a aba de abertura nao oferece mais campo operacional de materiais.
+    assert "Materiais e aquisicoes necessarias" not in html_abrir
+    assert 'name="recurso_valor_estimado[]"' not in html_abrir
+    assert "Requisicao de Almoxarifado" in html_abrir
     assert "Abrir ordem" in html_abrir
     assert "Salvar materiais" not in html_abrir
 
@@ -367,9 +375,12 @@ def test_rotas_renderizam_campos_oficiais():
     html_detalhe = detalhe.get_data(as_text=True)
     assert detalhe.status_code == 200
     assert "Dados da OS" in html_detalhe
-    assert "Materiais e Aquisicoes Necessarias" in html_detalhe
+    assert "Materiais e Aquisicoes (Historico)" in html_detalhe
+    assert "Documentos Relacionados" in html_detalhe
     assert "Execucao" in html_detalhe
     assert "Salvar materiais" not in html_detalhe
+    # P3.6: a secao de materiais e somente leitura -- sem botao de adicionar linha.
+    assert "Adicionar linha" not in html_detalhe
     assert "Salvar alteracoes" in html_detalhe
     assert "Historico" in html_detalhe
 
@@ -428,23 +439,26 @@ def test_impressao_relatorio_os_e_ordem_individual():
             "descricao": f"OS impressao pagina {indice}",
         }, 5, "Solicitante Lote", "pcp")
 
-    manutencao_service.salvar_recursos_ordem_manutencao(
+    # P3.6: nao ha mais como lancar material pela OS (salvar_recursos_ordem_manutencao
+    # esta descontinuada). Para exercitar a impressao com material HISTORICO
+    # (dados anteriores a P3.6), semeia direto via repositorio -- o mesmo
+    # caminho usado hoje so para leitura, nunca mais para escrita operacional.
+    manutencao_service.repo.salvar_recursos_ordem(
         os_aberta,
-        MultiDict({
-            "recurso_id[]": ["", "", ""],
-            "remover[]": ["Nao", "Nao", "Nao"],
-            "recurso_tipo[]": ["Material", "Servico", "Outra aquisicao"],
-            "recurso_descricao[]": ["Material print", "Servico print", "Compra print"],
-            "recurso_insumo_id[]": ["", "", ""],
-            "recurso_descricao_complementar[]": ["", "Complemento servico", ""],
-            "recurso_quantidade[]": ["2", "1.5", "1"],
-            "recurso_unidade[]": ["Un", "h", "Un"],
-            "recurso_fornecedor[]": ["", "", ""],
-            "recurso_valor_estimado[]": ["20", "100", "300"],
-            "recurso_status[]": ["Necessario", "Disponivel", "Aguardando aquisicao"],
-            "recurso_observacoes[]": ["Obs material", "Obs servico", "Obs compra"],
-        }),
-        "pcp", 5, "Usuario pcp")
+        [
+            {"id": None, "remover": "Nao", "tipo": "Material", "descricao": "Material print",
+             "insumo_id": None, "descricao_complementar": "", "quantidade": 2, "unidade": "Un",
+             "fornecedor": "", "valor_estimado": 20, "status": "Necessario", "observacoes": "Obs material"},
+            {"id": None, "remover": "Nao", "tipo": "Servico", "descricao": "Servico print",
+             "insumo_id": None, "descricao_complementar": "Complemento servico", "quantidade": 1.5,
+             "unidade": "h", "fornecedor": "", "valor_estimado": 100, "status": "Disponivel",
+             "observacoes": "Obs servico"},
+            {"id": None, "remover": "Nao", "tipo": "Outra aquisicao", "descricao": "Compra print",
+             "insumo_id": None, "descricao_complementar": "", "quantidade": 1, "unidade": "Un",
+             "fornecedor": "", "valor_estimado": 300, "status": "Aguardando aquisicao",
+             "observacoes": "Obs compra"},
+        ],
+        5, "Usuario pcp")
 
     client = app.test_client()
     sessao(client, "gerencia", 120)
@@ -512,39 +526,52 @@ def test_impressao_relatorio_os_e_ordem_individual():
     assert inexistente.status_code == 404
 
 
-def test_lista_materiais_permissoes_auditoria_e_validacao():
+def test_lista_materiais_descontinuada_bloqueia_todos_os_perfis():
+    """P3.6: o endpoint dedicado de materiais responde de forma controlada
+    (redirect + mensagem), para qualquer perfil que antes pudesse lancar
+    material, e nunca cria linha nova (item 6/7 do escopo da Etapa B)."""
     ordem_id, _equipamento = abrir_os("EQ-MAT")
 
+    # Perfis autorizados na rota (@perfil_permitido) chegam ate o service e
+    # recebem a mensagem controlada de funcionalidade descontinuada.
     for indice, perfil in enumerate(("qualidade", "pcp", "manutencao", "gerencia", "admin"), start=30):
         client = app.test_client()
         sessao(client, perfil, indice)
-        resposta = client.post(f"/manutencao/ordem/{ordem_id}/recursos", data=form_material(f"Item {perfil}", "1"))
-        assert resposta.status_code == 302
+        resposta = client.post(
+            f"/manutencao/ordem/{ordem_id}/recursos", data=form_material(f"Item {perfil}", "1"),
+            follow_redirects=True)
+        assert resposta.status_code == 200
+        assert "descontinuado" in resposta.get_data(as_text=True)
 
-    recursos = manutencao_service.repo.listar_recursos_por_ordens([ordem_id])[str(ordem_id)]
-    assert len(recursos) == 5
-    assert {item["usuario_nome"] for item in recursos} >= {
-        "Usuario qualidade", "Usuario pcp", "Usuario manutencao", "Usuario gerencia", "Usuario admin"}
+    # "producao" nunca teve acesso a esta rota (permissao inalterada pela P3.6,
+    # ver item 20 do escopo) -- bloqueado antes mesmo de chegar ao service.
+    client = app.test_client()
+    sessao(client, "producao", 40)
+    resposta = client.post(
+        f"/manutencao/ordem/{ordem_id}/recursos", data=form_material("Item producao", "1"),
+        follow_redirects=True)
+    assert resposta.status_code == 200
+    assert "Acesso não autorizado" in resposta.get_data(as_text=True)
+
+    assert manutencao_service.repo.listar_recursos_por_ordens([ordem_id]).get(str(ordem_id), []) == []
 
     eventos = manutencao_service.repo.listar_eventos_ordem(ordem_id)
-    assert len([evento for evento in eventos if evento["evento"] == "Material incluido"]) == 5
-
-    client = app.test_client()
-    sessao(client, "producao", 50)
-    resposta = client.post(f"/manutencao/ordem/{ordem_id}/recursos", data=form_material("Nao permitido", "1"))
-    assert resposta.status_code == 302
-    assert len(manutencao_service.repo.listar_recursos_por_ordens([ordem_id])[str(ordem_id)]) == 5
+    assert not [evento for evento in eventos if evento["evento"] == "Material incluido"]
 
     try:
         manutencao_service.salvar_recursos_ordem_manutencao(
             ordem_id, MultiDict(form_material("Quantidade invalida", "-1")),
             "pcp", 99, "Teste")
-        assert False, "quantidade negativa deveria falhar"
+        assert False, "endpoint descontinuado deveria sempre falhar"
     except ValueError as erro:
-        assert "Quantidade" in str(erro)
+        assert "descontinuado" in str(erro)
 
 
-def test_ficha_unica_edita_material_e_execucao_com_bloqueios():
+def test_ficha_unica_ignora_material_e_aplica_bloqueios_de_execucao():
+    """P3.6: a ficha unica continua editando dados gerais/execucao
+    normalmente, mas os campos recurso_* enviados (payload antigo) nunca
+    mais criam ou alteram linha de material -- manutencao_ordem_recursos
+    permanece vazia para esta OS."""
     ordem_id, equipamento = abrir_os("EQ-FICHA")
     client = app.test_client()
     sessao(client, "pcp", 81)
@@ -553,15 +580,13 @@ def test_ficha_unica_edita_material_e_execucao_com_bloqueios():
         descricao="Solicitacao de manutencao",
     ))
     assert resposta.status_code == 302
-    recursos = manutencao_service.repo.listar_recursos_por_ordens([ordem_id])[str(ordem_id)]
-    assert len(recursos) == 1
-    assert recursos[0]["descricao"] == "Filtro"
+    assert manutencao_service.repo.listar_recursos_por_ordens([ordem_id]).get(str(ordem_id), []) == []
 
     client_prod = app.test_client()
     sessao(client_prod, "producao", 82)
     bloqueio = client_prod.post(f"/manutencao/ordem/{ordem_id}/salvar", data=form_material("Nao pode", "1"))
     assert bloqueio.status_code in (302, 403)
-    assert len(manutencao_service.repo.listar_recursos_por_ordens([ordem_id])[str(ordem_id)]) == 1
+    assert manutencao_service.repo.listar_recursos_por_ordens([ordem_id]).get(str(ordem_id), []) == []
 
     client_manut = app.test_client()
     sessao(client_manut, "manutencao", 83)
@@ -576,7 +601,7 @@ def test_ficha_unica_edita_material_e_execucao_com_bloqueios():
         "solucao": "Ajuste aplicado",
         "pecas_utilizadas": "Filtro",
         "observacoes_finais": "Concluido",
-        "recurso_id[]": [str(recursos[0]["id"])],
+        "recurso_id[]": [""],
         "remover[]": ["Nao"],
         "recurso_tipo[]": ["Material"],
         "recurso_descricao[]": ["Filtro atualizado"],
@@ -591,10 +616,9 @@ def test_ficha_unica_edita_material_e_execucao_com_bloqueios():
     })
     assert resposta.status_code == 302
     ordem = manutencao_service.repo.buscar_ordem_por_id(ordem_id)
-    recursos = manutencao_service.repo.listar_recursos_por_ordens([ordem_id])[str(ordem_id)]
     assert ordem["status"] == "Concluida"
-    assert recursos[0]["descricao"] == "Filtro atualizado"
-    assert recursos[0]["quantidade"] == 3
+    # Mesmo enviado junto da conclusao, o payload de material continua sem efeito.
+    assert manutencao_service.repo.listar_recursos_por_ordens([ordem_id]).get(str(ordem_id), []) == []
 
     resposta = client_manut.post(f"/manutencao/ordem/{ordem_id}/salvar", data={
         "status": "Aberta",
@@ -899,7 +923,9 @@ def test_pcp_edita_dados_ocorrencia_materiais_sem_execucao_tecnica():
         html = client.get(f"/manutencao/ordem/{ordem_id}").get_data(as_text=True)
         assert 'name="tipo_objeto"' in html
         assert 'name="descricao"' in html
-        assert 'name="recurso_descricao[]"' in html
+        # P3.6: materiais nao sao mais um campo editavel da OS.
+        assert 'name="recurso_descricao[]"' not in html
+        assert "Documentos Relacionados" in html
         assert 'name="diagnostico"' not in html
         assert 'name="solucao"' not in html
         assert 'name="horas_paradas"' not in html
@@ -954,30 +980,11 @@ def test_pcp_edita_dados_ocorrencia_materiais_sem_execucao_tecnica():
             assert not ordem["veiculo_id"]
             assert ordem["categoria_predial"] == "HIDRAULICA"
 
-        recursos = manutencao_service.repo.listar_recursos_por_ordens([ordem_id])[str(ordem_id)]
-        assert len(recursos) == 1
-        recurso_id = recursos[0]["id"]
-        assert recursos[0]["descricao"] == "Filtro"
-        assert recursos[0]["quantidade"] == 2
+        # P3.6: nenhum material foi criado pela abertura nem pela edicao acima.
+        assert manutencao_service.repo.listar_recursos_por_ordens([ordem_id]).get(str(ordem_id), []) == []
 
-        payload.setlist("recurso_id[]", [str(recurso_id), ""])
-        payload.setlist("remover[]", ["Nao", "Nao"])
-        payload.setlist("recurso_tipo[]", ["Servico", "Outra aquisicao"])
-        payload.setlist("recurso_descricao[]", ["Servico atualizado", "Compra adicional"])
-        payload.setlist("recurso_insumo_id[]", ["", ""])
-        payload.setlist("recurso_descricao_complementar[]", ["", ""])
-        payload.setlist("recurso_quantidade[]", ["4", "1"])
-        payload.setlist("recurso_unidade[]", ["h", "Un"])
-        payload.setlist("recurso_fornecedor[]", ["", ""])
-        payload.setlist("recurso_valor_estimado[]", ["100", "250"])
-        payload.setlist("recurso_status[]", ["Disponivel", "Aguardando aquisicao"])
-        payload.setlist("recurso_observacoes[]", ["Alterado", "Novo"])
-        assert client.post(f"/manutencao/ordem/{ordem_id}/salvar", data=payload).status_code == 302
-        recursos = manutencao_service.repo.listar_recursos_por_ordens([ordem_id])[str(ordem_id)]
-        assert {item["descricao"] for item in recursos} >= {"Servico atualizado", "Compra adicional"}
-
-        payload.setlist("recurso_id[]", [str(recurso_id)])
-        payload.setlist("remover[]", ["Sim"])
+        payload.setlist("recurso_id[]", [""])
+        payload.setlist("remover[]", ["Nao"])
         payload.setlist("recurso_tipo[]", ["Servico"])
         payload.setlist("recurso_descricao[]", ["Servico atualizado"])
         payload.setlist("recurso_insumo_id[]", [""])
@@ -989,8 +996,8 @@ def test_pcp_edita_dados_ocorrencia_materiais_sem_execucao_tecnica():
         payload.setlist("recurso_status[]", ["Disponivel"])
         payload.setlist("recurso_observacoes[]", ["Alterado"])
         assert client.post(f"/manutencao/ordem/{ordem_id}/salvar", data=payload).status_code == 302
-        recursos = manutencao_service.repo.listar_recursos_por_ordens([ordem_id])[str(ordem_id)]
-        assert any(item["id"] == recurso_id and item["status"] == "Cancelado" for item in recursos)
+        # Payload de material reenviado continua sem efeito nenhum.
+        assert manutencao_service.repo.listar_recursos_por_ordens([ordem_id]).get(str(ordem_id), []) == []
 
         payload["status"] = "Concluida"
         assert client.post(f"/manutencao/ordem/{ordem_id}/salvar", data=payload).status_code == 302
@@ -1000,8 +1007,8 @@ def test_pcp_edita_dados_ocorrencia_materiais_sem_execucao_tecnica():
         assert f"Ocorrencia editada {perfil}" in html_recarregado
         eventos = manutencao_service.repo.listar_eventos_ordem(ordem_id)
         assert any(evento["evento"] == "OS atualizada" and f"perfil: {perfil}" in (evento["descricao"] or "") for evento in eventos)
-        assert any(evento["evento"] == "Material alterado" and evento["usuario_nome"] == f"Usuario {perfil}" for evento in eventos)
-        assert any(evento["evento"] == "Material cancelado" and evento["usuario_nome"] == f"Usuario {perfil}" for evento in eventos)
+        # P3.6: sem edicao de materiais, nao ha mais eventos "Material alterado"/"Material cancelado".
+        assert not [evento for evento in eventos if evento["evento"] in ("Material alterado", "Material cancelado")]
 
 
 def test_manutencao_nao_altera_descricao_ou_dados_gerais():
@@ -1047,109 +1054,82 @@ def test_manutencao_nao_altera_descricao_ou_dados_gerais():
     assert ordem["diagnostico"] == "Diagnostico permitido"
 
 
-def test_ficha_salva_observacao_material_com_insumo_none_literal():
-    ordem_id, _equipamento = abrir_os("EQ-OBS-NONE")
-    manutencao_service.salvar_recursos_ordem_manutencao(
-        ordem_id, MultiDict(form_material("Material com observacao")), "gerencia", 92, "Gerente")
-    recurso = manutencao_service.repo.listar_recursos_por_ordens([ordem_id])[str(ordem_id)][0]
+# P3.6: os tres testes abaixo cobriam edicao de materiais pela OS
+# (endpoint dedicado e ficha unica), removida nesta sprint. A cobertura de
+# robustez de parsing (valores "None"/"undefined" literais, quantidade
+# invalida) e preservada como testes diretos do parser
+# `coletar_linhas_recursos_ordem`, que continua definido (ainda que sem
+# nenhum caminho de escrita da OS o chame hoje) e do isolamento por OS em
+# `repositories.manutencao_repository.salvar_recursos_ordem`, que continua
+# sendo o unico ponto de escrita real (usado apenas para seed de dados
+# historicos/legado, nunca mais a partir da tela da OS).
 
-    payload = form_ficha_dados_gerais(
-        descricao="Observacao atualizada sem converter None",
-        status="Em andamento",
-    )
-    payload.setlist("recurso_id[]", [str(recurso["id"])])
-    payload.setlist("remover[]", ["Nao"])
-    payload.setlist("recurso_tipo[]", ["Material"])
-    payload.setlist("recurso_descricao[]", ["Material com observacao"])
-    payload.setlist("recurso_insumo_id[]", ["None"])
-    payload.setlist("recurso_descricao_complementar[]", ["None"])
-    payload.setlist("recurso_quantidade[]", ["2"])
-    payload.setlist("recurso_unidade[]", ["Un"])
-    payload.setlist("recurso_fornecedor[]", ["None"])
-    payload.setlist("recurso_valor_estimado[]", ["0"])
-    payload.setlist("recurso_status[]", ["Necessario"])
-    payload.setlist("recurso_observacoes[]", ["123/ABC-45 - referencia livre"])
-
-    client = app.test_client()
-    sessao(client, "gerencia", 92)
-    resposta = client.post(f"/manutencao/ordem/{ordem_id}/salvar", data=payload, follow_redirects=True)
-    html = resposta.get_data(as_text=True)
-
-    assert resposta.status_code == 200
-    assert "invalid literal for int()" not in html
-    recursos = manutencao_service.repo.listar_recursos_por_ordens([ordem_id])[str(ordem_id)]
-    assert len(recursos) == 1
-    assert recursos[0]["insumo_id"] is None
-    assert recursos[0]["descricao_complementar"] == ""
-    assert recursos[0]["fornecedor"] == ""
-    assert recursos[0]["observacoes"] == "123/ABC-45 - referencia livre"
-    assert "123/ABC-45 - referencia livre" in client.get(f"/manutencao/ordem/{ordem_id}").get_data(as_text=True)
-
-
-def test_recurso_id_none_literal_cria_linha_nova_sem_excecao():
-    ordem_id, _equipamento = abrir_os("EQ-LINHA-NOVA-NONE")
-    payload = form_ficha_dados_gerais(
-        descricao="Linha nova com id None literal",
-        status="Em andamento",
-    )
-    payload.setlist("recurso_id[]", ["None"])
-    payload.setlist("remover[]", ["Nao"])
-    payload.setlist("recurso_tipo[]", ["Outra aquisicao"])
-    payload.setlist("recurso_descricao[]", ["Compra avulsa"])
-    payload.setlist("recurso_insumo_id[]", ["undefined"])
-    payload.setlist("recurso_descricao_complementar[]", [""])
-    payload.setlist("recurso_quantidade[]", ["1"])
-    payload.setlist("recurso_unidade[]", ["Un"])
-    payload.setlist("recurso_fornecedor[]", [""])
-    payload.setlist("recurso_valor_estimado[]", ["12,50"])
-    payload.setlist("recurso_status[]", ["Necessario"])
-    payload.setlist("recurso_observacoes[]", ["789"])
-
-    manutencao_service.salvar_ficha_ordem_manutencao(ordem_id, payload, 93, "Gerente", "gerencia")
-
-    recursos = manutencao_service.repo.listar_recursos_por_ordens([ordem_id])[str(ordem_id)]
-    assert len(recursos) == 1
-    assert recursos[0]["descricao"] == "Compra avulsa"
-    assert recursos[0]["observacoes"] == "789"
-    assert round(float(recursos[0]["valor_estimado"]), 2) == 12.50
+def test_coletar_linhas_recursos_ordem_trata_valores_none_literais():
+    """Regressao preservada: o parser de formulario de materiais continua
+    robusto a 'None'/'undefined' literais e nao gera excecao ao interpretar
+    esses valores como ausentes -- mesmo sem nenhum endpoint de OS chama-lo
+    mais em producao."""
+    form = MultiDict({
+        "recurso_id[]": ["None"],
+        "remover[]": ["Nao"],
+        "recurso_tipo[]": ["Outra aquisicao"],
+        "recurso_descricao[]": ["Compra avulsa"],
+        "recurso_insumo_id[]": ["undefined"],
+        "recurso_descricao_complementar[]": ["None"],
+        "recurso_quantidade[]": ["1"],
+        "recurso_unidade[]": ["Un"],
+        "recurso_fornecedor[]": ["None"],
+        "recurso_valor_estimado[]": ["12,50"],
+        "recurso_status[]": ["Necessario"],
+        "recurso_observacoes[]": ["789"],
+    })
+    linhas = manutencao_service.coletar_linhas_recursos_ordem(form)
+    assert len(linhas) == 1
+    assert linhas[0]["id"] is None
+    assert linhas[0]["insumo_id"] is None
+    assert linhas[0]["descricao_complementar"] == ""
+    assert linhas[0]["fornecedor"] == ""
+    assert round(float(linhas[0]["valor_estimado"]), 2) == 12.50
 
 
-def test_recurso_de_outra_os_falha_sem_gravacao_parcial():
+def test_coletar_linhas_recursos_ordem_rejeita_quantidade_invalida():
+    form = MultiDict(form_material("Quantidade invalida", "-1"))
+    try:
+        manutencao_service.coletar_linhas_recursos_ordem(form)
+        assert False, "quantidade negativa deveria falhar"
+    except ValueError as erro:
+        assert "Quantidade" in str(erro) or "quantidade" in str(erro)
+
+
+def test_repositorio_salvar_recursos_ordem_isola_por_os():
+    """O isolamento por OS no nivel de repositorio continua valido -- e o
+    que protege o seed de dados historicos/legado usado em testes (ex.:
+    test_impressao_relatorio_os_e_ordem_individual) contra referencias
+    cruzadas entre ordens."""
     ordem_id, _equipamento = abrir_os("EQ-OS-VALIDA-ID")
     outra_ordem_id, _outro_equipamento = abrir_os("EQ-OS-DONO-ID")
-    manutencao_service.salvar_recursos_ordem_manutencao(
-        ordem_id, MultiDict(form_material("Material preservado")), "gerencia", 94, "Gerente")
-    manutencao_service.salvar_recursos_ordem_manutencao(
-        outra_ordem_id, MultiDict(form_material("Material de outra OS")), "gerencia", 95, "Gerente")
-    recurso_ordem = manutencao_service.repo.listar_recursos_por_ordens([ordem_id])[str(ordem_id)][0]
+    manutencao_service.repo.salvar_recursos_ordem(
+        ordem_id, [{"id": None, "remover": "Nao", "tipo": "Material", "descricao": "Material preservado",
+                    "quantidade": 1, "unidade": "Un", "valor_estimado": 0, "status": "Necessario",
+                    "observacoes": "Necessidade preliminar"}], 94, "Gerente")
+    manutencao_service.repo.salvar_recursos_ordem(
+        outra_ordem_id, [{"id": None, "remover": "Nao", "tipo": "Material", "descricao": "Material de outra OS",
+                          "quantidade": 1, "unidade": "Un", "valor_estimado": 0, "status": "Necessario",
+                          "observacoes": ""}], 95, "Gerente")
     recurso_outra = manutencao_service.repo.listar_recursos_por_ordens([outra_ordem_id])[str(outra_ordem_id)][0]
 
-    payload = form_ficha_dados_gerais(
-        descricao="Teste transacional com linha cruzada",
-        status="Em andamento",
-    )
-    payload.setlist("recurso_id[]", [str(recurso_ordem["id"]), str(recurso_outra["id"])])
-    payload.setlist("remover[]", ["Nao", "Nao"])
-    payload.setlist("recurso_tipo[]", ["Material", "Material"])
-    payload.setlist("recurso_descricao[]", ["Material preservado editado", "Material invasor"])
-    payload.setlist("recurso_insumo_id[]", ["None", ""])
-    payload.setlist("recurso_descricao_complementar[]", ["", ""])
-    payload.setlist("recurso_quantidade[]", ["3", "1"])
-    payload.setlist("recurso_unidade[]", ["Un", "Un"])
-    payload.setlist("recurso_fornecedor[]", ["", ""])
-    payload.setlist("recurso_valor_estimado[]", ["0", "0"])
-    payload.setlist("recurso_status[]", ["Necessario", "Necessario"])
-    payload.setlist("recurso_observacoes[]", ["NAO DEVE GRAVAR", "Linha cruzada"])
-
     try:
-        manutencao_service.salvar_ficha_ordem_manutencao(ordem_id, payload, 94, "Gerente", "gerencia")
+        manutencao_service.repo.salvar_recursos_ordem(
+            ordem_id, [{"id": recurso_outra["id"], "remover": "Nao", "tipo": "Material",
+                        "descricao": "Material invasor", "quantidade": 1, "unidade": "Un",
+                        "valor_estimado": 0, "status": "Necessario", "observacoes": "Linha cruzada"}],
+            94, "Gerente")
         assert False, "linha de outra OS deveria ser rejeitada"
     except ValueError as erro:
         assert "nao pertence a esta OS" in str(erro)
 
     recursos = manutencao_service.repo.listar_recursos_por_ordens([ordem_id])[str(ordem_id)]
     assert recursos[0]["descricao"] == "Material preservado"
-    assert recursos[0]["observacoes"] == "Necessidade preliminar"
     outra = manutencao_service.repo.listar_recursos_por_ordens([outra_ordem_id])[str(outra_ordem_id)]
     assert outra[0]["descricao"] == "Material de outra OS"
 

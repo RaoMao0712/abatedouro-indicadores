@@ -210,10 +210,11 @@ def salvar_ordem_manutencao(form, usuario_id=0, usuario_nome="", usuario_perfil=
 
     solicitante = (usuario_nome or form.get("solicitante") or "").strip()
 
-    linhas_recursos = coletar_linhas_recursos_ordem(form)
-    custo_estimado_form = float(form.get("custo_estimado") or 0)
-    custo_estimado_recursos = somar_valor_estimado_recursos(linhas_recursos)
-    custo_estimado = custo_estimado_recursos if custo_estimado_recursos > 0 else custo_estimado_form
+    # P3.6: a OS deixou de aceitar lancamento de materiais na abertura. O
+    # custo estimado, quando informado, vem direto do formulario; a lista de
+    # materiais/recursos passou a ser tratada por Requisicao de Almoxarifado
+    # (ver output/p3-6-os-rastreabilidade-etapa-a-auditoria.md).
+    custo_estimado = float(form.get("custo_estimado") or 0)
 
     return repo.inserir_ordem_com_recursos((
         tipo_objeto,
@@ -237,7 +238,7 @@ def salvar_ordem_manutencao(form, usuario_id=0, usuario_nome="", usuario_perfil=
         descricao,
         (form.get("motivo_parada") or "").strip(),
         custo_estimado,
-    ), linhas_recursos, usuario_id, usuario_nome)
+    ), [], usuario_id, usuario_nome)
 
 
 def atualizar_ordem_manutencao(
@@ -342,7 +343,7 @@ def salvar_ficha_ordem_manutencao(
         pode_executar_tecnico = perfil in PERFIS_TECNICOS_OS
         dados, ordem_atual, status, data_conclusao, hora_conclusao, horas_paradas = preparar_atualizacao_ficha_ordem_manutencao(
             ordem_id, form, pode_executar_tecnico)
-        linhas = coletar_linhas_recursos_ordem(form) if perfil in PERFIS_MATERIAIS_OS else []
+        linhas = []  # P3.6: materiais nao sao mais editaveis pela OS.
         evento = montar_evento_atualizacao_os(ordem_atual, dados)
         evento = enriquecer_evento_auditoria_os(
             evento, ordem_id, perfil, origem_operacao, ordem_atual["status"], status)
@@ -353,7 +354,7 @@ def salvar_ficha_ordem_manutencao(
     elif perfil in PERFIS_TECNICOS_OS:
         dados, ordem_atual, status, data_conclusao, hora_conclusao, horas_paradas = preparar_atualizacao_ordem_manutencao(
             ordem_id, form)
-        linhas = coletar_linhas_recursos_ordem(form) if perfil in PERFIS_MATERIAIS_OS else []
+        linhas = []  # P3.6: materiais nao sao mais editaveis pela OS.
         evento = montar_evento_execucao_os(ordem_atual, dados)
         evento = enriquecer_evento_auditoria_os(
             evento, ordem_id, perfil, origem_operacao, ordem_atual["status"], status)
@@ -414,9 +415,9 @@ def preparar_atualizacao_ficha_ordem_manutencao(ordem_id, form, pode_executar_te
         origem = "Manual"
     if origem not in ORIGENS_ORDEM_MANUTENCAO:
         raise ValueError("Origem da OS invalida.")
-    custo_estimado = somar_valor_estimado_recursos(coletar_linhas_recursos_ordem(form))
-    if custo_estimado == 0:
-        custo_estimado = float(form.get("custo_estimado") or ordem_atual["custo_estimado"] or 0)
+    # P3.6: sem recursos/materiais na OS, o custo estimado vem direto do
+    # formulario, preservando o valor ja gravado quando nao reenviado.
+    custo_estimado = float(form.get("custo_estimado") or ordem_atual["custo_estimado"] or 0)
 
     dados = (
         tipo_objeto,
@@ -615,10 +616,60 @@ def buscar_ordens_manutencao(
     responsavel="",
     prioridade="Todos",
     pesquisa="",
+    data_inicio="",
+    data_fim="",
+    tipo_data="abertura",
 ):
     return repo.listar_ordens(
         status_filtro, equipamento_id, tipo_objeto, veiculo_id,
-        setor, responsavel, prioridade, pesquisa)
+        setor, responsavel, prioridade, pesquisa,
+        data_inicio, data_fim, tipo_data)
+
+
+TIPOS_DATA_FILTRO_OS = {"abertura": "Data de abertura", "conclusao": "Data de conclusao"}
+
+
+def _data_valida_iso(valor):
+    if not valor:
+        return True
+    try:
+        datetime.strptime(str(valor), "%Y-%m-%d")
+        return True
+    except ValueError:
+        return False
+
+
+def validar_filtro_periodo(args):
+    """Valida o filtro de periodo da listagem de OS (P3.6, itens 29-31).
+
+    Nunca deixa passar um `tipo_data` fora do dicionario fixo acima —
+    e o valor simbolico (nao o nome da coluna) que chega por querystring, e
+    o service e que mapeia para a coluna real dentro do repositorio (ver
+    repositories/manutencao_repository.py:listar_ordens). Em caso de
+    parametro invalido, o filtro correspondente e descartado e um aviso e
+    devolvido para a tela, em vez de quebrar a listagem inteira.
+    """
+    data_inicio = (args.get("data_inicio") or "").strip()
+    data_fim = (args.get("data_fim") or "").strip()
+    tipo_data = (args.get("tipo_data") or "abertura").strip()
+    erro = None
+
+    if tipo_data not in TIPOS_DATA_FILTRO_OS:
+        erro = "Tipo de data invalido; usando Data de abertura."
+        tipo_data = "abertura"
+
+    if not _data_valida_iso(data_inicio):
+        erro = "Data inicial invalida; filtro de periodo ignorado."
+        data_inicio = ""
+    if not _data_valida_iso(data_fim):
+        erro = "Data final invalida; filtro de periodo ignorado."
+        data_fim = ""
+    if data_inicio and data_fim and data_inicio > data_fim:
+        erro = "Data inicial posterior a data final; filtro de periodo ignorado."
+        data_inicio = ""
+        data_fim = ""
+
+    return data_inicio, data_fim, tipo_data, erro
 
 
 def agora_operacional_manaus():
@@ -656,6 +707,7 @@ def filtros_impressao_manutencao(args):
     responsavel_filtro = (args.get("responsavel") or "").strip()
     prioridade_filtro = args.get("prioridade") or "Todos"
     pesquisa_filtro = (args.get("pesquisa") or "").strip()
+    data_inicio, data_fim, tipo_data, _erro_periodo = validar_filtro_periodo(args)
     return {
         "status": status_filtro,
         "equipamento_id": equipamento_filtro,
@@ -665,6 +717,9 @@ def filtros_impressao_manutencao(args):
         "responsavel": responsavel_filtro,
         "prioridade": prioridade_filtro,
         "pesquisa": pesquisa_filtro,
+        "data_inicio": data_inicio,
+        "data_fim": data_fim,
+        "tipo_data": tipo_data,
     }
 
 
@@ -686,13 +741,70 @@ def rotulo_origem_ordem(ordem):
     return ordem["solicitante_perfil"] or "-"
 
 
+def detalhes_origem_ordem(ordem):
+    """Origem estruturada da OS (P3.6, itens 21-24): prioriza os vinculos
+    reais (sgi_nc_id, op_id, parada_id) sobre o campo textual `origem`, sem
+    alterar schema nem quebrar `rotulo_origem_ordem` (ainda usado nas
+    impressoes). Retorna uma lista (normalmente 0 ou 1 item; uma OS pode, em
+    tese, ter mais de um vinculo estrutural preenchido).
+    """
+    from flask import url_for
+
+    origens = []
+    if ordem["sgi_nc_id"]:
+        situacao = None
+        link = None
+        try:
+            from modules.qualidade import repositories as qualidade_repo
+            nc = qualidade_repo.buscar_nc(ordem["sgi_nc_id"])
+            if nc:
+                situacao = nc["situacao"]
+                if nc["verificacao_id"]:
+                    link = url_for("sgi_verificacao_detalhe", verificacao_id=nc["verificacao_id"])
+        except Exception:
+            pass
+        origens.append({
+            "tipo": "Nao conformidade (SGI Qualidade)",
+            "numero": f"NC #{ordem['sgi_nc_id']}",
+            "situacao": situacao,
+            "link": link,
+        })
+    if ordem["op_id"]:
+        link = None
+        try:
+            link = url_for("consultar_op", op_id=ordem["op_id"])
+        except Exception:
+            pass
+        origens.append({
+            "tipo": "Ordem de Producao",
+            "numero": f"OP {ordem['op_id']}",
+            "situacao": None,
+            "link": link,
+        })
+    if ordem["parada_id"]:
+        origens.append({
+            "tipo": "Parada de producao",
+            "numero": f"Parada #{ordem['parada_id']}",
+            "situacao": None,
+            "link": None,
+        })
+    return origens
+
+
 def contexto_relatorio_ordens_impressao(args, usuario_nome="Sistema"):
+    # A impressao reutiliza a mesma funcao/consulta da tela de busca, entao
+    # o filtro de periodo e herdado automaticamente aqui (item 34 da P3.6).
     filtros = filtros_impressao_manutencao(args)
     ordens = buscar_ordens_manutencao(
         filtros["status"], filtros["equipamento_id"], filtros["tipo_objeto"],
         filtros["veiculo_id"], filtros["setor"], filtros["responsavel"],
-        filtros["prioridade"], filtros["pesquisa"])
+        filtros["prioridade"], filtros["pesquisa"],
+        filtros["data_inicio"], filtros["data_fim"], filtros["tipo_data"])
     emissao = agora_operacional_manaus()
+
+    periodo = "Todos"
+    if filtros["data_inicio"] or filtros["data_fim"]:
+        periodo = f"{filtros['data_inicio'] or '...'} a {filtros['data_fim'] or '...'}"
 
     filtros_legiveis = [
         ("Status", filtros["status"] or "Todos"),
@@ -703,6 +815,7 @@ def contexto_relatorio_ordens_impressao(args, usuario_nome="Sistema"):
         ("Responsavel", filtros["responsavel"] or "Todos"),
         ("Prioridade", filtros["prioridade"] or "Todas"),
         ("Pesquisa", filtros["pesquisa"] or "Todos"),
+        (TIPOS_DATA_FILTRO_OS.get(filtros["tipo_data"], "Data de abertura"), periodo),
     ]
 
     return {
@@ -740,19 +853,23 @@ def contexto_ordem_impressao(ordem_id, usuario_nome="Sistema"):
 
 
 def salvar_recursos_ordem_manutencao(ordem_id, form, usuario_perfil="", usuario_id=0, usuario_nome="Sistema"):
-    if usuario_perfil and usuario_perfil not in PERFIS_MATERIAIS_OS:
-        raise PermissionError("Perfil sem permissao para lancar recursos da OS.")
+    """Descontinuado pela P3.6: a OS nao aceita mais lancamento de materiais.
+
+    Mantido como endpoint ativo (em vez de removido) para dar uma resposta
+    controlada a quem ainda tentar usa-lo, em vez de deixa-lo funcionar de
+    forma invisivel ou retornar 404 sem explicacao (ver item 7 do escopo da
+    Etapa B). Os materiais ja registrados continuam preservados e visiveis
+    em modo somente leitura na propria OS.
+    """
     ordem_id = inteiro_obrigatorio(ordem_id, "ordem de manutencao")
     ordem = repo.buscar_ordem_por_id(ordem_id)
-    if not ordem_id or not ordem:
+    if not ordem:
         raise ValueError("Ordem de manutencao nao encontrada.")
-    if ordem["status"] == "Cancelada":
-        raise ValueError("OS cancelada nao pode receber alteracao de materiais.")
-    if usuario_perfil == "qualidade" and ordem["status"] == "Concluida":
-        raise PermissionError("OS concluida permanece somente para consulta da Qualidade.")
-
-    linhas = coletar_linhas_recursos_ordem(form)
-    repo.salvar_recursos_ordem(ordem_id, linhas, usuario_id, usuario_nome)
+    raise ValueError(
+        "O lancamento de materiais diretamente na Ordem de Servico foi "
+        "descontinuado. Registre a necessidade de material por uma "
+        "Requisicao de Almoxarifado vinculada a esta OS."
+    )
 
 
 def coletar_linhas_recursos_ordem(form):
@@ -1048,6 +1165,7 @@ def preparar_contexto_manutencao(args):
     responsavel_filtro = (args.get("responsavel") or "").strip()
     prioridade_filtro = args.get("prioridade") or "Todos"
     pesquisa_filtro = (args.get("pesquisa") or "").strip()
+    data_inicio_filtro, data_fim_filtro, tipo_data_filtro, erro_periodo = validar_filtro_periodo(args)
     equipamentos = buscar_equipamentos_manutencao()
     equipamentos_ativos = buscar_equipamentos_ativos_manutencao()
     veiculos = buscar_veiculos_manutencao()
@@ -1058,7 +1176,8 @@ def preparar_contexto_manutencao(args):
     if aba in ("buscar", "materiais") and tem_busca:
         ordens = buscar_ordens_manutencao(
             status_filtro, equipamento_filtro, tipo_objeto_filtro, veiculo_filtro,
-            setor_filtro, responsavel_filtro, prioridade_filtro, pesquisa_filtro)
+            setor_filtro, responsavel_filtro, prioridade_filtro, pesquisa_filtro,
+            data_inicio_filtro, data_fim_filtro, tipo_data_filtro)
     recursos_por_ordem = repo.listar_recursos_por_ordens([item["id"] for item in ordens])
     try:
         from modules.almoxarifado.services import buscar_insumos_almoxarifado
@@ -1096,6 +1215,11 @@ def preparar_contexto_manutencao(args):
         "responsavel_filtro": responsavel_filtro,
         "prioridade_filtro": prioridade_filtro,
         "pesquisa_filtro": pesquisa_filtro,
+        "data_inicio_filtro": data_inicio_filtro,
+        "data_fim_filtro": data_fim_filtro,
+        "tipo_data_filtro": tipo_data_filtro,
+        "tipos_data_filtro": TIPOS_DATA_FILTRO_OS,
+        "erro_periodo": erro_periodo,
         "hoje": datetime.now().strftime("%Y-%m-%d"),
     }
 

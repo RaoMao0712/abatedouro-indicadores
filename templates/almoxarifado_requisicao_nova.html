@@ -9,6 +9,10 @@
 
 <form method="post" class="card" id="form-requisicao">
   <input type="hidden" name="idempotency_key" value="{{ idempotency_key }}">
+  {% if ordem_servico_id %}
+  <input type="hidden" name="ordem_servico_id" value="{{ ordem_servico_id }}">
+  <p class="obs">Esta requisição será vinculada à Ordem de Serviço #{{ ordem_servico_id }}{% if ordem_servico %} — {{ ordem_servico.objeto_nome or ordem_servico.descricao }}{% endif %}.</p>
+  {% endif %}
   <div class="almoxarifado-grid">
     <div><label>Solicitante ativo *</label><select name="parceiro_id" required>
       <option value="">Selecione</option>

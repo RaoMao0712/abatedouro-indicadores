@@ -11,6 +11,10 @@
 
 {% if requisicao.excepcional %}<div class="card"><strong>EXCEÇÃO CONTROLADA:</strong> contém item cuja origem oficial é Ordem de Produção. Justificativa: {{ requisicao.justificativa }}</div>{% endif %}
 
+{% if requisicao.ordem_servico_id %}
+<div class="card"><strong>Origem:</strong> Ordem de Serviço <a href="{{ url_for('visualizar_ordem_manutencao', ordem_id=requisicao.ordem_servico_id) }}">#{{ requisicao.ordem_servico_id }}</a></div>
+{% endif %}
+
 <div class="cards-executivos almoxarifado-kpis">
   <div class="card kpi-card"><span class="kpi-label">Setor</span><strong>{{ requisicao.setor }}</strong></div>
   <div class="card kpi-card"><span class="kpi-label">Finalidade</span><strong>{{ requisicao.finalidade }}</strong></div>

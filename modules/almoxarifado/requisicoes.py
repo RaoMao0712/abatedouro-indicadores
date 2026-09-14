@@ -19,8 +19,14 @@ ORIGEM_REQUISICAO = "REQUISICAO_ALMOXARIFADO"
 ORIGEM_ORDEM_PRODUCAO = "ORDEM_PRODUCAO"
 ORIGENS_BAIXA = (ORIGEM_REQUISICAO, ORIGEM_ORDEM_PRODUCAO)
 STATUS_RESERVA_ATIVA = ("AGUARDANDO_APROVACAO", "EMITIDA")
+STATUS_INELEGIVEL_VINCULO_OS = ("CANCELADA", "ESTORNADA")
 PERFIS_EMISSAO = frozenset({"admin", "pcp"})
 PERFIS_APROVACAO = frozenset({"admin", "gerencia"})
+# P3.6: mesmo conjunto de perfis que já edita os dados gerais da OS
+# (services/manutencao_service.py:PERFIS_DADOS_GERAIS_OS). Duplicado aqui,
+# em vez de importado, para não criar import cruzado entre
+# modules.almoxarifado e services.manutencao_service.
+PERFIS_VINCULO_OS = frozenset({"admin", "qualidade", "pcp", "gerencia"})
 ESCALA = Decimal("0.0001")
 
 
@@ -129,6 +135,14 @@ def criar_tabelas_requisicoes_almoxarifado():
         atualizado_em {timestamp_sql} NOT NULL
     )
     """)
+    if not DATABASE_URL:
+        # Em producao a coluna e provisionada pela migration versionada
+        # database/20260914_p3_6_os_requisicao_almoxarifado.sql. Repetir o
+        # ALTER TABLE a cada boot de worker exige lock ACCESS EXCLUSIVE em
+        # almoxarifado_requisicoes (mesma licao do hotfix do 502 em
+        # ordens_producao). Mantido apenas para SQLite.
+        _alterar_coluna(cursor, conn, "almoxarifado_requisicoes", "ordem_servico_id", "INTEGER")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_almox_req_ordem_servico ON almoxarifado_requisicoes(ordem_servico_id)")
     cursor.execute(f"""
     CREATE TABLE IF NOT EXISTS almoxarifado_requisicao_itens (
         id {id_sql},
@@ -220,6 +234,23 @@ def _usuario(usuario):
     }
 
 
+def _ordem_servico_id_valida(valor):
+    """Valida (e existe) a OS informada; usada na emissão pré-vinculada (item 14 da P3.6)."""
+    texto = str(valor or "").strip()
+    if not texto:
+        return None
+    try:
+        ordem_servico_id = int(texto)
+    except (TypeError, ValueError):
+        raise ValueError("Ordem de Serviço inválida.") from None
+    if ordem_servico_id <= 0:
+        raise ValueError("Ordem de Serviço inválida.")
+    from repositories.manutencao_repository import buscar_ordem_por_id
+    if not buscar_ordem_por_id(ordem_servico_id):
+        raise ValueError("A Ordem de Serviço informada não foi encontrada.")
+    return ordem_servico_id
+
+
 def _saldo_fisico(cursor, insumo_id):
     cursor.execute(q("SELECT COALESCE(SUM(quantidade_atual),0) AS saldo FROM almoxarifado_lotes WHERE insumo_id=?"), (insumo_id,))
     return Decimal(str(cursor.fetchone()["saldo"] or 0))
@@ -272,6 +303,7 @@ def emitir_requisicao(dados, itens, *, usuario, idempotency_key):
     itens = list(itens or [])
     if not itens:
         raise ValueError("Inclua ao menos um item na requisição.")
+    ordem_servico_id = _ordem_servico_id_valida(dados.get("ordem_servico_id"))
 
     conn = conectar()
     try:
@@ -327,11 +359,11 @@ def emitir_requisicao(dados, itens, *, usuario, idempotency_key):
         INSERT INTO almoxarifado_requisicoes
           (numero,parceiro_id,solicitante_nome,solicitante_papel,setor,finalidade,
            justificativa,excepcional,status,chave_emissao,emitido_por_id,
-           emitido_por_nome,emitido_em,atualizado_em)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+           emitido_por_nome,emitido_em,atualizado_em,ordem_servico_id)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """), (numero_temporario, parceiro["id"], parceiro["razao_social"], natureza,
                setor, finalidade, justificativa or None, int(excepcional), status, chave,
-               usuario["id"], usuario["nome"], agora, agora))
+               usuario["id"], usuario["nome"], agora, agora, ordem_servico_id))
         requisicao_id = _id_inserido(cursor)
         numero = f"REQ-{datetime.now():%Y}-{requisicao_id:06d}"
         cursor.execute(q("UPDATE almoxarifado_requisicoes SET numero=? WHERE id=?"), (numero, requisicao_id))
@@ -345,6 +377,10 @@ def emitir_requisicao(dados, itens, *, usuario, idempotency_key):
                    insumo["unidade"], origem, str(quantidade), str(quantidade), agora))
         _evento(cursor, requisicao_id, "EMISSAO", None, status,
                 "Reserva criada sem baixa física.", usuario, f"{chave}:emissao")
+        if ordem_servico_id:
+            _evento(cursor, requisicao_id, "VINCULO_ORDEM_SERVICO", status, status,
+                    f"Requisição criada a partir da Ordem de Serviço #{ordem_servico_id}.",
+                    usuario, f"{chave}:vinculo_os")
         conn.commit()
         return {"id": requisicao_id, "numero": numero, "status": status, "reaplicada": False}
     except Exception:
@@ -422,6 +458,97 @@ def decidir_excecao(requisicao_id, *, aprovar, motivo, usuario, versao, idempote
     except Exception:
         conn.rollback()
         raise
+    finally:
+        conn.close()
+
+
+def vincular_a_ordem_servico(requisicao_id, ordem_servico_id, *, usuario, idempotency_key):
+    """Vincula uma Requisição existente a uma OS de Manutenção (P3.6, item 16).
+
+    Idempotente: repetir o mesmo vínculo não duplica nem falha (item 18).
+    Nunca sobrescreve um vínculo com outra OS (item 12/26).
+    """
+    criar_tabelas_requisicoes_almoxarifado()
+    usuario = _usuario(usuario)
+    if usuario["perfil"] not in PERFIS_VINCULO_OS:
+        raise PermissionError("Usuário sem permissão para vincular requisição a uma Ordem de Serviço.")
+    chave = str(idempotency_key or "").strip()
+    if not chave:
+        raise ValueError("Vínculo inválido. Recarregue a página.")
+    ordem_servico_id = _ordem_servico_id_valida(ordem_servico_id)
+    if not ordem_servico_id:
+        raise ValueError("Informe a Ordem de Serviço.")
+    conn = conectar()
+    try:
+        _iniciar_transacao(conn)
+        cursor = conn.cursor()
+        if _evento_repetido(cursor, chave):
+            conn.rollback()
+            return buscar_requisicao(requisicao_id)
+        req = _carregar_requisicao_bloqueada(cursor, requisicao_id)
+        if not req:
+            raise ValueError("Requisição não encontrada.")
+        if req["status"] in STATUS_INELEGIVEL_VINCULO_OS:
+            raise ValueError("Requisição cancelada ou estornada não pode ser vinculada a uma Ordem de Serviço.")
+        vinculo_atual = req.get("ordem_servico_id")
+        if vinculo_atual and int(vinculo_atual) == ordem_servico_id:
+            # Mesmo vínculo reenviado: idempotente, nada a fazer.
+            conn.rollback()
+            return buscar_requisicao(requisicao_id)
+        if vinculo_atual:
+            raise ValueError(
+                f"Esta requisição já está vinculada à Ordem de Serviço #{vinculo_atual} "
+                "e não pode ser transferida por aqui.")
+        agora = _agora()
+        cursor.execute(q("""UPDATE almoxarifado_requisicoes
+            SET ordem_servico_id=?, versao=versao+1, atualizado_em=? WHERE id=?"""),
+            (ordem_servico_id, agora, requisicao_id))
+        _evento(cursor, requisicao_id, "VINCULO_ORDEM_SERVICO", req["status"], req["status"],
+                f"Vinculada à Ordem de Serviço #{ordem_servico_id}.", usuario, chave)
+        conn.commit()
+        return buscar_requisicao(requisicao_id)
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def listar_requisicoes_vinculaveis(*, excluir_ordem_servico_id=None):
+    """Requisições elegíveis para "Vincular Requisição existente" (item 17).
+
+    Sem `ordem_servico_id` e fora de CANCELADA/ESTORNADA. Não filtra por
+    setor/solicitante: a auditoria (Etapa A) não encontrou critério formal
+    confiável para isso, e o item 17 pede para não bloquear vínculo legítimo
+    só por falta de correspondência textual.
+    """
+    criar_tabelas_requisicoes_almoxarifado()
+    conn = conectar()
+    try:
+        cursor = conn.cursor()
+        placeholders = ",".join(["?"] * len(STATUS_INELEGIVEL_VINCULO_OS))
+        cursor.execute(q(f"""
+        SELECT * FROM almoxarifado_requisicoes
+         WHERE ordem_servico_id IS NULL AND status NOT IN ({placeholders})
+         ORDER BY id DESC
+        """), tuple(STATUS_INELEGIVEL_VINCULO_OS))
+        return cursor.fetchall()
+    finally:
+        conn.close()
+
+
+def listar_requisicoes_por_ordem_servico(ordem_servico_id):
+    """Desdobramentos de uma OS (item 25 da P3.6): requisições vinculadas."""
+    criar_tabelas_requisicoes_almoxarifado()
+    conn = conectar()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(q("""
+        SELECT * FROM almoxarifado_requisicoes
+         WHERE ordem_servico_id=?
+         ORDER BY id DESC
+        """), (ordem_servico_id,))
+        return cursor.fetchall()
     finally:
         conn.close()
 

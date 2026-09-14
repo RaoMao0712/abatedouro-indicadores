@@ -952,6 +952,9 @@ def inativar_veiculo(veiculo_id):
     conn.close()
 
 
+COLUNAS_DATA_FILTRO_OS = {"abertura": "data_abertura", "conclusao": "data_conclusao"}
+
+
 def listar_ordens(
     status_filtro="Todos",
     equipamento_id="",
@@ -961,10 +964,24 @@ def listar_ordens(
     responsavel="",
     prioridade="Todos",
     pesquisa="",
+    data_inicio="",
+    data_fim="",
+    tipo_data="abertura",
 ):
     criar_tabelas_manutencao()
     filtros = []
     parametros = []
+
+    # tipo_data chega como valor simbolico (nao o nome da coluna) e so pode
+    # assumir os valores deste dicionario fixo -- nunca e interpolado direto
+    # de querystring, para nao permitir coluna arbitraria via parametro.
+    coluna_data = COLUNAS_DATA_FILTRO_OS.get(tipo_data, "data_abertura")
+    if data_inicio:
+        filtros.append(f"o.{coluna_data} >= ?")
+        parametros.append(data_inicio)
+    if data_fim:
+        filtros.append(f"o.{coluna_data} <= ?")
+        parametros.append(data_fim)
 
     if status_filtro and status_filtro != "Todos":
         filtros.append("o.status = ?")
