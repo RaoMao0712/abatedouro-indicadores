@@ -21,6 +21,11 @@ def banco(tmp_path, monkeypatch):
     for modulo in (requisicoes, estoque, parceiros):
         monkeypatch.setattr(modulo, "DATABASE_URL", None)
         monkeypatch.setattr(modulo, "conectar", conectar)
+    # Cada teste usa um banco novo (tmp_path); a guarda de processo de
+    # criar_tabelas_requisicoes_almoxarifado() precisa ser rearmada aqui,
+    # senao o bootstrap so roda de verdade no primeiro teste do arquivo e
+    # os demais herdam um banco sem as tabelas da P3.5/P3.6.
+    monkeypatch.setattr(requisicoes, "_SCHEMA_REQUISICOES_INICIALIZADO", False)
     estoque.criar_tabelas_estoque_almoxarifado()
     parceiros.criar_tabelas_parceiros()
     requisicoes.criar_tabelas_requisicoes_almoxarifado()
@@ -61,12 +66,18 @@ def _emitir(*, insumo=1, quantidade="10", chave="emissao-1", usuario=None, justi
     )
 
 
-def test_migration_classifica_origem_e_e_idempotente(banco):
+def test_migration_classifica_origem_e_e_idempotente(banco, monkeypatch):
     conn = banco()
     conn.execute("UPDATE almoxarifado_insumos SET origem_baixa=NULL")
     conn.commit()
     conn.close()
+    # Duas chamadas simulando dois boots de worker independentes: a guarda
+    # de processo (regressao de performance da P3.6, corrigida nesta etapa)
+    # so evita trabalho redundante DENTRO de um mesmo processo/worker vivo;
+    # um novo boot rearma a guarda normalmente.
+    monkeypatch.setattr(requisicoes, "_SCHEMA_REQUISICOES_INICIALIZADO", False)
     requisicoes.criar_tabelas_requisicoes_almoxarifado()
+    monkeypatch.setattr(requisicoes, "_SCHEMA_REQUISICOES_INICIALIZADO", False)
     requisicoes.criar_tabelas_requisicoes_almoxarifado()
     conn = banco()
     assert [r[0] for r in conn.execute("SELECT origem_baixa FROM almoxarifado_insumos ORDER BY id")] == [

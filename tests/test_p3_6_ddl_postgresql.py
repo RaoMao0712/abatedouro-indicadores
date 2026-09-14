@@ -145,6 +145,13 @@ class TestP36MigrationSemDDLRuntime:
         monkeypatch.setattr(conexao, "_registrar_sql", espiao)
 
         for _rodada in range(3):  # simula 3 boots/requisicoes seguidas
+            # Etapa C (correcao de performance): criar_tabelas_requisicoes_
+            # almoxarifado() ganhou guarda de processo para nao repetir seu
+            # bootstrap a cada chamada dentro do mesmo worker. Para de fato
+            # simular 3 boots distintos (e nao 1 boot real + 2 no-ops), a
+            # guarda e rearmada a cada rodada — exatamente o que um novo
+            # processo faria.
+            monkeypatch.setattr(requisicoes_mod, "_SCHEMA_REQUISICOES_INICIALIZADO", False)
             requisicoes_mod.criar_tabelas_requisicoes_almoxarifado()
 
         alters = [sql for sql in sql_capturado if ALTER_ORDEM_SERVICO_ID.search(sql)]
@@ -160,6 +167,65 @@ class TestP36MigrationSemDDLRuntime:
 
         # Repetir apos a coluna existir tambem nao gera ALTER (regressao dupla).
         sql_capturado.clear()
+        monkeypatch.setattr(requisicoes_mod, "_SCHEMA_REQUISICOES_INICIALIZADO", False)
         requisicoes_mod.criar_tabelas_requisicoes_almoxarifado()
         alters_pos_migration = [sql for sql in sql_capturado if ALTER_ORDEM_SERVICO_ID.search(sql)]
         assert alters_pos_migration == []
+
+        # E dentro do MESMO boot (guarda ainda armada), a 2a chamada nao
+        # deve nem tentar tocar o schema de novo — e o ponto central da
+        # correcao de performance da Etapa C.
+        sql_capturado.clear()
+        requisicoes_mod.criar_tabelas_requisicoes_almoxarifado()
+        assert sql_capturado == [], (
+            "2a chamada no mesmo processo deveria ser no-op (guarda de "
+            f"processo), mas executou SQL: {sql_capturado}"
+        )
+
+    def test_consultas_de_requisicao_da_os_sao_somente_leitura_em_postgres(self, monkeypatch):
+        """Item 11 da correcao de performance: listar_requisicoes_por_ordem_
+        servico() e listar_requisicoes_vinculaveis() (as duas consultas que
+        o detalhe da OS aciona) nao devem emitir ALTER TABLE / CREATE INDEX
+        em hipotese alguma contra PostgreSQL real — nem no processo "frio"
+        (sem a guarda de criar_tabelas_requisicoes_almoxarifado() jamais
+        armada), pois elas pararam de chamar essa funcao. O teste monta o
+        schema minimo por fora (como o boot real da aplicacao faria via
+        inicializar_schema_aplicacao() em app.py) e so entao mede as duas
+        consultas isoladamente."""
+        conn = conexao.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(MIGRATION.read_text(encoding="utf-8").replace(
+            "ALTER TABLE almoxarifado_requisicoes",
+            "CREATE TABLE IF NOT EXISTS almoxarifado_requisicoes "
+            "(id SERIAL PRIMARY KEY, status TEXT);\n"
+            "ALTER TABLE almoxarifado_requisicoes",
+        ))
+        conn.commit()
+        conn.close()
+        assert "ordem_servico_id" in _colunas_de("almoxarifado_requisicoes")
+
+        sql_capturado = []
+        original = conexao._registrar_sql
+
+        def espiao(sql, duracao_ms):
+            sql_capturado.append(str(sql))
+            return original(sql, duracao_ms)
+
+        monkeypatch.setattr(conexao, "_registrar_sql", espiao)
+
+        resultado_vinculaveis = requisicoes_mod.listar_requisicoes_vinculaveis()
+        resultado_desdobramentos = requisicoes_mod.listar_requisicoes_por_ordem_servico(1)
+
+        assert resultado_vinculaveis == []
+        assert resultado_desdobramentos == []
+        ddl = [
+            sql for sql in sql_capturado
+            if re.search(r"\b(ALTER\s+TABLE|CREATE\s+INDEX|CREATE\s+TABLE)\b", sql, re.IGNORECASE)
+        ]
+        assert ddl == [], (
+            "listar_requisicoes_vinculaveis()/listar_requisicoes_por_ordem_"
+            f"servico() emitiram DDL: {ddl}"
+        )
+        assert all(
+            re.match(r"^\s*SELECT\b", sql, re.IGNORECASE) for sql in sql_capturado
+        ), f"esperado apenas SELECT, capturado: {sql_capturado}"

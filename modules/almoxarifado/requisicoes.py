@@ -28,6 +28,7 @@ PERFIS_APROVACAO = frozenset({"admin", "gerencia"})
 # modules.almoxarifado e services.manutencao_service.
 PERFIS_VINCULO_OS = frozenset({"admin", "qualidade", "pcp", "gerencia"})
 ESCALA = Decimal("0.0001")
+_SCHEMA_REQUISICOES_INICIALIZADO = False
 
 
 class ConflitoRequisicao(RuntimeError):
@@ -75,7 +76,20 @@ def _id_inserido(cursor):
 
 
 def criar_tabelas_requisicoes_almoxarifado():
-    """Migration aditiva e idempotente da P3.5."""
+    """Migration aditiva e idempotente da P3.5.
+
+    Guardada por processo (mesmo padrao ja usado em
+    modules/producao/operacoes_op.py e outros bootstraps de schema): sem a
+    guarda, cada chamada refaz ~14 ALTER TABLE + varios CREATE TABLE/INDEX
+    (~31 queries), mesmo quando o schema ja esta pronto. A P3.6 passou a
+    chamar esta funcao (indiretamente) em 2 pontos novos por requisicao no
+    detalhe da OS (listar_requisicoes_por_ordem_servico e
+    listar_requisicoes_vinculaveis), o que tornou o custo por chamada,
+    antes absorvido silenciosamente, visivel como regressao de performance.
+    """
+    global _SCHEMA_REQUISICOES_INICIALIZADO
+    if _SCHEMA_REQUISICOES_INICIALIZADO:
+        return
     from .services import criar_tabelas_estoque_almoxarifado
 
     criar_tabelas_estoque_almoxarifado()
@@ -209,6 +223,7 @@ def criar_tabelas_requisicoes_almoxarifado():
            ORIGEM_REQUISICAO, ORIGEM_REQUISICAO, ORIGEM_ORDEM_PRODUCAO))
     conn.commit()
     conn.close()
+    _SCHEMA_REQUISICOES_INICIALIZADO = True
 
 
 def origem_baixa_padrao(categoria):
@@ -521,8 +536,12 @@ def listar_requisicoes_vinculaveis(*, excluir_ordem_servico_id=None):
     setor/solicitante: a auditoria (Etapa A) não encontrou critério formal
     confiável para isso, e o item 17 pede para não bloquear vínculo legítimo
     só por falta de correspondência textual.
+
+    Somente leitura de propósito: não chama criar_tabelas_requisicoes_
+    almoxarifado() (schema ja garantido no boot da aplicacao, em
+    inicializar_schema_aplicacao() em app.py). Consultas nao devem
+    disparar bootstrap/DDL — regressao de performance corrigida na Etapa C.
     """
-    criar_tabelas_requisicoes_almoxarifado()
     conn = conectar()
     try:
         cursor = conn.cursor()
@@ -538,8 +557,13 @@ def listar_requisicoes_vinculaveis(*, excluir_ordem_servico_id=None):
 
 
 def listar_requisicoes_por_ordem_servico(ordem_servico_id):
-    """Desdobramentos de uma OS (item 25 da P3.6): requisições vinculadas."""
-    criar_tabelas_requisicoes_almoxarifado()
+    """Desdobramentos de uma OS (item 25 da P3.6): requisições vinculadas.
+
+    Somente leitura de propósito: não chama criar_tabelas_requisicoes_
+    almoxarifado() (schema ja garantido no boot da aplicacao, em
+    inicializar_schema_aplicacao() em app.py). Consultas nao devem
+    disparar bootstrap/DDL — regressao de performance corrigida na Etapa C.
+    """
     conn = conectar()
     try:
         cursor = conn.cursor()
