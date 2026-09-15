@@ -2,7 +2,9 @@
 
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from html import escape
 from io import BytesIO
+from pathlib import Path
 
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER
@@ -11,6 +13,7 @@ from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
+from config import IDENTIFICACAO_TECNOLOGIA
 from database import DATABASE_URL, conectar, q
 from modules.parceiros.services import obter_parceiro_elegivel
 
@@ -905,24 +908,51 @@ def indicadores_consumo_requisicao(insumo_id, *, dias=30, hoje=None):
         conn.close()
 
 
+_REQUISICAO_LOGO = str(Path(__file__).resolve().parents[2] / "static" / "imagens" / "logo.png")
+_REQUISICAO_ESTABELECIMENTO = "ABATEDOURO SÃO PEDRO"
+_REQUISICAO_VERDE = colors.HexColor("#173B2A")
+_REQUISICAO_VERDE_CLARO = colors.HexColor("#E8F0EB")
+
+
+class _DocumentoRequisicao(SimpleDocTemplate):
+    """Aplica cabeçalho institucional e rodapé em toda página impressa."""
+
+    def afterPage(self):
+        canvas = self.canv
+        canvas.saveState()
+        if Path(_REQUISICAO_LOGO).exists():
+            canvas.drawImage(_REQUISICAO_LOGO, 14 * mm, 270 * mm, width=18 * mm, height=18 * mm,
+                             preserveAspectRatio=True, mask="auto")
+        canvas.setFillColor(_REQUISICAO_VERDE)
+        canvas.setFont("Helvetica-Bold", 14)
+        canvas.drawString(36 * mm, 283 * mm, _REQUISICAO_ESTABELECIMENTO)
+        canvas.setFont("Helvetica-Bold", 10)
+        canvas.drawString(36 * mm, 276 * mm, "REQUISIÇÃO DE ALMOXARIFADO")
+        canvas.setStrokeColor(_REQUISICAO_VERDE)
+        canvas.setLineWidth(1)
+        canvas.line(14 * mm, 266 * mm, 196 * mm, 266 * mm)
+        canvas.setFillColor(colors.grey)
+        canvas.setFont("Helvetica", 6.5)
+        canvas.drawString(14 * mm, 10 * mm, f"{IDENTIFICACAO_TECNOLOGIA}.")
+        canvas.drawRightString(196 * mm, 10 * mm, f"Página {canvas.getPageNumber()}")
+        canvas.restoreState()
+
+
 def gerar_pdf_requisicao(requisicao_id):
     req = buscar_requisicao(requisicao_id)
     if not req:
         raise ValueError("Requisição não encontrada.")
     buffer = BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=14 * mm, leftMargin=14 * mm,
-                            topMargin=12 * mm, bottomMargin=12 * mm,
-                            title=f"Requisição {req['numero']}")
+    doc = _DocumentoRequisicao(buffer, pagesize=A4, rightMargin=14 * mm, leftMargin=14 * mm,
+                               topMargin=36 * mm, bottomMargin=16 * mm,
+                               title=f"Requisição {req['numero']}")
     estilos = getSampleStyleSheet()
-    titulo = ParagraphStyle("fd", parent=estilos["Title"], alignment=TA_CENTER,
-                            textColor=colors.HexColor("#173B2A"), fontSize=18)
-    historia = [Paragraph("FRIGODATTA", titulo),
-                Paragraph("REQUISIÇÃO DE ALMOXARIFADO", ParagraphStyle("sub", parent=estilos["Heading2"], alignment=TA_CENTER)),
-                Spacer(1, 5 * mm)]
+    historia = []
     if req["excepcional"]:
         historia.append(Paragraph("EXCEÇÃO CONTROLADA — ITEM DE CONSUMO OFICIAL POR ORDEM DE PRODUÇÃO",
                                   ParagraphStyle("alerta", parent=estilos["Heading3"], alignment=TA_CENTER,
                                                  textColor=colors.HexColor("#A13A20"))))
+        historia.append(Spacer(1, 2 * mm))
     metadados = [
         ["Número", req["numero"], "Estado", req["status"].replace("_", " ")],
         ["Emissão", str(req["emitido_em"]), "Emitido por", req["emitido_por_nome"]],
@@ -931,27 +961,62 @@ def gerar_pdf_requisicao(requisicao_id):
     ]
     if req.get("justificativa"):
         metadados.append(["Justificativa", req["justificativa"], "", ""])
-    tabela_meta = Table(metadados, colWidths=[25 * mm, 58 * mm, 25 * mm, 62 * mm])
+    tabela_meta = Table(metadados, colWidths=[25 * mm, 66 * mm, 25 * mm, 66 * mm])
     tabela_meta.setStyle(TableStyle([("GRID", (0, 0), (-1, -1), .4, colors.grey),
-                                     ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#E8F0EB")),
-                                     ("BACKGROUND", (2, 0), (2, -1), colors.HexColor("#E8F0EB")),
+                                     ("BACKGROUND", (0, 0), (0, -1), _REQUISICAO_VERDE_CLARO),
+                                     ("BACKGROUND", (2, 0), (2, -1), _REQUISICAO_VERDE_CLARO),
                                      ("VALIGN", (0, 0), (-1, -1), "TOP"),
                                      ("FONTSIZE", (0, 0), (-1, -1), 8)]))
     historia.extend([tabela_meta, Spacer(1, 5 * mm)])
-    dados_itens = [["Item", "Categoria", "Origem oficial", "Solicitado", "Entregue", "Un."]]
+
+    estilo_celula = ParagraphStyle("req_item", parent=estilos["Normal"], fontSize=8, leading=9.5)
+    estilo_cabecalho_item = ParagraphStyle("req_item_cab", parent=estilo_celula,
+                                           textColor=colors.white, fontName="Helvetica-Bold")
+    dados_itens = [[Paragraph(texto, estilo_cabecalho_item)
+                    for texto in ("Item", "Categoria", "Origem oficial", "Solicitado", "Entregue", "Unidade")]]
     for item in req["itens"]:
-        dados_itens.append([item["insumo_descricao"], item["categoria"], item["origem_baixa"].replace("_", " "),
-                            str(item["quantidade_solicitada"]), str(item["quantidade_entregue"]), item["unidade"]])
-    tabela = Table(dados_itens, repeatRows=1, colWidths=[48 * mm, 30 * mm, 38 * mm, 22 * mm, 22 * mm, 14 * mm])
+        dados_itens.append([
+            Paragraph(escape(str(item["insumo_descricao"] or "-")), estilo_celula),
+            Paragraph(escape(str(item["categoria"] or "-")), estilo_celula),
+            Paragraph(escape(str(item["origem_baixa"] or "-").replace("_", " ")), estilo_celula),
+            Paragraph(escape(str(item["quantidade_solicitada"])), estilo_celula),
+            "",
+            Paragraph(escape(str(item["unidade"] or "-")), estilo_celula),
+        ])
+    tabela = Table(dados_itens, repeatRows=1, colWidths=[56 * mm, 24 * mm, 44 * mm, 20 * mm, 20 * mm, 18 * mm])
     tabela.setStyle(TableStyle([("GRID", (0, 0), (-1, -1), .4, colors.grey),
-                                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#173B2A")),
-                                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-                                ("FONTSIZE", (0, 0), (-1, -1), 8),
-                                ("VALIGN", (0, 0), (-1, -1), "MIDDLE")]))
-    historia.extend([tabela, Spacer(1, 14 * mm),
-                     Paragraph("__________________________________ &nbsp;&nbsp;&nbsp;&nbsp; __________________________________", estilos["Normal"]),
-                     Paragraph("Responsável pela entrega &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Solicitante / recebedor", estilos["Normal"]),
-                     Spacer(1, 8 * mm),
-                     Paragraph("O saldo físico somente é baixado após a confirmação deste documento assinado no sistema.", estilos["Italic"])])
+                                ("BACKGROUND", (0, 0), (-1, 0), _REQUISICAO_VERDE),
+                                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                                ("TOPPADDING", (0, 0), (-1, -1), 3),
+                                ("BOTTOMPADDING", (0, 0), (-1, -1), 3)]))
+    historia.extend([tabela, Spacer(1, 16 * mm)])
+
+    estilo_assinatura = ParagraphStyle("req_assinatura", parent=estilos["Normal"], alignment=TA_CENTER, fontSize=8.5)
+    assinaturas = Table(
+        [["", "", ""],
+         [Paragraph("Responsável pela entrega", estilo_assinatura), "",
+          Paragraph("Solicitante / recebedor", estilo_assinatura)]],
+        colWidths=[85 * mm, 12 * mm, 85 * mm], rowHeights=[14 * mm, 6 * mm])
+    assinaturas.setStyle(TableStyle([
+        ("LINEABOVE", (0, 1), (0, 1), 0.8, colors.black),
+        ("LINEABOVE", (2, 1), (2, 1), 0.8, colors.black),
+        ("TOPPADDING", (0, 1), (-1, 1), 2),
+    ]))
+    historia.extend([assinaturas, Spacer(1, 6 * mm)])
+
+    estilo_observacao = ParagraphStyle("req_obs", parent=estilos["Italic"], fontSize=8, textColor=_REQUISICAO_VERDE)
+    observacao = Table(
+        [[Paragraph("O saldo físico somente é baixado após a confirmação deste documento assinado no sistema.",
+                    estilo_observacao)]],
+        colWidths=[182 * mm])
+    observacao.setStyle(TableStyle([
+        ("BOX", (0, 0), (-1, -1), 0.6, _REQUISICAO_VERDE),
+        ("BACKGROUND", (0, 0), (-1, -1), _REQUISICAO_VERDE_CLARO),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+    ]))
+    historia.append(observacao)
+
     doc.build(historia)
     return buffer.getvalue()
