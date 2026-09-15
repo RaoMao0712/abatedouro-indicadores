@@ -914,6 +914,21 @@ _REQUISICAO_VERDE = colors.HexColor("#173B2A")
 _REQUISICAO_VERDE_CLARO = colors.HexColor("#E8F0EB")
 
 
+def _formatar_quantidade_br(valor):
+    """Só exibição: 8.0000 -> "8", 1250.0000 -> "1.250", 8.5000 -> "8,5"."""
+    try:
+        numero = Decimal(str(valor)).normalize()
+    except (InvalidOperation, TypeError, ValueError):
+        return str(valor)
+    sinal = "-" if numero.is_signed() else ""
+    texto = format(abs(numero), "f")
+    parte_inteira, _, parte_decimal = texto.partition(".")
+    parte_inteira_formatada = f"{int(parte_inteira or 0):,}".replace(",", ".")
+    if parte_decimal:
+        return f"{sinal}{parte_inteira_formatada},{parte_decimal}"
+    return f"{sinal}{parte_inteira_formatada}"
+
+
 class _DocumentoRequisicao(SimpleDocTemplate):
     """Aplica cabeçalho institucional e rodapé em toda página impressa."""
 
@@ -979,7 +994,7 @@ def gerar_pdf_requisicao(requisicao_id):
             Paragraph(escape(str(item["insumo_descricao"] or "-")), estilo_celula),
             Paragraph(escape(str(item["categoria"] or "-")), estilo_celula),
             Paragraph(escape(str(item["origem_baixa"] or "-").replace("_", " ")), estilo_celula),
-            Paragraph(escape(str(item["quantidade_solicitada"])), estilo_celula),
+            Paragraph(escape(_formatar_quantidade_br(item["quantidade_solicitada"])), estilo_celula),
             "",
             Paragraph(escape(str(item["unidade"] or "-")), estilo_celula),
         ])
