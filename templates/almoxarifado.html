@@ -111,6 +111,8 @@
                 </div>
             </div>
 
+            <p><small>A origem oficial é automática: Embalagem e Matéria-prima por Ordem de Produção; demais materiais por Requisição de Almoxarifado.</small></p>
+
             <label>Observações</label>
             <textarea name="observacoes" rows="3" placeholder="Informações úteis para compras, produção, manutenção ou qualidade."></textarea>
 
@@ -153,6 +155,7 @@
                     <th>Categoria</th>
                     <th>Unidade</th>
                     <th>Status</th>
+                    <th>Origem de consumo</th>
                     <th>Observações</th>
                     <th>Ações</th>
                 </tr>
@@ -169,6 +172,7 @@
                             {% if item.ativo == 'Sim' %}Ativo{% else %}Inativo{% endif %}
                         </span>
                     </td>
+                    <td>{{ (item.origem_baixa or 'Não classificada')|replace('_', ' ') }}</td>
                     <td>{% if item.observacoes %}{{ item.observacoes }}{% else %}-{% endif %}</td>
                     <td>
                         <a href="{{ url_for('editar_insumo_almoxarifado', insumo_id=item.id) }}" class="botao-tabela-almoxarifado">Editar</a>

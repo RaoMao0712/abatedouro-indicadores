@@ -8,6 +8,9 @@ from flask import flash, redirect, render_template, request, session, url_for
 from database import DATABASE_URL, conectar, q
 from modules.auth.decorators import login_obrigatorio, perfil_permitido
 from modules.auth.services import usuario_eh_admin
+from modules.parceiros.services import (
+    PAPEL_FORNECEDOR, listar_parceiros_elegiveis, obter_parceiro_por_papel,
+)
 from modules.qualidade import services as qualidade_service
 from modules.relatorios.producao import buscar_ops_agregadas, normalizar_filtros
 from utils import normalizar_chave_setor, setores_padrao
@@ -23,6 +26,7 @@ from .services import (
     cancelar_ultima_caixa_pesagem_op,
     contexto_apontamento,
     copiar_mao_obra_de_op,
+    atualizar_apontamento_mao_obra,
     registrar_peso_caixa_op,
     salvar_apontamento_mao_obra,
     salvar_apontamento_parada,
@@ -90,12 +94,21 @@ def register_producao_routes(app, integracoes=None):
         if request.method == "POST":
             data = request.form["data"]
             sku = request.form.get("sku", "Galinha Cortada")
-            fornecedor = request.form["fornecedor"]
+            try:
+                parceiro_fornecedor = obter_parceiro_por_papel(
+                    request.form.get("fornecedor"), PAPEL_FORNECEDOR)
+                quantidade_aves = int(request.form["quantidade_aves"])
+                peso_vivo = float(request.form["peso_vivo"])
+            except (ValueError, TypeError) as erro:
+                flash(str(erro))
+                return render_template(
+                    "ordem_producao.html", hoje=data, ordens=buscar_ordens()[:10],
+                    fornecedores=buscar_fornecedores(), categorias_pausa=sorted(CATEGORIAS_PAUSA),
+                )
+            fornecedor = parceiro_fornecedor["razao_social"]
             gta = request.form["gta"]
             nota_fiscal = request.form["nota_fiscal"]
-            quantidade_aves = int(request.form["quantidade_aves"])
             mortes_antes_pendura = 0
-            peso_vivo = float(request.form["peso_vivo"])
             observacoes = request.form["observacoes"]
 
             peso_medio = peso_vivo / quantidade_aves if quantidade_aves else 0
@@ -104,13 +117,13 @@ def register_producao_routes(app, integracoes=None):
             cursor = conn.cursor()
             sql_op = """
             INSERT INTO ordens_producao (
-                data, sku, fornecedor, gta, nota_fiscal, quantidade_aves,
+                data, sku, fornecedor, fornecedor_parceiro_id, gta, nota_fiscal, quantidade_aves,
                 mortes_antes_pendura, peso_vivo, peso_medio, observacoes, status
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """
             parametros_op = (
-                data, sku, fornecedor, gta, nota_fiscal, quantidade_aves,
+                data, sku, fornecedor, parceiro_fornecedor["id"], gta, nota_fiscal, quantidade_aves,
                 mortes_antes_pendura, peso_vivo, peso_medio, observacoes, "Aberta"
             )
             try:
@@ -221,6 +234,7 @@ def register_producao_routes(app, integracoes=None):
 
         contexto = contexto_apontamento()
         contexto["ordens_origem"] = buscar_ordens()
+        contexto["parceiros_elegiveis"] = listar_parceiros_elegiveis()
 
         return render_template(
             "apontamento_mao_obra.html",
@@ -553,12 +567,19 @@ def register_producao_routes(app, integracoes=None):
         if request.method == "POST":
             data = request.form["data"]
             sku = request.form.get("sku", "Galinha Cortada")
-            fornecedor = request.form["fornecedor"]
+            try:
+                parceiro_fornecedor = obter_parceiro_por_papel(
+                    request.form.get("fornecedor"), PAPEL_FORNECEDOR)
+                quantidade_aves = int(request.form["quantidade_aves"])
+                peso_vivo = float(request.form["peso_vivo"])
+            except (ValueError, TypeError) as erro:
+                conn.close()
+                flash(str(erro))
+                return redirect(url_for("editar_op", op_id=op_id))
+            fornecedor = parceiro_fornecedor["razao_social"]
             gta = request.form["gta"]
             nota_fiscal = request.form["nota_fiscal"]
-            quantidade_aves = int(request.form["quantidade_aves"])
             mortes_antes_pendura = 0
-            peso_vivo = float(request.form["peso_vivo"])
             observacoes = request.form["observacoes"]
             peso_medio = peso_vivo / quantidade_aves if quantidade_aves else 0
 
@@ -566,12 +587,12 @@ def register_producao_routes(app, integracoes=None):
             try:
                 cursor.execute(q("""
                 UPDATE ordens_producao
-                SET data = ?, sku = ?, fornecedor = ?, gta = ?, nota_fiscal = ?,
+                SET data = ?, sku = ?, fornecedor = ?, fornecedor_parceiro_id = ?, gta = ?, nota_fiscal = ?,
                     quantidade_aves = ?, mortes_antes_pendura = ?, peso_vivo = ?,
                     peso_medio = ?, observacoes = ?
                 WHERE id = ?
                 """), (
-                    data, sku, fornecedor, gta, nota_fiscal, quantidade_aves,
+                    data, sku, fornecedor, parceiro_fornecedor["id"], gta, nota_fiscal, quantidade_aves,
                     mortes_antes_pendura, peso_vivo, peso_medio, observacoes, op_id
                 ))
                 inicio_programado = request.form.get("inicio_programado")
@@ -643,34 +664,16 @@ def register_producao_routes(app, integracoes=None):
             return redirect(url_for("consultar_op", op_id=op_id))
 
         if request.method == "POST":
-            colaborador = request.form["colaborador"]
-            funcao = request.form["funcao"]
-            setor = request.form["setor"]
-            turno = request.form.get("turno", "")
-            observacoes = request.form.get("observacoes", "")
-
-            cursor.execute(q("""
-            UPDATE apontamentos_mao_obra
-            SET colaborador = ?,
-                funcao = ?,
-                setor = ?,
-                turno = ?,
-                observacoes = ?
-            WHERE id = ?
-            """), (
-                colaborador,
-                funcao,
-                setor,
-                turno,
-                observacoes,
-                mao_obra_id
-            ))
-
-            conn.commit()
             op_id = apontamento["op_id"]
             conn.close()
-
-            flash("Apontamento de mão de obra atualizado com sucesso.")
+            try:
+                atualizar_apontamento_mao_obra(
+                    mao_obra_id, request.form, apontamento["parceiro_id"]
+                )
+                flash("Apontamento de mão de obra atualizado com sucesso.")
+            except ValueError as erro:
+                flash(str(erro))
+                return redirect(url_for("editar_mao_obra", mao_obra_id=mao_obra_id))
             return redirect(url_for("consultar_op", op_id=op_id))
 
         conn.close()
@@ -701,9 +704,12 @@ def register_producao_routes(app, integracoes=None):
             "Outra"
         ]
 
+        parceiros_elegiveis = listar_parceiros_elegiveis()
         return render_template(
             "editar_mao_obra.html",
             apontamento=apontamento,
+            parceiros_elegiveis=parceiros_elegiveis,
+            parceiros_elegiveis_ids={item["id"] for item in parceiros_elegiveis},
             setores=setores_padrao(),
             lista_funcoes=lista_funcoes
         )

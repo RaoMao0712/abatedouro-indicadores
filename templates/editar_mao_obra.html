@@ -24,13 +24,21 @@
             </div>
 
             <div>
-                <label>Colaborador</label>
-                <input
-                    type="text"
-                    name="colaborador"
-                    value="{{ apontamento.colaborador }}"
-                    required
-                >
+                <label>Parceiro</label>
+                <select name="parceiro_id" required>
+                    {% if not apontamento.parceiro_id %}<option value="" selected>Legado: {{ apontamento.colaborador }} — selecione um parceiro</option>{% endif %}
+                    {% for parceiro in parceiros_elegiveis %}<option value="{{ parceiro.id }}" {% if apontamento.parceiro_id==parceiro.id %}selected{% endif %}>{{ parceiro.razao_social }}</option>{% endfor %}
+                    {% if apontamento.parceiro_id and apontamento.parceiro_id not in parceiros_elegiveis_ids %}<option value="{{ apontamento.parceiro_id }}" selected>{{ apontamento.parceiro_nome_snapshot or apontamento.colaborador }} — vínculo histórico</option>{% endif %}
+                </select>
+            </div>
+
+            <div>
+                <label>Natureza do vínculo</label>
+                <select name="natureza_vinculo" required>
+                    <option value="COLABORADOR_CLT" {% if apontamento.natureza_vinculo=='COLABORADOR_CLT' %}selected{% endif %}>Colaborador CLT</option>
+                    <option value="PRESTADOR_SERVICOS" {% if apontamento.natureza_vinculo=='PRESTADOR_SERVICOS' %}selected{% endif %}>Prestador de Serviços</option>
+                </select>
+                <small>O snapshot só muda se outro parceiro for escolhido.</small>
             </div>
 
             <div>

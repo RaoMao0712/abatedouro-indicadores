@@ -73,7 +73,7 @@
 
         <div>
             <label>Buscar</label>
-            <input type="text" name="termo" value="{{ termo }}" placeholder="Descrição do insumo">
+            <input type="text" name="termo" value="{{ termo }}" placeholder="Insumo, requisição ou solicitante">
         </div>
 
         <button type="submit" class="botao-hero-filtro">Filtrar</button>
@@ -103,6 +103,8 @@
                     <th>NF</th>
                     <th>Lote</th>
                     <th>Origem</th>
+                    <th>Requisição / solicitante</th>
+                    <th>Saldos</th>
                     <th>OP</th>
                 </tr>
             </thead>
@@ -125,6 +127,8 @@
                     <td>{{ mov.numero_nf or '-' }}</td>
                     <td>{{ mov.lote or '-' }}</td>
                     <td>{{ mov.origem }}</td>
+                    <td>{% if mov.requisicao_id %}<a href="{{ url_for('detalhe_requisicao_almoxarifado', requisicao_id=mov.requisicao_id) }}">{{ mov.requisicao_numero }}</a><br><small>{{ mov.requisicao_solicitante }}</small>{% else %}-{% endif %}</td>
+                    <td>{% if mov.saldo_anterior is not none %}{{ mov.saldo_anterior }} → {{ mov.saldo_posterior }}{% else %}-{% endif %}</td>
                     <td>{% if mov.op_id %}OP {{ mov.op_id }}{% else %}-{% endif %}</td>
                 </tr>
                 {% endfor %}

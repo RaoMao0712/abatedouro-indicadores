@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block conteudo %}
+<div class="expedicao-page parceiros-page">
+  <header class="romaneios-header">
+    <div><span class="eyebrow">Cadastros</span><h2>Parceiros</h2><p>Cadastro único de pessoas e empresas, com múltiplas atuações.</p></div>
+    {% if session.get('perfil') in ['admin','gerencia','pcp'] %}<a class="romaneio-btn romaneio-btn-primary" href="{{ url_for('novo_parceiro') }}">+ Novo Parceiro</a>{% endif %}
+  </header>
+  <form class="card expedicao-filtro-form parceiros-filtros" method="GET">
+    <label>Busca<input name="busca" value="{{ busca }}" placeholder="Nome, fantasia, CPF/CNPJ, telefone ou e-mail"></label>
+    <label>Status<select name="status"><option>Todos</option><option {% if status=='Ativo' %}selected{% endif %}>Ativo</option><option {% if status=='Inativo' %}selected{% endif %}>Inativo</option></select></label>
+    <label>Tipo<select name="tipo_pessoa"><option value="Todos">Todos</option><option value="PF" {% if tipo_pessoa=='PF' %}selected{% endif %}>Pessoa Física</option><option value="PJ" {% if tipo_pessoa=='PJ' %}selected{% endif %}>Pessoa Jurídica</option></select></label>
+    <label>Atuação<select name="papel"><option value="Todos">Todos</option>{% for codigo, rotulo in rotulos_papeis.items() %}<option value="{{ codigo }}" {% if papel==codigo %}selected{% endif %}>{{ rotulo }}</option>{% endfor %}</select></label>
+    <button class="romaneio-btn romaneio-btn-filter">Aplicar</button>
+  </form>
+  <section class="card"><div class="tabela-responsiva tabela-executiva expedicao-tabela"><table><thead><tr><th>Nome / razão social</th><th>Fantasia</th><th>Tipo</th><th>CPF/CNPJ</th><th>Atuação</th><th>Status</th><th>Ação</th></tr></thead><tbody>
+    {% for item in parceiros %}<tr>
+      <td><strong>{{ item.razao_social }}</strong><br><small>{{ item.email or item.telefone or '' }}</small></td>
+      <td>{{ item.nome_fantasia or '-' }}</td><td>{{ 'Física' if item.tipo_pessoa=='PF' else 'Jurídica' }}</td><td>{{ item.documento or '-' }}</td>
+      <td><div class="parceiro-badges">{% for rotulo in item.papeis_rotulos %}<span class="parceiro-badge">{{ rotulo }}</span>{% else %}<span class="parceiro-sem-papel">Sem atuação definida</span>{% endfor %}</div></td>
+      <td><span class="badge-expedicao {{ 'concluido' if item.status=='Ativo' else 'cancelado' }}">{{ item.status }}</span></td>
+      <td><a href="{{ url_for('editar_parceiro',parceiro_id=item.id) }}">{{ 'Consultar' if session.get('perfil')=='producao' else 'Editar' }}</a>{% if session.get('perfil') in ['admin','gerencia'] %}<form method="POST" action="{{ url_for('status_parceiro',parceiro_id=item.id) }}" style="display:inline"><input type="hidden" name="status" value="{{ 'Inativo' if item.status=='Ativo' else 'Ativo' }}"><button class="romaneio-btn romaneio-btn-secondary">{{ 'Inativar' if item.status=='Ativo' else 'Ativar' }}</button></form>{% endif %}</td>
+    </tr>{% else %}<tr><td colspan="7">Nenhum parceiro encontrado.</td></tr>{% endfor %}
+  </tbody></table></div></section>
+</div>
+{% endblock %}

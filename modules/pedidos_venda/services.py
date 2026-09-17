@@ -14,7 +14,11 @@ import unicodedata
 from flask import has_request_context, session
 
 from database import DATABASE_URL, conectar, q, transaction
-from modules.clientes.services import snapshot_cliente
+from modules.parceiros.services import (
+    PAPEL_CLIENTE, buscar_parceiro, id_legado_do_parceiro,
+    migrar_clientes_fornecedores_legados, obter_parceiro_por_papel,
+    resolver_parceiro_legado, snapshot_parceiro,
+)
 
 
 STATUS = {
@@ -216,7 +220,8 @@ def criar_tabelas_pedidos_venda():
     ts = "TIMESTAMP" if DATABASE_URL else "TEXT"
     try:
         cursor.execute(f"""CREATE TABLE IF NOT EXISTS pedidos_venda (
-            id {pk}, numero TEXT UNIQUE NOT NULL, cliente_id INTEGER NOT NULL,
+            id {pk}, numero TEXT UNIQUE NOT NULL, cliente_id INTEGER,
+            cliente_parceiro_id INTEGER,
             cliente_snapshot TEXT NOT NULL, destino TEXT NOT NULL, data_pedido TEXT NOT NULL,
             previsao_entrega TEXT, responsavel TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'RASCUNHO',
             subtotal_centavos BIGINT NOT NULL DEFAULT 0, desconto_centavos BIGINT NOT NULL DEFAULT 0,
@@ -280,6 +285,10 @@ def criar_tabelas_pedidos_venda():
         )""")
         _alterar(cursor, "ALTER TABLE expedicoes ADD COLUMN IF NOT EXISTS pedido_venda_id INTEGER",
                  "ALTER TABLE expedicoes ADD COLUMN pedido_venda_id INTEGER")
+        _alterar(cursor, "ALTER TABLE pedidos_venda ADD COLUMN IF NOT EXISTS cliente_parceiro_id INTEGER",
+                 "ALTER TABLE pedidos_venda ADD COLUMN cliente_parceiro_id INTEGER")
+        if DATABASE_URL:
+            cursor.execute("ALTER TABLE pedidos_venda ALTER COLUMN cliente_id DROP NOT NULL")
         _alterar(cursor, "ALTER TABLE expedicoes ADD COLUMN IF NOT EXISTS pedido_destino_entrega TEXT",
                  "ALTER TABLE expedicoes ADD COLUMN pedido_destino_entrega TEXT")
         _alterar(cursor, "ALTER TABLE expedicao_itens ADD COLUMN IF NOT EXISTS pedido_item_id INTEGER",
@@ -301,6 +310,7 @@ def criar_tabelas_pedidos_venda():
                      f"ALTER TABLE pedido_venda_itens ADD COLUMN {coluna} {tipo}")
         for sql in (
             "CREATE INDEX IF NOT EXISTS idx_pedidos_venda_filtros ON pedidos_venda(status,data_pedido,cliente_id)",
+            "CREATE INDEX IF NOT EXISTS idx_pedidos_venda_cliente_parceiro ON pedidos_venda(cliente_parceiro_id,data_pedido)",
             "CREATE INDEX IF NOT EXISTS idx_pedido_itens_pedido ON pedido_venda_itens(pedido_id)",
             "CREATE INDEX IF NOT EXISTS idx_pedido_planos_expedicao ON pedido_venda_romaneio_itens(expedicao_id)",
             "CREATE INDEX IF NOT EXISTS idx_pedido_atendimentos_item ON pedido_venda_atendimentos(pedido_item_id,status)",
@@ -414,24 +424,29 @@ def _validar_pagamento(dados):
 
 
 def _dados_form(form):
-    from modules.clientes.services import buscar_cliente
     try:
-        cliente_id = int(form.get("cliente_id") or 0)
+        cliente_parceiro_id = int(form.get("cliente_id") or 0)
     except (TypeError, ValueError):
-        cliente_id = 0
-    cliente = buscar_cliente(cliente_id) if cliente_id else None
-    if not cliente or cliente["status"] != "Ativo":
+        cliente_parceiro_id = 0
+    if not cliente_parceiro_id:
         raise ValueError("Selecione um cliente ativo.")
+    if cliente_parceiro_id and not buscar_parceiro(cliente_parceiro_id):
+        # Compatibilidade de transição para chamadas antigas durante rollout.
+        migrar_clientes_fornecedores_legados(executor="P3.4 lazy compatibility")
+    cliente = obter_parceiro_por_papel(cliente_parceiro_id, PAPEL_CLIENTE)
     destino = str(form.get("destino") or "").strip()
     responsavel = str(form.get("responsavel") or "").strip()
     if not destino or not responsavel:
         raise ValueError("Destino e responsável são obrigatórios.")
     data_pedido = _validar_data(form.get("data_pedido"), "Data do pedido", True)
-    cliente_snapshot = snapshot_cliente(cliente)
-    if isinstance(cliente_snapshot, str):
-        cliente_snapshot = json.loads(cliente_snapshot)
+    cliente_snapshot = snapshot_parceiro(cliente)
+    cliente_id_legado = id_legado_do_parceiro("CLIENTE", cliente_parceiro_id)
     dados = {
-        "cliente_id": cliente_id, "cliente_snapshot": cliente_snapshot,
+        # Zero mantém compatibilidade apenas com bancos SQLite antigos cujo campo
+        # legado ainda é NOT NULL. Toda leitura nova usa cliente_parceiro_id.
+        "cliente_id": cliente_id_legado or (0 if not DATABASE_URL else None),
+        "cliente_parceiro_id": cliente_parceiro_id,
+        "cliente_snapshot": cliente_snapshot,
         "destino": destino, "data_pedido": data_pedido,
         "previsao_entrega": _validar_data(form.get("previsao_entrega"), "Previsão de entrega"),
         "responsavel": responsavel,
@@ -580,12 +595,12 @@ def salvar_pedido(form, pedido_id=None, *, usuario=None, perfil=None):
                 raise ValueError("Somente pedidos em rascunho podem ser editados.")
             numero = registro["numero"]
             cursor.execute(q("DELETE FROM pedido_venda_itens WHERE pedido_id=?"), (pedido_id,))
-            cursor.execute(q("""UPDATE pedidos_venda SET cliente_id=?,cliente_snapshot=?,destino=?,data_pedido=?,
+            cursor.execute(q("""UPDATE pedidos_venda SET cliente_id=?,cliente_parceiro_id=?,cliente_snapshot=?,destino=?,data_pedido=?,
                 previsao_entrega=?,responsavel=?,subtotal_centavos=?,desconto_centavos=?,valor_total_centavos=?,
                 forma_pagamento=?,condicao_pagamento=?,vencimento_inicial=?,prazo_dias=?,numero_parcelas=?,
                 intervalo_dias=?,entrada_centavos=?,entrada_percentual_milesimos=?,condicao_saldo=?,
                 descricao_condicao=?,observacoes=?,atualizado_por=?,atualizado_em=?,versao=versao+1 WHERE id=?"""),
-                (dados["cliente_id"], _json(dados["cliente_snapshot"]), dados["destino"], dados["data_pedido"],
+                (dados["cliente_id"], dados["cliente_parceiro_id"], _json(dados["cliente_snapshot"]), dados["destino"], dados["data_pedido"],
                  dados["previsao_entrega"], dados["responsavel"], dados["subtotal_centavos"],
                  dados["desconto_centavos"], dados["valor_total_centavos"], dados["forma_pagamento"],
                  dados["condicao_pagamento"], dados["vencimento_inicial"], dados["prazo_dias"],
@@ -594,18 +609,18 @@ def salvar_pedido(form, pedido_id=None, *, usuario=None, perfil=None):
                  dados["observacoes"], usuario, agora, pedido_id))
         else:
             numero = _proximo_numero(cursor, dados["data_pedido"])
-            campos = (numero, dados["cliente_id"], _json(dados["cliente_snapshot"]), dados["destino"],
+            campos = (numero, dados["cliente_id"], dados["cliente_parceiro_id"], _json(dados["cliente_snapshot"]), dados["destino"],
                       dados["data_pedido"], dados["previsao_entrega"], dados["responsavel"], "RASCUNHO",
                       dados["subtotal_centavos"], dados["desconto_centavos"], dados["valor_total_centavos"],
                       dados["forma_pagamento"], dados["condicao_pagamento"], dados["vencimento_inicial"],
                       dados["prazo_dias"], dados["numero_parcelas"], dados["intervalo_dias"],
                       dados["entrada_centavos"], dados["entrada_percentual_milesimos"], dados["condicao_saldo"],
                       dados["descricao_condicao"], dados["observacoes"], usuario, usuario, agora, agora)
-            sql = """INSERT INTO pedidos_venda(numero,cliente_id,cliente_snapshot,destino,data_pedido,
+            sql = """INSERT INTO pedidos_venda(numero,cliente_id,cliente_parceiro_id,cliente_snapshot,destino,data_pedido,
                 previsao_entrega,responsavel,status,subtotal_centavos,desconto_centavos,valor_total_centavos,
                 forma_pagamento,condicao_pagamento,vencimento_inicial,prazo_dias,numero_parcelas,intervalo_dias,
                 entrada_centavos,entrada_percentual_milesimos,condicao_saldo,descricao_condicao,observacoes,
-                criado_por,atualizado_por,criado_em,atualizado_em) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"""
+                criado_por,atualizado_por,criado_em,atualizado_em) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"""
             if DATABASE_URL:
                 cursor.execute(q(sql + " RETURNING id"), campos)
                 pedido_id = cursor.fetchone()["id"]
@@ -830,7 +845,13 @@ def _analisar_romaneio_existente_cursor(cursor, pedido, expedicao_id, *, confirm
         raise ValueError("Somente romaneio concluído pode ser vinculado.")
     if (romaneio.get("tipo_saida") or romaneio.get("tipo_movimentacao")) != "VENDA_DIRETA":
         raise ValueError("Romaneio não é de Venda Direta.")
-    if int(romaneio.get("cliente_id") or 0) != int(pedido["cliente_id"]):
+    cliente_romaneio = romaneio.get("cliente_parceiro_id")
+    cliente_pedido = pedido.get("cliente_parceiro_id")
+    if cliente_romaneio and cliente_pedido:
+        clientes_compativeis = int(cliente_romaneio) == int(cliente_pedido)
+    else:
+        clientes_compativeis = int(romaneio.get("cliente_id") or 0) == int(pedido["cliente_id"] or 0)
+    if not clientes_compativeis:
         raise ValueError("Cliente do romaneio é incompatível com o pedido.")
     if not romaneio.get("concluido_em"):
         raise ValueError("Romaneio não possui conclusão operacional registrada.")
@@ -879,7 +900,9 @@ def listar_romaneios_elegiveis(pedido_id):
         pedido = dict(pedido)
         cursor.execute(q("""SELECT id FROM expedicoes
             WHERE status='Concluído' AND COALESCE(tipo_saida,tipo_movimentacao)='VENDA_DIRETA'
-              AND cliente_id=? AND pedido_venda_id IS NULL ORDER BY data DESC,id DESC"""), (pedido["cliente_id"],))
+              AND (cliente_parceiro_id=? OR (cliente_parceiro_id IS NULL AND cliente_id=?))
+              AND pedido_venda_id IS NULL ORDER BY data DESC,id DESC"""),
+            (pedido.get("cliente_parceiro_id"), pedido["cliente_id"]))
         elegiveis = []
         for linha in cursor.fetchall():
             try:
@@ -1172,6 +1195,9 @@ def buscar_pedido(pedido_id):
         if not pedido:
             return None
         pedido = dict(pedido); pedido["cliente_snapshot"] = json.loads(pedido["cliente_snapshot"])
+        if not pedido.get("cliente_parceiro_id") and pedido.get("cliente_id"):
+            parceiro = resolver_parceiro_legado("CLIENTE", pedido["cliente_id"])
+            pedido["cliente_parceiro_id"] = parceiro["id"] if parceiro else None
         expr = _quantidade_entregue_expr()
         cursor.execute(q(f"""SELECT i.*, {expr} AS quantidade_entregue_mil,
             COALESCE(i.quantidade_operacional_mil,i.quantidade_negociada_mil)-{expr} AS saldo_pendente_mil
@@ -1252,10 +1278,13 @@ def listar_pedidos(filtros=None):
     for campo, sql in mapa.items():
         if filtros.get(campo): clausulas.append(sql); params.append(f"%{filtros[campo].strip()}%")
     for campo, coluna in (("data_inicio", "p.data_pedido >= ?"), ("data_fim", "p.data_pedido <= ?"),
-                          ("cliente_id", "p.cliente_id = ?"), ("status", "p.status = ?"),
+                          ("status", "p.status = ?"),
                           ("forma_pagamento", "p.forma_pagamento = ?"),
                           ("condicao_pagamento", "p.condicao_pagamento = ?")):
         if filtros.get(campo) and filtros[campo] != "Todos": clausulas.append(coluna); params.append(filtros[campo])
+    if filtros.get("cliente_id"):
+        clausulas.append("(p.cliente_parceiro_id=? OR EXISTS(SELECT 1 FROM clientes cl WHERE cl.id=p.cliente_id AND cl.parceiro_id=?))")
+        params.extend((filtros["cliente_id"], filtros["cliente_id"]))
     if filtros.get("produto"):
         clausulas.append("EXISTS(SELECT 1 FROM pedido_venda_itens i WHERE i.pedido_id=p.id AND i.sku LIKE ?)")
         params.append(f"%{filtros['produto'].strip()}%")
@@ -1342,11 +1371,11 @@ def gerar_romaneio_pedido(pedido_id, quantidades, *, data=None, responsavel=None
         numero=f"{prefixo}-{max(sequenciais, default=0)+1:03d}"
         snap=json.loads(pedido["cliente_snapshot"])
         sql="""INSERT INTO expedicoes(numero_romaneio,data,tipo_movimentacao,origem,destino,responsavel,
-            observacoes,status,criado_por,perfil_criacao,atualizado_em,tipo_saida,cliente_id,cliente_snapshot,
-            pedido_venda_id,pedido_destino_entrega) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"""
+            observacoes,status,criado_por,perfil_criacao,atualizado_em,tipo_saida,cliente_id,cliente_parceiro_id,cliente_snapshot,
+            pedido_venda_id,pedido_destino_entrega) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"""
         valores=(numero,data,"VENDA_DIRETA","Abatedouro","Venda direta",responsavel or usuario,
                  f"Gerado a partir do pedido {pedido['numero']}","Aberto",usuario,perfil,_agora(),"VENDA_DIRETA",
-                 pedido["cliente_id"],_json(snap),pedido_id,pedido["destino"])
+                 pedido["cliente_id"],pedido["cliente_parceiro_id"],_json(snap),pedido_id,pedido["destino"])
         if DATABASE_URL:
             cursor.execute(q(sql+" RETURNING id"),valores); expedicao_id=cursor.fetchone()["id"]
         else: cursor.execute(q(sql),valores); expedicao_id=cursor.lastrowid

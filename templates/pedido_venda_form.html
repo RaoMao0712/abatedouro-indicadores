@@ -18,7 +18,7 @@
       <label class="pv-field pv-span-4" for="cliente-id"><span>Cliente</span>
         <select id="cliente-id" name="cliente_id" required>
           <option value="">Selecione o cliente</option>
-          {% for c in clientes %}<option value="{{ c.id }}" {% if pedido and pedido.cliente_id==c.id %}selected{% endif %}>{{ c.razao_social }}</option>{% endfor %}
+          {% for c in clientes %}<option value="{{ c.id }}" {% if pedido and pedido.cliente_parceiro_id==c.id %}selected{% endif %}>{{ c.razao_social }}</option>{% endfor %}
         </select>
       </label>
       <label class="pv-field pv-span-2" for="data-pedido"><span>Data do pedido</span><input id="data-pedido" type="date" name="data_pedido" required value="{{ pedido.data_pedido if pedido else hoje }}"></label>

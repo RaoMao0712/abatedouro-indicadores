@@ -389,16 +389,24 @@ def criar_tabelas_estoque_confiavel():
         )
         """)
 
-        _alterar_coluna(
-            cursor,
-            "ALTER TABLE ordens_producao ADD COLUMN IF NOT EXISTS estoque_classificacao TEXT DEFAULT 'POS_MARCO'",
-            "ALTER TABLE ordens_producao ADD COLUMN estoque_classificacao TEXT DEFAULT 'POS_MARCO'",
-        )
-        _alterar_coluna(
-            cursor,
-            "ALTER TABLE ordens_producao ADD COLUMN IF NOT EXISTS estoque_marco_id INTEGER",
-            "ALTER TABLE ordens_producao ADD COLUMN estoque_marco_id INTEGER",
-        )
+        if not DATABASE_URL:
+            # No PostgreSQL de producao essas colunas ja sao provisionadas pela
+            # migration versionada database/20260724_marco_zero_estoque.sql.
+            # Repetir o ALTER TABLE a cada boot de worker exige lock
+            # ACCESS EXCLUSIVE em ordens_producao e pode enfileirar leituras
+            # concorrentes (ex.: /op/<id>/editar) atras dele. Mantido apenas
+            # para SQLite, cujo bootstrap de schema em runtime nao tem
+            # aplicador de migrations proprio.
+            _alterar_coluna(
+                cursor,
+                "ALTER TABLE ordens_producao ADD COLUMN IF NOT EXISTS estoque_classificacao TEXT DEFAULT 'POS_MARCO'",
+                "ALTER TABLE ordens_producao ADD COLUMN estoque_classificacao TEXT DEFAULT 'POS_MARCO'",
+            )
+            _alterar_coluna(
+                cursor,
+                "ALTER TABLE ordens_producao ADD COLUMN IF NOT EXISTS estoque_marco_id INTEGER",
+                "ALTER TABLE ordens_producao ADD COLUMN estoque_marco_id INTEGER",
+            )
 
         colunas_pa = [
             ("estoque_operacional INTEGER DEFAULT 0", "estoque_operacional INTEGER DEFAULT 0"),

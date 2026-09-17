@@ -10,6 +10,7 @@ from flask import flash, redirect, render_template, request, url_for
 from database import DATABASE_URL, DB_NAME, conectar, q
 from database.migrations import executar_alteracao_segura
 from modules.auth.decorators import perfil_permitido
+from modules.parceiros.services import listar_fornecedores_ativos
 from modules.almoxarifado.services import (
     buscar_insumos_almoxarifado,
     criar_tabelas_estoque_almoxarifado,
@@ -566,21 +567,7 @@ def criar_tabela_fornecedores():
 
 
 def buscar_fornecedores():
-    criar_tabela_fornecedores()
-
-    conn = conectar()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-    SELECT *
-    FROM fornecedores
-    ORDER BY nome
-    """)
-
-    fornecedores = cursor.fetchall()
-    conn.close()
-
-    return fornecedores
+    return listar_fornecedores_ativos()
 
 
 
@@ -716,38 +703,7 @@ def register_cadastros_routes(app):
     @app.route("/fornecedores", methods=["GET", "POST"])
     @perfil_permitido("pcp")
     def fornecedores():
-        conn = conectar()
-        cursor = conn.cursor()
-
         if request.method == "POST":
-            nome = request.form["nome"].strip()
-
-            if nome:
-                try:
-                    cursor.execute(q("""
-                    INSERT INTO fornecedores (nome)
-                    VALUES (?)
-                    """), (nome,))
-
-                    conn.commit()
-                    flash("Fornecedor cadastrado com sucesso.")
-                except Exception:
-                    conn.rollback()
-                    flash("Este fornecedor já está cadastrado.")
-
-            conn.close()
-            return redirect(url_for("fornecedores"))
-
-        cursor.execute("""
-        SELECT *
-        FROM fornecedores
-        ORDER BY nome
-        """)
-
-        fornecedores = cursor.fetchall()
-        conn.close()
-
-        return render_template(
-            "fornecedores.html",
-            fornecedores=fornecedores
-        )
+            flash("Fornecedores agora são cadastrados como Parceiros.")
+            return redirect(url_for("novo_parceiro", papel="FORNECEDOR"))
+        return redirect(url_for("parceiros", papel="FORNECEDOR"))

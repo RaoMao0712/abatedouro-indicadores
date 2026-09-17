@@ -387,7 +387,9 @@ class ExpedicaoMarcoZeroTest(unittest.TestCase):
 
     def test_10b_permissoes_frontend_e_backend_clientes(self):
         cliente_id = self.criar_cliente("12345678909", "Cliente Permissões")
-        for perfil, esperado in (("pcp", 200), ("gerencia", 200), ("expedicao", 200),
+        # P3.4 preserva a autorização, mas a rota legada agora redireciona ao
+        # Cadastro Mestre de Parceiros para impedir manutenção concorrente.
+        for perfil, esperado in (("pcp", 302), ("gerencia", 302), ("expedicao", 302),
                                  ("producao", 302)):
             cliente = self.app.test_client()
             with cliente.session_transaction() as sessao:
@@ -397,7 +399,7 @@ class ExpedicaoMarcoZeroTest(unittest.TestCase):
         with expedicao.session_transaction() as sessao:
             sessao.update({"usuario_id": 11, "nome": "Expedição", "perfil": "expedicao"})
         self.assertEqual(expedicao.get("/cadastros/clientes/novo").status_code, 302)
-        self.assertEqual(expedicao.get(f"/cadastros/clientes/{cliente_id}").status_code, 200)
+        self.assertEqual(expedicao.get(f"/cadastros/clientes/{cliente_id}").status_code, 302)
 
     def test_11_venda_direta_caixa_regular_exige_cliente_e_preserva_snapshot(self):
         cliente_id = self.criar_cliente("11144477735", "Comprador Original")

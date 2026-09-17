@@ -2,17 +2,30 @@
 {% block conteudo %}
 <div class="sgi-page sgi-plm01-page sgi-plm01-print">
   <section class="sgi-header no-print"><div><span class="eyebrow">PLM 01</span><h2>{{ titulo }}</h2><p>{{ competencia_formatada }}</p></div><button class="sgi-btn" onclick="window.print()">Imprimir</button></section>
-  <div class="sgi-print-title"><strong>{{ estabelecimento_documento }}</strong> · <strong>Empresa:</strong> {{ empresa_emitente }} · <strong>Formulario:</strong> PLM 01 · <strong>Titulo:</strong> {{ titulo }} · <strong>Competencia:</strong> {{ competencia_formatada }}</div>
+  <div class="sgi-print-title sgi-plm01-print-title">
+    <p class="sgi-plm01-print-estabelecimento">{{ estabelecimento_documento }}</p>
+    <p class="sgi-plm01-print-linha"><strong>Empresa:</strong> {{ empresa_emitente }}</p>
+    <div class="sgi-plm01-print-linha-dupla">
+      <span><strong>Formulário:</strong> PLM 01</span>
+      <span><strong>Competência:</strong> {{ competencia_formatada }}</span>
+    </div>
+    <p class="sgi-plm01-print-linha"><strong>Título:</strong> {{ titulo }}</p>
+  </div>
   <div class="sgi-plm01-alcance">{{ alcance }}</div>
   <table class="sgi-plm01-table">
-    <thead><tr><th>N.</th><th>Data</th><th>Setor</th><th>Instalacoes ou Equipamentos</th><th>Descricao das atividades</th><th>Higienizacao apos reparo</th><th>Condicao final</th></tr></thead>
+    <colgroup>
+      <col class="sgi-plm01-print-col-ordem"><col class="sgi-plm01-print-col-data"><col class="sgi-plm01-print-col-setor">
+      <col class="sgi-plm01-print-col-tipo"><col class="sgi-plm01-print-col-descricao"><col class="sgi-plm01-print-col-higienizacao">
+      <col class="sgi-plm01-print-col-condicao"><col class="sgi-plm01-print-col-executor"><col class="sgi-plm01-print-col-validacao">
+    </colgroup>
+    <thead><tr><th>N.</th><th>Data</th><th>Setor</th><th>Instalacoes ou Equipamentos</th><th>Descricao das atividades</th><th>Higienizacao apos reparo</th><th>Condicao final</th><th class="sgi-plm01-assinatura-th">Executor / Assinatura</th><th class="sgi-plm01-assinatura-th">Validacao / Assinatura</th></tr></thead>
     <tbody>
-      {% for linha in linhas if linha.id %}<tr><td>{{ linha.ordem }}</td><td>{{ linha.data }}</td><td>{{ linha.setor_nome }}</td><td>{{ linha.tipo_item }}</td><td>{{ linha.descricao_atividade }}</td><td>{{ linha.higienizacao_apos_reparo }}</td><td>{{ linha.condicao_final }}</td></tr>
-      {% else %}<tr><td colspan="7">Nenhuma linha preenchida nesta competencia.</td></tr>{% endfor %}
+      {% for linha in linhas if linha.id %}<tr><td>{{ linha.ordem }}</td><td>{{ linha.data }}</td><td>{{ linha.setor_nome }}</td><td>{{ linha.tipo_item }}</td><td>{{ linha.descricao_atividade }}</td><td>{{ linha.higienizacao_apos_reparo }}</td><td>{{ linha.condicao_final }}</td><td class="sgi-plm01-assinatura-cel"></td><td class="sgi-plm01-assinatura-cel"></td></tr>
+      {% else %}<tr><td colspan="9">Nenhuma linha preenchida nesta competencia.</td></tr>{% endfor %}
     </tbody>
   </table>
   <p class="sgi-plm01-legenda">Legenda: C - Conforme · NC - Nao Conforme.</p>
-  <div class="sgi-assinaturas"><span>Responsavel / Monitor</span><span>Qualidade / Verificador</span><span>Gerencia</span></div>
+  <div class="sgi-assinaturas sgi-plm01-assinatura-final"><span>Gerencia</span></div>
   <div class="sgi-tecnologia">{{ identificacao_tecnologia }}</div>
 </div>
 {% endblock %}

@@ -1,5 +1,7 @@
 """Rotas do modulo de Manutencao."""
 
+from uuid import uuid4
+
 from flask import abort, flash, redirect, render_template, request, session, url_for
 
 from config import EMPRESA_EMITENTE, ESTABELECIMENTO_DOCUMENTO, IDENTIFICACAO_TECNOLOGIA
@@ -266,6 +268,20 @@ def register_manutencao_routes(app):
             insumos_manutencao = buscar_insumos_almoxarifado("Todas", "Sim", "")
         except Exception:
             insumos_manutencao = []
+        # P3.6: Documentos Relacionados (origem estruturada + desdobramentos
+        # de Requisicao de Almoxarifado). Segue o mesmo padrao de import
+        # cruzado ja usado acima para insumos/NC, em vez de um mecanismo
+        # generico novo (ver output/p3-6-os-rastreabilidade-etapa-a-auditoria.md).
+        try:
+            from modules.almoxarifado.requisicoes import (
+                listar_requisicoes_por_ordem_servico,
+                listar_requisicoes_vinculaveis,
+            )
+            requisicoes_vinculadas = listar_requisicoes_por_ordem_servico(ordem_id)
+            requisicoes_vinculaveis = listar_requisicoes_vinculaveis()
+        except Exception:
+            requisicoes_vinculadas = []
+            requisicoes_vinculaveis = []
         return render_template(
             "manutencao_ordem_detalhe.html",
             ordem=ordem,
@@ -288,7 +304,35 @@ def register_manutencao_routes(app):
             perfis_materiais=manutencao_service.PERFIS_MATERIAIS_OS,
             perfis_cancelamento=manutencao_service.PERFIS_CANCELAMENTO_OS,
             perfis_dados_gerais=manutencao_service.PERFIS_DADOS_GERAIS_OS,
+            origens_documentais=manutencao_service.detalhes_origem_ordem(ordem),
+            requisicoes_vinculadas=requisicoes_vinculadas,
+            requisicoes_vinculaveis=requisicoes_vinculaveis,
+            perfis_vinculo_requisicao=("admin", "qualidade", "pcp", "gerencia"),
+            chave_vinculo_requisicao=str(uuid4()),
         )
+
+    @app.route("/manutencao/ordem/<int:ordem_id>/requisicao/vincular", methods=["POST"])
+    @perfil_permitido("qualidade", "pcp", "gerencia")
+    def vincular_requisicao_ordem_manutencao(ordem_id):
+        from modules.almoxarifado.requisicoes import vincular_a_ordem_servico
+        try:
+            requisicao_id = int(request.form.get("requisicao_id") or 0)
+            if not requisicao_id:
+                raise ValueError("Selecione a requisicao a vincular.")
+            vincular_a_ordem_servico(
+                requisicao_id,
+                ordem_id,
+                usuario={
+                    "id": session.get("usuario_id"),
+                    "nome": session.get("nome", "Sistema"),
+                    "perfil": session.get("perfil", ""),
+                },
+                idempotency_key=request.form.get("idempotency_key"),
+            )
+            flash("Requisicao vinculada a esta Ordem de Servico.")
+        except Exception as erro:
+            flash(str(erro))
+        return redirect(url_for("visualizar_ordem_manutencao", ordem_id=ordem_id))
 
     @app.route("/manutencao/ordem/<int:ordem_id>/imprimir")
     @perfil_permitido("qualidade", "pcp", "producao", "manutencao", "gerencia")
