@@ -2160,6 +2160,8 @@ def buscar_itens_expedicao(expedicao_id):
         cx.quantidade_bandejas,
         cx.status AS status_caixa,
         cx.disponibilidade AS disponibilidade_caixa,
+        cx.origem AS origem_caixa,
+        cx.observacoes AS observacoes_caixa,
         COALESCE(le.nome, ?) AS local_atual,
         mov.usuario AS usuario_transferencia,
         mov.criado_em AS data_transferencia

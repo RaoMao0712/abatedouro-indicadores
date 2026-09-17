@@ -826,15 +826,25 @@ def register_expedicao_routes(app, integracoes=None):
         resumo_itens = calcular_resumo_itens_expedicao(itens)
         resumo_mz = calcular_resumo_mz(itens)
         caixas_disponiveis = []
-        if (expedicao["status"] == "Aberto"
-                and expedicao["tipo_movimentacao"] in {
+        estoque_sem_op = []
+        if expedicao["status"] == "Aberto":
+            if expedicao["tipo_movimentacao"] in {
                     "DESCARTE", "DEVOLUCAO", "TRANSFERENCIA_AUTORIZADA"
-                }):
-            estoque, _ = buscar_estoque_operacional()
-            caixas_disponiveis = [
-                item for item in estoque
-                if item["condicao"] == "NAO_CONFORME" and item["disponibilidade"] == "BLOQUEADO"
-            ]
+                }:
+                estoque, _ = buscar_estoque_operacional()
+                caixas_disponiveis = [
+                    item for item in estoque
+                    if item["condicao"] == "NAO_CONFORME" and item["disponibilidade"] == "BLOQUEADO"
+                ]
+            elif expedicao["tipo_movimentacao"] in {"TRANSFERENCIA", "VENDA_DIRETA"}:
+                estoque, _ = buscar_estoque_operacional()
+                estoque_sem_op = [
+                    item for item in estoque
+                    if item["op_id"] is None
+                    and item["condicao"] == "CONFORME"
+                    and item["disponibilidade"] == "DISPONIVEL"
+                    and int(item["id"]) not in caixas_selecionadas_ids
+                ]
 
         return render_template(
             "romaneio_detalhe.html",
@@ -843,6 +853,7 @@ def register_expedicao_routes(app, integracoes=None):
             resumo_itens=resumo_itens,
             resumo_mz=resumo_mz,
             caixas_disponiveis=caixas_disponiveis,
+            estoque_sem_op=estoque_sem_op,
             ops_selecionadas=ops_selecionadas,
             caixas_selecionadas_ids=caixas_selecionadas_ids,
             plano_pedido=plano_romaneio(expedicao_id),

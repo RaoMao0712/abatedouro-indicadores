@@ -177,6 +177,38 @@
             <p id="mensagem-selecao-ops" class="romaneio-form-error" hidden></p>
             <div id="blocos-ops" class="romaneio-op-blocos" aria-live="polite"></div>
         </section>
+
+        <section class="card romaneio-secao">
+            <details {% if estoque_sem_op %}open{% endif %}>
+                <summary><h3 style="display:inline">Adicionar estoque disponível (sem OP)</h3> <small>Posições sem OP vinculada — por exemplo, originadas por Ordem de Retrabalho.</small></summary>
+                {% if estoque_sem_op %}
+                <form method="POST">
+                    <input type="hidden" name="acao" value="reservar">
+                    <div class="tabela-responsiva tabela-executiva expedicao-tabela">
+                        <table>
+                            <thead><tr><th></th><th>Identificação/lote</th><th>SKU</th><th>Apresentação</th><th>Origem</th><th>Validade</th><th>Quantidade</th><th>Galinhas</th><th>Peso líquido</th></tr></thead>
+                            <tbody>
+                            {% for caixa in estoque_sem_op %}
+                            <tr>
+                                <td><input type="checkbox" name="caixa_ids" value="{{ caixa.id }}"></td>
+                                <td><strong>{{ caixa.codigo_caixa }}</strong></td><td>{{ caixa.sku }}</td><td>{{ caixa.apresentacao or "-" }}</td>
+                                <td title="{{ caixa.observacoes or '' }}">{{ "Retrabalho" if caixa.origem == "Retrabalho" else "Sem OP" }}</td>
+                                <td>{{ caixa.data_validade or "-" }}</td>
+                                <td>{% if caixa.unidade_estoque == "PACOTE" %}<input type="number" min="1" step="1" max="{{ caixa.quantidade_pacotes - (caixa.quantidade_pacotes_reservados or 0) }}" name="quantidade_pacotes_{{ caixa.id }}" value="{{ caixa.quantidade_pacotes - (caixa.quantidade_pacotes_reservados or 0) }}">{% else %}{{ caixa.quantidade_bandejas|br_numero }} bandejas{% endif %}</td>
+                                <td>{% if caixa.unidade_estoque == "PACOTE" %}{{ caixa.quantidade_galinhas|br_numero(0) }}{% else %}Não aplicável{% endif %}</td>
+                                <td>{% if caixa.unidade_estoque == "PACOTE" %}Não aplicável{% else %}{{ caixa.peso_liquido|br_numero(3) }} kg{% endif %}</td>
+                            </tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    <button type="submit" class="romaneio-btn romaneio-btn-primary">Adicionar selecionados</button>
+                </form>
+                {% else %}
+                <p class="romaneio-empty-state">Nenhum item disponível sem OP no momento.</p>
+                {% endif %}
+            </details>
+        </section>
         {% else %}
         <section class="card romaneio-secao">
             <h3>Itens elegíveis para reserva</h3>
@@ -231,7 +263,7 @@
                     <tbody>
                     {% for item in itens %}
                     <tr>
-                        <td>{{ item.codigo_caixa or ("Inventário legado" if item.origem_tipo == "INVENTARIO_LEGADO_AGREGADO" else "Total declarado") }}</td><td>{{ item.sku }}</td><td>{{ item.apresentacao or ("Caixa" if item.sku == "Galinha Cortada" else "-") }}</td><td>{{ item.op_id or "Não identificada" }}</td>
+                        <td>{{ item.codigo_caixa or ("Inventário legado" if item.origem_tipo == "INVENTARIO_LEGADO_AGREGADO" else "Total declarado") }}</td><td>{{ item.sku }}</td><td>{{ item.apresentacao or ("Caixa" if item.sku == "Galinha Cortada" else "-") }}</td><td title="{{ item.observacoes_caixa or '' }}">{% if item.op_id %}OP {{ item.op_id }}{% elif item.origem_caixa == "Retrabalho" %}Retrabalho{% else %}{{ item.op_id or "Não identificada" }}{% endif %}</td>
                         <td>{% if item.origem_tipo == "INVENTARIO_LEGADO_AGREGADO" %}{{ item.quantidade_caixas }} caixas / {{ item.quantidade_bandejas }} bandejas{% elif item.unidade_estoque == "PACOTE" %}{{ item.quantidade_pacotes|br_numero(0) }} pacotes{% else %}{{ item.quantidade_unidades|br_numero }}{% endif %}</td>
                         <td>{% if item.unidade_estoque == "PACOTE" %}{{ item.quantidade_galinhas|br_numero(0) }}{% else %}Não aplicável{% endif %}</td>
                         <td>{% if item.unidade_estoque == "PACOTE" %}Não aplicável{% else %}{{ item.quantidade_kg|br_numero(3) }} kg{% endif %}</td>
