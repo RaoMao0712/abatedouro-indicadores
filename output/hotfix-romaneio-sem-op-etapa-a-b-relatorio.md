@@ -1,6 +1,6 @@
 # FRIGODATTA — Hotfix Romaneio: seleção de PA disponível sem OP (suporte a estoque de Retrabalho)
 
-Etapas A (auditoria) e B (implementação) — sem deploy, sem produção.
+Etapas A (auditoria), B (implementação) e D (deploy e homologação real) — concluídas.
 
 ## 1. Objetivo
 Permitir que o romaneio (TRANSFERENCIA e VENDA_DIRETA) selecione e reserve posições de
@@ -118,14 +118,34 @@ independentes deste hotfix** (reproduzidas de forma idêntica com o diff reverti
 
 Nenhuma das duas falhas toca código deste hotfix.
 
-## 5. Estado do repositório / decisão de deploy
+## 5. Etapa D — Deploy e homologação real
 
-- Branch de trabalho `codex/melhoria-romaneio-multiplas-ops` está exatamente na ponta de
-  `origin/main` (0 ahead/0 behind) no momento da auditoria — sem divergência a resolver.
-- Alteração isolada a 4 arquivos de código + 1 arquivo de teste; nenhuma migração de banco é
-  necessária (nenhuma tabela/coluna nova — apenas 2 colunas adicionais numa consulta já existente
-  e lógica de template).
-- **Aguardando autorização explícita para commit final na main, push e deploy no Render**, e
-  para a homologação real contra a posição `RT-PA-000001-01` (id 1993) em produção, conforme
-  protocolo desta sessão (nenhuma ação de escrita/push/deploy é executada sem confirmação prévia
-  por etapa).
+- Branch de trabalho `codex/melhoria-romaneio-multiplas-ops` estava exatamente na ponta de
+  `origin/main` (0 ahead/0 behind) — fast-forward limpo, sem merge/conflito.
+- Commit `191b97d` ("fix: permitir PA de retrabalho sem OP no romaneio") criado e enviado com
+  `git push origin HEAD:main` (fast-forward confirmado por `git merge-base --is-ancestor`).
+- Deploy automático no Render (serviço `abatedouro-indicadores`) concluído em ~2m03s, status
+  **Live**. Nenhuma migração de banco foi necessária (nenhuma tabela/coluna nova).
+- **Homologação real, com escrita e reversão explícitas**, executada na aplicação em produção
+  (Web Shell do Render ficou instável para digitação neste dia — as verificações somente leitura
+  foram feitas pelas próprias telas do sistema, que são a fonte de verdade do usuário final):
+  1. Tela "Estoque da Câmara" confirmou `RT-PA-000001-01` intocada: `99 pacotes — 198 galinhas`,
+     `CONFORME`/`DISPONIVEL`, `OP: -`.
+  2. Criado o romaneio real `ROM-20260917-008` (id 57, tipo Transferência para LSM), com
+     observação registrando que se tratava de um teste de homologação deste hotfix.
+  3. O painel "Adicionar estoque disponível (sem OP)" exibiu corretamente `RT-PA-000001-01`,
+     rótulo de origem "Retrabalho", tooltip "Formado pela Ordem de Retrabalho RT-000001.",
+     validade `2027-09-15`, 198 galinhas.
+  4. Reservados **1 pacote / 2 galinhas** reais da posição (`caixa_id=1993`, confirmado pelo
+     valor do checkbox) — mensagem "Itens reservados com sucesso."; a tabela "Itens do romaneio"
+     mostrou a coluna OP corretamente como "Retrabalho" (não mais "Não identificada").
+  5. Item removido imediatamente em seguida — "Item removido e situação anterior restaurada." —
+     e o painel voltou a mostrar a posição com o saldo cheio (99 pacotes / 198 galinhas).
+  6. Romaneio de teste `ROM-20260917-008` cancelado (justificativa registrada, auditoria
+     preservada) — status final `CANCELADO`, 0 itens.
+  7. Nova leitura da tela "Estoque da Câmara" confirmou `RT-PA-000001-01` bit a bit igual ao
+     estado inicial: `99 pacotes — 198 galinhas`, `CONFORME`/`DISPONIVEL`; grupo consolidado
+     "Galinha Inteira — Pacote com 2 aves" com `Reservado: 0 galinhas · 0 pacotes`.
+- **Resultado: homologação aprovada.** O hotfix funciona ponta a ponta em produção contra a
+  posição real formada pela RT-000001, sem deixar nenhum resíduo (reserva, romaneio aberto ou
+  divergência de estoque) para trás.
