@@ -69,7 +69,20 @@ def _decimal(valor, campo, *, permite_ausente=False):
 
 
 def criar_tabelas_retrabalho():
-    """Migration de runtime idempotente (mesmo padrão de `criar_tabelas_estoque_confiavel`)."""
+    """Migration de runtime idempotente (mesmo padrão de `criar_tabelas_estoque_confiavel`).
+
+    Diferença importante em relação ao incidente já documentado de DDL em boot
+    (ver output/hotfix-op97-502-auditoria-etapa-a.md): aquele caso era
+    `ALTER TABLE ordens_producao/pa_caixas ADD COLUMN`, tabelas quentes e
+    disputadas por romaneio/OP em produção, cujo `ACCESS EXCLUSIVE` lock
+    enfileirava atrás de transações concorrentes. Esta função só faz
+    `CREATE TABLE/INDEX IF NOT EXISTS` em 4 tabelas novas e não contendidas
+    (sem nenhum `ALTER TABLE`), então o mesmo padrão de lock em cascata não se
+    aplica. Ainda assim, antes do primeiro deploy em produção (Etapa D), rodar
+    `database/20260917_ordem_retrabalho.sql` explicitamente é recomendado, para
+    que esta chamada já encontre as tabelas prontas e vire um no-op puro desde
+    a primeira requisição.
+    """
     global _SCHEMA_RETRABALHO_INICIALIZADO
     if _SCHEMA_RETRABALHO_INICIALIZADO:
         return
@@ -397,6 +410,8 @@ def encerrar_retrabalho(rt_id, saida, *, usuario, perfil, idempotency_key=None, 
     data_validade_destino = str(saida.get("data_validade_destino") or "").strip()
     if not data_fabricacao_destino or not data_validade_destino:
         raise ValueError("Informe a data de fabricação e a validade do produto resultante.")
+    if data_validade_destino < data_fabricacao_destino:
+        raise ValueError("A validade do produto resultante não pode ser anterior à fabricação.")
     try:
         local_estoque_id_destino = int(saida.get("local_estoque_id_destino") or 0)
     except (TypeError, ValueError):
@@ -404,6 +419,14 @@ def encerrar_retrabalho(rt_id, saida, *, usuario, perfil, idempotency_key=None, 
     if not local_estoque_id_destino:
         raise ValueError("Informe o local de estoque do produto resultante.")
     quantidade_perda = _decimal(saida.get("quantidade_perda"), "Perda", permite_ausente=True)
+    if quantidade_perda < 0:
+        raise ValueError("A perda não pode ser negativa.")
+    try:
+        quantidade_bandejas_destino = int(saida.get("quantidade_bandejas_destino") or 0)
+    except (TypeError, ValueError):
+        raise ValueError("Quantidade de bandejas do destino inválida.")
+    if quantidade_bandejas_destino < 0:
+        raise ValueError("A quantidade de bandejas do destino não pode ser negativa.")
 
     criar_tabelas_retrabalho()
     idempotency_key = idempotency_key or f"RT-ENCERRAR-{rt_id}-{uuid4().hex}"
@@ -507,7 +530,13 @@ def encerrar_retrabalho(rt_id, saida, *, usuario, perfil, idempotency_key=None, 
         codigo_caixa_destino = f"RT-PA-{rt_id:06d}-01"
         if familia_destino == FAMILIA_PACOTE:
             galinhas_por_pacote = int(rt["galinhas_por_pacote_destino"] or 0)
+            if galinhas_por_pacote <= 0:
+                raise ValueError("A Ordem de Retrabalho não tem aves por pacote configuradas para o destino.")
+            if quantidade_apontada != quantidade_apontada.to_integral_value():
+                raise ValueError("A quantidade apontada de pacotes deve ser um número inteiro.")
             quantidade_pacotes_destino = int(quantidade_apontada)
+            # quantidade_galinhas é sempre derivada, nunca informada separadamente:
+            # a conciliação pacote×ave fica garantida por construção.
             quantidade_galinhas_destino = quantidade_pacotes_destino * galinhas_por_pacote
             sql_destino = """
             INSERT INTO pa_caixas (
@@ -540,7 +569,7 @@ def encerrar_retrabalho(rt_id, saida, *, usuario, perfil, idempotency_key=None, 
                 "Em estoque", "Retrabalho", f"Formado pela Ordem de Retrabalho {rt['numero']}.",
                 local_estoque_id_destino, FAMILIA_PESO, rt["apresentacao_destino"],
                 float(quantidade_apontada), float(quantidade_apontada), 0.0,
-                int(saida.get("quantidade_bandejas_destino") or 0),
+                quantidade_bandejas_destino,
                 "CONFORME", "PENDENTE_OP", "Conforme",
             )
             quantidade_cmv_destino = quantidade_apontada

@@ -163,9 +163,14 @@ Também rodado um smoke test manual das **rotas HTTP + templates** (`/retrabalho
 
 ## 25. Limitações restantes (honestas, não escondidas)
 
-- **CAIXA/peso como família de *origem*** da RT: implementado (decremento direto de `peso_liquido`, reserva integral da posição), mas **não exercitado por nenhum teste**, porque nenhum dos dois casos obrigatórios usa Cortada como origem. Se o negócio precisar disso no futuro, recomendo um teste dedicado antes do primeiro uso real.
-- **Regra de rendimento Inteira→Cortada:** como já esclarecido na Etapa A.1, não existe (e não deveria existir nesta etapa) uma taxa de conversão pré-cadastrada; o apontamento é sempre manual no encerramento.
-- **Segregação de funções, custo adicional de retrabalho, e a política de "reaproveitar posição de destino existente vs. sempre criar nova"** permanecem como decisões de negócio em aberto (já registradas na Etapa A/A.1) — a implementação atual sempre cria posição nova e não impõe segregação além de execução↔liberação.
+**Correção feita na Etapa C:** esta seção originalmente listava "segregação de funções", "custo adicional de retrabalho" e "reaproveitar posição de destino existente vs. sempre criar nova" como decisões de negócio *em aberto*. Isso estava errado — essas três decisões já foram fechadas (ver Etapa C, seção 2, itens 8/10/11) e **a implementação já estava conforme desde a Etapa B**, sem precisar de nenhuma mudança de código:
+- sempre cria posição nova de destino, nunca reaproveita uma existente (item 8/9 fechado);
+- nenhum custo adicional de mão de obra/energia/embalagem é incorporado nesta versão (item 10 fechado);
+- não há segregação de usuário entre abrir e encerrar; a única segregação real é execução↔liberação pela Qualidade (itens 11/12 fechados).
+
+Limitações que **continuam reais** (não são decisões de negócio, são lacunas técnicas honestas):
+- **CAIXA/peso como família de *origem*** da RT: implementado (decremento direto de `peso_liquido`, reserva integral da posição) — na Etapa B não havia teste dedicado; **corrigido na Etapa C**, agora com dois testes cobrindo consumo total e consumo parcial com devolução de saldo (ver relatório da Etapa C).
+- **Regra de rendimento Inteira→Cortada:** não existe (e não deveria existir nesta etapa) uma taxa de conversão pré-cadastrada; o apontamento é sempre manual no encerramento — isso é o comportamento correto pedido, não uma lacuna.
 
 ## 26. Commit
 

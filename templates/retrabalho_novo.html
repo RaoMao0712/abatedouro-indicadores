@@ -71,13 +71,34 @@ document.getElementById("botao-buscar-origens").addEventListener("click", async 
     var saldo = unidade === "PACOTE"
       ? ((item.quantidade_pacotes - (item.quantidade_pacotes_reservados || 0)) * (item.galinhas_por_pacote || 1)) + " aves"
       : (item.peso_liquido + " kg");
+
+    function celula(texto) {
+      var td = document.createElement("td");
+      td.textContent = texto;
+      return td;
+    }
+
     var linha = document.createElement("tr");
-    linha.innerHTML =
-      "<td>" + item.codigo_caixa + "<input type='hidden' name='origem_caixa_id' value='" + item.caixa_id + "'></td>" +
-      "<td>" + (item.op_id != null ? "#" + item.op_id : "—") + "</td>" +
-      "<td>" + saldo + "</td>" +
-      "<td>" + (item.data_validade || "—") + "</td>" +
-      "<td><input type='number' step='any' min='0' name='origem_quantidade_" + item.caixa_id + "'></td>";
+    var tdPosicao = celula(item.codigo_caixa);
+    var campoOculto = document.createElement("input");
+    campoOculto.type = "hidden";
+    campoOculto.name = "origem_caixa_id";
+    campoOculto.value = item.caixa_id;
+    tdPosicao.appendChild(campoOculto);
+    linha.appendChild(tdPosicao);
+    linha.appendChild(celula(item.op_id != null ? "#" + item.op_id : "—"));
+    linha.appendChild(celula(saldo));
+    linha.appendChild(celula(item.data_validade || "—"));
+
+    var tdQuantidade = document.createElement("td");
+    var campoQuantidade = document.createElement("input");
+    campoQuantidade.type = "number";
+    campoQuantidade.step = "any";
+    campoQuantidade.min = "0";
+    campoQuantidade.name = "origem_quantidade_" + item.caixa_id;
+    tdQuantidade.appendChild(campoQuantidade);
+    linha.appendChild(tdQuantidade);
+
     corpo.appendChild(linha);
   });
 });

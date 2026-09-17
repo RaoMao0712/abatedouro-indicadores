@@ -308,17 +308,20 @@ A estrutura (`retrabalhos` + `retrabalho_origens` + `retrabalho_saidas`) é idê
 
 ---
 
-## DECISÕES NECESSÁRIAS DO USUÁRIO (revisado na Etapa A.1)
+## DECISÕES NECESSÁRIAS DO USUÁRIO (revisado na Etapa A.1; fechadas/implementadas na Etapa B/C)
 
-**Removidas nesta rodada** (deixaram de ser decisões pendentes — resolvidas pela correção conceitual da seção "ETAPA A.1" acima): tratamento de sobras ímpares por OP no Caso 1 (não existem mais — 198→99 sem resíduo); obrigatoriedade de taxa de conversão fixa Inteira→Cortada para permitir o encerramento da RT (a saída passa a ser apontada pelo resultado físico real, não pré-calculada).
+**Removidas na Etapa A.1** (resolvidas pela correção conceitual da seção "ETAPA A.1" acima): tratamento de sobras ímpares por OP no Caso 1 (não existem mais — 198→99 sem resíduo); obrigatoriedade de taxa de conversão fixa Inteira→Cortada para permitir o encerramento da RT.
 
-1. **Validade e data de fabricação após retrabalho** (seção 14): mantém a mais restritiva das origens? Recebe nova validade a partir da data do retrabalho? Depende do SKU de destino? Não há regra formal no sistema hoje — precisa vir de Qualidade/regulatório.
-2. **Condição do PA resultante ao nascer** (seção 35 do escopo): `CONFORME` direto, ou `AGUARDANDO_LIBERACAO` até uma conferência formal? Hoje o sistema tem os dois estados disponíveis; a escolha depende de exigência sanitária/Qualidade, não de limitação técnica.
-3. **Custo adicional do próprio processo de retrabalho** (mão de obra, insumo de reembalagem): deve ser incorporado ao custo do PA de destino? Se sim, de onde vem esse valor (não há hoje um "custo de retrabalho" cadastrado em `parametros_custos` ou equivalente)?
-4. **Segregação de funções** (seção 24): quem abre a RT pode também encerrar/estornar, ou precisa ser outro usuário/perfil? Não há política formal hoje em nenhum fluxo semelhante do sistema.
-5. **Matriz exata de perfis por ação** (seção 23): a recomendação técnica é um ponto de partida, mas a palavra final é do usuário/gerência.
-6. **Reaproveitar posição de destino já existente vs. sempre criar nova** (seção 20, passo 2): se já existir uma posição CONFORME/DISPONIVEL compatível, a RT deve incrementá-la ou sempre abrir uma posição nova vinculada à própria RT? A recomendação técnica (por rastreabilidade mais limpa) é sempre criar nova, mas isso gera mais linhas ao longo do tempo — decisão de produto.
-7. **Gap de Qualidade para PA originado por RT** (seção 15-A): o fluxo atual de registro de Produto Não Conforme exige `op_id` e não tem porta de entrada para uma posição sem OP. Se for necessário poder marcar um PA originado por RT como não conforme, essa pequena extensão precisa ser planejada (fora do escopo desta RT, mas registrada como dependência).
+**Fechadas pelo usuário e já implementadas na Etapa B, confirmadas na Etapa C** (ver `output/ordem-retrabalho-etapa-c-auditoria-regressao.md`):
+- item 3 (custo adicional de retrabalho): **decisão — não incorporar nesta versão.** Implementado: só o custo do PA consumido é transportado.
+- item 4 (segregação de funções): **decisão — não exigir usuário diferente entre abrir e encerrar; a segregação real é execução↔liberação pela Qualidade.** Implementado exatamente assim.
+- item 6 (reaproveitar posição existente vs. sempre criar nova): **decisão — sempre criar nova.** Implementado exatamente assim.
+- item 2 (condição do PA ao nascer): implementado como `PENDENTE_OP` (reaproveitando o estado já existente no sistema para "formado, aguardando liberação"), com liberação explícita pela Qualidade via `liberar_retrabalho`.
+- item 7 (gap de Qualidade para PA de RT): fechado pela função `registrar_pnc_avulso`, testada inclusive para o caso de PNC detectado antes da liberação (Etapa C).
+
+**Ainda realmente pendentes:**
+1. **Validade e data de fabricação após retrabalho:** o sistema agora *valida* que a validade não seja anterior à fabricação (Etapa C), mas a regra sanitária de negócio (manter a mais restritiva das origens? nova validade a partir do retrabalho?) continua não formalizada — precisa vir de Qualidade/regulatório.
+5. **Matriz exata de perfis por ação:** a implementada (abrir/encerrar/cancelar: admin/gerência/pcp/produção; liberar: admin/gerência/qualidade; estornar: admin/gerência apenas) é a recomendação técnica adotada como decisão — sujeita a ajuste fino do usuário/gerência se necessário.
 
 ---
 
