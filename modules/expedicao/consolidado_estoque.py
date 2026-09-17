@@ -307,7 +307,7 @@ def _linhas_pos_marco(cursor):
         ) lp ON lp.caixa_id=cx.id
         WHERE COALESCE(cx.estoque_operacional,0)=1
           AND UPPER(COALESCE(cx.disponibilidade,'')) NOT IN
-              ('TRANSFERIDO','EXPEDIDO','DESCARTADO','DEVOLVIDO','CANCELADO','ESTORNADO')
+              ('TRANSFERIDO','EXPEDIDO','DESCARTADO','DEVOLVIDO','CANCELADO','ESTORNADO','RETRABALHADO')
           AND UPPER(COALESCE(cx.status,'')) NOT IN ('CANCELADO','ESTORNADO')
           AND (
               (UPPER(COALESCE(cx.unidade_estoque,'CAIXA'))='PACOTE'

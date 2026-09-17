@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block conteudo %}
+<section class="hero-dashboard expedicao-hero">
+  <div><span class="eyebrow">Produção · Transformação de PA</span><h2>Nova Ordem de Retrabalho</h2>
+    <p class="obs">Ao abrir, o saldo das posições de origem selecionadas é reservado imediatamente.</p></div>
+</section>
+
+<form method="post" action="{{ url_for('criar_retrabalho') }}" class="card expedicao-card" id="form-retrabalho">
+  <div class="form-grid">
+    <div><label>Motivo</label><input name="motivo" required></div>
+    <div><label>Data do retrabalho</label><input type="date" name="data_retrabalho" required></div>
+
+    <div><label>SKU de origem</label>
+      <select name="sku_origem" id="sku_origem" required>
+        <option value="">Selecione</option>
+        {% for produto in produtos %}<option value="{{ produto.nome }}">{{ produto.nome }} ({{ produto.codigo }})</option>{% endfor %}
+      </select>
+    </div>
+    <div><label>Apresentação de origem</label><input name="apresentacao_origem"></div>
+    <div><label>Unidade de estoque de origem</label>
+      <select name="unidade_estoque_origem" id="unidade_estoque_origem" required>
+        {% for familia in familias %}<option value="{{ familia }}">{{ 'Pacote / ave (Galinha Inteira)' if familia == 'PACOTE' else 'Caixa / bandeja / peso' }}</option>{% endfor %}
+      </select>
+    </div>
+    <div><label>Unidade de medida da origem</label><input name="unidade_origem" placeholder="AVE ou KG"></div>
+
+    <div><label>SKU de destino</label>
+      <select name="sku_destino" required>
+        <option value="">Selecione</option>
+        {% for produto in produtos %}<option value="{{ produto.nome }}">{{ produto.nome }} ({{ produto.codigo }})</option>{% endfor %}
+      </select>
+    </div>
+    <div><label>Apresentação de destino</label><input name="apresentacao_destino"></div>
+    <div><label>Unidade de estoque de destino</label>
+      <select name="unidade_estoque_destino" id="unidade_estoque_destino" required>
+        {% for familia in familias %}<option value="{{ familia }}">{{ 'Pacote / ave (Galinha Inteira)' if familia == 'PACOTE' else 'Caixa / bandeja / peso' }}</option>{% endfor %}
+      </select>
+    </div>
+    <div id="campo-galinhas-por-pacote"><label>Aves por pacote no destino</label><input type="number" min="1" name="galinhas_por_pacote_destino"></div>
+    <div><label>Unidade de medida do destino</label><input name="unidade_destino" placeholder="PACOTE ou KG"></div>
+
+    <div class="form-grid-full"><label>Observações</label><textarea name="observacoes" rows="2"></textarea></div>
+  </div>
+
+  <h3>Posições de origem disponíveis</h3>
+  <p class="obs">Informe o SKU e a unidade de estoque de origem acima e clique em buscar. A quantidade é informada na unidade nativa da posição (aves, quando for pacote de Galinha Inteira; kg, quando for caixa/bandeja).</p>
+  <button type="button" class="botao-dre-exportar" id="botao-buscar-origens">Buscar saldo disponível</button>
+  <div class="tabela-responsiva tabela-executiva expedicao-tabela">
+    <table id="tabela-origens">
+      <thead><tr><th>Posição</th><th>OP de origem</th><th>Saldo disponível</th><th>Validade</th><th>Quantidade a reservar</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <div class="acoes-relatorio">
+    <button class="botao-principal" type="submit">Abrir e reservar</button>
+    <a class="botao-dre-exportar" href="{{ url_for('retrabalho_lista') }}">Cancelar</a>
+  </div>
+</form>
+
+<script>
+document.getElementById("botao-buscar-origens").addEventListener("click", async function () {
+  var sku = document.getElementById("sku_origem").value;
+  var unidade = document.getElementById("unidade_estoque_origem").value;
+  if (!sku || !unidade) { alert("Selecione o SKU e a unidade de estoque de origem."); return; }
+  var resposta = await fetch("{{ url_for('retrabalho_origens_elegiveis') }}?sku=" + encodeURIComponent(sku) + "&unidade_estoque=" + encodeURIComponent(unidade));
+  var dados = await resposta.json();
+  var corpo = document.querySelector("#tabela-origens tbody");
+  corpo.innerHTML = "";
+  (dados.origens || []).forEach(function (item) {
+    var saldo = unidade === "PACOTE"
+      ? ((item.quantidade_pacotes - (item.quantidade_pacotes_reservados || 0)) * (item.galinhas_por_pacote || 1)) + " aves"
+      : (item.peso_liquido + " kg");
+    var linha = document.createElement("tr");
+    linha.innerHTML =
+      "<td>" + item.codigo_caixa + "<input type='hidden' name='origem_caixa_id' value='" + item.caixa_id + "'></td>" +
+      "<td>" + (item.op_id != null ? "#" + item.op_id : "—") + "</td>" +
+      "<td>" + saldo + "</td>" +
+      "<td>" + (item.data_validade || "—") + "</td>" +
+      "<td><input type='number' step='any' min='0' name='origem_quantidade_" + item.caixa_id + "'></td>";
+    corpo.appendChild(linha);
+  });
+});
+document.getElementById("unidade_estoque_destino").addEventListener("change", function () {
+  document.getElementById("campo-galinhas-por-pacote").style.display = this.value === "PACOTE" ? "" : "none";
+});
+document.getElementById("unidade_estoque_destino").dispatchEvent(new Event("change"));
+</script>
+{% endblock %}

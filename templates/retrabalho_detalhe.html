@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block conteudo %}
+<section class="hero-dashboard expedicao-hero">
+  <div><span class="eyebrow">Ordem de Retrabalho</span><h2>{{ rt.numero }}</h2>
+    <p class="obs">{{ rt.motivo }}</p></div>
+  <span class="badge-expedicao neutro">{{ status_labels.get(rt.status, rt.status) }}</span>
+</section>
+
+<section class="card">
+  <h3>Cabeçalho</h3>
+  <div class="form-grid">
+    <div><label>Data do retrabalho</label><p>{{ rt.data_retrabalho }}</p></div>
+    <div><label>Responsável</label><p>{{ rt.criado_por }} ({{ rt.perfil_criacao }})</p></div>
+    <div><label>Origem</label><p>{{ rt.sku_origem }}{% if rt.apresentacao_origem %} · {{ rt.apresentacao_origem }}{% endif %} — {{ rt.quantidade_planejada_origem }} {{ rt.unidade_origem }}</p></div>
+    <div><label>Destino</label><p>{{ rt.sku_destino }}{% if rt.apresentacao_destino %} · {{ rt.apresentacao_destino }}{% endif %}{% if rt.galinhas_por_pacote_destino %} ({{ rt.galinhas_por_pacote_destino }} aves/pacote){% endif %}</p></div>
+    {% if rt.quantidade_apontada_destino %}<div><label>Quantidade apontada</label><p>{{ rt.quantidade_apontada_destino }} {{ rt.unidade_destino }}</p></div>{% endif %}
+    {% if rt.observacoes %}<div><label>Observações</label><p>{{ rt.observacoes }}</p></div>{% endif %}
+  </div>
+</section>
+
+<section class="card">
+  <h3>Entradas (origens consumidas)</h3>
+  <div class="tabela-responsiva tabela-executiva expedicao-tabela"><table>
+    <thead><tr><th>Posição</th><th>OP de origem</th><th>Reservado</th><th>Consumido</th><th>Unidade</th></tr></thead>
+    <tbody>{% for origem in rt.origens %}<tr>
+      <td>#{{ origem.caixa_id_origem }}</td>
+      <td>{{ '#' ~ origem.op_id_origem if origem.op_id_origem else 'Não identificada' }}</td>
+      <td>{{ origem.quantidade_reservada }}</td>
+      <td>{{ origem.quantidade_consumida }}</td>
+      <td>{{ origem.unidade }}</td>
+    </tr>{% else %}<tr><td colspan="5">Nenhuma origem.</td></tr>{% endfor %}</tbody>
+  </table></div>
+</section>
+
+<section class="card">
+  <h3>Saída (produto formado)</h3>
+  <div class="tabela-responsiva tabela-executiva expedicao-tabela"><table>
+    <thead><tr><th>Posição</th><th>Quantidade</th><th>Unidade</th></tr></thead>
+    <tbody>{% for saida in rt.saidas %}<tr>
+      <td>#{{ saida.caixa_id_destino }}</td>
+      <td>{{ saida.quantidade }}</td>
+      <td>{{ saida.unidade }}</td>
+    </tr>{% else %}<tr><td colspan="3">Ainda não encerrada.</td></tr>{% endfor %}</tbody>
+  </table></div>
+</section>
+
+{% if rt.status in ('ABERTA', 'EM_EXECUCAO') %}
+<section class="card">
+  <h3>Encerrar (apontar resultado real)</h3>
+  <form method="post" action="{{ url_for('encerrar_retrabalho_view', rt_id=rt.id) }}" class="form-grid">
+    <div><label>Quantidade apontada de saída</label><input type="number" step="any" min="0" name="quantidade_apontada_destino" required></div>
+    <div><label>Data de fabricação do destino</label><input type="date" name="data_fabricacao_destino" required></div>
+    <div><label>Validade do destino</label><input type="date" name="data_validade_destino" required></div>
+    <div><label>Local de estoque do destino</label>
+      <select name="local_estoque_id_destino" required>
+        {% for local in locais %}<option value="{{ local.id }}">{{ local.nome }}</option>{% endfor %}
+      </select>
+    </div>
+    {% if rt.unidade_estoque_destino == 'CAIXA' %}<div><label>Bandejas (destino)</label><input type="number" min="0" name="quantidade_bandejas_destino"></div>{% endif %}
+    <div><label>Perda (opcional)</label><input type="number" step="any" min="0" name="quantidade_perda"></div>
+    <div><label>Unidade da perda</label><input name="unidade_perda"></div>
+    <div class="form-grid-full"><label>Justificativa da perda</label><input name="justificativa_perda"></div>
+    <div><button class="botao-principal" type="submit">Encerrar Ordem de Retrabalho</button></div>
+  </form>
+</section>
+<section class="card">
+  <h3>Cancelar</h3>
+  <form method="post" action="{{ url_for('cancelar_retrabalho_view', rt_id=rt.id) }}" class="form-grid">
+    <div class="form-grid-full"><label>Justificativa</label><input name="justificativa" required></div>
+    <div><button class="botao-dre-exportar" type="submit">Cancelar Ordem de Retrabalho</button></div>
+  </form>
+</section>
+{% endif %}
+
+{% if rt.status == 'ENCERRADA' and not rt.liberado_em %}
+<section class="card">
+  <h3>Liberação da Qualidade</h3>
+  <form method="post" action="{{ url_for('liberar_retrabalho_view', rt_id=rt.id) }}">
+    <button class="botao-principal" type="submit">Liberar produto formado para expedição</button>
+  </form>
+</section>
+{% endif %}
+
+{% if rt.status == 'ENCERRADA' %}
+<section class="card">
+  <h3>Estorno</h3>
+  <form method="post" action="{{ url_for('estornar_retrabalho_view', rt_id=rt.id) }}" class="form-grid">
+    <div class="form-grid-full"><label>Justificativa</label><input name="justificativa" required></div>
+    <div><button class="botao-dre-exportar" type="submit">Estornar Ordem de Retrabalho</button></div>
+  </form>
+</section>
+{% endif %}
+
+<section class="card">
+  <h3>Histórico</h3>
+  <div class="tabela-responsiva tabela-executiva expedicao-tabela"><table>
+    <thead><tr><th>Data</th><th>Ação</th><th>De</th><th>Para</th><th>Usuário</th><th>Justificativa</th></tr></thead>
+    <tbody>{% for evento in rt.eventos %}<tr>
+      <td>{{ evento.criado_em }}</td><td>{{ evento.acao }}</td><td>{{ evento.estado_anterior or '—' }}</td>
+      <td>{{ evento.estado_novo or '—' }}</td><td>{{ evento.usuario }}</td><td>{{ evento.justificativa or '—' }}</td>
+    </tr>{% else %}<tr><td colspan="6">Sem eventos.</td></tr>{% endfor %}</tbody>
+  </table></div>
+</section>
+{% endblock %}

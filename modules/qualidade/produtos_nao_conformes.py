@@ -323,6 +323,99 @@ def registrar_itens_encerramento(cursor, op_id, itens, *, usuario=None, perfil=N
     return ids
 
 
+def registrar_pnc_avulso(caixa_id, dados, *, usuario=None, perfil=None, origem=None,
+                         idempotency_key=None):
+    """Registra e bloqueia um PA não conforme localizando a posição apenas por `caixa_id`.
+
+    Diferente de `registrar_itens_encerramento`, não exige vínculo em
+    `pa_caixa_composicao` nem `op_id` — cobre tanto posições de OP quanto
+    posições originadas por Ordem de Retrabalho (RT), que nunca têm linha em
+    `pa_caixa_composicao`. `op_id` é gravado apenas quando existir (informativo);
+    o restante do ciclo de vida (consulta, decisão, liberação) é o mesmo já
+    usado para PNC de OP, sem nenhuma outra mudança.
+    """
+    usuario, perfil, origem = _identidade(usuario, perfil, origem)
+    criar_tabelas_pa_nao_conforme()
+    caixa_id = int(caixa_id)
+    motivo = str(dados.get("motivo") or "").strip()
+    descricao = str(dados.get("descricao") or "").strip()
+    try:
+        local_id = int(dados.get("local_estoque_id") or 0)
+    except (TypeError, ValueError):
+        local_id = 0
+    if not motivo or not local_id:
+        raise ValueError("Motivo e local de segregação são obrigatórios.")
+    if motivo not in MOTIVOS:
+        raise ValueError("Motivo de não conformidade inválido.")
+    if motivo == "Outro" and not descricao:
+        raise ValueError("Descreva a não conformidade quando o motivo for Outro.")
+    with transaction() as conn:
+        cursor = conn.cursor()
+        if idempotency_key:
+            cursor.execute(q("SELECT id FROM pa_nao_conformes WHERE idempotency_key=?"), (idempotency_key,))
+            existente = cursor.fetchone()
+            if existente:
+                return int(existente["id"])
+        bloqueio = " FOR UPDATE" if DATABASE_URL else ""
+        cursor.execute(q("""
+            SELECT cx.*, (
+                SELECT MIN(comp.op_id) FROM pa_caixa_composicao comp WHERE comp.caixa_id = cx.id
+            ) AS op_id_origem
+            FROM pa_caixas cx WHERE cx.id = ? AND COALESCE(cx.status,'') <> 'Cancelada'
+        """ + bloqueio), (caixa_id,))
+        caixa = cursor.fetchone()
+        if not caixa:
+            raise ValueError("Posição de estoque não encontrada ou inativa.")
+        cursor.execute(q("SELECT id FROM locais_estoque WHERE id=? AND ativo='Sim'"), (local_id,))
+        if not cursor.fetchone():
+            raise ValueError("Local de segregação inexistente ou inativo.")
+        cursor.execute(q("SELECT id FROM pa_nao_conformes WHERE caixa_id=?"), (caixa_id,))
+        if cursor.fetchone():
+            raise ValueError("A posição já possui registro oficial de Produto Não Conforme.")
+        unidade_fisica = "PACOTE" if caixa["unidade_estoque"] == "PACOTE" else "BANDEJA"
+        quantidade_fisica = Decimal(str(
+            (caixa["quantidade_pacotes"] if unidade_fisica == "PACOTE" else caixa["quantidade_bandejas"]) or 0
+        ))
+        peso_fisico = None if unidade_fisica == "PACOTE" else Decimal(str(caixa["peso_liquido"] or 0))
+        if quantidade_fisica <= 0:
+            raise ValueError("A posição não possui saldo físico para ser registrada como não conforme.")
+        op_id_origem = caixa["op_id_origem"]
+        agora = _agora()
+        numero = (
+            f"PNC-RT-{caixa_id:06d}" if op_id_origem is None
+            else f"PNC-{int(op_id_origem):06d}-{caixa_id:06d}"
+        )
+        parametros = (
+            numero, op_id_origem, caixa_id, caixa["codigo_caixa"], caixa["sku"],
+            caixa["apresentacao"], str(quantidade_fisica),
+            None if peso_fisico is None else str(peso_fisico), unidade_fisica,
+            motivo, descricao, local_id, usuario, perfil, agora,
+            str(dados.get("observacoes") or "").strip(), agora, agora, idempotency_key,
+        )
+        sql = """
+            INSERT INTO pa_nao_conformes (
+                numero, op_id, caixa_id, lote, produto, apresentacao, quantidade,
+                peso, unidade, motivo, descricao, status, local_estoque_id,
+                registrado_por, perfil_registro, registrado_em, observacoes,
+                criado_em, atualizado_em, idempotency_key
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'BLOQUEADO', ?, ?, ?, ?, ?, ?, ?, ?)
+        """
+        if DATABASE_URL:
+            cursor.execute(q(sql + " RETURNING id"), parametros)
+            nc_id = cursor.fetchone()["id"]
+        else:
+            cursor.execute(q(sql), parametros)
+            nc_id = cursor.lastrowid
+        cursor.execute(q("""
+            UPDATE pa_caixas SET condicao='NAO_CONFORME', disponibilidade='BLOQUEADO',
+                zona_estoque='Produto Não Conforme', motivo_nao_conformidade=?,
+                local_estoque_id=? WHERE id=?
+        """), (motivo, local_id, caixa_id))
+        _evento(cursor, nc_id, "CRIACAO_E_BLOQUEIO", None, "BLOQUEADO",
+               usuario, perfil, origem, motivo, descricao)
+        return nc_id
+
+
 def decidir(pa_nc_id, destino, justificativa, observacoes="", *, usuario=None,
             perfil=None, origem=None):
     mapa = {

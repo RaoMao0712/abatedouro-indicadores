@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block conteudo %}
+<section class="hero-dashboard expedicao-hero">
+  <div><span class="eyebrow">Produção · Transformação de PA</span><h2>Ordens de Retrabalho</h2>
+    <p class="obs">Produto Acabado existente transformado em outro Produto Acabado, preservando rastreabilidade e Qualidade.</p></div>
+  <a class="botao-principal" href="{{ url_for('retrabalho_novo') }}">Nova Ordem de Retrabalho</a>
+</section>
+
+<section class="card expedicao-card">
+  <form method="get" class="form-grid">
+    <div><label>Número</label><input name="numero" value="{{ filtros.numero or '' }}"></div>
+    <div><label>Status</label><select name="status"><option value="">Todos</option>{% for valor, rotulo in status_opcoes.items() %}<option value="{{ valor }}" {% if filtros.status == valor %}selected{% endif %}>{{ rotulo }}</option>{% endfor %}</select></div>
+    <div><label>SKU origem</label><input name="sku_origem" value="{{ filtros.sku_origem or '' }}"></div>
+    <div><label>SKU destino</label><input name="sku_destino" value="{{ filtros.sku_destino or '' }}"></div>
+    <div><label>Período inicial</label><input type="date" name="inicio" value="{{ filtros.inicio or '' }}"></div>
+    <div><label>Período final</label><input type="date" name="fim" value="{{ filtros.fim or '' }}"></div>
+    <div><button class="botao-principal" type="submit">Filtrar</button></div>
+  </form>
+</section>
+
+<section class="card">
+  <div class="tabela-responsiva tabela-executiva expedicao-tabela"><table>
+    <thead><tr><th>Número</th><th>Data</th><th>Status</th><th>Origem</th><th>Destino</th><th>Qtd. origem</th><th>Qtd. saída</th><th>Responsável</th><th>Ação</th></tr></thead>
+    <tbody>{% for item in registros %}<tr>
+      <td><strong>{{ item.numero }}</strong></td>
+      <td>{{ item.data_retrabalho }}</td>
+      <td><span class="badge-expedicao neutro">{{ status_labels.get(item.status, item.status) }}</span></td>
+      <td>{{ item.sku_origem }}{% if item.apresentacao_origem %} · {{ item.apresentacao_origem }}{% endif %}</td>
+      <td>{{ item.sku_destino }}{% if item.apresentacao_destino %} · {{ item.apresentacao_destino }}{% endif %}</td>
+      <td>{{ item.quantidade_planejada_origem }} {{ item.unidade_origem }}</td>
+      <td>{{ item.quantidade_apontada_destino or '—' }} {{ item.unidade_destino if item.quantidade_apontada_destino else '' }}</td>
+      <td>{{ item.criado_por }}</td>
+      <td><a class="botao-dre-exportar" href="{{ url_for('retrabalho_detalhe', rt_id=item.id) }}">Detalhes</a></td>
+    </tr>{% else %}<tr><td colspan="9">Nenhuma Ordem de Retrabalho encontrada.</td></tr>{% endfor %}</tbody>
+  </table></div>
+</section>
+{% endblock %}

@@ -42,6 +42,7 @@ from modules.qualidade.services import criar_tabelas_sgi
 from modules.qualidade.produtos_nao_conformes import criar_tabelas_pa_nao_conforme
 from modules.qualidade.reprocessamento import garantir_schema as criar_tabelas_reprocessamento_pnc
 from modules.almoxarifado.routes import register_almoxarifado_routes
+from modules.retrabalho import criar_tabelas_retrabalho, register_retrabalho_routes
 from modules.navegacao import register_navegacao_routes
 from modules.observabilidade import registrar_observabilidade_performance
 from modules.expedicao.services import (
@@ -593,6 +594,7 @@ register_qualidade_routes(app, {
 })
 
 register_almoxarifado_routes(app)
+register_retrabalho_routes(app)
 register_clientes_routes(app)
 
 register_expedicao_routes(app, {
@@ -641,6 +643,7 @@ def inicializar_schema_aplicacao():
         criar_tabelas_disponibilidade,
         criar_tabelas_performance,
         criar_tabelas_oee,
+        criar_tabelas_retrabalho,
     ])
 
 

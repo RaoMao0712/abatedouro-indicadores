@@ -5,6 +5,7 @@ conhecidos e nunca altera as tabelas operacionais de estoque. Quantidade sem
 custo permanece identificada como lacuna, em vez de receber custo zero.
 """
 
+from contextlib import contextmanager
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from io import BytesIO
@@ -98,6 +99,22 @@ def criar_tabelas_cmv():
     _SCHEMA_INICIALIZADO = True
 
 
+@contextmanager
+def _cursor_ou_transacao(cursor_externo):
+    """Participa de uma transação já aberta pelo chamador, ou abre a sua própria.
+
+    Permite que outros módulos (ex. Ordem de Retrabalho) chamem as funções de
+    CMV dentro da mesma transação atômica que move o estoque, em vez de abrir
+    uma segunda conexão/transação concorrente (o que trava o SQLite e, mesmo
+    em Postgres, quebraria a atomicidade "tudo ou nada" exigida).
+    """
+    if cursor_externo is not None:
+        yield cursor_externo
+    else:
+        with transaction() as conn:
+            yield conn.cursor()
+
+
 def _ultimo_id(cursor):
     if DATABASE_URL:
         cursor.execute("SELECT LASTVAL() AS id")
@@ -112,8 +129,12 @@ def _auditar(cursor, entidade, entidade_id, acao, dados, usuario):
 
 def registrar_camada(*, produto, unidade, data_entrada, quantidade, custo_unitario=None,
                      custo_conhecido=True, origem_tipo, origem_id=None, documento=None,
-                     op_id=None, lote=None, idempotency_key, usuario="Sistema"):
-    """Registra uma entrada valorizada ou explicitamente desconhecida, uma unica vez."""
+                     op_id=None, lote=None, idempotency_key, usuario="Sistema", cursor=None):
+    """Registra uma entrada valorizada ou explicitamente desconhecida, uma unica vez.
+
+    Se `cursor` for informado, participa da transação já aberta pelo chamador
+    (ver `_cursor_ou_transacao`); caso contrário, abre a sua própria.
+    """
     criar_tabelas_cmv()
     produto = str(produto or "").strip()
     unidade = str(unidade or "").strip().upper()
@@ -123,8 +144,7 @@ def registrar_camada(*, produto, unidade, data_entrada, quantidade, custo_unitar
     custo = _decimal(custo_unitario, "Custo unitario") if custo_conhecido else None
     if custo_conhecido and custo_unitario is None:
         raise ValueError("Custo unitario e obrigatorio quando o custo e conhecido.")
-    with transaction() as conn:
-        cursor = conn.cursor()
+    with _cursor_ou_transacao(cursor) as cursor:
         cursor.execute(q("SELECT * FROM cmv_camadas WHERE idempotency_key=?"), (idempotency_key,))
         existente = cursor.fetchone()
         if existente:
@@ -225,16 +245,18 @@ def _estado(quantidade, com_custo, sem_custo, inconsistente=False):
 
 def registrar_saida(*, data_evento, documento, produto, unidade, quantidade,
                     origem_tipo, origem_id=None, idempotency_key, usuario="Sistema",
-                    tipo_evento="VENDA"):
-    """Consome FIFO com lock. Falta de camada vira consumo sem custo, nunca zero."""
+                    tipo_evento="VENDA", cursor=None):
+    """Consome FIFO com lock. Falta de camada vira consumo sem custo, nunca zero.
+
+    Se `cursor` for informado, participa da transação já aberta pelo chamador.
+    """
     criar_tabelas_cmv()
     quantidade = _decimal(quantidade, "Quantidade", permite_zero=False)
     produto = str(produto or "").strip()
     unidade = str(unidade or "").strip().upper()
-    if tipo_evento not in ("VENDA", "DESCARTE"):
+    if tipo_evento not in ("VENDA", "DESCARTE", "RETRABALHO"):
         raise ValueError("Tipo de evento de saida invalido.")
-    with transaction() as conn:
-        cursor = conn.cursor()
+    with _cursor_ou_transacao(cursor) as cursor:
         cursor.execute(q("SELECT * FROM cmv_eventos WHERE idempotency_key=?"), (idempotency_key,))
         existente = cursor.fetchone()
         if existente:
@@ -292,13 +314,15 @@ def registrar_saida(*, data_evento, documento, produto, unidade, quantidade,
         return dict(cursor.fetchone()), True
 
 
-def estornar_saida(evento_id, *, data_evento, idempotency_key, justificativa, usuario="Sistema"):
-    """Restaura exatamente as camadas consumidas pelo evento original."""
+def estornar_saida(evento_id, *, data_evento, idempotency_key, justificativa, usuario="Sistema", cursor=None):
+    """Restaura exatamente as camadas consumidas pelo evento original.
+
+    Se `cursor` for informado, participa da transação já aberta pelo chamador.
+    """
     criar_tabelas_cmv()
     if not str(justificativa or "").strip():
         raise ValueError("Justificativa e obrigatoria.")
-    with transaction() as conn:
-        cursor = conn.cursor()
+    with _cursor_ou_transacao(cursor) as cursor:
         cursor.execute(q("SELECT * FROM cmv_eventos WHERE idempotency_key=?"), (idempotency_key,))
         existente = cursor.fetchone()
         if existente:
@@ -306,11 +330,13 @@ def estornar_saida(evento_id, *, data_evento, idempotency_key, justificativa, us
         lock = " FOR UPDATE" if DATABASE_URL else ""
         cursor.execute(q("SELECT * FROM cmv_eventos WHERE id=?" + lock), (evento_id,))
         original = cursor.fetchone()
-        if not original or original["tipo"] != "VENDA":
-            raise ValueError("Evento de venda original nao encontrado.")
-        cursor.execute(q("SELECT id FROM cmv_eventos WHERE tipo='ESTORNO_VENDA' AND evento_original_id=?" + lock), (evento_id,))
+        if not original or original["tipo"] not in ("VENDA", "RETRABALHO"):
+            raise ValueError("Evento original nao encontrado ou nao passivel de estorno.")
+        tipo_estorno = "ESTORNO_" + original["tipo"]
+        cursor.execute(q("SELECT id FROM cmv_eventos WHERE tipo=? AND evento_original_id=?" + lock),
+                       (tipo_estorno, evento_id))
         if cursor.fetchone():
-            raise ValueError("Venda ja estornada.")
+            raise ValueError("Evento ja estornado.")
         cursor.execute(q("SELECT * FROM cmv_consumos WHERE evento_id=? ORDER BY ordem_fifo" + lock), (evento_id,))
         consumos = cursor.fetchall()
         for consumo in consumos:
@@ -322,8 +348,8 @@ def estornar_saida(evento_id, *, data_evento, idempotency_key, justificativa, us
         cursor.execute(q("""INSERT INTO cmv_eventos(tipo,data_evento,documento,produto,unidade,
           quantidade,quantidade_com_custo,quantidade_sem_custo,custo_total,estado_calculo,
           evento_original_id,origem_tipo,origem_id,idempotency_key,justificativa,criado_por)
-          VALUES ('ESTORNO_VENDA',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"""),
-          (_data_iso(data_evento), original["documento"], original["produto"], original["unidade"],
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"""),
+          (tipo_estorno, _data_iso(data_evento), original["documento"], original["produto"], original["unidade"],
            -float(original["quantidade"]), -float(original["quantidade_com_custo"]),
            -float(original["quantidade_sem_custo"]), custo, original["estado_calculo"], evento_id,
            original["origem_tipo"], original["origem_id"], idempotency_key, justificativa, usuario))

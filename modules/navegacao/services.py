@@ -178,6 +178,13 @@ NAVEGACAO = [
             {"titulo": "Novo Romaneio", "endpoint": "novo_romaneio_expedicao", "perfis": ("admin", "pcp", "qualidade")},
             {"titulo": "Estoque Operacional", "endpoint": "estoque_camara_expedicao", "perfis": ("admin", "pcp", "qualidade")},
             {"titulo": "Não Conformes", "endpoint": "produtos_nao_conformes", "perfis": ("admin", "pcp", "qualidade")},
+            {
+                "titulo": "Ordens de Retrabalho",
+                "endpoint": "retrabalho_lista",
+                "perfis": ("admin", "pcp", "producao", "qualidade", "gerencia"),
+                "principal": True,
+                "active_endpoints": ("retrabalho_lista", "retrabalho_novo", "retrabalho_detalhe"),
+            },
             {"titulo": "Romaneios de Descarte", "endpoint": "romaneios_descarte_pnc", "perfis": ("admin", "pcp", "qualidade"), "feature_flag": "PNC_DISCARD_WAYBILL_ENABLED"},
             {"titulo": "Histórico", "endpoint": "historico_estoque_expedicao", "perfis": ("admin", "pcp", "qualidade")},
         ],

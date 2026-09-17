@@ -682,7 +682,7 @@ def buscar_estoque_operacional():
         LEFT JOIN locais_estoque le ON le.id = cx.local_estoque_id
         LEFT JOIN pa_caixa_composicao comp ON comp.caixa_id = cx.id
         WHERE COALESCE(cx.estoque_operacional, 0) = 1
-          AND cx.disponibilidade NOT IN ('TRANSFERIDO', 'EXPEDIDO', 'DESCARTADO', 'DEVOLVIDO')
+          AND cx.disponibilidade NOT IN ('TRANSFERIDO', 'EXPEDIDO', 'DESCARTADO', 'DEVOLVIDO', 'RETRABALHADO')
         GROUP BY cx.id, le.nome
         ORDER BY cx.data_validade ASC, cx.id ASC
         """))
