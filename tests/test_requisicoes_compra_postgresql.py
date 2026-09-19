@@ -137,6 +137,8 @@ def test_01_migration_reaplicacao_rollback_schema_e_constraints():
         assert len(cur.fetchall()) == 4
         cur.execute("SELECT column_default,is_nullable,data_type FROM information_schema.columns WHERE table_name='requisicoes_compra' AND column_name='versao'")
         assert cur.fetchone() == {"column_default": "0", "is_nullable": "NO", "data_type": "integer"}
+        cur.execute("SELECT is_nullable,data_type FROM information_schema.columns WHERE table_name='requisicao_compra_itens' AND column_name='nu'")
+        assert cur.fetchone() == {"is_nullable": "YES", "data_type": "text"}
         cur.execute("SELECT pg_get_serial_sequence('requisicoes_compra','id') seq")
         assert cur.fetchone()["seq"]
     aplicar(ROLLBACK)
@@ -278,3 +280,21 @@ def test_09_unique_reais_snapshot_queries_e_performance():
     assert svc.listar_por_origens("NAO_CONFORMIDADE_SGI", [31])[31][0]["id"] == nc["id"]
     assert max(duracao_detalhe,duracao_lookup) < 5
     assert svc.listar({"termo":"%' OR 1=1 --"}) == []
+
+
+def test_10_nu_lock_concorrencia_e_idempotencia_real():
+    rc=_aberta("nu-real")
+    rc=svc.aprovar(rc["id"],ator=usr(2,"gerencia"),versao=1,idempotency_key="nu-real-apr")
+    iid=rc["itens"][0]["id"]
+    resultados,erros=paralelas(
+        lambda: svc.aplicar_nu(rc["id"],[iid],"001234",ator=usr(8,"pcp"),versao=2,idempotency_key="nu-conc-a"),
+        lambda: svc.aplicar_nu(rc["id"],[iid],"999999",ator=usr(9,"pcp"),versao=2,idempotency_key="nu-conc-b"),
+    )
+    assert len(resultados)==1 and len(erros)==1
+    final=svc.buscar_rc(rc["id"]); assert final["itens"][0]["nu"] in {"001234","999999"} and final["versao"]==3
+    retry,erros=paralelas(
+        lambda: svc.aplicar_nu(rc["id"],[iid],"777777",ator=usr(8,"pcp"),versao=3,idempotency_key="nu-mesma"),
+        lambda: svc.aplicar_nu(rc["id"],[iid],"777777",ator=usr(8,"pcp"),versao=3,idempotency_key="nu-mesma"),
+    )
+    assert not erros and len(retry)==2
+    assert eventos(rc["id"],"NU_APLICADA")==1 and eventos(rc["id"],"NU_ALTERADA")==1

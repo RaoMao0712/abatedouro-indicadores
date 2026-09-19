@@ -1,0 +1,3 @@
+BEGIN;
+ALTER TABLE requisicao_compra_itens ADD COLUMN IF NOT EXISTS nu TEXT;
+COMMIT;

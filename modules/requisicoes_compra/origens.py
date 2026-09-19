@@ -26,6 +26,26 @@ def _one(sql, params):
         return dict(row) if row else None
     finally: conn.close()
 
+def listar_opcoes_origem():
+    """Opções amigáveis para os seletores; IDs permanecem apenas como values internos."""
+    consultas={
+        "materiais": "SELECT id,descricao,unidade FROM almoxarifado_insumos WHERE ativo='Sim' ORDER BY descricao",
+        "ordens_servico": "SELECT id,descricao,status FROM manutencao_ordens WHERE UPPER(COALESCE(status,'')) NOT IN ('CANCELADA','CANCELADO') ORDER BY id DESC LIMIT 300",
+        "ordens_producao": "SELECT id,sku,status,data FROM ordens_producao WHERE UPPER(COALESCE(status,'')) NOT IN ('CANCELADA','CANCELADO') ORDER BY id DESC LIMIT 300",
+        "nao_conformidades": "SELECT n.id,n.descricao,n.criticidade,n.situacao,v.formulario_codigo,v.setor FROM sgi_nao_conformidades n JOIN sgi_verificacoes v ON v.id=n.verificacao_id WHERE UPPER(COALESCE(n.situacao,''))<>'ENCERRADA' ORDER BY n.id DESC LIMIT 300",
+    }
+    resultado={}
+    # Uma origem opcional ausente não deve abortar as demais consultas no PostgreSQL.
+    for nome,sql in consultas.items():
+        conn=conectar()
+        try:
+            cur=conn.cursor(); cur.execute(sql); resultado[nome]=[dict(x) for x in cur.fetchall()]
+        except Exception:
+            conn.rollback(); resultado[nome]=[]
+        finally:
+            conn.close()
+    return resultado
+
 def _saldo(insumo_id):
     item = _one("""SELECT i.*,COALESCE(SUM(l.quantidade_atual),0) saldo
         FROM almoxarifado_insumos i LEFT JOIN almoxarifado_lotes l ON l.insumo_id=i.id

@@ -3,8 +3,8 @@ from uuid import uuid4
 from flask import abort, flash, redirect, render_template, request, send_file, session, url_for
 from modules.auth.decorators import perfil_permitido
 from modules.almoxarifado.services import buscar_insumos_almoxarifado
-from .origens import TIPOS
-from .services import PRIORIDADES, STATUS, UNIDADES, ConflitoRC, alertas_duplicidade, aprovar, buscar_rc, cancelar, criar_rascunho, editar_rascunho, enviar, listar, normalizar_itens, rejeitar, vincular_material
+from .origens import TIPOS, listar_opcoes_origem
+from .services import PRIORIDADES, STATUS, UNIDADES, ConflitoRC, alertas_duplicidade, aplicar_nu, aprovar, buscar_rc, cancelar, criar_rascunho, editar_rascunho, enviar, listar, normalizar_itens, rejeitar, vincular_material
 
 ACESSO=("pcp","producao","qualidade","manutencao","gerencia")
 def _u(): return {"id":session.get("usuario_id"),"nome":session.get("nome","Sistema"),"perfil":session.get("perfil","")}
@@ -25,7 +25,7 @@ def register_requisicoes_compra_routes(app):
                 for aviso in alertas_duplicidade(request.form.get("tipo_origem"),request.form.get("origem_id"),materiais): flash(aviso)
                 rc=criar_rascunho(request.form,normalizar_itens(request.form),ator=_u(),idempotency_key=request.form.get("idempotency_key")); flash("Rascunho da RC criado sem movimentar estoque ou Financeiro."); return redirect(url_for("detalhe_requisicao_compra",rc_id=rc["id"]))
             except Exception as e: flash(str(e))
-        return render_template("requisicao_compra_nova.html",tipos_origem=TIPOS,prioridades=PRIORIDADES,unidades=UNIDADES,insumos=buscar_insumos_almoxarifado("Todas","Sim",""),idempotency_key=str(uuid4()),pre_tipo=request.values.get("tipo_origem",""),pre_id=request.values.get("origem_id",""),pre_setor=request.values.get("setor",""),pre_descricao=request.values.get("origem_descricao",""),pre_numero=request.values.get("origem_numero",""))
+        return render_template("requisicao_compra_nova.html",tipos_origem=TIPOS,prioridades=PRIORIDADES,unidades=UNIDADES,insumos=buscar_insumos_almoxarifado("Todas","Sim",""),origens=listar_opcoes_origem(),idempotency_key=str(uuid4()),pre_tipo=request.values.get("tipo_origem",""),pre_id=request.values.get("origem_id",""),pre_setor=request.values.get("setor",""),pre_descricao=request.values.get("origem_descricao",""),pre_numero=request.values.get("origem_numero",""))
 
     @app.route("/compras/requisicoes/<int:rc_id>/editar",methods=["GET","POST"])
     @perfil_permitido(*ACESSO)
@@ -63,6 +63,19 @@ def register_requisicoes_compra_routes(app):
     def vincular_material_requisicao_compra(rc_id,item_id):
         try: vincular_material(rc_id,item_id,int(request.form.get("material_id") or 0),ator=_u(),idempotency_key=request.form.get("idempotency_key")); flash("Material vinculado; snapshot original preservado.")
         except Exception as e: flash(str(e))
+        return redirect(url_for("detalhe_requisicao_compra",rc_id=rc_id))
+
+    @app.route("/compras/requisicoes/<int:rc_id>/nu",methods=["POST"])
+    @perfil_permitido("pcp","gerencia")
+    def aplicar_nu_requisicao_compra(rc_id):
+        try:
+            rc=buscar_rc(rc_id)
+            if not rc: abort(404)
+            modo=request.form.get("modo") or "selecionados"
+            ids=([i["id"] for i in rc["itens"]] if modo=="todos" else request.form.getlist("item_id"))
+            aplicar_nu(rc_id,ids,request.form.get("nu"),ator=_u(),versao=request.form.get("versao"),idempotency_key=request.form.get("idempotency_key"),modo=modo)
+            flash("NU aplicada com rastreabilidade.")
+        except (ValueError,PermissionError,ConflitoRC) as e: flash(str(e))
         return redirect(url_for("detalhe_requisicao_compra",rc_id=rc_id))
 
     @app.route("/compras/requisicoes/<int:rc_id>/pdf")

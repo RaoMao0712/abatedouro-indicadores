@@ -1,5 +1,6 @@
 """Serviço transacional do MVP de Requisições de Compra."""
 import json
+import re
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from database import DATABASE_URL, conectar, q
@@ -9,6 +10,8 @@ STATUS = ("RASCUNHO","ABERTA","APROVADA","REJEITADA","CANCELADA","ATENDIDA","PAR
 PRIORIDADES = ("NORMAL","URGENTE","CRITICA")
 FINAIS = ("REJEITADA","CANCELADA","ATENDIDA")
 UNIDADES = ("un","kg","g","L","mL","m","cm","mm","m²","m³","cx","pct","rolo","par","jogo")
+PERFIS_NU = {"admin", "gerencia", "pcp"}
+NU_MAX = 30
 class ConflitoRC(RuntimeError): pass
 
 def agora(): return datetime.now().replace(microsecond=0).isoformat(sep=" ")
@@ -23,7 +26,12 @@ def criar_tabelas_requisicoes_compra():
     """Bootstrap idempotente apenas no boot; migrations versionadas são a fonte oficial."""
     conn=conectar(); cur=conn.cursor(); pk="SERIAL PRIMARY KEY" if DATABASE_URL else "INTEGER PRIMARY KEY AUTOINCREMENT"; ts="TIMESTAMP" if DATABASE_URL else "TEXT"
     cur.execute(f"""CREATE TABLE IF NOT EXISTS requisicoes_compra (id {pk},numero TEXT UNIQUE,status TEXT NOT NULL,versao INTEGER NOT NULL DEFAULT 0,tipo_origem TEXT NOT NULL,origem_id INTEGER,origem_numero_snapshot TEXT,origem_descricao_snapshot TEXT NOT NULL,origem_setor_snapshot TEXT,origem_equipamento_snapshot TEXT,origem_dados_snapshot TEXT NOT NULL,setor TEXT NOT NULL,solicitante_id INTEGER,solicitante_nome_snapshot TEXT NOT NULL,responsavel_id INTEGER,responsavel_nome_snapshot TEXT,prioridade TEXT NOT NULL,justificativa TEXT,observacoes TEXT,chave_criacao TEXT NOT NULL UNIQUE,criado_por INTEGER,criado_em {ts} NOT NULL,enviado_por INTEGER,enviado_em {ts},aprovado_por INTEGER,aprovado_em {ts},rejeitado_por INTEGER,rejeitado_em {ts},motivo_rejeicao TEXT,cancelado_por INTEGER,cancelado_em {ts},motivo_cancelamento TEXT,atualizado_em {ts} NOT NULL)""")
-    cur.execute(f"""CREATE TABLE IF NOT EXISTS requisicao_compra_itens (id {pk},requisicao_compra_id INTEGER NOT NULL,material_id INTEGER,descricao_snapshot TEXT NOT NULL,unidade_snapshot TEXT NOT NULL,quantidade_solicitada REAL NOT NULL,custo_estimado_unitario REAL,observacao TEXT,status TEXT NOT NULL DEFAULT 'SOLICITADO',pendente_cadastro INTEGER NOT NULL DEFAULT 0,criado_em {ts} NOT NULL,atualizado_em {ts} NOT NULL)""")
+    cur.execute(f"""CREATE TABLE IF NOT EXISTS requisicao_compra_itens (id {pk},requisicao_compra_id INTEGER NOT NULL,material_id INTEGER,descricao_snapshot TEXT NOT NULL,unidade_snapshot TEXT NOT NULL,quantidade_solicitada REAL NOT NULL,custo_estimado_unitario REAL,observacao TEXT,status TEXT NOT NULL DEFAULT 'SOLICITADO',pendente_cadastro INTEGER NOT NULL DEFAULT 0,nu TEXT,criado_em {ts} NOT NULL,atualizado_em {ts} NOT NULL)""")
+    # Compatibilidade do bootstrap SQLite; PostgreSQL produtivo usa migration versionada.
+    if not DATABASE_URL:
+        cur.execute("PRAGMA table_info(requisicao_compra_itens)")
+        if "nu" not in {x[1] for x in cur.fetchall()}:
+            cur.execute("ALTER TABLE requisicao_compra_itens ADD COLUMN nu TEXT")
     cur.execute(f"""CREATE TABLE IF NOT EXISTS requisicao_compra_eventos (id {pk},requisicao_compra_id INTEGER NOT NULL,item_id INTEGER,evento TEXT NOT NULL,status_anterior TEXT,status_novo TEXT,dados_anteriores TEXT,dados_novos TEXT,justificativa TEXT,usuario_id INTEGER,usuario_nome TEXT NOT NULL,perfil TEXT NOT NULL,criado_em {ts} NOT NULL,idempotency_key TEXT NOT NULL UNIQUE)""")
     for sql in ("CREATE INDEX IF NOT EXISTS idx_rc_origem ON requisicoes_compra(tipo_origem,origem_id,status)","CREATE INDEX IF NOT EXISTS idx_rc_status_data ON requisicoes_compra(status,criado_em)","CREATE INDEX IF NOT EXISTS idx_rc_solicitante ON requisicoes_compra(solicitante_id)","CREATE INDEX IF NOT EXISTS idx_rc_item_material ON requisicao_compra_itens(material_id,requisicao_compra_id)"):
         cur.execute(sql)
@@ -79,7 +87,10 @@ def criar_rascunho(dados,itens,*,ator,idempotency_key):
     try:
         _begin(conn); cur=conn.cursor(); cur.execute(q("SELECT id FROM requisicoes_compra WHERE chave_criacao=?"),(chave,)); old=cur.fetchone()
         if old: conn.rollback(); return buscar_rc(old["id"])
-        preparados=_preparar_itens(cur,itens); t=agora()
+        preparados=_preparar_itens(cur,itens)
+        if str(dados.get("tipo_origem") or "").upper()=="REPOSICAO_ESTOQUE" and (len(preparados)!=1 or preparados[0]["material_id"]!=oid):
+            raise ValueError("Na reposição, a RC deve conter somente o material que originou a necessidade.")
+        t=agora()
         cur.execute(q("""INSERT INTO requisicoes_compra(numero,status,tipo_origem,origem_id,origem_numero_snapshot,origem_descricao_snapshot,origem_setor_snapshot,origem_equipamento_snapshot,origem_dados_snapshot,setor,solicitante_id,solicitante_nome_snapshot,responsavel_id,responsavel_nome_snapshot,prioridade,justificativa,observacoes,chave_criacao,criado_por,criado_em,atualizado_em) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"""),(None,"RASCUNHO",str(dados.get("tipo_origem")).upper(),oid,snap["numero"],snap["descricao"],snap["setor"],snap["equipamento"],json.dumps(snap,ensure_ascii=False,default=str),str(dados.get("setor") or snap["setor"]),u["id"],u["nome"],dados.get("responsavel_id") or None,str(dados.get("responsavel_nome") or "").strip() or None,prioridade,justificativa or None,str(dados.get("observacoes") or "").strip() or None,chave,u["id"],t,t)); rid=_id(cur); numero=f"RC-{rid:06d}"; cur.execute(q("UPDATE requisicoes_compra SET numero=? WHERE id=?"),(numero,rid))
         for x in preparados: cur.execute(q("""INSERT INTO requisicao_compra_itens(requisicao_compra_id,material_id,descricao_snapshot,unidade_snapshot,quantidade_solicitada,custo_estimado_unitario,observacao,pendente_cadastro,criado_em,atualizado_em) VALUES(?,?,?,?,?,?,?,?,?,?)"""),(rid,x["material_id"],x["descricao"],x["unidade"],x["quantidade"],x["custo"],x["observacao"] or None,x["pendente"],t,t))
         _evento(cur,rid,"CRIACAO_RASCUNHO",None,"RASCUNHO",u,f"{chave}:criacao",depois={"numero":numero,"origem":snap}); conn.commit(); return buscar_rc(rid)
@@ -102,7 +113,10 @@ def editar_rascunho(rid,dados,itens,*,ator,versao,idempotency_key):
         if not rc or rc["status"]!="RASCUNHO": raise ValueError("Somente rascunho pode ser editado.")
         if str(rc["solicitante_id"])!=str(u["id"]) and u["perfil"] not in {"admin","gerencia"}: raise PermissionError("Sem permissão para editar este rascunho.")
         if int(rc["versao"])!=int(versao): raise ConflitoRC("A RC foi alterada por outro usuário.")
-        preparados=_preparar_itens(cur,itens); cur.execute(q("SELECT material_id,descricao_snapshot,unidade_snapshot,quantidade_solicitada,custo_estimado_unitario,observacao,pendente_cadastro FROM requisicao_compra_itens WHERE requisicao_compra_id=? ORDER BY id"),(rid,)); antes=[dict(x) for x in cur.fetchall()]
+        preparados=_preparar_itens(cur,itens)
+        if rc["tipo_origem"]=="REPOSICAO_ESTOQUE" and (len(preparados)!=1 or preparados[0]["material_id"]!=rc["origem_id"]):
+            raise ValueError("Na reposição, a RC deve conter somente o material que originou a necessidade.")
+        cur.execute(q("SELECT material_id,descricao_snapshot,unidade_snapshot,quantidade_solicitada,custo_estimado_unitario,observacao,pendente_cadastro FROM requisicao_compra_itens WHERE requisicao_compra_id=? ORDER BY id"),(rid,)); antes=[dict(x) for x in cur.fetchall()]
         cur.execute(q("DELETE FROM requisicao_compra_itens WHERE requisicao_compra_id=?"),(rid,)); t=agora()
         for x in preparados: cur.execute(q("""INSERT INTO requisicao_compra_itens(requisicao_compra_id,material_id,descricao_snapshot,unidade_snapshot,quantidade_solicitada,custo_estimado_unitario,observacao,pendente_cadastro,criado_em,atualizado_em) VALUES(?,?,?,?,?,?,?,?,?,?)"""),(rid,x["material_id"],x["descricao"],x["unidade"],x["quantidade"],x["custo"],x["observacao"] or None,x["pendente"],t,t))
         cur.execute(q("UPDATE requisicoes_compra SET prioridade=?,justificativa=?,observacoes=?,versao=versao+1,atualizado_em=? WHERE id=? AND versao=?"),(prioridade,justificativa or None,str(dados.get("observacoes") or "").strip() or None,t,rid,int(versao)))
@@ -110,7 +124,11 @@ def editar_rascunho(rid,dados,itens,*,ator,versao,idempotency_key):
         depois=[{"material_id":x["material_id"],"descricao_snapshot":x["descricao"],"unidade_snapshot":x["unidade"],"quantidade_solicitada":float(x["quantidade"]),"custo_estimado_unitario":float(x["custo"]) if x["custo"] is not None else None,"observacao":x["observacao"] or None,"pendente_cadastro":x["pendente"]} for x in preparados]; _evento(cur,rid,"EDICAO",rc["status"],rc["status"],u,chave,antes=antes,depois=depois)
         if antes!=depois: _evento(cur,rid,"ALTERACAO_QUANTIDADE",rc["status"],rc["status"],u,chave+":quantidades",antes=antes,depois=depois)
         conn.commit(); return buscar_rc(rid)
-    except Exception: conn.rollback(); raise
+    except Exception:
+        conn.rollback()
+        cur=conn.cursor(); cur.execute(q("SELECT requisicao_compra_id FROM requisicao_compra_eventos WHERE idempotency_key=?"),(chave,)); repetido=cur.fetchone()
+        if repetido: return buscar_rc(repetido["requisicao_compra_id"])
+        raise
     finally: conn.close()
 
 def _acao(rid,*,ator,versao,idempotency_key,acao,motivo=None):
@@ -193,6 +211,43 @@ def vincular_material(rid,item_id,material_id,*,ator,idempotency_key):
         raise
     finally: conn.close()
 
+def aplicar_nu(rid, item_ids, nu, *, ator, versao, idempotency_key, modo="selecionados"):
+    """Aplica/substitui NU em uma única transação, com versão e evento únicos."""
+    u=usuario(ator); chave=str(idempotency_key or "").strip(); valor=str(nu or "")
+    if u["perfil"] not in PERFIS_NU: raise PermissionError("Somente admin, gerência ou PCP pode informar NU.")
+    if not chave: raise ValueError("Chave idempotente obrigatória.")
+    if modo not in {"individual","selecionados","todos"}: raise ValueError("Modo de aplicação de NU inválido.")
+    if not re.fullmatch(rf"[0-9]{{1,{NU_MAX}}}",valor): raise ValueError(f"NU deve conter somente dígitos, com até {NU_MAX} caracteres.")
+    ids=[]
+    for x in item_ids or []:
+        try: i=int(x)
+        except (TypeError,ValueError): raise ValueError("Item inválido.") from None
+        if i not in ids: ids.append(i)
+    if not ids: raise ValueError("Selecione ao menos um item.")
+    conn=conectar()
+    try:
+        _begin(conn); cur=conn.cursor(); cur.execute(q("SELECT requisicao_compra_id FROM requisicao_compra_eventos WHERE idempotency_key=?"),(chave,)); repetido=cur.fetchone()
+        if repetido: conn.rollback(); return buscar_rc(repetido["requisicao_compra_id"])
+        suf=" FOR UPDATE" if DATABASE_URL else ""; cur.execute(q(f"SELECT * FROM requisicoes_compra WHERE id=?{suf}"),(rid,)); rc=cur.fetchone()
+        if not rc: raise ValueError("RC não encontrada.")
+        if rc["status"]!="APROVADA": raise ValueError("NU somente pode ser informada em RC aprovada.")
+        if int(rc["versao"])!=int(versao): raise ConflitoRC("A RC foi alterada por outro usuário.")
+        marks=",".join("?" for _ in ids); cur.execute(q(f"SELECT id,nu FROM requisicao_compra_itens WHERE requisicao_compra_id=? AND id IN ({marks}){suf}"),tuple([rid,*ids])); itens=[dict(x) for x in cur.fetchall()]
+        if len(itens)!=len(ids): raise ValueError("Todos os itens devem pertencer à RC.")
+        anteriores={str(x["id"]):x.get("nu") for x in itens}; t=agora()
+        cur.execute(q(f"UPDATE requisicao_compra_itens SET nu=?,atualizado_em=? WHERE requisicao_compra_id=? AND id IN ({marks})"),tuple([valor,t,rid,*ids]))
+        cur.execute(q("UPDATE requisicoes_compra SET versao=versao+1,atualizado_em=? WHERE id=? AND versao=?"),(t,rid,int(versao)))
+        if cur.rowcount!=1: raise ConflitoRC("A RC foi alterada por outro usuário.")
+        nome="NU_ALTERADA" if any(v not in (None,valor) for v in anteriores.values()) else "NU_APLICADA"
+        _evento(cur,rid,nome,rc["status"],rc["status"],u,chave,antes={"itens":anteriores},depois={"nu":valor,"itens":ids,"modo":modo},just=f"NU {valor} aplicada a {len(ids)} item(ns) — {modo}.")
+        conn.commit(); return buscar_rc(rid)
+    except Exception:
+        conn.rollback()
+        cur=conn.cursor(); cur.execute(q("SELECT requisicao_compra_id FROM requisicao_compra_eventos WHERE idempotency_key=?"),(chave,)); repetido=cur.fetchone()
+        if repetido: return buscar_rc(repetido["requisicao_compra_id"])
+        raise
+    finally: conn.close()
+
 def buscar_rc(rid):
     conn=conectar()
     try:
@@ -200,6 +255,11 @@ def buscar_rc(rid):
         if not row:return None
         rc=dict(row); rc["origem_dados"]=json.loads(rc["origem_dados_snapshot"] or "{}"); rc["origem_url"]=obter_url(rc["tipo_origem"],rc["origem_id"]); rc["origem_situacao_atual"]=obter_situacao_atual(rc["tipo_origem"],rc["origem_id"])
         cur.execute(q("SELECT * FROM requisicao_compra_itens WHERE requisicao_compra_id=? ORDER BY id"),(rid,)); rc["itens"]=[dict(x) for x in cur.fetchall()]
+        resumo={}
+        for item in rc["itens"]:
+            if item.get("nu"): resumo[item["nu"]]=resumo.get(item["nu"],0)+1
+        rc["resumo_nu"]=[{"nu":nu,"total":total} for nu,total in sorted(resumo.items())]
+        rc["itens_sem_nu"]=sum(1 for item in rc["itens"] if not item.get("nu"))
         cur.execute(q("SELECT * FROM requisicao_compra_eventos WHERE requisicao_compra_id=? ORDER BY id"),(rid,)); rc["eventos"]=[dict(x) for x in cur.fetchall()]
         return rc
     finally: conn.close()
@@ -216,7 +276,11 @@ def listar(filtros=None,origem=None):
     if termo: cond.append("(LOWER(r.numero) LIKE ? OR LOWER(r.origem_descricao_snapshot) LIKE ? OR LOWER(r.solicitante_nome_snapshot) LIKE ? OR EXISTS(SELECT 1 FROM requisicao_compra_itens i WHERE i.requisicao_compra_id=r.id AND LOWER(i.descricao_snapshot) LIKE ?))");p += [f"%{termo}%"]*4
     conn=conectar()
     try:
-        cur=conn.cursor(); cur.execute(q(f"""SELECT r.*,(SELECT COUNT(*) FROM requisicao_compra_itens i WHERE i.requisicao_compra_id=r.id) total_itens FROM requisicoes_compra r WHERE {' AND '.join(cond)} ORDER BY r.id DESC LIMIT 500"""),tuple(p)); return [dict(x) for x in cur.fetchall()]
+        cur=conn.cursor(); cur.execute(q(f"""SELECT r.*,
+        (SELECT COUNT(*) FROM requisicao_compra_itens i WHERE i.requisicao_compra_id=r.id) total_itens,
+        (SELECT COUNT(DISTINCT CASE WHEN i.nu IS NOT NULL THEN i.nu END) FROM requisicao_compra_itens i WHERE i.requisicao_compra_id=r.id) total_nus,
+        (SELECT MAX(i.nu) FROM requisicao_compra_itens i WHERE i.requisicao_compra_id=r.id) nu_unica
+        FROM requisicoes_compra r WHERE {' AND '.join(cond)} ORDER BY r.id DESC LIMIT 500"""),tuple(p)); return [dict(x) for x in cur.fetchall()]
     finally:conn.close()
 
 def listar_por_origens(tipo, ids):
