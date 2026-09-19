@@ -190,6 +190,10 @@ def register_almoxarifado_routes(app):
 
         saldos = buscar_saldos_almoxarifado_filtrado(categoria_filtro, termo)
         resumo = calcular_resumo_estoque_almoxarifado(saldos)
+        from modules.requisicoes_compra.services import listar_por_origens
+        requisicoes_compra_por_insumo = listar_por_origens(
+            "REPOSICAO_ESTOQUE", [item["id"] for item in saldos]
+        )
 
         return render_template(
             "almoxarifado_saldo.html",
@@ -197,7 +201,8 @@ def register_almoxarifado_routes(app):
             resumo=resumo,
             categorias=CATEGORIAS_ALMOXARIFADO,
             categoria_filtro=categoria_filtro,
-            termo=termo
+            termo=termo,
+            requisicoes_compra_por_insumo=requisicoes_compra_por_insumo,
         )
 
 

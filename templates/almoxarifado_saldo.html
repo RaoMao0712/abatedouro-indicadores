@@ -105,7 +105,7 @@
                             <span class="badge-almoxarifado inativo">Zerado</span>
                         {% endif %}
                     </td>
-                    <td><a href="{{url_for('nova_requisicao_compra',tipo_origem='REPOSICAO_ESTOQUE',origem_id=item.id,setor='Almoxarifado',origem_descricao=item.descricao)}}">Gerar Requisição de Compra</a></td>
+                    <td><a href="{{url_for('nova_requisicao_compra',tipo_origem='REPOSICAO_ESTOQUE',origem_id=item.id,setor='Almoxarifado',origem_descricao=item.descricao)}}">Gerar Requisição de Compra</a>{% for rc in requisicoes_compra_por_insumo.get(item.id,[])[:3] %}<br><a href="{{url_for('detalhe_requisicao_compra',rc_id=rc.id)}}">{{rc.numero}} · {{rc.status}}</a>{% endfor %}</td>
                 </tr>
                 {% endfor %}
             </tbody>

@@ -27,9 +27,19 @@ def _one(sql, params):
     finally: conn.close()
 
 def _saldo(insumo_id):
-    return _one("""SELECT i.*,COALESCE(SUM(l.quantidade_atual),0) saldo
+    item = _one("""SELECT i.*,COALESCE(SUM(l.quantidade_atual),0) saldo
         FROM almoxarifado_insumos i LEFT JOIN almoxarifado_lotes l ON l.insumo_id=i.id
         WHERE i.id=? GROUP BY i.id""", (insumo_id,))
+    if not item: return None
+    try:
+        reserva = _one("""SELECT COALESCE(SUM(ri.quantidade_reservada),0) reservado
+            FROM almoxarifado_requisicao_itens ri JOIN almoxarifado_requisicoes r ON r.id=ri.requisicao_id
+            WHERE ri.insumo_id=? AND r.status IN ('AGUARDANDO_APROVACAO','EMITIDA')""", (insumo_id,))
+        item["reservado"] = float(reserva["reservado"] or 0)
+    except Exception:
+        item["reservado"] = 0.0
+    item["disponivel"] = float(item["saldo"] or 0) - item["reservado"]
+    return item
 
 def verificar_permissao_criacao(tipo, perfil, origem=None):
     if tipo not in TIPOS: raise ValueError("Tipo de origem inválido.")
@@ -37,6 +47,12 @@ def verificar_permissao_criacao(tipo, perfil, origem=None):
     if tipo == "ORDEM_SERVICO" and str(perfil).lower() == "qualidade":
         permitido = bool(origem and origem.get("sgi_nc_id"))
     if not permitido: raise PermissionError("Perfil sem permissão para criar RC desta origem.")
+
+def verificar_permissao_origem_existente(tipo, origem_id, perfil):
+    origem = None
+    if tipo == "ORDEM_SERVICO" and str(perfil or "").lower() == "qualidade":
+        origem = _one("SELECT sgi_nc_id FROM manutencao_ordens WHERE id=?", (origem_id,))
+    verificar_permissao_criacao(tipo, perfil, origem)
 
 def resolver_origem(tipo, origem_id, dados, perfil):
     tipo = str(tipo or "").upper().strip()
@@ -55,6 +71,9 @@ def resolver_origem(tipo, origem_id, dados, perfil):
                 v.vinculo_tipo,v.local_id,v.equipamento_id FROM sgi_nao_conformidades n
                 JOIN sgi_verificacoes v ON v.id=n.verificacao_id WHERE n.id=?""", (oid,))
         if not origem: raise ValueError("Documento de origem não encontrado.")
+        if tipo == "REPOSICAO_ESTOQUE" and origem.get("ativo") != "Sim": raise ValueError("Material de reposição está inativo.")
+        if tipo in {"ORDEM_SERVICO","ORDEM_PRODUCAO"} and str(origem.get("status") or "").upper() in {"CANCELADA","CANCELADO"}: raise ValueError("Documento de origem está cancelado.")
+        if tipo == "NAO_CONFORMIDADE_SGI" and str(origem.get("situacao") or "").upper() == "ENCERRADA": raise ValueError("Não conformidade está encerrada.")
         origem_id = oid
     else:
         origem_id = None
@@ -73,7 +92,7 @@ def resolver_origem(tipo, origem_id, dados, perfil):
 def _snapshot(tipo, o, dados, setor):
     o = o or {}; agora = datetime.now().replace(microsecond=0).isoformat(sep=" ")
     if tipo == "REPOSICAO_ESTOQUE":
-        numero=str(o["id"]); desc=o["descricao"]; equip=""; extra={"unidade":o["unidade"],"saldo_fisico":float(o["saldo"] or 0),"capturado_em":agora}
+        numero=str(o["id"]); desc=o["descricao"]; equip=""; extra={"unidade":o["unidade"],"saldo_fisico":float(o["saldo"] or 0),"reservado":float(o.get("reservado") or 0),"disponivel":float(o.get("disponivel") or 0),"capturado_em":agora}
     elif tipo == "ORDEM_SERVICO":
         numero=f"OS-{int(o['id']):06d}"; desc=o.get("descricao") or "Ordem de Serviço"; setor=setor or o.get("setor") or ""; equip=o.get("equipamento_nome") or o.get("objeto_nome") or ""; extra={"status":o.get("status"),"tipo":o.get("tipo")}
     elif tipo == "ORDEM_PRODUCAO":
@@ -90,3 +109,12 @@ def obter_url(tipo, origem_id):
     try:
         ep,args=endpoints[tipo]; return url_for(ep,**args)
     except Exception: return None
+
+def obter_situacao_atual(tipo, origem_id):
+    if not origem_id: return None
+    if tipo == "REPOSICAO_ESTOQUE":
+        o=_saldo(origem_id); return f"Saldo {o['saldo']} {o['unidade']} · disponível {o['disponivel']}" if o else "Origem não encontrada"
+    tabelas={"ORDEM_SERVICO":("manutencao_ordens","status"),"ORDEM_PRODUCAO":("ordens_producao","status"),"NAO_CONFORMIDADE_SGI":("sgi_nao_conformidades","situacao")}
+    if tipo in tabelas:
+        tabela,campo=tabelas[tipo]; o=_one(f"SELECT {campo} situacao FROM {tabela} WHERE id=?",(origem_id,)); return str(o["situacao"]) if o else "Origem não encontrada"
+    return None
