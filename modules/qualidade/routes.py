@@ -1290,7 +1290,12 @@ def register_qualidade_routes(app, integracoes=None):
     @perfil_permitido("qualidade", "pcp", "gerencia")
     def sgi_verificacao_detalhe(verificacao_id):
         try:
-            return render_template("sgi_verificacao_detalhe.html", **qualidade_service.contexto_verificacao(verificacao_id))
+            contexto = qualidade_service.contexto_verificacao(verificacao_id)
+            from modules.requisicoes_compra.services import listar_por_origens
+            contexto["requisicoes_compra_por_nc"] = listar_por_origens(
+                "NAO_CONFORMIDADE_SGI", [nc["id"] for nc in contexto["ncs"]]
+            )
+            return render_template("sgi_verificacao_detalhe.html", **contexto)
         except ValueError as erro:
             flash(str(erro))
             return redirect(url_for("sgi_qualidade"))

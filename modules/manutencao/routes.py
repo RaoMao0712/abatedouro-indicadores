@@ -282,6 +282,11 @@ def register_manutencao_routes(app):
         except Exception:
             requisicoes_vinculadas = []
             requisicoes_vinculaveis = []
+        try:
+            from modules.requisicoes_compra.services import listar as listar_rc
+            requisicoes_compra_vinculadas = listar_rc(origem=("ORDEM_SERVICO", ordem_id))
+        except Exception:
+            requisicoes_compra_vinculadas = []
         return render_template(
             "manutencao_ordem_detalhe.html",
             ordem=ordem,
@@ -307,6 +312,7 @@ def register_manutencao_routes(app):
             origens_documentais=manutencao_service.detalhes_origem_ordem(ordem),
             requisicoes_vinculadas=requisicoes_vinculadas,
             requisicoes_vinculaveis=requisicoes_vinculaveis,
+            requisicoes_compra_vinculadas=requisicoes_compra_vinculadas,
             perfis_vinculo_requisicao=("admin", "qualidade", "pcp", "gerencia"),
             chave_vinculo_requisicao=str(uuid4()),
         )

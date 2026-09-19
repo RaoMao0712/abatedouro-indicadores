@@ -151,6 +151,17 @@ NAVEGACAO = [
         ],
     },
     {
+        "id": "compras",
+        "titulo": "Compras",
+        "descricao": "Necessidades de aquisição vinculadas à origem.",
+        "icone": "clipboard",
+        "perfis": TODOS_PERFIS,
+        "card": True,
+        "itens": [
+            {"titulo": "Requisições de Compra", "endpoint": "requisicoes_compra", "perfis": TODOS_PERFIS, "principal": True, "active_endpoints": ("requisicoes_compra", "nova_requisicao_compra", "detalhe_requisicao_compra", "imprimir_requisicao_compra")},
+        ],
+    },
+    {
         "id": "almoxarifado",
         "titulo": "Almoxarifado",
         "descricao": "Insumos, entradas, saldos e rastreabilidade.",

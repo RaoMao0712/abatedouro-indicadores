@@ -79,12 +79,12 @@ def test_sidebar_e_cards_derivam_da_mesma_definicao_de_navegacao():
 
 def test_cards_e_dominios_respeitam_perfis():
     esperados = {
-        "admin": {"gestao", "producao", "qualidade", "manutencao", "almoxarifado", "expedicao", "financeiro", "cadastros"},
-        "pcp": {"gestao", "producao", "qualidade", "manutencao", "almoxarifado", "expedicao", "financeiro", "cadastros"},
-        "producao": {"producao", "manutencao", "cadastros"},
-        "qualidade": {"producao", "qualidade", "manutencao", "expedicao", "cadastros"},
-        "manutencao": {"producao", "manutencao"},
-        "gerencia": {"gestao", "producao", "qualidade", "manutencao", "almoxarifado", "cadastros"},
+            "admin": {"gestao", "producao", "qualidade", "manutencao", "compras", "almoxarifado", "expedicao", "financeiro", "cadastros"},
+            "pcp": {"gestao", "producao", "qualidade", "manutencao", "compras", "almoxarifado", "expedicao", "financeiro", "cadastros"},
+            "producao": {"producao", "manutencao", "compras", "cadastros"},
+            "qualidade": {"producao", "qualidade", "manutencao", "compras", "expedicao", "cadastros"},
+            "manutencao": {"producao", "manutencao", "compras"},
+            "gerencia": {"gestao", "producao", "qualidade", "manutencao", "compras", "almoxarifado", "cadastros"},
     }
     for perfil, dominios in esperados.items():
         html = html_inicio(perfil)

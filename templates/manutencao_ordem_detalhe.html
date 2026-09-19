@@ -183,7 +183,7 @@
         <p class="obs">Origem: {{ ordem.origem or "Manual" }} (sem documento estruturado de origem).</p>
         {% endif %}
 
-        <h3>Desdobramentos — Requisicoes de Almoxarifado</h3>
+        <h3>Desdobramentos — Materiais de estoque / Requisicoes de Almoxarifado</h3>
         {% if requisicoes_vinculadas %}
         <div class="tabela-responsiva tabela-executiva expedicao-tabela manutencao-tabela">
             <table>
@@ -211,6 +211,9 @@
             {% endif %}
         </div>
         {% endif %}
+        <h3>Compras necessárias — Requisições de Compra</h3>
+        <p><a href="{{ url_for('nova_requisicao_compra', tipo_origem='ORDEM_SERVICO', origem_id=ordem.id, setor=ordem.setor or '', origem_numero='OS-' ~ '%06d'|format(ordem.id), origem_descricao=ordem.descricao_problema or ordem.descricao or '') }}" class="botao-dre-exportar manutencao-btn secundario">Solicitar compra</a></p>
+        {% if requisicoes_compra_vinculadas %}<div class="tabela-responsiva"><table><thead><tr><th>RC</th><th>Status</th><th>Prioridade</th><th>Data</th><th>Itens</th></tr></thead><tbody>{% for rc in requisicoes_compra_vinculadas %}<tr><td><a href="{{url_for('detalhe_requisicao_compra',rc_id=rc.id)}}">{{rc.numero}}</a></td><td>{{rc.status}}</td><td>{{rc.prioridade}}</td><td>{{rc.criado_em}}</td><td>{{rc.total_itens}}</td></tr>{% endfor %}</tbody></table></div>{% else %}<p class="obs">Nenhuma Requisição de Compra vinculada.</p>{% endif %}
 
         {% if pode_vincular_requisicao and requisicoes_vinculaveis %}
         <form method="POST" action="{{ url_for('vincular_requisicao_ordem_manutencao', ordem_id=ordem.id) }}" class="form-grid manutencao-update-form">

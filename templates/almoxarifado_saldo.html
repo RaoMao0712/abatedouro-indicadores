@@ -87,6 +87,7 @@
                     <th>Saldo</th>
                     <th>Valor em estoque</th>
                     <th>Status</th>
+                    <th>Compra</th>
                 </tr>
             </thead>
             <tbody>
@@ -104,6 +105,7 @@
                             <span class="badge-almoxarifado inativo">Zerado</span>
                         {% endif %}
                     </td>
+                    <td><a href="{{url_for('nova_requisicao_compra',tipo_origem='REPOSICAO_ESTOQUE',origem_id=item.id,setor='Almoxarifado',origem_descricao=item.descricao)}}">Gerar Requisição de Compra</a></td>
                 </tr>
                 {% endfor %}
             </tbody>
