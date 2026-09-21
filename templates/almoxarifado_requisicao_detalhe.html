@@ -1,11 +1,11 @@
 {% extends "base.html" %}
 {% block conteudo %}
-<section class="hero-dashboard almoxarifado-hero">
+<section class="hero-dashboard almoxarifado-hero almoxarifado-requisicao-hero">
   <div><span class="eyebrow">Requisição de Almoxarifado</span><h2>{{ requisicao.numero }}</h2>
     <div class="hero-resumo-inline"><span><strong>Estado:</strong> {{ requisicao.status|replace('_',' ') }}</span>
       <span><strong>Solicitante:</strong> {{ requisicao.solicitante_nome }}</span></div>
   </div>
-  <div><a class="botao-hero-filtro" target="_blank" href="{{ url_for('imprimir_requisicao_almoxarifado', requisicao_id=requisicao.id) }}">Imprimir</a>
+  <div class="almoxarifado-requisicao-acoes-cabecalho"><a class="botao-hero-filtro" target="_blank" href="{{ url_for('imprimir_requisicao_almoxarifado', requisicao_id=requisicao.id) }}">Imprimir</a>
     <a class="botao-hero-filtro" href="{{ url_for('requisicoes_almoxarifado') }}">Voltar</a></div>
 </section>
 
@@ -15,7 +15,7 @@
 <div class="card"><strong>Origem:</strong> Ordem de Serviço <a href="{{ url_for('visualizar_ordem_manutencao', ordem_id=requisicao.ordem_servico_id) }}">#{{ requisicao.ordem_servico_id }}</a></div>
 {% endif %}
 
-<div class="cards-executivos almoxarifado-kpis">
+<div class="cards-executivos almoxarifado-kpis almoxarifado-requisicao-resumo">
   <div class="card kpi-card"><span class="kpi-label">Setor</span><strong>{{ requisicao.setor }}</strong></div>
   <div class="card kpi-card"><span class="kpi-label">Finalidade</span><strong>{{ requisicao.finalidade }}</strong></div>
   <div class="card kpi-card"><span class="kpi-label">Emitido por</span><strong>{{ requisicao.emitido_por_nome }}</strong><small>{{ requisicao.emitido_em|br_data_hora }}</small></div>
@@ -29,12 +29,12 @@
 </table></div></div>
 
 {% if requisicao.status == 'AGUARDANDO_APROVACAO' and perfil in ['admin','gerencia'] %}
-<form method="post" action="{{ url_for('decidir_requisicao_almoxarifado', requisicao_id=requisicao.id) }}" class="card">
+<form method="post" action="{{ url_for('decidir_requisicao_almoxarifado', requisicao_id=requisicao.id) }}" class="card almoxarifado-requisicao-decisao">
   <input type="hidden" name="versao" value="{{ requisicao.versao }}"><input type="hidden" name="idempotency_key" value="{{ chave_acao }}">
-  <h3>Decisão da exceção</h3><p>O emissor não pode decidir a própria solicitação.</p>
+  <h3>Decisão da exceção</h3><p class="almoxarifado-requisicao-ajuda">O emissor não pode decidir a própria solicitação.</p>
   <label>Motivo (obrigatório para rejeição)</label><textarea name="motivo" rows="2"></textarea>
-  <button name="decisao" value="aprovar" class="botao-hero-filtro">Aprovar</button>
-  <button name="decisao" value="rejeitar" class="botao-tabela-almoxarifado">Rejeitar</button>
+  <div class="almoxarifado-requisicao-acoes-decisao"><button name="decisao" value="aprovar" class="botao-hero-filtro">Aprovar</button>
+  <button name="decisao" value="rejeitar" class="botao-tabela-almoxarifado">Rejeitar</button></div>
 </form>
 {% endif %}
 
