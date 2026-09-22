@@ -12,6 +12,7 @@ from config import EMPRESA_EMITENTE, ESTABELECIMENTO_DOCUMENTO, IDENTIFICACAO_TE
 from database import conectar, q
 from modules.auth.decorators import perfil_permitido
 from modules.producao.services import buscar_op_por_id
+from modules.producao.skus_legados import validar_sku_operacional
 from modules.producao.operacoes_op import (
     estornar_op_integral,
     preflight_operacao_op,
@@ -606,7 +607,7 @@ def register_expedicao_routes(app, integracoes=None):
                     op_selecionada = {
                         "op_id": op_id_int,
                         "data_op": op_base["data"],
-                        "sku": op_base["sku"] or "Galinha Cortada",
+                        "sku": validar_sku_operacional(op_base["sku"]),
                         "saldo_bandejas": fechamento_op["pi"]["saldo"],
                     }
 

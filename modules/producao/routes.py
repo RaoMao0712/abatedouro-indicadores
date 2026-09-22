@@ -73,6 +73,8 @@ from .operacoes_op import (
     preflight_operacao_op,
     reabrir_op as reabrir_op_operacional,
 )
+from .protecao_sku_op import auditar_tentativa_bloqueada, validar_alteracao_sku
+from .skus_legados import validar_sku_operacional
 
 _INTEGRACOES = {}
 
@@ -93,8 +95,9 @@ def register_producao_routes(app, integracoes=None):
     def ordem_producao():
         if request.method == "POST":
             data = request.form["data"]
-            sku = request.form.get("sku", "Galinha Cortada")
+            sku = request.form.get("sku")
             try:
+                sku = validar_sku_operacional(sku)
                 parceiro_fornecedor = obter_parceiro_por_papel(
                     request.form.get("fornecedor"), PAPEL_FORNECEDOR)
                 quantidade_aves = int(request.form["quantidade_aves"])
@@ -566,8 +569,9 @@ def register_producao_routes(app, integracoes=None):
 
         if request.method == "POST":
             data = request.form["data"]
-            sku = request.form.get("sku", "Galinha Cortada")
+            sku = request.form.get("sku")
             try:
+                sku = validar_sku_operacional(sku)
                 parceiro_fornecedor = obter_parceiro_por_papel(
                     request.form.get("fornecedor"), PAPEL_FORNECEDOR)
                 quantidade_aves = int(request.form["quantidade_aves"])
@@ -585,6 +589,18 @@ def register_producao_routes(app, integracoes=None):
 
             sucesso = False
             try:
+                sku_anterior = str(op["sku"] or "").strip()
+                if sku != sku_anterior:
+                    try:
+                        validar_alteracao_sku(cursor, op_id, sku_anterior, sku)
+                    except ValueError as erro_sku:
+                        fatos = erro_sku.fatos_operacionais
+                        auditar_tentativa_bloqueada(
+                            cursor, op_id, sku_anterior, sku, fatos,
+                            session.get("nome"), session.get("perfil"), request.remote_addr,
+                        )
+                        conn.commit()
+                        raise erro_sku
                 cursor.execute(q("""
                 UPDATE ordens_producao
                 SET data = ?, sku = ?, fornecedor = ?, fornecedor_parceiro_id = ?, gta = ?, nota_fiscal = ?,
@@ -1136,7 +1152,13 @@ def register_producao_routes(app, integracoes=None):
             flash("Esta OP já está encerrada.")
             return redirect(url_for("consultar_op", op_id=op_id))
 
-        if (op["sku"] or "Galinha Cortada") == "Galinha Inteira":
+        try:
+            sku_operacional = validar_sku_operacional(op["sku"])
+        except ValueError as erro:
+            flash(str(erro))
+            return redirect(url_for("consultar_op", op_id=op_id))
+
+        if sku_operacional == "Galinha Inteira":
             flash("Galinha Inteira deve ser encerrada pela Embalagem Primária, com pacotes V1 e V2.")
             return redirect(url_for("embalagem_primaria", op_id=op_id))
 

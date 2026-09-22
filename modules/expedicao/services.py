@@ -8,6 +8,7 @@ import unicodedata
 from database import DATABASE_URL, conectar, q, transaction
 from modules.auth.services import nome_usuario_atual, perfil_atual
 from modules.producao.services import buscar_op_por_id, gerar_producao_automatica_setores
+from modules.producao.skus_legados import validar_sku_operacional
 
 _CRIAR_BANCO = None
 _SCHEMA_EXPEDICAO_INICIALIZADO = False
@@ -497,7 +498,7 @@ def registrar_entrada_estoque_pi_op(op, unidades_produzidas, origem="Embalagem P
     criar_tabelas_estoque_pi_pa()
 
     op_id = op["id"]
-    sku = op["sku"] or "Galinha Cortada"
+    sku = validar_sku_operacional(op["sku"])
     bandejas = float(unidades_produzidas or 0)
 
     # Segurança contra duplicidade: se a OP for reapontada, a entrada anterior é substituída.
@@ -659,7 +660,7 @@ def registrar_apontamento_embalagem_primaria(
     if not op:
         raise ValueError("OP não encontrada.")
 
-    sku = op["sku"] or "Galinha Cortada"
+    sku = validar_sku_operacional(op["sku"])
     if not sku_sem_embalagem_secundaria(sku):
         if op["status"] == "Encerrada":
             raise ValueError("Esta OP já está encerrada.")
@@ -974,7 +975,7 @@ def obter_sku_op(op_id):
     op = buscar_op_por_id(op_id)
     if not op:
         return None
-    return op["sku"] or "Galinha Cortada"
+    return validar_sku_operacional(op["sku"])
 
 
 def registrar_saida_pi_por_caixa(cursor, op_id, sku, bandejas, caixa_id):
