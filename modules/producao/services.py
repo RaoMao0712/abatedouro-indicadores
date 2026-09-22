@@ -283,6 +283,8 @@ def buscar_contexto_pesagem_op(op_id, caixa_etiqueta_id=None):
     op = buscar_op_por_id(op_id)
     if not op:
         raise ValueError("OP nao encontrada.")
+    from .skus_legados import validar_sku_operacional
+    validar_sku_operacional(op["sku"])
 
     conn = conectar()
     cursor = conn.cursor()
@@ -340,6 +342,8 @@ def registrar_peso_caixa_op(op_id, peso_raw):
     op = buscar_op_por_id(op_id)
     if not op:
         raise ValueError("OP nao encontrada.")
+    from .skus_legados import validar_sku_operacional
+    sku_operacional = validar_sku_operacional(op["sku"])
 
     peso = normalizar_peso(peso_raw)
     validar_peso(peso)
@@ -379,7 +383,7 @@ def registrar_peso_caixa_op(op_id, peso_raw):
             RETURNING id
             """), (
                 codigo_caixa,
-                op["sku"] or "Galinha Cortada",
+                sku_operacional,
                 data_fabricacao,
                 data_validade,
                 peso,
@@ -405,7 +409,7 @@ def registrar_peso_caixa_op(op_id, peso_raw):
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """), (
                 codigo_caixa,
-                op["sku"] or "Galinha Cortada",
+                sku_operacional,
                 data_fabricacao,
                 data_validade,
                 peso,
@@ -917,8 +921,9 @@ def gerar_producao_automatica_setores(
         ]
     }
 
-    sku = op["sku"] or "Galinha Cortada"
-    setores = setores_por_sku.get(sku, setores_por_sku["Galinha Cortada"])
+    from .skus_legados import validar_sku_operacional
+    sku = validar_sku_operacional(op["sku"])
+    setores = setores_por_sku[sku]
 
     texto_almoco = "Sim" if descontar_almoco else "Não"
 
@@ -1051,7 +1056,9 @@ def buscar_op_por_id(op_id):
 
 
 def setores_por_sku(sku):
-    if sku == "Galinha Inteira":
+    from .skus_legados import SKU_GALINHA_INTEIRA, validar_sku_operacional
+    sku = validar_sku_operacional(sku)
+    if sku == SKU_GALINHA_INTEIRA:
         return [
             "Recepção e Pendura",
             "Escalda e Depenagem",

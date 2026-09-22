@@ -85,7 +85,8 @@ def montar_payload_etiqueta(op, caixa, estabelecimento=ESTABELECIMENTO_PADRAO):
         return None
 
     op_id = _valor_linha(op, "id")
-    produto = _valor_linha(op, "sku") or "Galinha Cortada"
+    from .skus_legados import validar_sku_operacional
+    produto = validar_sku_operacional(_valor_linha(op, "sku"))
     lote = f"OP-{int(op_id):05d}"
     numero_caixa = int(_valor_linha(caixa, "op_numero_caixa") or 0)
     status = _valor_linha(caixa, "status") or "Em estoque"
