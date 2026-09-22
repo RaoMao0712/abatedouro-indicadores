@@ -5,6 +5,7 @@ from datetime import date
 from modules.almoxarifado.services import buscar_insumos_almoxarifado
 
 from . import repositories as repo
+from . import fundacao
 
 
 TIPOS_PRODUTO = {
@@ -29,6 +30,7 @@ STATUS_PRODUTO = {"Sim": "Ativo", "Não": "Inativo"}
 
 def criar_tabelas_engenharia_produtos():
     repo.criar_estrutura()
+    fundacao.criar_estrutura()
 
 
 def _texto(form, campo, obrigatorio=False):
