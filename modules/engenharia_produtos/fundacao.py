@@ -17,17 +17,6 @@ def criar_estrutura():
     try:
         for comando in [x.strip() for x in sql.replace("BEGIN;","").replace("COMMIT;","").split(";") if x.strip()]:
             cur.execute(comando)
-        if DATABASE_URL:
-            cur.execute("ALTER TABLE sku_versoes ADD COLUMN IF NOT EXISTS codigo TEXT")
-            cur.execute("ALTER TABLE sku_versoes ADD COLUMN IF NOT EXISTS apresentacao TEXT")
-            cur.execute("ALTER TABLE sku_versoes ADD COLUMN IF NOT EXISTS parametros_json TEXT NOT NULL DEFAULT '{}'")
-        else:
-            cur.execute("PRAGMA table_info(sku_versoes)")
-            colunas = {linha["name"] for linha in cur.fetchall()}
-            for coluna, tipo in (("codigo", "TEXT"), ("apresentacao", "TEXT"),
-                                 ("parametros_json", "TEXT NOT NULL DEFAULT '{}'")):
-                if coluna not in colunas:
-                    cur.execute(f"ALTER TABLE sku_versoes ADD COLUMN {coluna} {tipo}")
         conn.commit()
     except Exception:
         conn.rollback(); raise
