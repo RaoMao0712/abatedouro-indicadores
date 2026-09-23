@@ -6,6 +6,7 @@ from modules.auth.decorators import perfil_permitido
 
 from . import services
 from . import fundacao
+from . import representacao_legada
 
 
 PERFIS_LEITURA = ("pcp", "gerencia", "producao", "qualidade")
@@ -29,6 +30,19 @@ def register_engenharia_produtos_routes(app):
     def fundacao_sku_listar():
         sku_id = request.args.get("sku_id", type=int)
         return jsonify(fundacao.listar_fundacao(sku_id))
+
+    @app.route("/cadastros/fundacao-sku/representacao-legada", methods=["GET"])
+    @perfil_permitido(*PERFIS_ESCRITA)
+    def fundacao_sku_comparar_legados():
+        return jsonify(representacao_legada.comparar_todos())
+
+    @app.route("/cadastros/fundacao-sku/representacao-legada", methods=["POST"])
+    @perfil_permitido(*PERFIS_ESCRITA)
+    def fundacao_sku_representar_legados():
+        try:
+            return jsonify(representacao_legada.aplicar(_usuario()["nome"])), 201
+        except ValueError as erro:
+            return jsonify({"erro": str(erro)}), 400
 
     @app.route("/cadastros/skus/<int:sku_id>/versoes", methods=["POST"])
     @perfil_permitido(*PERFIS_ESCRITA)
