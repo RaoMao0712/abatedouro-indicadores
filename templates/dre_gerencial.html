@@ -179,7 +179,7 @@
             <div class="dre-tabela-row dre-cmv-row">
                 <span>{{ item.sku }}</span>
                 <small>
-                    {{ item.quantidade_unidades|br_numero }} {% if item.sku == 'Galinha Cortada' %}bandejas{% else %}unidades{% endif %}
+                    {{ item.quantidade_unidades|br_numero }} {% if item.sku == 'Galinha Cortada' %}bandejas{% elif item.sku == 'Galinha Inteira' %}unidades{% else %}SKU indisponível{% endif %}
                     {% if item.sku == 'Galinha Cortada' %}<br>{{ item.quantidade_kg|br_numero }} kg{% endif %}
                 </small>
                 <small>N/A por componente</small>
@@ -188,8 +188,10 @@
                 <strong>
                     {% if item.sku == 'Galinha Cortada' %}
                         {% if item.cmv_por_kg is not none %}{{ item.cmv_por_kg|br_moeda }} / kg{% else %}N/A{% endif %}
-                    {% else %}
+                    {% elif item.sku == 'Galinha Inteira' %}
                         {% if item.cmv_por_unidade is not none %}{{ item.cmv_por_unidade|br_moeda }} / un.{% else %}N/A{% endif %}
+                    {% else %}
+                        N/A — SKU indisponível
                     {% endif %}
                 </strong>
             </div>

@@ -135,10 +135,10 @@ def test_custo_por_op_usa_consumo_valorizado_e_peso_liquido_oficial():
     CREATE TABLE IF NOT EXISTS pa_caixa_composicao(id INTEGER PRIMARY KEY,caixa_id INTEGER,op_id INTEGER,quantidade_bandejas REAL);
     DELETE FROM ordens_producao; DELETE FROM almoxarifado_movimentacoes;
     DELETE FROM pa_caixas; DELETE FROM pa_caixa_composicao;
-    INSERT INTO ordens_producao(id,data,fornecedor,quantidade_aves,peso_vivo,peso_medio,sku,status) VALUES(77,'2026-08-05','Fornecedor teste',100,200,2,'Frango Cortado','Encerrada');
+        INSERT INTO ordens_producao(id,data,fornecedor,quantidade_aves,peso_vivo,peso_medio,sku,status) VALUES(77,'2026-08-05','Fornecedor teste',100,200,2,'Galinha Cortada','Encerrada');
     INSERT INTO almoxarifado_movimentacoes(id,data_movimentacao,insumo_id,lote_id,quantidade,valor_unitario,valor_total,op_id,tipo) VALUES(1,'2026-08-05',1,10,50,8,400,77,'SAIDA_OP');
     INSERT INTO almoxarifado_movimentacoes(id,data_movimentacao,insumo_id,lote_id,quantidade,valor_unitario,valor_total,op_id,tipo) VALUES(2,'2026-08-05',2,11,20,5,100,77,'SAIDA_OP');
-    INSERT INTO pa_caixas(id,codigo_caixa,sku,peso_liquido,quantidade_bandejas,status) VALUES(1,'CX-P23','Frango Cortado',100,12,'Em estoque');
+        INSERT INTO pa_caixas(id,codigo_caixa,sku,peso_liquido,quantidade_bandejas,status) VALUES(1,'CX-P23','Galinha Cortada',100,12,'Em estoque');
     INSERT INTO pa_caixa_composicao(id,caixa_id,op_id,quantidade_bandejas) VALUES(1,1,77,12);
     """)
     conn.commit(); conn.close()

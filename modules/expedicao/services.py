@@ -595,7 +595,7 @@ def registrar_posicoes_pa_galinha_inteira(cursor, op, pacotes_v1, pacotes_v2, ob
         )
         parametros = (
             codigo_lote,
-            op["sku"] or "Galinha Inteira",
+            validar_sku_operacional(op["sku"]),
             data_fabricacao,
             data_validade,
             "Em estoque",

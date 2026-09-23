@@ -204,7 +204,7 @@ def criar_banco():
             peso_medio REAL NOT NULL,
             observacoes TEXT,
             status TEXT DEFAULT 'Aberta',
-            sku TEXT DEFAULT 'Galinha Cortada'
+            sku TEXT
         )
         """)
 
@@ -306,7 +306,7 @@ def criar_banco():
         tentar_alter_table(cursor, conn, "ALTER TABLE ordens_producao ADD COLUMN status TEXT DEFAULT 'Aberta'")
         conn = conectar()
         cursor = conn.cursor()
-        tentar_alter_table(cursor, conn, "ALTER TABLE ordens_producao ADD COLUMN sku TEXT DEFAULT 'Galinha Cortada'")
+        tentar_alter_table(cursor, conn, "ALTER TABLE ordens_producao ADD COLUMN sku TEXT")
         conn = conectar()
         cursor = conn.cursor()
         tentar_alter_table(cursor, conn, "ALTER TABLE apontamentos_paradas ADD COLUMN evento_id TEXT")
@@ -362,7 +362,7 @@ def criar_banco():
             peso_medio REAL NOT NULL,
             observacoes TEXT,
             status TEXT DEFAULT 'Aberta',
-            sku TEXT DEFAULT 'Galinha Cortada'
+            sku TEXT
         )
         """)
 
@@ -469,7 +469,7 @@ def criar_banco():
             pass
 
         try:
-            cursor.execute("ALTER TABLE ordens_producao ADD COLUMN sku TEXT DEFAULT 'Galinha Cortada'")
+            cursor.execute("ALTER TABLE ordens_producao ADD COLUMN sku TEXT")
         except sqlite3.OperationalError:
             pass
 

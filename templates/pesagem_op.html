@@ -9,7 +9,7 @@
         <h2>Modo de Pesagem</h2>
         <div class="hero-resumo-inline">
             <span><strong>OP:</strong> {{ op.id }}</span>
-            <span><strong>Produto:</strong> {{ op.sku or "Galinha Cortada" }}</span>
+            <span><strong>Produto:</strong> {{ op.sku if op.sku and op.sku|trim in ["Galinha Cortada", "Galinha Inteira"] else "SKU indisponível" }}</span>
             <span><strong>Status:</strong> {{ op.status }}</span>
         </div>
     </div>

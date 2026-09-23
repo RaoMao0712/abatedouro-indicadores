@@ -17,7 +17,7 @@
                         value="{{ item.id }}"
                         {% if op and item.id == op.id %}selected{% endif %}
                     >
-                        OP {{ item.id }} | {{ item.data }} | {{ item.fornecedor }} | {{ item.sku or "Galinha Cortada" }}
+                        OP {{ item.id }} | {{ item.data }} | {{ item.fornecedor }} | {{ item.sku if item.sku and item.sku|trim in ["Galinha Cortada", "Galinha Inteira"] else "SKU indisponível" }}
                     </option>
                     {% endfor %}
                 </select>
@@ -36,7 +36,7 @@
 {% if op %}
 
 <div class="card ficha">
-    <h3>OP {{ op.id }} | {{ op.fornecedor }} | {{ op.sku or "Galinha Cortada" }}</h3>
+    <h3>OP {{ op.id }} | {{ op.fornecedor }} | {{ op.sku if op.sku and op.sku|trim in ["Galinha Cortada", "Galinha Inteira"] else "SKU indisponível" }}</h3>
 
     <form method="POST">
         <input type="hidden" name="op_id" value="{{ op.id }}">

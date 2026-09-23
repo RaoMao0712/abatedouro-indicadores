@@ -17,10 +17,13 @@
             <div>
                 <label>SKU / Processo produtivo</label>
                 <select name="sku" required>
+                    {% if not op.sku or op.sku|trim not in ["Galinha Cortada", "Galinha Inteira"] %}
+                    <option value="" selected disabled>SKU indisponível — selecione explicitamente</option>
+                    {% endif %}
                     <option value="Galinha Inteira" {% if op.sku == "Galinha Inteira" %}selected{% endif %}>
                         Galinha Inteira
                     </option>
-                    <option value="Galinha Cortada" {% if op.sku == "Galinha Cortada" or not op.sku %}selected{% endif %}>
+                    <option value="Galinha Cortada" {% if op.sku == "Galinha Cortada" %}selected{% endif %}>
                         Galinha Cortada
                     </option>
                 </select>

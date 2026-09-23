@@ -224,7 +224,7 @@ def montar_condicoes_ops(filtros, alias="o"):
             condicoes.append("1 = 0")
 
     if filtros["sku"] != "Todos":
-        condicoes.append(f"COALESCE({alias}.sku, 'Galinha Cortada') = ?")
+        condicoes.append(f"TRIM({alias}.sku) = ?")
         parametros.append(filtros["sku"])
 
     if filtros["fornecedor"] != "Todos":
@@ -276,7 +276,7 @@ def cte_ops_agregadas(filtros, somente_encerradas=False):
             o.id AS op_id,
             o.data AS data_op,
             o.fornecedor,
-            COALESCE(o.sku, 'Galinha Cortada') AS sku,
+            COALESCE(NULLIF(TRIM(o.sku), ''), 'SKU indisponível') AS sku,
             COALESCE(o.status, 'Aberta') AS status,
             COALESCE(o.quantidade_aves, 0) AS aves_recebidas,
             COALESCE(o.mortes_antes_pendura, 0) AS mortes_antes_pendura,
@@ -849,7 +849,7 @@ def buscar_perdas_detalhadas(filtros, tipo="todas", limite=500):
     where_sql = " AND ".join(condicoes)
     linhas = executar_lista(f"""
     SELECT
-        d.id, d.op_id, o.data AS data_op, o.fornecedor, COALESCE(o.sku, 'Galinha Cortada') AS sku,
+        d.id, d.op_id, o.data AS data_op, o.fornecedor, COALESCE(NULLIF(TRIM(o.sku), ''), 'SKU indisponível') AS sku,
         COALESCE(o.status, 'Aberta') AS status,
         d.data, COALESCE(d.setor, 'Sem setor') AS setor,
         COALESCE(d.categoria, '') AS categoria,
@@ -883,7 +883,7 @@ def buscar_perdas_detalhadas(filtros, tipo="todas", limite=500):
             o.id AS op_id,
             o.data AS data_op,
             o.fornecedor,
-            COALESCE(o.sku, 'Galinha Cortada') AS sku,
+            COALESCE(NULLIF(TRIM(o.sku), ''), 'SKU indisponível') AS sku,
             COALESCE(o.status, 'Aberta') AS status,
             o.data AS data,
             'Recebimento' AS setor,
@@ -941,7 +941,7 @@ def buscar_opcoes_filtro():
             ORDER BY valor
         """)],
         "skus": [item["valor"] for item in executar_lista("""
-            SELECT DISTINCT COALESCE(sku, 'Galinha Cortada') AS valor
+            SELECT DISTINCT TRIM(sku) AS valor
             FROM ordens_producao
             WHERE COALESCE(sku, '') <> ''
             ORDER BY valor
@@ -977,7 +977,7 @@ def buscar_eficiencia_dados(filtros):
             o.id AS op_id,
             o.data AS data_op,
             o.fornecedor,
-            COALESCE(o.sku, 'Galinha Cortada') AS sku,
+            COALESCE(NULLIF(TRIM(o.sku), ''), 'SKU indisponível') AS sku,
             COALESCE(o.status, 'Aberta') AS status,
             COALESCE(o.quantidade_aves, 0) AS aves_recebidas,
             COALESCE(o.peso_vivo, 0) AS peso_vivo

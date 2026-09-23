@@ -68,19 +68,22 @@
             {% for item in vendas_diarias %}
             {% set qtd_unidades = item.quantidade_unidades if item.quantidade_unidades is defined and item.quantidade_unidades else (item.quantidade if item.unidade != 'kg' else 0) %}
             {% set qtd_kg = item.quantidade_kg if item.quantidade_kg is defined and item.quantidade_kg else (item.quantidade if item.unidade == 'kg' else 0) %}
-            {% set base_preco = qtd_kg if item.sku == 'Galinha Cortada' else qtd_unidades %}
-            {% set unidade_preco = 'kg' if item.sku == 'Galinha Cortada' else 'unidade' %}
+            {% set sku_valido = item.sku in ['Galinha Cortada', 'Galinha Inteira'] %}
+            {% set base_preco = qtd_kg if item.sku == 'Galinha Cortada' else (qtd_unidades if item.sku == 'Galinha Inteira' else 0) %}
+            {% set unidade_preco = 'kg' if item.sku == 'Galinha Cortada' else ('unidade' if item.sku == 'Galinha Inteira' else 'SKU indisponível') %}
             {% set preco_medio = (item.receita / base_preco) if base_preco else 0 %}
 
             <div class="history-item">
                 <p><strong>Data:</strong> {{ item.data }}</p>
-                <p><strong>SKU:</strong> {{ item.sku }}</p>
+                <p><strong>SKU:</strong> {{ item.sku if sku_valido else 'SKU indisponível' }}</p>
 
                 {% if item.sku == 'Galinha Cortada' %}
                     <p><strong>Unidades/bandejas:</strong> {{ "%.2f"|format(qtd_unidades or 0) }}</p>
                     <p><strong>Kg vendidos:</strong> {{ "%.2f"|format(qtd_kg or 0) }} kg</p>
-                {% else %}
+                {% elif item.sku == 'Galinha Inteira' %}
                     <p><strong>Unidades vendidas:</strong> {{ "%.2f"|format(qtd_unidades or 0) }}</p>
+                {% else %}
+                    <p><strong>Quantidade:</strong> indisponível para SKU não reconhecido</p>
                 {% endif %}
 
                 <p><strong>Receita:</strong> R$ {{ "%.2f"|format(item.receita or 0) }}</p>

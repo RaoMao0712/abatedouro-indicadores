@@ -19,6 +19,7 @@ from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from database import DATABASE_URL, conectar, q, transaction
+from modules.producao.skus_legados import SKU_GALINHA_INTEIRA, validar_sku_operacional
 
 
 ESTADOS_CALCULO = ("CALCULAVEL", "PARCIAL", "NAO_CALCULAVEL", "INCONSISTENTE")
@@ -188,8 +189,8 @@ def calcular_custo_op(op_id):
           FROM pa_caixas cx JOIN pa_caixa_composicao c ON c.caixa_id=cx.id
           WHERE c.op_id=? AND UPPER(COALESCE(cx.status,'')) NOT IN ('ESTORNADA','ESTORNADO','CANCELADA','CANCELADO')"""), (op_id,))
         caixas = cursor.fetchall()
-        sku = op["sku"] or (caixas[0]["sku"] if caixas else "Produto nao identificado")
-        if sku == "Galinha Inteira":
+        sku = validar_sku_operacional(op["sku"] or (caixas[0]["sku"] if caixas else None))
+        if sku == SKU_GALINHA_INTEIRA:
             unidade = "UN"
             quantidade = sum(Decimal(str(item["quantidade_op"] or 0)) for item in caixas)
         else:

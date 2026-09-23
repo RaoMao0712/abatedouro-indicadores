@@ -5,6 +5,10 @@ from decimal import Decimal
 import json
 
 from database import conectar, q
+from modules.producao.skus_legados import (
+    SKU_GALINHA_CORTADA,
+    SKUS_OPERACIONAIS_LEGADOS,
+)
 
 
 ABERTA_EM_PROCESSAMENTO = "ABERTA_EM_PROCESSAMENTO"
@@ -36,9 +40,11 @@ def _motivos_estado(snapshot):
     bandejas_caixas = _decimal(snapshot["bandejas_caixas"])
     peso = _decimal(snapshot["peso_liquido"])
     legada = str(snapshot.get("estoque_classificacao") or "") == "LEGADA"
-    usa_pi = snapshot.get("usa_pi", str(snapshot.get("sku") or "") != "Galinha Inteira")
+    sku = str(snapshot.get("sku") or "").strip()
+    sku_valido = sku in SKUS_OPERACIONAIS_LEGADOS
+    usa_pi = snapshot.get("usa_pi", sku == SKU_GALINHA_CORTADA if sku_valido else False)
     peso_obrigatorio = snapshot.get(
-        "peso_obrigatorio", str(snapshot.get("sku") or "") != "Galinha Inteira",
+        "peso_obrigatorio", sku == SKU_GALINHA_CORTADA if sku_valido else False,
     )
     saldo_aves = _decimal(snapshot["quantidade_aves"]) - (
         _decimal(snapshot["bandejas_primaria"])
@@ -48,6 +54,9 @@ def _motivos_estado(snapshot):
         + _decimal(snapshot["mortes_na_gaiola"])
     )
     divergencias = []
+
+    if not sku_valido:
+        divergencias.append("SKU operacional ausente ou não reconhecido.")
 
     if saldo_pi < 0:
         divergencias.append(f"Saldo de PI negativo ({saldo_pi.normalize()}).")

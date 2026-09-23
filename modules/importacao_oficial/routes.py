@@ -7,6 +7,7 @@ from openpyxl import load_workbook
 
 from database import DATABASE_URL, conectar, q
 from modules.auth.decorators import perfil_permitido
+from modules.producao.skus_legados import validar_sku_operacional
 
 _criar_banco = None
 _criar_tabela_tempos_setor = None
@@ -127,7 +128,7 @@ def ler_planilha_importacao_maio(arquivo_excel):
             op = {
                 "linha": linha,
                 "data": valor_excel_para_data_texto(ws_ops.cell(linha, col["data"]).value),
-                "sku": texto_importacao(ws_ops.cell(linha, col["sku"]).value) or "Galinha Cortada",
+                "sku": texto_importacao(ws_ops.cell(linha, col["sku"]).value),
                 "fornecedor": texto_importacao(ws_ops.cell(linha, col["fornecedor"]).value),
                 "gta": texto_importacao(ws_ops.cell(linha, col["gta"]).value) if col.get("gta") else "",
                 "nota_fiscal": texto_importacao(ws_ops.cell(linha, col["nota_fiscal"]).value) if col.get("nota_fiscal") else "",
@@ -138,6 +139,11 @@ def ler_planilha_importacao_maio(arquivo_excel):
                 "kg_produzidos": numero_importacao(ws_ops.cell(linha, col["kg_produzidos"]).value),
                 "observacoes": texto_importacao(ws_ops.cell(linha, col["observacoes"]).value) if col.get("observacoes") else "",
             }
+            try:
+                op["sku"] = validar_sku_operacional(op["sku"])
+            except ValueError as erro_sku:
+                erros.append(f"Aba OPs linha {linha}: {erro_sku}")
+                continue
             if not op["fornecedor"]:
                 erros.append(f"Aba OPs linha {linha}: fornecedor vazio.")
             if op["quantidade_aves"] <= 0:

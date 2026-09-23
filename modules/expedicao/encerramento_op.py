@@ -9,6 +9,7 @@ import uuid
 
 from database import DATABASE_URL, conectar, q, transaction
 from modules.producao.services import gerar_producao_automatica_setores
+from modules.producao.skus_legados import SKU_GALINHA_INTEIRA, validar_sku_operacional
 
 
 TIPO_AUDITORIA = "ENCERRAMENTO_OP"
@@ -146,7 +147,8 @@ def _calcular_fechamento_cursor(cursor, op):
              if saldo_pi > 0 else
              f"A Embalagem Secundária consumiu {-saldo_pi:g} bandejas a mais que o PI produzido.")
         )
-    exige_peso = str(op["sku"] or "") != "Galinha Inteira"
+    sku = validar_sku_operacional(op["sku"])
+    exige_peso = sku != SKU_GALINHA_INTEIRA
     if int(caixas["caixas"] or 0) == 0 or (exige_peso and peso_liquido_total <= 0):
         pendencias.append(
             "Nenhuma caixa com peso líquido foi registrada para esta OP."
@@ -559,12 +561,13 @@ def _encerrar_op_transacional(
                 f"Não foi possível encerrar a OP #{op_id}: " + " ".join(preflight["bloqueios"])
             )
         fechamento = preflight["fechamento"]
+        sku_operacional = validar_sku_operacional(op["sku"])
         if checkpoint:
             checkpoint("antes_formacao_estoque")
         gerar_producao_automatica_setores(
             op=op, data_lancamento=op["data"], hora_inicio="N/A", hora_fim="N/A",
             unidades_produzidas=fechamento["bandejas_consumidas"],
-            kg_produzidos=(None if str(op["sku"] or "") == "Galinha Inteira"
+            kg_produzidos=(None if sku_operacional == SKU_GALINHA_INTEIRA
                            else fechamento["peso_liquido_total"]),
             descontar_almoco=False, conn=conn,
         )

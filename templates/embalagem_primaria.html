@@ -59,8 +59,8 @@
             <select name="op_id" required>
                 <option value="">Selecione</option>
                 {% for op in ops %}
-                    <option value="{{ op.id }}" data-sku="{{ op.sku or 'Galinha Cortada' }}" {% if op_id_selecionada == op.id|string %}selected{% endif %}>
-                        OP #{{ op.id }} — {{ op.data }} — {{ op.sku or "Galinha Cortada" }} — {{ op.status }}
+                    <option value="{{ op.id }}" data-sku="{{ op.sku|trim if op.sku else '' }}" {% if not op.sku or op.sku|trim not in ["Galinha Cortada", "Galinha Inteira"] %}disabled{% endif %} {% if op_id_selecionada == op.id|string %}selected{% endif %}>
+                        OP #{{ op.id }} — {{ op.data }} — {{ op.sku if op.sku and op.sku|trim in ["Galinha Cortada", "Galinha Inteira"] else "SKU indisponível" }} — {{ op.status }}
                     </option>
                 {% endfor %}
             </select>

@@ -476,7 +476,7 @@ def register_producao_routes(app, integracoes=None):
             op = buscar_op_por_id(op_id)
 
             if op:
-                setores_op = setores_por_sku(op["sku"] or "Galinha Cortada")
+                setores_op = setores_por_sku(op["sku"])
                 tempos_salvos = buscar_tempos_setor_por_op(op_id)
 
         tempos_por_setor = {

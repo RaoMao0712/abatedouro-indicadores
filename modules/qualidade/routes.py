@@ -513,7 +513,7 @@ def register_qualidade_routes(app, integracoes=None):
         parametros = [data_inicio, data_fim]
 
         if sku_filtro != "Todos":
-            condicoes.append("COALESCE(o.sku, 'Galinha Cortada') = ?")
+            condicoes.append("TRIM(o.sku) = ?")
             parametros.append(sku_filtro)
 
         if fornecedor_filtro != "Todos":

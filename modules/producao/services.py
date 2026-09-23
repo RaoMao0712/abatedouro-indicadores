@@ -1095,7 +1095,7 @@ def salvar_tempos_setor(form):
         conn.close()
         raise ValueError("OP não encontrada.")
 
-    setores = setores_por_sku(op["sku"] or "Galinha Cortada")
+    setores = setores_por_sku(op["sku"])
 
     cursor.execute(q("""
     DELETE FROM apontamentos_tempos_setor

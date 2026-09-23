@@ -89,7 +89,7 @@
             <div class="history-item">
                 <p><strong>OP:</strong> #{{ op.id }}</p>
                 <p><strong>Data:</strong> {{ op.data }}</p>
-                <p><strong>SKU / Processo:</strong> {{ op.sku or "Galinha Cortada" }}</p>
+                <p><strong>SKU / Processo:</strong> {{ op.sku if op.sku and op.sku|trim in ["Galinha Cortada", "Galinha Inteira"] else "SKU indisponível" }}</p>
                 <p><strong>Fornecedor:</strong> {{ op.fornecedor }}</p>
                 <p><strong>GTA:</strong> {{ op.gta or "-" }}</p>
                 <p><strong>NF:</strong> {{ op.nota_fiscal or "-" }}</p>

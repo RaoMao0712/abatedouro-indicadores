@@ -230,7 +230,7 @@ def buscar_dados_dre_gerencial(competencia):
 
         if sku == "Galinha Cortada":
             vendas_por_sku_dict[sku]["quantidade"] += item["quantidade_kg"]
-        else:
+        elif sku == "Galinha Inteira":
             vendas_por_sku_dict[sku]["quantidade"] += item["quantidade_unidades"]
 
     receita_bruta_movimentacoes = repository.buscar_receita_bruta_movimentacoes(data_inicio, data_fim)
@@ -241,8 +241,12 @@ def buscar_dados_dre_gerencial(competencia):
     vendas_por_sku = []
 
     for sku, venda in vendas_por_sku_dict.items():
-        quantidade_base = venda["quantidade_kg"] if sku == "Galinha Cortada" else venda["quantidade_unidades"]
-        unidade_base = "kg" if sku == "Galinha Cortada" else "unidades"
+        if sku == "Galinha Cortada":
+            quantidade_base, unidade_base = venda["quantidade_kg"], "kg"
+        elif sku == "Galinha Inteira":
+            quantidade_base, unidade_base = venda["quantidade_unidades"], "unidades"
+        else:
+            quantidade_base, unidade_base = 0, "indisponível"
         preco_medio = venda["receita"] / quantidade_base if quantidade_base > 0 else 0
 
         vendas_por_sku.append({

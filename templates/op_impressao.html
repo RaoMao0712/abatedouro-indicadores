@@ -123,7 +123,7 @@
         <div><strong>OP:</strong> {{ op.id }}</div>
         <div><strong>Data:</strong> {{ op.data }}</div>
 
-        <div><strong>SKU / Processo:</strong> {{ op.sku or "Galinha Cortada" }}</div>
+        <div><strong>SKU / Processo:</strong> {{ op.sku if op.sku and op.sku|trim in ["Galinha Cortada", "Galinha Inteira"] else "SKU indisponível" }}</div>
         <div><strong>Fornecedor:</strong> {{ op.fornecedor }}</div>
 
         <div><strong>GTA:</strong> {{ op.gta or "-" }}</div>

@@ -18,8 +18,8 @@ def _filtros(status_filtro, sku_filtro):
     parametros_sku = ()
 
     if sku_filtro in ["Galinha Cortada", "Galinha Inteira"]:
-        sku_condicao_op = " AND COALESCE(sku, 'Galinha Cortada') = ?"
-        sku_condicao_alias = " AND COALESCE(o.sku, 'Galinha Cortada') = ?"
+        sku_condicao_op = " AND TRIM(sku) = ?"
+        sku_condicao_alias = " AND TRIM(o.sku) = ?"
         parametros_sku = (sku_filtro,)
 
     return {
@@ -130,7 +130,7 @@ def buscar_dados_dashboard(data_inicio, data_fim, status_filtro, sku_filtro):
     LEFT JOIN pa_op ON pa_op.op_id = o.id
     WHERE o.data BETWEEN ? AND ?
       AND UPPER(COALESCE(o.status,'')) = 'ENCERRADA'
-      AND COALESCE(o.sku, 'Galinha Cortada') = 'Galinha Cortada'
+      AND TRIM(o.sku) = 'Galinha Cortada'
       {status_condicao_alias}
     """), (data_inicio, data_fim) + parametros_status)
     base_rendimento = cursor.fetchone()
@@ -138,7 +138,7 @@ def buscar_dados_dashboard(data_inicio, data_fim, status_filtro, sku_filtro):
     peso_entrada_rendimento = base_rendimento["peso_vivo"] or 0
 
     cursor.execute(q(f"""
-    SELECT COALESCE(o.sku, 'Galinha Cortada') as sku,
+    SELECT COALESCE(NULLIF(TRIM(o.sku), ''), 'SKU indisponível') as sku,
            COALESCE(SUM(p.quantidade), 0) as unidades_produzidas
     FROM apontamentos_producao p
     JOIN ordens_producao o ON o.id = p.op_id
@@ -147,13 +147,13 @@ def buscar_dados_dashboard(data_inicio, data_fim, status_filtro, sku_filtro):
       AND COALESCE(p.vigente,1)=1
       AND LOWER(p.unidade) IN ('unidades', 'unidade', 'aves', 'ave')
       {status_condicao_alias}
-    GROUP BY COALESCE(o.sku, 'Galinha Cortada')
+    GROUP BY COALESCE(NULLIF(TRIM(o.sku), ''), 'SKU indisponível')
     ORDER BY unidades_produzidas DESC
     """), (data_inicio, data_fim) + parametros_status)
     mix_unidades_raw = cursor.fetchall()
 
     cursor.execute(q(f"""
-    SELECT COALESCE(o.sku, 'Galinha Cortada') as sku,
+    SELECT COALESCE(NULLIF(TRIM(o.sku), ''), 'SKU indisponível') as sku,
            COALESCE(SUM(p.quantidade), 0) as kg_produzidos
     FROM apontamentos_producao p
     JOIN ordens_producao o ON o.id = p.op_id
@@ -161,7 +161,7 @@ def buscar_dados_dashboard(data_inicio, data_fim, status_filtro, sku_filtro):
       AND LOWER(p.unidade) = 'kg'
       AND COALESCE(p.vigente,1)=1
       {status_condicao_alias}
-    GROUP BY COALESCE(o.sku, 'Galinha Cortada')
+    GROUP BY COALESCE(NULLIF(TRIM(o.sku), ''), 'SKU indisponível')
     """), (data_inicio, data_fim) + parametros_status)
     mix_kg_raw = cursor.fetchall()
 

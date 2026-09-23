@@ -32,7 +32,7 @@
                 <label>OP</label>
                 <select name="op_id" required>
                     {% for op in ordens %}
-                    <option value="{{ op.id }}">OP {{ op.id }} | {{ op.fornecedor }} | {{ op.sku or "Galinha Cortada" }}</option>
+                    <option value="{{ op.id }}">OP {{ op.id }} | {{ op.fornecedor }} | {{ op.sku if op.sku and op.sku|trim in ["Galinha Cortada", "Galinha Inteira"] else "SKU indisponível" }}</option>
                     {% endfor %}
                 </select>
             </div>
