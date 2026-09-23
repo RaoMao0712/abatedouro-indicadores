@@ -8,7 +8,6 @@ from uuid import uuid4
 from flask import has_request_context, request, session
 
 from database import DATABASE_URL, conectar, q, transaction
-from modules.producao.skus_legados import SKU_INVENTARIO_LEGADO
 from . import produtos_nao_conformes as nc
 
 
@@ -20,10 +19,10 @@ REJEITADA = "REJEITADA"
 REVOGADA_POR_CORRECAO = "REVOGADA_POR_CORRECAO"
 LOCAL_INVENTARIO = "Câmara de Estocagem - Estoque Não Conforme"
 LOCAL_INVENTARIO_ID = 4
-SKU_INVENTARIO_ID = SKU_INVENTARIO_LEGADO["id"]
-SKU_INVENTARIO_CODIGO = SKU_INVENTARIO_LEGADO["codigo"]
-SKU_INVENTARIO_NOME = SKU_INVENTARIO_LEGADO["nome"]
-APRESENTACAO_INVENTARIO = SKU_INVENTARIO_LEGADO["apresentacao"]
+SKU_INVENTARIO_ID = 1
+SKU_INVENTARIO_CODIGO = "LEG-1"
+SKU_INVENTARIO_NOME = "Galinha Cortada"
+APRESENTACAO_INVENTARIO = "Congelada"
 _SCHEMA_AUDITORIA_ITENS_GARANTIDO = False
 
 INVENTARIO_OFICIAL = (
