@@ -1,11 +1,10 @@
 """Rotas da Engenharia de Produtos com leitura e escrita separadas por perfil."""
 
-from flask import flash, jsonify, redirect, render_template, request, session, url_for
+from flask import flash, redirect, render_template, request, session, url_for
 
 from modules.auth.decorators import perfil_permitido
 
 from . import services
-from . import fundacao
 
 
 PERFIS_LEITURA = ("pcp", "gerencia", "producao", "qualidade")
@@ -24,106 +23,6 @@ def _pode_editar():
 
 
 def register_engenharia_produtos_routes(app):
-    @app.route("/cadastros/fundacao-sku", methods=["GET"])
-    @perfil_permitido(*PERFIS_ESCRITA)
-    def fundacao_sku_listar():
-        sku_id = request.args.get("sku_id", type=int)
-        return jsonify(fundacao.listar_fundacao(sku_id))
-
-    @app.route("/cadastros/skus/<int:sku_id>/versoes", methods=["POST"])
-    @perfil_permitido(*PERFIS_ESCRITA)
-    def fundacao_sku_versao_criar(sku_id):
-        try:
-            return jsonify({"id": fundacao.criar_sku_versao(sku_id, request.get_json(silent=True) or request.form, _usuario())}), 201
-        except (ValueError, KeyError) as erro:
-            return jsonify({"erro": str(erro)}), 400
-
-    @app.route("/cadastros/etapas-catalogo", methods=["POST"])
-    @perfil_permitido(*PERFIS_ESCRITA)
-    def fundacao_etapa_catalogo_criar():
-        try:
-            return jsonify({"id": fundacao.criar_etapa_catalogo(request.get_json(silent=True) or request.form, _usuario())}), 201
-        except (ValueError, KeyError) as erro:
-            return jsonify({"erro": str(erro)}), 400
-
-    @app.route("/cadastros/sku-versoes/<int:versao_id>/roteiros", methods=["POST"])
-    @perfil_permitido(*PERFIS_ESCRITA)
-    def fundacao_roteiro_criar(versao_id):
-        try:
-            return jsonify({"id": fundacao.criar_roteiro_versao(versao_id, request.get_json(silent=True) or request.form, _usuario())}), 201
-        except (ValueError, KeyError) as erro:
-            return jsonify({"erro": str(erro)}), 400
-
-    @app.route("/cadastros/roteiros/<int:roteiro_id>/etapas", methods=["POST"])
-    @perfil_permitido(*PERFIS_ESCRITA)
-    def fundacao_roteiro_etapa_criar(roteiro_id):
-        try:
-            return jsonify({"id": fundacao.adicionar_etapa(roteiro_id, request.get_json(silent=True) or request.form)}), 201
-        except (ValueError, KeyError) as erro:
-            return jsonify({"erro": str(erro)}), 400
-
-    @app.route("/cadastros/roteiro-etapas/<int:etapa_id>/insumos", methods=["POST"])
-    @perfil_permitido(*PERFIS_ESCRITA)
-    def fundacao_roteiro_insumo_criar(etapa_id):
-        try:
-            return jsonify({"id": fundacao.adicionar_insumo(etapa_id, request.get_json(silent=True) or request.form)}), 201
-        except (ValueError, KeyError) as erro:
-            return jsonify({"erro": str(erro)}), 400
-
-    @app.route("/cadastros/sku-versoes/<int:versao_id>", methods=["PUT"])
-    @perfil_permitido(*PERFIS_ESCRITA)
-    def fundacao_sku_versao_editar(versao_id):
-        try:
-            fundacao.atualizar_sku_versao(versao_id, request.get_json() or {}, _usuario())
-            return jsonify({"ok": True})
-        except (ValueError, KeyError) as erro:
-            return jsonify({"erro": str(erro)}), 400
-
-    @app.route("/cadastros/sku-versoes/<int:versao_id>/ativar", methods=["POST"])
-    @perfil_permitido(*PERFIS_ESCRITA)
-    def fundacao_sku_versao_ativar(versao_id):
-        try:
-            fundacao.ativar_sku_versao(versao_id, _usuario())
-            return jsonify({"ok": True})
-        except ValueError as erro:
-            return jsonify({"erro": str(erro)}), 400
-
-    @app.route("/cadastros/etapas-catalogo/<int:etapa_id>", methods=["PUT"])
-    @perfil_permitido(*PERFIS_ESCRITA)
-    def fundacao_etapa_catalogo_editar(etapa_id):
-        try:
-            fundacao.atualizar_etapa_catalogo(etapa_id, request.get_json() or {}, _usuario())
-            return jsonify({"ok": True})
-        except (ValueError, KeyError) as erro:
-            return jsonify({"erro": str(erro)}), 400
-
-    @app.route("/cadastros/roteiros/<int:roteiro_id>", methods=["PUT"])
-    @perfil_permitido(*PERFIS_ESCRITA)
-    def fundacao_roteiro_editar(roteiro_id):
-        try:
-            fundacao.atualizar_roteiro(roteiro_id, request.get_json() or {}, _usuario())
-            return jsonify({"ok": True})
-        except (ValueError, KeyError) as erro:
-            return jsonify({"erro": str(erro)}), 400
-
-    @app.route("/cadastros/roteiros/<int:roteiro_id>/ativar", methods=["POST"])
-    @perfil_permitido(*PERFIS_ESCRITA)
-    def fundacao_roteiro_ativar(roteiro_id):
-        try:
-            fundacao.ativar_roteiro(roteiro_id, _usuario())
-            return jsonify({"ok": True})
-        except ValueError as erro:
-            return jsonify({"erro": str(erro)}), 400
-
-    @app.route("/cadastros/roteiros/<int:roteiro_id>/etapas/<int:etapa_id>", methods=["DELETE"])
-    @perfil_permitido(*PERFIS_ESCRITA)
-    def fundacao_roteiro_etapa_excluir(roteiro_id, etapa_id):
-        try:
-            fundacao.excluir_etapa(roteiro_id, etapa_id)
-            return jsonify({"ok": True})
-        except ValueError as erro:
-            return jsonify({"erro": str(erro)}), 400
-
     @app.route("/receitas-sku", methods=["GET"], endpoint="receitas_sku")
     @app.route("/engenharia-produtos", methods=["GET"], endpoint="engenharia_produtos")
     @perfil_permitido(*PERFIS_LEITURA)
