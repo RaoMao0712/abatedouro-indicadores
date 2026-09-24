@@ -46,6 +46,15 @@ def fatos_operacionais_op(cursor, op_id):
 def validar_alteracao_sku(cursor, op_id, sku_anterior, sku_novo):
     if sku_novo == sku_anterior:
         return []
+    existentes = _tabelas_existentes(cursor)
+    if "op_config_snapshots" in existentes:
+        cursor.execute(q("SELECT 1 FROM op_config_snapshots WHERE op_id=? LIMIT 1"), (op_id,))
+        if cursor.fetchone():
+            erro = ValueError(
+                "O SKU não pode ser alterado porque a OP possui snapshot de configuração imutável."
+            )
+            erro.fatos_operacionais = ["op_config_snapshots"]
+            raise erro
     fatos = fatos_operacionais_op(cursor, op_id)
     if fatos:
         erro = ValueError(

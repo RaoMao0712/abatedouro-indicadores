@@ -12,6 +12,7 @@ from modules.parceiros.services import (
     PAPEL_FORNECEDOR, listar_parceiros_elegiveis, obter_parceiro_por_papel,
 )
 from modules.qualidade import services as qualidade_service
+from modules.engenharia_produtos.snapshot_op import gravar_snapshot
 from modules.relatorios.producao import buscar_ops_agregadas, normalizar_filtros
 from utils import normalizar_chave_setor, setores_padrao
 
@@ -136,6 +137,11 @@ def register_producao_routes(app, integracoes=None):
                 else:
                     cursor.execute(sql_op, parametros_op)
                     op_id = cursor.lastrowid
+                gravar_snapshot(
+                    cursor, op_id, sku,
+                    usuario_id=session.get("usuario_id"),
+                    usuario_nome=session.get("nome") or "Usuario",
+                )
                 inicio_programado = request.form.get("inicio_programado")
                 fim_programado = request.form.get("fim_programado")
                 if inicio_programado or fim_programado:
@@ -158,6 +164,10 @@ def register_producao_routes(app, integracoes=None):
                     "ordem_producao.html", hoje=data, ordens=buscar_ordens()[:10],
                     fornecedores=buscar_fornecedores(), categorias_pausa=sorted(CATEGORIAS_PAUSA),
                 )
+            except Exception:
+                conn.rollback()
+                conn.close()
+                raise
             conn.close()
 
             flash("OP cadastrada com sucesso")
@@ -1130,6 +1140,7 @@ def register_producao_routes(app, integracoes=None):
         ]:
             cursor.execute(q(f"DELETE FROM {tabela} WHERE op_id = ?"), (op_id,))
 
+        cursor.execute(q("DELETE FROM op_config_snapshots WHERE op_id = ?"), (op_id,))
         cursor.execute(q("DELETE FROM ordens_producao WHERE id = ?"), (op_id,))
 
         conn.commit()
