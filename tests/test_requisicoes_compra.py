@@ -103,7 +103,7 @@ def aprovada(itens=None,chave="nu-base"):
     return svc.aprovar(rc["id"],ator=u(2,"gerencia"),versao=1,idempotency_key=chave+"-apr")
 
 def test_reposicao_bloqueia_item_incoerente(banco):
-    with pytest.raises(ValueError,match="somente o material"):
+    with pytest.raises(ValueError,match="deve conter o material"):
         criar("REPOSICAO_ESTOQUE",1,itens=[item(3)])
 
 def test_formulario_oferece_origens_formais_e_ux_sem_id_tecnico(banco):
@@ -159,3 +159,41 @@ def test_nu_cinquenta_itens_subconjuntos_resumo_pdf_e_invariantes(banco):
     assert grupos=={"111111":20,"222222":15,"333333":10,"444444":5}
     assert any(e["evento"]=="NU_ALTERADA" for e in rc["eventos"])
     assert gerar_pdf(rc).startswith(b"%PDF") and contagens(banco)==antes
+
+
+def _form(itens):
+    from werkzeug.datastructures import MultiDict
+    d=MultiDict()
+    for it in itens:
+        for k,v in it.items(): d.add(k,v)
+    return d
+
+def test_regressao_rc_reposicao_1_e_multiplos_itens_criacao_e_edicao(banco):
+    rc=criar("REPOSICAO_ESTOQUE",1,itens=[item(1,"5")],chave="rep1")
+    assert len(rc["itens"])==1
+    rc2=criar("REPOSICAO_ESTOQUE",1,itens=[item(1,"5"),item(2,"2"),{**item("","3"),"descricao_item":"Parafuso","unidade_item":"un"}],chave="repN")
+    assert [i["material_id"] for i in rc2["itens"]]==[1,2,None]
+    rc2=svc.editar_rascunho(rc2["id"],{"prioridade":"NORMAL"},[item(1,"5"),item(3,"1")],ator=u(),versao=rc2["versao"],idempotency_key="repN-ed")
+    assert [i["material_id"] for i in rc2["itens"]]==[1,3]
+    with pytest.raises(ValueError,match="deve conter o material"):
+        criar("REPOSICAO_ESTOQUE",1,itens=[item(2),item(3)],chave="repX")
+    with pytest.raises(ValueError,match="deve conter o material"):
+        svc.editar_rascunho(rc2["id"],{"prioridade":"NORMAL"},[item(2),item(3)],ator=u(),versao=rc2["versao"],idempotency_key="repN-ed2")
+
+def test_regressao_rc_outras_origens_multiplos_itens(banco):
+    for tipo,oid,perfil in (("ORDEM_SERVICO",245,"manutencao"),("ORDEM_PRODUCAO",7,"producao"),("NAO_CONFORMIDADE_SGI",12,"qualidade")):
+        rc=criar(tipo,oid,itens=[item(1,"1"),item(2,"2"),item(3,"3")],ator=u(2,perfil),chave="m-"+tipo)
+        assert len(rc["itens"])==3
+
+def test_regressao_listas_paralelas_apos_remover_item_intermediario(banco):
+    it=svc.normalizar_itens(_form([item(1,"1"),item(3,"3")]))
+    assert [(x["material_id"],x["quantidade_item"]) for x in it]==[("1","1"),("3","3")]
+    rc=criar("REPOSICAO_ESTOQUE",1,itens=it,chave="rm-mid")
+    assert [(i["material_id"],float(i["quantidade_solicitada"])) for i in rc["itens"]]==[(1,1.0),(3,3.0)]
+
+def test_regressao_botao_adicionar_item_nova_rc_sem_guarda_de_reposicao():
+    t=(Path(__file__).resolve().parents[1]/"templates"/"requisicao_compra_nova.html").read_text(encoding="utf-8")
+    trecho=t.split("getElementById('rc-add-item').addEventListener('click',",1)[1].split("origemUI();",1)[0]
+    assert "REPOSICAO_ESTOQUE" not in trecho and "cloneNode(true)" in trecho
+    assert "x.value=''" in trecho and "selectedIndex=0" in trecho
+    assert "querySelector('.rc-material');m.value=s.value" in t

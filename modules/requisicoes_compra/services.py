@@ -88,8 +88,8 @@ def criar_rascunho(dados,itens,*,ator,idempotency_key):
         _begin(conn); cur=conn.cursor(); cur.execute(q("SELECT id FROM requisicoes_compra WHERE chave_criacao=?"),(chave,)); old=cur.fetchone()
         if old: conn.rollback(); return buscar_rc(old["id"])
         preparados=_preparar_itens(cur,itens)
-        if str(dados.get("tipo_origem") or "").upper()=="REPOSICAO_ESTOQUE" and (len(preparados)!=1 or preparados[0]["material_id"]!=oid):
-            raise ValueError("Na reposição, a RC deve conter somente o material que originou a necessidade.")
+        if str(dados.get("tipo_origem") or "").upper()=="REPOSICAO_ESTOQUE" and oid not in {x["material_id"] for x in preparados}:
+            raise ValueError("Na reposição, a RC deve conter o material que originou a necessidade.")
         t=agora()
         cur.execute(q("""INSERT INTO requisicoes_compra(numero,status,tipo_origem,origem_id,origem_numero_snapshot,origem_descricao_snapshot,origem_setor_snapshot,origem_equipamento_snapshot,origem_dados_snapshot,setor,solicitante_id,solicitante_nome_snapshot,responsavel_id,responsavel_nome_snapshot,prioridade,justificativa,observacoes,chave_criacao,criado_por,criado_em,atualizado_em) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"""),(None,"RASCUNHO",str(dados.get("tipo_origem")).upper(),oid,snap["numero"],snap["descricao"],snap["setor"],snap["equipamento"],json.dumps(snap,ensure_ascii=False,default=str),str(dados.get("setor") or snap["setor"]),u["id"],u["nome"],dados.get("responsavel_id") or None,str(dados.get("responsavel_nome") or "").strip() or None,prioridade,justificativa or None,str(dados.get("observacoes") or "").strip() or None,chave,u["id"],t,t)); rid=_id(cur); numero=f"RC-{rid:06d}"; cur.execute(q("UPDATE requisicoes_compra SET numero=? WHERE id=?"),(numero,rid))
         for x in preparados: cur.execute(q("""INSERT INTO requisicao_compra_itens(requisicao_compra_id,material_id,descricao_snapshot,unidade_snapshot,quantidade_solicitada,custo_estimado_unitario,observacao,pendente_cadastro,criado_em,atualizado_em) VALUES(?,?,?,?,?,?,?,?,?,?)"""),(rid,x["material_id"],x["descricao"],x["unidade"],x["quantidade"],x["custo"],x["observacao"] or None,x["pendente"],t,t))
@@ -114,8 +114,8 @@ def editar_rascunho(rid,dados,itens,*,ator,versao,idempotency_key):
         if str(rc["solicitante_id"])!=str(u["id"]) and u["perfil"] not in {"admin","gerencia"}: raise PermissionError("Sem permissão para editar este rascunho.")
         if int(rc["versao"])!=int(versao): raise ConflitoRC("A RC foi alterada por outro usuário.")
         preparados=_preparar_itens(cur,itens)
-        if rc["tipo_origem"]=="REPOSICAO_ESTOQUE" and (len(preparados)!=1 or preparados[0]["material_id"]!=rc["origem_id"]):
-            raise ValueError("Na reposição, a RC deve conter somente o material que originou a necessidade.")
+        if rc["tipo_origem"]=="REPOSICAO_ESTOQUE" and rc["origem_id"] not in {x["material_id"] for x in preparados}:
+            raise ValueError("Na reposição, a RC deve conter o material que originou a necessidade.")
         cur.execute(q("SELECT material_id,descricao_snapshot,unidade_snapshot,quantidade_solicitada,custo_estimado_unitario,observacao,pendente_cadastro FROM requisicao_compra_itens WHERE requisicao_compra_id=? ORDER BY id"),(rid,)); antes=[dict(x) for x in cur.fetchall()]
         cur.execute(q("DELETE FROM requisicao_compra_itens WHERE requisicao_compra_id=?"),(rid,)); t=agora()
         for x in preparados: cur.execute(q("""INSERT INTO requisicao_compra_itens(requisicao_compra_id,material_id,descricao_snapshot,unidade_snapshot,quantidade_solicitada,custo_estimado_unitario,observacao,pendente_cadastro,criado_em,atualizado_em) VALUES(?,?,?,?,?,?,?,?,?,?)"""),(rid,x["material_id"],x["descricao"],x["unidade"],x["quantidade"],x["custo"],x["observacao"] or None,x["pendente"],t,t))
