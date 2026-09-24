@@ -9,6 +9,7 @@
         </div>
         {% if pode_editar %}
         <div class="ep-actions">
+            <a class="ep-btn ep-btn-secondary" href="{{ url_for('reconciliacoes_sombra') }}">Reconciliações</a>
             <a class="ep-btn ep-btn-secondary" href="{{ url_for('processos_produtivos') }}">Processos</a>
             <a class="ep-btn ep-btn-primary" href="{{ url_for('novo_produto') }}">Novo Produto</a>
         </div>

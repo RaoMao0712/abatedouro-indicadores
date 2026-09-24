@@ -21,6 +21,7 @@ import modules.producao.routes as producao_routes  # noqa: E402
 def _preparar():
     conn = conectar()
     cursor = conn.cursor()
+    cursor.execute("DELETE FROM op_config_reconciliacoes")
     cursor.execute("DELETE FROM op_config_snapshots")
     cursor.execute("DELETE FROM roteiro_etapa_insumos")
     cursor.execute("DELETE FROM roteiro_etapas")
@@ -70,8 +71,12 @@ def test_rota_cria_op_e_snapshot_na_mesma_transacao():
     cursor = conn.cursor()
     op = cursor.execute("SELECT id,sku FROM ordens_producao WHERE gta='F3-001'").fetchone()
     snapshot = cursor.execute("SELECT snapshot_json FROM op_config_snapshots WHERE op_id=?", (op["id"],)).fetchone()
+    reconciliacao = cursor.execute(
+        "SELECT resultado_geral FROM op_config_reconciliacoes WHERE op_id=?", (op["id"],)
+    ).fetchone()
     assert op["sku"] == "Galinha Cortada"
     assert json.loads(snapshot["snapshot_json"])["sku"]["codigo"] == "LEG-1"
+    assert reconciliacao["resultado_geral"] == "PARIDADE"
     conn.close()
 
 
@@ -90,4 +95,30 @@ def test_rota_reverte_op_se_snapshot_falhar(monkeypatch):
     cursor = conn.cursor()
     assert cursor.execute("SELECT COUNT(*) n FROM ordens_producao WHERE gta='F3-ROLLBACK'").fetchone()["n"] == 0
     assert cursor.execute("SELECT COUNT(*) n FROM op_config_snapshots").fetchone()["n"] == 0
+    conn.close()
+
+
+def test_tela_reconciliacoes_renderiza_em_modo_somente_leitura():
+    _preparar()
+    resposta = _cliente().get("/engenharia-produtos/reconciliacoes")
+    assert resposta.status_code == 200
+    assert "Reconciliação Legado" in resposta.get_data(as_text=True)
+    assert _cliente().post("/engenharia-produtos/reconciliacoes").status_code == 405
+
+
+def test_falha_de_reconciliacao_reverte_op_e_snapshot(monkeypatch):
+    fornecedor = _preparar()
+
+    def falhar(*_args, **_kwargs):
+        raise ValueError("reconciliação indisponível")
+
+    monkeypatch.setattr(producao_routes, "reconciliar_op", falhar)
+    resposta = _cliente().post(
+        "/ordem-producao", data=_form(fornecedor, "Galinha Cortada", "F4-ROLLBACK")
+    )
+    assert resposta.status_code == 200
+    conn = conectar(); cursor = conn.cursor()
+    assert cursor.execute("SELECT COUNT(*) n FROM ordens_producao WHERE gta='F4-ROLLBACK'").fetchone()["n"] == 0
+    assert cursor.execute("SELECT COUNT(*) n FROM op_config_snapshots").fetchone()["n"] == 0
+    assert cursor.execute("SELECT COUNT(*) n FROM op_config_reconciliacoes").fetchone()["n"] == 0
     conn.close()

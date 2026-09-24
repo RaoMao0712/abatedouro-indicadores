@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block conteudo %}
+<div class="ep-page">
+  <header class="ep-header">
+    <div><span class="eyebrow">Modo sombra</span><h1>Reconciliação Legado × Snapshot</h1>
+      <p>Consulta auditável; o motor legado permanece como autoridade operacional.</p></div>
+    <div class="ep-actions"><a class="ep-btn ep-btn-secondary" href="{{ url_for('engenharia_produtos') }}">Engenharia</a></div>
+  </header>
+  <section class="ep-kpis" aria-label="Resumo das reconciliações">
+    <div><span>OPs reconciliadas</span><strong>{{ resumo.reconciliadas or 0 }}</strong></div>
+    <div><span>Paridade</span><strong>{{ resumo.paridade or 0 }}</strong></div>
+    <div><span>Divergências</span><strong>{{ resumo.divergencias or 0 }}</strong></div>
+    <div><span>Inconclusivos</span><strong>{{ resumo.inconclusivos or 0 }}</strong></div>
+    <div><span>Sequência em paridade</span><strong>{{ resumo.sequencia_paridade or 0 }}</strong></div>
+    <div><span>Última divergência</span><strong>{{ resumo.ultima_divergencia or '-' }}</strong></div>
+  </section>
+  <form class="ep-filters card" method="get">
+    <label>OP<input type="number" name="op_id" value="{{ filtros.op_id or '' }}"></label>
+    <label>SKU<select name="sku"><option value="">Todos</option>
+      {% for sku in ['Galinha Cortada','Galinha Inteira'] %}<option value="{{ sku }}" {% if filtros.sku == sku %}selected{% endif %}>{{ sku }}</option>{% endfor %}
+    </select></label>
+    <label>Resultado<select name="resultado"><option value="">Todos</option>
+      {% for resultado in resultados %}<option value="{{ resultado }}" {% if filtros.resultado == resultado %}selected{% endif %}>{{ resultado }}</option>{% endfor %}
+    </select></label>
+    <label>De<input type="date" name="inicio" value="{{ filtros.inicio }}"></label>
+    <label>Até<input type="date" name="fim" value="{{ filtros.fim }}"></label>
+    <button class="ep-btn ep-btn-filter" type="submit">Filtrar</button>
+  </form>
+  <section class="card ep-table-card">
+    <div class="ep-section-title"><div><span class="eyebrow">Evidências</span><h2>Histórico imutável</h2></div></div>
+    <div class="tabela-responsiva ep-table"><table>
+      <thead><tr><th>Data/hora</th><th>OP</th><th>SKU</th><th>Resultado</th><th>Versão</th><th>Revisão</th><th>Divergências</th></tr></thead>
+      <tbody>{% for item in registros %}<tr>
+        <td>{{ item.executado_em }}</td><td>#{{ item.op_id }}</td><td>{{ item.sku }}</td>
+        <td><strong>{{ item.resultado_geral }}</strong></td><td>{{ item.versao_comparacao }}</td><td>{{ item.revisao }}</td>
+        <td>{% if item.divergencias %}<details><summary>{{ item.divergencias|length }} ocorrência(s)</summary><ul>
+          {% for divergencia in item.divergencias %}<li><strong>{{ divergencia.severidade }}</strong> — {{ divergencia.dimensao }}{% if divergencia.motivo %}: {{ divergencia.motivo }}{% endif %}</li>{% endfor %}
+        </ul></details>{% else %}Nenhuma{% endif %}</td>
+      </tr>{% else %}<tr><td colspan="7" class="ep-empty">Nenhuma reconciliação encontrada.</td></tr>{% endfor %}</tbody>
+    </table></div>
+  </section>
+</div>
+{% endblock %}

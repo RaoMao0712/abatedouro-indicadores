@@ -1,5 +1,7 @@
 """Rotas da Engenharia de Produtos com leitura e escrita separadas por perfil."""
 
+import json
+
 from flask import flash, jsonify, redirect, render_template, request, session, url_for
 
 from modules.auth.decorators import perfil_permitido
@@ -7,6 +9,7 @@ from modules.auth.decorators import perfil_permitido
 from . import services
 from . import fundacao
 from . import representacao_legada
+from . import reconciliacao
 
 
 PERFIS_LEITURA = ("pcp", "gerencia", "producao", "qualidade")
@@ -25,6 +28,25 @@ def _pode_editar():
 
 
 def register_engenharia_produtos_routes(app):
+    @app.route("/engenharia-produtos/reconciliacoes", methods=["GET"])
+    @perfil_permitido(*PERFIS_LEITURA)
+    def reconciliacoes_sombra():
+        filtros = {
+            "op_id": request.args.get("op_id", type=int),
+            "sku": (request.args.get("sku") or "").strip(),
+            "resultado": (request.args.get("resultado") or "").strip(),
+            "inicio": (request.args.get("inicio") or "").strip(),
+            "fim": (request.args.get("fim") or "").strip(),
+        }
+        registros, resumo = reconciliacao.listar_reconciliacoes(filtros)
+        for registro in registros:
+            registro["dimensoes"] = json.loads(registro["dimensoes_json"])
+            registro["divergencias"] = json.loads(registro["divergencias_json"])
+        return render_template(
+            "engenharia_produtos/reconciliacoes.html", registros=registros,
+            resumo=resumo, filtros=filtros, resultados=sorted(reconciliacao.RESULTADOS),
+        )
+
     @app.route("/cadastros/fundacao-sku", methods=["GET"])
     @perfil_permitido(*PERFIS_ESCRITA)
     def fundacao_sku_listar():
