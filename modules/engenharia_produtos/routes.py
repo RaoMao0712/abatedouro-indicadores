@@ -10,6 +10,7 @@ from . import services
 from . import fundacao
 from . import representacao_legada
 from . import reconciliacao
+from . import prontidao
 
 
 PERFIS_LEITURA = ("pcp", "gerencia", "producao", "qualidade")
@@ -28,6 +29,32 @@ def _pode_editar():
 
 
 def register_engenharia_produtos_routes(app):
+    @app.get("/engenharia-produtos/prontidao")
+    @perfil_permitido(*PERFIS_LEITURA)
+    def prontidao_skus():
+        filtros = {
+            "sku": (request.args.get("sku") or "").strip(),
+            "estado": (request.args.get("estado") or "").strip(),
+        }
+        avaliacoes, historico = prontidao.listar_avaliacoes(filtros)
+        return render_template(
+            "engenharia_produtos/prontidao.html", avaliacoes=avaliacoes,
+            historico=historico, filtros=filtros,
+            estados=sorted(prontidao.ESTADOS),
+            skus=sorted(prontidao.SKUS_OPERACIONAIS_LEGADOS),
+            pode_editar=_pode_editar(),
+        )
+
+    @app.post("/engenharia-produtos/prontidao/<path:sku>/recalcular")
+    @perfil_permitido(*PERFIS_ESCRITA)
+    def prontidao_sku_recalcular(sku):
+        try:
+            prontidao.recalcular(sku, _usuario())
+            flash("Avaliação de prontidão recalculada; a autoridade permanece LEGADO.")
+        except Exception as erro:
+            flash(f"Falha no cálculo de prontidão: {erro}")
+        return redirect(url_for("prontidao_skus", sku=sku))
+
     @app.route("/engenharia-produtos/reconciliacoes", methods=["GET"])
     @perfil_permitido(*PERFIS_LEITURA)
     def reconciliacoes_sombra():
