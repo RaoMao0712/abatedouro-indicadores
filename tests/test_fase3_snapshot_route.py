@@ -14,6 +14,7 @@ os.environ.pop("DATABASE_URL", None)
 from app import app  # noqa: E402
 from database import conectar  # noqa: E402
 from modules.engenharia_produtos import representacao_legada  # noqa: E402
+from modules.engenharia_produtos import reconciliacao as reconciliacao_service  # noqa: E402
 from modules.parceiros.services import PAPEL_FORNECEDOR, salvar_parceiro  # noqa: E402
 import modules.producao.routes as producao_routes  # noqa: E402
 
@@ -21,6 +22,7 @@ import modules.producao.routes as producao_routes  # noqa: E402
 def _preparar():
     conn = conectar()
     cursor = conn.cursor()
+    cursor.execute("DELETE FROM op_config_reconciliacao_execucoes")
     cursor.execute("DELETE FROM op_config_reconciliacoes")
     cursor.execute("DELETE FROM op_config_snapshots")
     cursor.execute("DELETE FROM roteiro_etapa_insumos")
@@ -106,19 +108,25 @@ def test_tela_reconciliacoes_renderiza_em_modo_somente_leitura():
     assert _cliente().post("/engenharia-produtos/reconciliacoes").status_code == 405
 
 
-def test_falha_de_reconciliacao_reverte_op_e_snapshot(monkeypatch):
+def test_falha_interna_da_reconciliacao_nao_reverte_op_nem_snapshot(monkeypatch):
     fornecedor = _preparar()
 
     def falhar(*_args, **_kwargs):
         raise ValueError("reconciliação indisponível")
 
-    monkeypatch.setattr(producao_routes, "reconciliar_op", falhar)
+    monkeypatch.setattr(reconciliacao_service, "reconciliar_op", falhar)
     resposta = _cliente().post(
-        "/ordem-producao", data=_form(fornecedor, "Galinha Cortada", "F4-ROLLBACK")
+        "/ordem-producao", data=_form(fornecedor, "Galinha Cortada", "F4-RECON-ERRO")
     )
-    assert resposta.status_code == 200
+    assert resposta.status_code == 302
     conn = conectar(); cursor = conn.cursor()
-    assert cursor.execute("SELECT COUNT(*) n FROM ordens_producao WHERE gta='F4-ROLLBACK'").fetchone()["n"] == 0
-    assert cursor.execute("SELECT COUNT(*) n FROM op_config_snapshots").fetchone()["n"] == 0
+    op = cursor.execute("SELECT id FROM ordens_producao WHERE gta='F4-RECON-ERRO'").fetchone()
+    assert op is not None
+    assert cursor.execute("SELECT COUNT(*) n FROM op_config_snapshots WHERE op_id=?", (op["id"],)).fetchone()["n"] == 1
     assert cursor.execute("SELECT COUNT(*) n FROM op_config_reconciliacoes").fetchone()["n"] == 0
+    execucao = cursor.execute(
+        "SELECT status,erro_tipo FROM op_config_reconciliacao_execucoes WHERE op_id=?", (op["id"],)
+    ).fetchone()
+    assert execucao["status"] == "ERRO"
+    assert execucao["erro_tipo"] == "ValueError"
     conn.close()

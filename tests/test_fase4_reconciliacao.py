@@ -36,6 +36,15 @@ def _criar(banco, sku):
     return op_id, registro
 
 
+def _criar_sem_reconciliar(banco, sku):
+    with banco.transaction() as conn:
+        cur = conn.cursor()
+        cur.execute("INSERT INTO ordens_producao(sku,status) VALUES(?,'Aberta')", (sku,))
+        op_id = cur.lastrowid
+        snapshot_op.gravar_snapshot(cur, op_id, sku, 1, "Teste")
+    return op_id
+
+
 @pytest.mark.parametrize("sku,esperado", [
     ("Galinha Cortada", {"bandejas_por_caixa", "tara_caixa_kg", "exigencia_peso", "regra_encerramento"}),
     ("Galinha Inteira", {"fatores_conversao", "exigencia_peso", "regra_encerramento"}),
@@ -127,6 +136,51 @@ def test_idempotencia_e_historico_sem_apagar_evidencia(banco):
     conn.close()
 
 
+def test_inconclusivo_pode_ser_reexecutado_com_nova_revisao(banco, monkeypatch):
+    op_id = _criar_sem_reconciliar(banco, "Galinha Cortada")
+    comparar_original = reconciliacao.comparar_snapshot
+    monkeypatch.setattr(reconciliacao, "comparar_snapshot", lambda _op, _snapshot: {
+        "resultado_geral": "INCONCLUSIVO",
+        "dimensoes": [{
+            "dimensao": "insumos", "resultado": "INCONCLUSIVO", "severidade": "ALTA",
+            "valor_legado": None, "valor_sombra": None, "motivo": "Dado comparável ainda ausente.",
+        }],
+    })
+    primeira = reconciliacao.executar_reconciliacao_segura(op_id, "CRIACAO_OP")
+    assert primeira["status"] == "SUCESSO"
+    assert primeira["reconciliacao"]["resultado_geral"] == "INCONCLUSIVO"
+    monkeypatch.setattr(reconciliacao, "comparar_snapshot", comparar_original)
+    segunda = reconciliacao.executar_reconciliacao_segura(op_id, "MANUAL")
+    assert segunda["status"] == "SUCESSO"
+    assert segunda["reconciliacao"]["resultado_geral"] == "PARIDADE"
+    assert segunda["reconciliacao"]["revisao"] == 2
+    conn = banco.conectar(); cur = conn.cursor()
+    assert [item["resultado_geral"] for item in cur.execute(
+        "SELECT resultado_geral FROM op_config_reconciliacoes WHERE op_id=? ORDER BY revisao", (op_id,)
+    ).fetchall()] == ["INCONCLUSIVO", "PARIDADE"]
+    conn.close()
+
+
+def test_erro_tecnico_fica_auditado_e_retry_idempotente_recupera(banco, monkeypatch):
+    op_id = _criar_sem_reconciliar(banco, "Galinha Inteira")
+    original = reconciliacao.reconciliar_op
+    monkeypatch.setattr(reconciliacao, "reconciliar_op", lambda *_args, **_kwargs: (_ for _ in ()).throw(TimeoutError("timeout controlado")))
+    falha = reconciliacao.executar_reconciliacao_segura(op_id, "CRIACAO_OP")
+    assert falha["status"] == "ERRO" and falha["registrado"] is True
+    monkeypatch.setattr(reconciliacao, "reconciliar_op", original)
+    sucesso = reconciliacao.executar_reconciliacao_segura(op_id, "RETRY")
+    repeticao = reconciliacao.executar_reconciliacao_segura(op_id, "RETRY")
+    assert sucesso["status"] == repeticao["status"] == "SUCESSO"
+    assert sucesso["reconciliacao"]["id"] == repeticao["reconciliacao"]["id"]
+    conn = banco.conectar(); cur = conn.cursor()
+    estados = [item["status"] for item in cur.execute(
+        "SELECT status FROM op_config_reconciliacao_execucoes WHERE op_id=? ORDER BY id", (op_id,)
+    ).fetchall()]
+    assert estados == ["ERRO", "SUCESSO", "SUCESSO"]
+    assert cur.execute("SELECT COUNT(*) n FROM op_config_reconciliacoes WHERE op_id=?", (op_id,)).fetchone()["n"] == 1
+    conn.close()
+
+
 def test_divergencia_nao_autocorrige_nem_escreve_em_modulos_operacionais(banco):
     op_id, _registro = _criar(banco, "Galinha Inteira")
     conn = banco.conectar(); cur = conn.cursor()
@@ -141,9 +195,9 @@ def test_divergencia_nao_autocorrige_nem_escreve_em_modulos_operacionais(banco):
     snapshot_divergente["roteiro"]["parametros"]["aves_por_pacote"] = {"V1": 9, "V2": 9}
     cur.execute("UPDATE op_config_snapshots SET snapshot_json=? WHERE op_id=?", (json.dumps(snapshot_divergente), op_id))
     conn.commit()
-    with banco.transaction() as tx:
-        registro = reconciliacao.reconciliar_op(tx.cursor(), op_id)
-    assert registro["resultado_geral"] == "DIVERGENCIA"
+    execucao = reconciliacao.executar_reconciliacao_segura(op_id, "FATO_POSTERIOR")
+    assert execucao["status"] == "SUCESSO"
+    assert execucao["reconciliacao"]["resultado_geral"] == "DIVERGENCIA"
     assert dict(cur.execute("SELECT * FROM ordens_producao WHERE id=?", (op_id,)).fetchone()) == op_antes
     assert cur.execute("SELECT parametros_json FROM roteiro_versoes ORDER BY id DESC LIMIT 1").fetchone()["parametros_json"] == roteiro_antes
     assert cur.execute("SELECT snapshot_json FROM op_config_snapshots WHERE op_id=?", (op_id,)).fetchone()["snapshot_json"] == json.dumps(snapshot_divergente)
@@ -163,10 +217,14 @@ def test_migration_sqlite_apply_reapply_rollback_reapply_preserva_legado(tmp_pat
     raiz = Path(__file__).resolve().parents[1] / "database"
     apply = (raiz / "20260924_fase4_reconciliacao_sombra_sqlite.sql").read_text(encoding="utf-8")
     rollback = (raiz / "20260924_fase4_reconciliacao_sombra_sqlite_rollback.sql").read_text(encoding="utf-8")
-    conn.executescript(apply); conn.executescript(apply); conn.executescript(rollback); conn.executescript(apply)
+    apply_41 = (raiz / "20260925_fase4_1_execucoes_reconciliacao_sqlite.sql").read_text(encoding="utf-8")
+    rollback_41 = (raiz / "20260925_fase4_1_execucoes_reconciliacao_sqlite_rollback.sql").read_text(encoding="utf-8")
+    conn.executescript(apply); conn.executescript(apply_41); conn.executescript(apply_41)
+    conn.executescript(rollback_41); conn.executescript(rollback); conn.executescript(apply); conn.executescript(apply_41)
     assert conn.execute("SELECT sku FROM ordens_producao WHERE id=1").fetchone()[0] == "Galinha Cortada"
     assert conn.execute("SELECT op_id FROM op_config_snapshots WHERE id=1").fetchone()[0] == 1
     assert conn.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='op_config_reconciliacoes'").fetchone()[0] == 1
+    assert conn.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='op_config_reconciliacao_execucoes'").fetchone()[0] == 1
     conn.close()
 
 
@@ -185,6 +243,9 @@ def test_visao_administrativa_somente_leitura(monkeypatch):
     monkeypatch.setattr(reconciliacao, "listar_reconciliacoes", lambda filtros: ([registro], {
         "reconciliadas": 1, "paridade": 1, "divergencias": 0, "inconclusivos": 0,
         "ultima_divergencia": None, "sequencia_paridade": 1,
+    }))
+    monkeypatch.setattr(reconciliacao, "listar_execucoes_tecnicas", lambda filtros: ([], {
+        "pendentes": 0, "erros": 0,
     }))
     monkeypatch.setattr(engenharia_routes, "render_template", lambda _nome, **contexto: (
         f"Reconciliações {contexto['registros'][0]['resultado_geral']}"

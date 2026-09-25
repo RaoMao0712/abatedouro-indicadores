@@ -13,6 +13,8 @@
     <div><span>Inconclusivos</span><strong>{{ resumo.inconclusivos or 0 }}</strong></div>
     <div><span>Sequência em paridade</span><strong>{{ resumo.sequencia_paridade or 0 }}</strong></div>
     <div><span>Última divergência</span><strong>{{ resumo.ultima_divergencia or '-' }}</strong></div>
+    <div><span>Pendências técnicas</span><strong>{{ resumo.pendentes_tecnicos or 0 }}</strong></div>
+    <div><span>Erros técnicos</span><strong>{{ resumo.erros_tecnicos or 0 }}</strong></div>
   </section>
   <form class="ep-filters card" method="get">
     <label>OP<input type="number" name="op_id" value="{{ filtros.op_id or '' }}"></label>
@@ -24,7 +26,13 @@
     </select></label>
     <label>De<input type="date" name="inicio" value="{{ filtros.inicio }}"></label>
     <label>Até<input type="date" name="fim" value="{{ filtros.fim }}"></label>
+    <label>Estado técnico<select name="estado_tecnico"><option value="">Todos</option>
+      {% for estado in estados_tecnicos %}<option value="{{ estado }}" {% if filtros.estado_tecnico == estado %}selected{% endif %}>{{ estado }}</option>{% endfor %}
+    </select></label>
     <button class="ep-btn ep-btn-filter" type="submit">Filtrar</button>
+  </form>
+  <form method="post" action="{{ url_for('reconciliacao_sombra_reprocessar_pendentes') }}">
+    <button class="ep-btn ep-btn-secondary" type="submit">Reprocessar pendências e erros</button>
   </form>
   <section class="card ep-table-card">
     <div class="ep-section-title"><div><span class="eyebrow">Evidências</span><h2>Histórico imutável</h2></div></div>
@@ -37,6 +45,17 @@
           {% for divergencia in item.divergencias %}<li><strong>{{ divergencia.severidade }}</strong> — {{ divergencia.dimensao }}{% if divergencia.motivo %}: {{ divergencia.motivo }}{% endif %}</li>{% endfor %}
         </ul></details>{% else %}Nenhuma{% endif %}</td>
       </tr>{% else %}<tr><td colspan="7" class="ep-empty">Nenhuma reconciliação encontrada.</td></tr>{% endfor %}</tbody>
+    </table></div>
+  </section>
+  <section class="card ep-table-card">
+    <div class="ep-section-title"><div><span class="eyebrow">Execução técnica</span><h2>Pendências e tentativas</h2></div></div>
+    <div class="tabela-responsiva ep-table"><table>
+      <thead><tr><th>Data/hora</th><th>OP</th><th>Gatilho</th><th>Tentativa</th><th>Estado</th><th>Erro técnico</th><th>Ação</th></tr></thead>
+      <tbody>{% for item in execucoes %}<tr>
+        <td>{{ item.criado_em }}</td><td>#{{ item.op_id }}</td><td>{{ item.gatilho }}</td><td>{{ item.tentativa }}</td>
+        <td><strong>{{ item.status }}</strong></td><td>{{ item.erro_tipo or '' }}{% if item.erro_mensagem %}: {{ item.erro_mensagem }}{% endif %}</td>
+        <td>{% if item.status in ['PENDENTE','ERRO'] %}<form method="post" action="{{ url_for('reconciliacao_sombra_reexecutar', op_id=item.op_id) }}"><button type="submit">Reexecutar</button></form>{% else %}-{% endif %}</td>
+      </tr>{% else %}<tr><td colspan="7" class="ep-empty">Nenhuma execução técnica registrada.</td></tr>{% endfor %}</tbody>
     </table></div>
   </section>
 </div>

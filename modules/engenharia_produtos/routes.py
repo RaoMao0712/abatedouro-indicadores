@@ -37,15 +37,39 @@ def register_engenharia_produtos_routes(app):
             "resultado": (request.args.get("resultado") or "").strip(),
             "inicio": (request.args.get("inicio") or "").strip(),
             "fim": (request.args.get("fim") or "").strip(),
+            "estado_tecnico": (request.args.get("estado_tecnico") or "").strip(),
         }
         registros, resumo = reconciliacao.listar_reconciliacoes(filtros)
+        execucoes, resumo_tecnico = reconciliacao.listar_execucoes_tecnicas(filtros)
+        resumo.update({
+            "pendentes_tecnicos": resumo_tecnico["pendentes"],
+            "erros_tecnicos": resumo_tecnico["erros"],
+        })
         for registro in registros:
             registro["dimensoes"] = json.loads(registro["dimensoes_json"])
             registro["divergencias"] = json.loads(registro["divergencias_json"])
         return render_template(
             "engenharia_produtos/reconciliacoes.html", registros=registros,
             resumo=resumo, filtros=filtros, resultados=sorted(reconciliacao.RESULTADOS),
+            execucoes=execucoes, estados_tecnicos=["PENDENTE", "PROCESSANDO", "SUCESSO", "ERRO"],
         )
+
+    @app.post("/engenharia-produtos/reconciliacoes/<int:op_id>/reexecutar")
+    @perfil_permitido(*PERFIS_ESCRITA)
+    def reconciliacao_sombra_reexecutar(op_id):
+        resultado = reconciliacao.executar_reconciliacao_segura(op_id, "MANUAL")
+        if resultado["status"] == "SUCESSO":
+            flash("Reconciliação reexecutada com sucesso.")
+        else:
+            flash("Reconciliação registrada como erro técnico; a OP não foi alterada.")
+        return redirect(url_for("reconciliacoes_sombra", op_id=op_id))
+
+    @app.post("/engenharia-produtos/reconciliacoes/reprocessar-pendentes")
+    @perfil_permitido(*PERFIS_ESCRITA)
+    def reconciliacao_sombra_reprocessar_pendentes():
+        resultados = reconciliacao.reprocessar_pendentes(50)
+        flash(f"{len(resultados)} reconciliação(ões) pendente(s) processada(s).")
+        return redirect(url_for("reconciliacoes_sombra"))
 
     @app.route("/cadastros/fundacao-sku", methods=["GET"])
     @perfil_permitido(*PERFIS_ESCRITA)

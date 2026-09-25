@@ -4,7 +4,7 @@ import hashlib
 import json
 from pathlib import Path
 
-from database import DATABASE_URL, conectar, q
+from database import DATABASE_URL, conectar, q, transaction
 
 from .representacao_legada import ESPECIFICACOES
 
@@ -15,14 +15,17 @@ SEVERIDADES = {"CRITICA", "ALTA", "MEDIA", "BAIXA"}
 
 
 def criar_estrutura():
-    nome = ("20260924_fase4_reconciliacao_sombra.sql" if DATABASE_URL
-            else "20260924_fase4_reconciliacao_sombra_sqlite.sql")
-    sql = (Path(__file__).resolve().parents[2] / "database" / nome).read_text(encoding="utf-8")
+    nomes = (["20260924_fase4_reconciliacao_sombra.sql",
+              "20260925_fase4_1_execucoes_reconciliacao.sql"] if DATABASE_URL else
+             ["20260924_fase4_reconciliacao_sombra_sqlite.sql",
+              "20260925_fase4_1_execucoes_reconciliacao_sqlite.sql"])
     conn = conectar()
     try:
         cursor = conn.cursor()
-        for comando in [item.strip() for item in sql.replace("BEGIN;", "").replace("COMMIT;", "").split(";") if item.strip()]:
-            cursor.execute(comando)
+        for nome in nomes:
+            sql = (Path(__file__).resolve().parents[2] / "database" / nome).read_text(encoding="utf-8")
+            for comando in [item.strip() for item in sql.replace("BEGIN;", "").replace("COMMIT;", "").split(";") if item.strip()]:
+                cursor.execute(comando)
         conn.commit()
     except Exception:
         conn.rollback()
@@ -203,6 +206,103 @@ def reconciliar_op(cursor, op_id, versao_comparacao=VERSAO_COMPARACAO):
         reconciliacao_id = cursor.lastrowid
     cursor.execute(q("SELECT * FROM op_config_reconciliacoes WHERE id=?"), (reconciliacao_id,))
     return dict(cursor.fetchone())
+
+
+def _registrar_execucao_pendente(op_id, gatilho, versao_comparacao):
+    with transaction() as conn:
+        cursor = conn.cursor()
+        sql_snapshot = "SELECT id FROM op_config_snapshots WHERE op_id=?"
+        if DATABASE_URL:
+            sql_snapshot += " FOR UPDATE"
+        cursor.execute(q(sql_snapshot), (op_id,))
+        snapshot = cursor.fetchone()
+        if not snapshot:
+            raise ValueError("Snapshot indisponível para agendar reconciliação.")
+        cursor.execute(q("""SELECT COALESCE(MAX(tentativa),0)+1 AS proxima
+            FROM op_config_reconciliacao_execucoes
+            WHERE snapshot_id=? AND versao_comparacao=? AND gatilho=?"""),
+                       (snapshot["id"], versao_comparacao, gatilho))
+        tentativa = cursor.fetchone()["proxima"]
+        sql = """INSERT INTO op_config_reconciliacao_execucoes(
+            op_id,snapshot_id,versao_comparacao,gatilho,tentativa,status
+        ) VALUES(?,?,?,?,?,'PENDENTE')"""
+        parametros = (op_id, snapshot["id"], versao_comparacao, gatilho, tentativa)
+        if DATABASE_URL:
+            cursor.execute(q(sql + " RETURNING id"), parametros)
+            return cursor.fetchone()["id"]
+        cursor.execute(sql, parametros)
+        return cursor.lastrowid
+
+
+def executar_reconciliacao_segura(op_id, gatilho="MANUAL", versao_comparacao=VERSAO_COMPARACAO):
+    """Executa fora da transação operacional e nunca propaga falha ao chamador."""
+    try:
+        execucao_id = _registrar_execucao_pendente(op_id, gatilho, versao_comparacao)
+    except Exception as erro:
+        return {
+            "status": "ERRO", "registrado": False,
+            "erro_tipo": type(erro).__name__, "erro_mensagem": str(erro)[:1000],
+        }
+    try:
+        with transaction() as conn:
+            cursor = conn.cursor()
+            cursor.execute(q("""UPDATE op_config_reconciliacao_execucoes
+                SET status='PROCESSANDO',iniciado_em=CURRENT_TIMESTAMP,
+                    atualizado_em=CURRENT_TIMESTAMP WHERE id=?"""), (execucao_id,))
+            registro = reconciliar_op(cursor, op_id, versao_comparacao)
+            cursor.execute(q("""UPDATE op_config_reconciliacao_execucoes
+                SET status='SUCESSO',reconciliacao_id=?,concluido_em=CURRENT_TIMESTAMP,
+                    atualizado_em=CURRENT_TIMESTAMP WHERE id=?"""),
+                           (registro["id"], execucao_id))
+        return {"status": "SUCESSO", "execucao_id": execucao_id, "reconciliacao": registro}
+    except Exception as erro:
+        try:
+            with transaction() as conn:
+                conn.cursor().execute(q("""UPDATE op_config_reconciliacao_execucoes
+                    SET status='ERRO',erro_tipo=?,erro_mensagem=?,
+                        concluido_em=CURRENT_TIMESTAMP,atualizado_em=CURRENT_TIMESTAMP
+                    WHERE id=?"""), (type(erro).__name__, str(erro)[:1000], execucao_id))
+        except Exception:
+            pass
+        return {
+            "status": "ERRO", "registrado": True, "execucao_id": execucao_id,
+            "erro_tipo": type(erro).__name__, "erro_mensagem": str(erro)[:1000],
+        }
+
+
+def reprocessar_pendentes(limite=50):
+    criar_estrutura()
+    conn = conectar(); cursor = conn.cursor()
+    cursor.execute(q("""SELECT e.op_id FROM op_config_reconciliacao_execucoes e
+        WHERE e.id IN (SELECT MAX(id) FROM op_config_reconciliacao_execucoes GROUP BY op_id)
+          AND e.status IN ('PENDENTE','ERRO')
+        ORDER BY e.id LIMIT ?"""), (int(limite),))
+    ops = [item["op_id"] for item in cursor.fetchall()]
+    conn.close()
+    return [executar_reconciliacao_segura(op_id, "RETRY") for op_id in ops]
+
+
+def listar_execucoes_tecnicas(filtros=None):
+    filtros = filtros or {}
+    criar_estrutura()
+    condicoes, parametros = [], []
+    if filtros.get("op_id"):
+        condicoes.append("op_id=?"); parametros.append(int(filtros["op_id"]))
+    if filtros.get("estado_tecnico"):
+        condicoes.append("status=?"); parametros.append(filtros["estado_tecnico"])
+    where = " WHERE " + " AND ".join(condicoes) if condicoes else ""
+    conn = conectar(); cursor = conn.cursor()
+    cursor.execute(q("SELECT * FROM op_config_reconciliacao_execucoes" + where +
+                     " ORDER BY id DESC"), tuple(parametros))
+    registros = [dict(item) for item in cursor.fetchall()]
+    cursor.execute("""SELECT
+        COUNT(CASE WHEN status='PENDENTE' THEN 1 END) AS pendentes,
+        COUNT(CASE WHEN status='ERRO' THEN 1 END) AS erros
+        FROM op_config_reconciliacao_execucoes
+        WHERE id IN (SELECT MAX(id) FROM op_config_reconciliacao_execucoes GROUP BY op_id)""")
+    resumo = dict(cursor.fetchone())
+    conn.close()
+    return registros, resumo
 
 
 def listar_reconciliacoes(filtros=None):

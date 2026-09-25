@@ -13,7 +13,7 @@ from modules.parceiros.services import (
 )
 from modules.qualidade import services as qualidade_service
 from modules.engenharia_produtos.snapshot_op import gravar_snapshot
-from modules.engenharia_produtos.reconciliacao import reconciliar_op
+from modules.engenharia_produtos.reconciliacao import executar_reconciliacao_segura
 from modules.relatorios.producao import buscar_ops_agregadas, normalizar_filtros
 from utils import normalizar_chave_setor, setores_padrao
 
@@ -143,7 +143,6 @@ def register_producao_routes(app, integracoes=None):
                     usuario_id=session.get("usuario_id"),
                     usuario_nome=session.get("nome") or "Usuario",
                 )
-                reconciliar_op(cursor, op_id)
                 inicio_programado = request.form.get("inicio_programado")
                 fim_programado = request.form.get("fim_programado")
                 if inicio_programado or fim_programado:
@@ -171,6 +170,8 @@ def register_producao_routes(app, integracoes=None):
                 conn.close()
                 raise
             conn.close()
+
+            executar_reconciliacao_segura(op_id, "CRIACAO_OP")
 
             flash("OP cadastrada com sucesso")
             return redirect(url_for("ordem_producao"))
