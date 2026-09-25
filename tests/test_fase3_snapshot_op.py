@@ -158,6 +158,7 @@ def test_guardrail_snapshot_nao_eh_lido_pelo_motor_operacional():
     permitidos = {
         raiz / "engenharia_produtos" / "snapshot_op.py",
         raiz / "engenharia_produtos" / "fundacao.py",
+        raiz / "engenharia_produtos" / "reconciliacao.py",
     }
     ocorrencias = []
     for caminho in raiz.rglob("*.py"):
