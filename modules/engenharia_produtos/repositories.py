@@ -1,6 +1,7 @@
 """Persistência retrocompatível da Engenharia de Produtos."""
 
 import json
+import re
 
 from database import DATABASE_URL, conectar, q
 from database.migrations import executar_alteracao_segura
@@ -93,6 +94,23 @@ def criar_estrutura():
             atualizado_em {timestamp} DEFAULT CURRENT_TIMESTAMP
         )
     """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS processos_produtivos_codigo_seq (
+            chave TEXT PRIMARY KEY,
+            ultimo_valor INTEGER NOT NULL DEFAULT 0 CHECK (ultimo_valor >= 0)
+        )
+    """)
+    if DATABASE_URL:
+        cursor.execute("""
+            INSERT INTO processos_produtivos_codigo_seq (chave, ultimo_valor)
+            VALUES ('PROCESSO', 0)
+            ON CONFLICT (chave) DO NOTHING
+        """)
+    else:
+        cursor.execute("""
+            INSERT OR IGNORE INTO processos_produtivos_codigo_seq (chave, ultimo_valor)
+            VALUES ('PROCESSO', 0)
+        """)
     cursor.execute(f"""
         CREATE TABLE IF NOT EXISTS engenharia_produtos_historico (
             id {pk},
@@ -375,19 +393,54 @@ def buscar_processo_por_codigo(codigo):
 
 def inserir_processo(dados):
     conn = conectar()
-    cursor = conn.cursor()
-    cursor.execute(q("""
-        INSERT INTO processos_produtivos
-            (codigo, nome, descricao, setor, status, observacoes, atualizado_em)
-        VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-    """), dados)
-    processo_id = cursor.lastrowid
-    if DATABASE_URL:
-        cursor.execute("SELECT LASTVAL() AS id")
-        processo_id = cursor.fetchone()["id"]
-    conn.commit()
-    conn.close()
-    return processo_id
+    try:
+        cursor = conn.cursor()
+        if not DATABASE_URL:
+            cursor.execute("BEGIN IMMEDIATE")
+        cursor.execute(
+            "SELECT ultimo_valor FROM processos_produtivos_codigo_seq WHERE chave='PROCESSO'"
+            + (" FOR UPDATE" if DATABASE_URL else "")
+        )
+        sequencia = cursor.fetchone()
+        if sequencia is None:
+            raise RuntimeError("Sequência de códigos de processo não inicializada.")
+
+        cursor.execute("SELECT codigo FROM processos_produtivos WHERE codigo LIKE 'PROC-%'")
+        maior_existente = 0
+        for linha in cursor.fetchall():
+            correspondencia = re.fullmatch(r"PROC-(\d+)", linha["codigo"] or "")
+            if correspondencia:
+                maior_existente = max(maior_existente, int(correspondencia.group(1)))
+
+        proximo = max(int(sequencia["ultimo_valor"]), maior_existente) + 1
+        codigo = f"PROC-{proximo:04d}"
+        nome, descricao, setor, status, observacoes = dados
+        if DATABASE_URL:
+            cursor.execute("""
+                INSERT INTO processos_produtivos
+                    (codigo, nome, descricao, setor, status, observacoes, atualizado_em)
+                VALUES (%s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+                RETURNING id
+            """, (codigo, nome, descricao, setor, status, observacoes))
+            processo_id = cursor.fetchone()["id"]
+        else:
+            cursor.execute("""
+                INSERT INTO processos_produtivos
+                    (codigo, nome, descricao, setor, status, observacoes, atualizado_em)
+                VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            """, (codigo, nome, descricao, setor, status, observacoes))
+            processo_id = cursor.lastrowid
+        cursor.execute(q("""
+            UPDATE processos_produtivos_codigo_seq
+            SET ultimo_valor=? WHERE chave='PROCESSO'
+        """), (proximo,))
+        conn.commit()
+        return processo_id, codigo
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def registrar_historico(entidade, entidade_id, acao, usuario_id, usuario_nome, anterior, novo):
