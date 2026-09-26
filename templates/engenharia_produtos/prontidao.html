@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block conteudo %}
+<div class="operational-page">
+  <section class="hero-dashboard operational-hero">
+    <div>
+      <span class="eyebrow">ANÁLISE AUDITÁVEL</span>
+      <h1>Prontidão por SKU</h1>
+      <p>Indicadores derivados das reconciliações em sombra. APTO_PARA_AVALIACAO exige decisão humana e não altera a autoridade LEGADO.</p>
+    </div>
+    <a class="botao-secundario" href="{{ url_for('reconciliacoes_sombra') }}">Reconciliações</a>
+  </section>
+
+  <div class="card">
+    <form method="get" class="form-grid">
+      <div><label>SKU</label><select name="sku"><option value="">Todos</option>{% for sku in skus %}<option value="{{ sku }}" {% if filtros.sku == sku %}selected{% endif %}>{{ sku }}</option>{% endfor %}</select></div>
+      <div><label>Estado</label><select name="estado"><option value="">Todos</option>{% for estado in estados %}<option value="{{ estado }}" {% if filtros.estado == estado %}selected{% endif %}>{{ estado }}</option>{% endfor %}</select></div>
+      <div><button type="submit">Filtrar</button></div>
+    </form>
+  </div>
+
+  {% for item in avaliacoes %}
+  {% set m = item.metricas %}
+  {% set p = item.parametros %}
+  <div class="card">
+    <h2>{{ item.sku }} — {{ item.estado }}</h2>
+    <p><strong>Autoridade atual:</strong> {{ item.autoridade_operacional }}</p>
+    <p><strong>Última avaliação:</strong> {{ item.avaliado_em or "Não executada" }}</p>
+    <div class="table-responsive"><table>
+      <thead><tr><th>OPs</th><th>Taxa de paridade</th><th>Sequência atual</th><th>Maior sequência</th><th>Última divergência</th><th>Cobertura crítica</th></tr></thead>
+      <tbody><tr><td>{{ m.get('total_ops_reconciliadas', 0) }}</td><td>{{ m.get('taxa_paridade', 0) }}%</td><td>{{ m.get('sequencia_atual_paridade', 0) }}</td><td>{{ m.get('maior_sequencia_paridade', 0) }}</td><td>{{ m.get('ultima_divergencia') or '-' }}</td><td>{{ m.get('cobertura_critica_percentual', 0) }}%</td></tr></tbody>
+    </table></div>
+    <p><strong>Divergências abertas:</strong> CRÍTICA {{ m.get('divergencias_abertas', {}).get('CRITICA', 0) }} · ALTA {{ m.get('divergencias_abertas', {}).get('ALTA', 0) }} · MÉDIA {{ m.get('divergencias_abertas', {}).get('MEDIA', 0) }} · BAIXA {{ m.get('divergencias_abertas', {}).get('BAIXA', 0) }}</p>
+    <p><strong>Pendências críticas:</strong> {{ m.get('dimensoes_criticas_pendentes', [])|join(', ') or 'Nenhuma' }}</p>
+    {% if item.motivos %}<ul>{% for motivo in item.motivos %}<li>{{ motivo }}</li>{% endfor %}</ul>{% endif %}
+    {% if pode_editar %}
+    <form method="post" action="{{ url_for('prontidao_sku_recalcular', sku=item.sku) }}"><button type="submit">Recalcular avaliação</button></form>
+    {% endif %}
+    <details><summary>Parâmetros configuráveis vigentes</summary>
+      <p>Mínimo de OPs: {{ p.minimo_ops_reconciliadas }} · Janela: {{ p.janela_minima_dias }} dias · Sequência: {{ p.sequencia_minima_paridade }} · Máximo MÉDIA: {{ p.max_divergencias_media }} · Máximo BAIXA: {{ p.max_divergencias_baixa }} · Cobertura: {{ p.cobertura_critica_minima }}%</p>
+    </details>
+  </div>
+  {% endfor %}
+
+  <div class="card">
+    <h2>Histórico de avaliações</h2>
+    <div class="table-responsive"><table><thead><tr><th>Data</th><th>SKU</th><th>Estado</th><th>Autoridade</th><th>Fonte reconciliação</th><th>Fonte execução</th></tr></thead><tbody>
+    {% for item in historico %}<tr><td>{{ item.avaliado_em }}</td><td>{{ item.sku }}</td><td>{{ item.estado }}</td><td>{{ item.autoridade_operacional }}</td><td>{{ item.fonte_reconciliacao_id or '-' }}</td><td>{{ item.fonte_execucao_id or '-' }}</td></tr>{% else %}<tr><td colspan="6">Nenhuma avaliação registrada.</td></tr>{% endfor %}
+    </tbody></table></div>
+  </div>
+</div>
+{% endblock %}

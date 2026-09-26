@@ -1,5 +1,7 @@
 """Rotas da Engenharia de Produtos com leitura e escrita separadas por perfil."""
 
+import json
+
 from flask import flash, jsonify, redirect, render_template, request, session, url_for
 
 from modules.auth.decorators import perfil_permitido
@@ -7,6 +9,8 @@ from modules.auth.decorators import perfil_permitido
 from . import services
 from . import fundacao
 from . import representacao_legada
+from . import reconciliacao
+from . import prontidao
 
 
 PERFIS_LEITURA = ("pcp", "gerencia", "producao", "qualidade")
@@ -25,6 +29,75 @@ def _pode_editar():
 
 
 def register_engenharia_produtos_routes(app):
+    @app.get("/engenharia-produtos/prontidao")
+    @perfil_permitido(*PERFIS_LEITURA)
+    def prontidao_skus():
+        filtros = {
+            "sku": (request.args.get("sku") or "").strip(),
+            "estado": (request.args.get("estado") or "").strip(),
+        }
+        avaliacoes, historico = prontidao.listar_avaliacoes(filtros)
+        return render_template(
+            "engenharia_produtos/prontidao.html", avaliacoes=avaliacoes,
+            historico=historico, filtros=filtros,
+            estados=sorted(prontidao.ESTADOS),
+            skus=sorted(prontidao.SKUS_OPERACIONAIS_LEGADOS),
+            pode_editar=_pode_editar(),
+        )
+
+    @app.post("/engenharia-produtos/prontidao/<path:sku>/recalcular")
+    @perfil_permitido(*PERFIS_ESCRITA)
+    def prontidao_sku_recalcular(sku):
+        try:
+            prontidao.recalcular(sku, _usuario())
+            flash("Avaliação de prontidão recalculada; a autoridade permanece LEGADO.")
+        except Exception as erro:
+            flash(f"Falha no cálculo de prontidão: {erro}")
+        return redirect(url_for("prontidao_skus", sku=sku))
+
+    @app.route("/engenharia-produtos/reconciliacoes", methods=["GET"])
+    @perfil_permitido(*PERFIS_LEITURA)
+    def reconciliacoes_sombra():
+        filtros = {
+            "op_id": request.args.get("op_id", type=int),
+            "sku": (request.args.get("sku") or "").strip(),
+            "resultado": (request.args.get("resultado") or "").strip(),
+            "inicio": (request.args.get("inicio") or "").strip(),
+            "fim": (request.args.get("fim") or "").strip(),
+            "estado_tecnico": (request.args.get("estado_tecnico") or "").strip(),
+        }
+        registros, resumo = reconciliacao.listar_reconciliacoes(filtros)
+        execucoes, resumo_tecnico = reconciliacao.listar_execucoes_tecnicas(filtros)
+        resumo.update({
+            "pendentes_tecnicos": resumo_tecnico["pendentes"],
+            "erros_tecnicos": resumo_tecnico["erros"],
+        })
+        for registro in registros:
+            registro["dimensoes"] = json.loads(registro["dimensoes_json"])
+            registro["divergencias"] = json.loads(registro["divergencias_json"])
+        return render_template(
+            "engenharia_produtos/reconciliacoes.html", registros=registros,
+            resumo=resumo, filtros=filtros, resultados=sorted(reconciliacao.RESULTADOS),
+            execucoes=execucoes, estados_tecnicos=["PENDENTE", "PROCESSANDO", "SUCESSO", "ERRO"],
+        )
+
+    @app.post("/engenharia-produtos/reconciliacoes/<int:op_id>/reexecutar")
+    @perfil_permitido(*PERFIS_ESCRITA)
+    def reconciliacao_sombra_reexecutar(op_id):
+        resultado = reconciliacao.executar_reconciliacao_segura(op_id, "MANUAL")
+        if resultado["status"] == "SUCESSO":
+            flash("Reconciliação reexecutada com sucesso.")
+        else:
+            flash("Reconciliação registrada como erro técnico; a OP não foi alterada.")
+        return redirect(url_for("reconciliacoes_sombra", op_id=op_id))
+
+    @app.post("/engenharia-produtos/reconciliacoes/reprocessar-pendentes")
+    @perfil_permitido(*PERFIS_ESCRITA)
+    def reconciliacao_sombra_reprocessar_pendentes():
+        resultados = reconciliacao.reprocessar_pendentes(50)
+        flash(f"{len(resultados)} reconciliação(ões) pendente(s) processada(s).")
+        return redirect(url_for("reconciliacoes_sombra"))
+
     @app.route("/cadastros/fundacao-sku", methods=["GET"])
     @perfil_permitido(*PERFIS_ESCRITA)
     def fundacao_sku_listar():
