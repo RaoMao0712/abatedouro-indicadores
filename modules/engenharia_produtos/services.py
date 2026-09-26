@@ -194,7 +194,6 @@ def alternar_status_item(produto_id, item_id, usuario):
 
 def salvar_processo(form, usuario):
     criar_tabelas_engenharia_produtos()
-    codigo = _texto(form, "codigo", True).upper()
     nome = _texto(form, "nome", True)
     descricao = _texto(form, "descricao")
     setor = _texto(form, "setor")
@@ -202,9 +201,7 @@ def salvar_processo(form, usuario):
     observacoes = _texto(form, "observacoes")
     if status not in {"Ativo", "Inativo"}:
         raise ValueError("Status inválido.")
-    if repo.buscar_processo_por_codigo(codigo):
-        raise ValueError("Já existe um processo com este código.")
-    processo_id = repo.inserir_processo((codigo, nome, descricao, setor, status, observacoes))
+    processo_id, codigo = repo.inserir_processo((nome, descricao, setor, status, observacoes))
     repo.registrar_historico(
         "processo", processo_id, "inclusao", usuario["id"], usuario["nome"], None,
         {"codigo": codigo, "nome": nome, "descricao": descricao, "setor": setor,

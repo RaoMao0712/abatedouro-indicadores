@@ -1,5 +1,6 @@
 """Contratos da reestruturação de Receitas dos SKUs."""
 
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import sqlite3
 
@@ -69,6 +70,18 @@ def form_item(insumo_id, tipo="FIXO_UNIDADE", **mudancas):
     return dados
 
 
+def form_processo(nome, **mudancas):
+    dados = {
+        "nome": nome,
+        "descricao": "Descrição preservada",
+        "setor": "Produção",
+        "status": "Ativo",
+        "observacoes": "Observação preservada",
+    }
+    dados.update(mudancas)
+    return dados
+
+
 def test_criar_editar_inativar_e_impedir_codigo_duplicado(banco):
     produto_id = services.salvar_produto(form_produto(), USUARIO)
     services.salvar_produto(
@@ -95,7 +108,6 @@ def test_criar_editar_inativar_e_impedir_codigo_duplicado(banco):
 def test_cadastrar_processo_em_entidade_separada(banco):
     processo_id = services.salvar_processo(
         {
-            "codigo": "PROC-CORTE",
             "nome": "Corte",
             "descricao": "Separação das partes",
             "setor": "Sala de cortes",
@@ -106,8 +118,91 @@ def test_cadastrar_processo_em_entidade_separada(banco):
     )
     processos = services.listar_processos()
     assert processos[0]["id"] == processo_id
+    assert processos[0]["codigo"] == "PROC-0001"
     assert processos[0]["nome"] == "Corte"
-    assert not repo.buscar_produto_por_codigo("PROC-CORTE")
+    assert not repo.buscar_produto_por_codigo("PROC-0001")
+
+
+def test_primeiro_codigo_sequencia_e_frontend_sem_campo_editavel(banco, app_rotas):
+    primeiro = services.salvar_processo(
+        form_processo("Recepção", codigo="CODIGO-INJETADO"), USUARIO
+    )
+    segundo = services.salvar_processo(form_processo("Corte"), USUARIO)
+
+    processos = {item["id"]: item for item in services.listar_processos()}
+    assert processos[primeiro]["codigo"] == "PROC-0001"
+    assert processos[segundo]["codigo"] == "PROC-0002"
+
+    client = app_rotas.test_client()
+    sessao(client, "admin")
+    html = client.get("/engenharia-produtos/processos").get_data(as_text=True)
+    assert "Código gerado automaticamente ao salvar" in html
+    assert 'name="codigo"' not in html
+
+
+def test_preserva_codigos_existentes_e_continua_maior_proc(banco):
+    conn = sqlite3.connect(banco["caminho"])
+    conn.executemany(
+        """INSERT INTO processos_produtivos
+           (codigo,nome,descricao,setor,status,observacoes)
+           VALUES(?,?,?,?,?,?)""",
+        [
+            ("LEGADO-CORTE", "Legado", "", "", "Ativo", ""),
+            ("PROC-0042", "Numerado", "", "", "Ativo", ""),
+            ("PROC-ABC", "Fora do padrão", "", "", "Ativo", ""),
+        ],
+    )
+    conn.commit()
+    conn.close()
+
+    novo_id = services.salvar_processo(form_processo("Embalagem"), USUARIO)
+    processos = {item["codigo"]: item for item in services.listar_processos()}
+    assert processos["PROC-0043"]["id"] == novo_id
+    assert {"LEGADO-CORTE", "PROC-0042", "PROC-ABC"} <= set(processos)
+
+
+def test_concorrencia_sqlite_gera_codigos_unicos(banco):
+    def criar(indice):
+        return repo.inserir_processo((f"Processo {indice}", "", "", "Ativo", ""))[1]
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        codigos = list(executor.map(criar, range(20)))
+
+    assert len(codigos) == len(set(codigos)) == 20
+    assert set(codigos) == {f"PROC-{indice:04d}" for indice in range(1, 21)}
+    conn = sqlite3.connect(banco["caminho"])
+    with pytest.raises(sqlite3.IntegrityError):
+        conn.execute(
+            "INSERT INTO processos_produtivos(codigo,nome) VALUES('PROC-0001','Duplicado')"
+        )
+    conn.close()
+
+
+def test_migration_sqlite_apply_reapply_rollback_e_preservacao(tmp_path):
+    caminho = tmp_path / "migration.db"
+    conn = sqlite3.connect(caminho)
+    conn.executescript("""
+        CREATE TABLE processos_produtivos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            codigo TEXT NOT NULL UNIQUE,
+            nome TEXT NOT NULL
+        );
+        INSERT INTO processos_produtivos(codigo,nome)
+        VALUES ('LEGADO-X','Legado'),('PROC-0017','Existente');
+    """)
+    upgrade = (ROOT / "database/20260926_processos_codigo_automatico_sqlite.sql").read_text(encoding="utf-8")
+    rollback = (ROOT / "database/20260926_processos_codigo_automatico_sqlite_rollback.sql").read_text(encoding="utf-8")
+    conn.executescript(upgrade)
+    conn.executescript(upgrade)
+    assert conn.execute(
+        "SELECT ultimo_valor FROM processos_produtivos_codigo_seq WHERE chave='PROCESSO'"
+    ).fetchone()[0] == 17
+    conn.executescript(rollback)
+    assert conn.execute("SELECT codigo FROM processos_produtivos ORDER BY id").fetchall() == [
+        ("LEGADO-X",), ("PROC-0017",)
+    ]
+    conn.executescript(upgrade)
+    conn.close()
 
 
 @pytest.mark.parametrize("tipo", list(services.TIPOS_CONSUMO))

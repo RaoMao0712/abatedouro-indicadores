@@ -13,7 +13,7 @@
         <form method="post" class="card ep-form">
             <div class="ep-section-title"><div><span class="eyebrow">Cadastro</span><h2>Novo processo</h2></div></div>
             <div class="ep-form-grid ep-form-grid-2">
-                <label>Código *<input name="codigo" required maxlength="60" value="{{ request.form.get('codigo', '') }}"></label>
+                <div class="ep-field"><span>Código</span><strong>Código gerado automaticamente ao salvar</strong></div>
                 <label>Nome *<input name="nome" required maxlength="180" value="{{ request.form.get('nome', '') }}"></label>
                 <label class="ep-span-all">Descrição<textarea name="descricao" rows="2">{{ request.form.get('descricao', '') }}</textarea></label>
                 <label>Setor<input name="setor" maxlength="120" value="{{ request.form.get('setor', '') }}"></label>
