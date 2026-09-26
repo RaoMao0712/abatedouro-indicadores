@@ -1,0 +1,1 @@
+ALTER TABLE requisicao_compra_itens DROP COLUMN quantidade_aprovada;

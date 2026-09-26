@@ -17,6 +17,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATION = ROOT / "database" / "20260919_requisicoes_compra.sql"
 ROLLBACK = ROOT / "database" / "20260919_requisicoes_compra_rollback.sql"
+MIGRATION_QTD_APROVADA = ROOT / "database" / "20260925_rc_quantidade_aprovada.sql"
 TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL")
 REQUIRE_REAL_POSTGRESQL = os.getenv("REQUIRE_REAL_POSTGRESQL") == "1"
 if not TEST_DATABASE_URL and REQUIRE_REAL_POSTGRESQL:
@@ -76,6 +77,7 @@ def resetar():
         cur.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public")
         cur.execute(BASE_DDL)
     aplicar(MIGRATION)
+    aplicar(MIGRATION_QTD_APROVADA)
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -148,6 +150,7 @@ def test_01_migration_reaplicacao_rollback_schema_e_constraints():
         cur.execute("SELECT to_regclass('public.requisicoes_compra') tabela")
         assert cur.fetchone()["tabela"] is None
     aplicar(MIGRATION)
+    aplicar(MIGRATION_QTD_APROVADA)
 
 
 def test_02_numeracao_sequence_e_criacoes_concorrentes():
@@ -298,3 +301,25 @@ def test_10_nu_lock_concorrencia_e_idempotencia_real():
     )
     assert not erros and len(retry)==2
     assert eventos(rc["id"],"NU_APLICADA")==1 and eventos(rc["id"],"NU_ALTERADA")==1
+
+
+def test_11_aprovacao_com_ajuste_em_postgresql_real_e_rejeicao_atomica_de_aumento():
+    itens = [{**item(1, "10"), "custo_item": "2,5"}, {**item(3, "4"), "custo_item": "1,005"}]
+    rc = criar("ajuste-pg", itens=itens)
+    rc = svc.enviar(rc["id"], ator=usr(1), versao=0, idempotency_key="ajuste-pg-env")
+    i1, i2 = [i["id"] for i in rc["itens"]]
+    with pytest.raises(ValueError, match="superior à quantidade solicitada"):
+        svc.aprovar(rc["id"], ator=usr(2, "gerencia"), versao=rc["versao"], idempotency_key="ajuste-pg-aum", ajustes={i1: "11"}, justificativa_ajuste="x")
+    atual = svc.buscar_rc(rc["id"])
+    assert atual["status"] == "ABERTA" and atual["versao"] == rc["versao"] and [i["quantidade_aprovada"] for i in atual["itens"]] == [None, None]
+    assert eventos(rc["id"], "APROVACAO") == 0 and eventos(rc["id"], "AJUSTE_QUANTIDADE_APROVADA") == 0
+    with pytest.raises(ValueError, match="justificativa do ajuste"):
+        svc.aprovar(rc["id"], ator=usr(2, "gerencia"), versao=rc["versao"], idempotency_key="ajuste-pg-sj", ajustes={i1: "6"}, justificativa_ajuste="")
+    ok = svc.aprovar(rc["id"], ator=usr(2, "gerencia"), versao=rc["versao"], idempotency_key="ajuste-pg-ok", ajustes={i1: "6"}, justificativa_ajuste="Verba limitada")
+    assert ok["status"] == "APROVADA_COM_AJUSTES" and [i["quantidade_aprovada"] for i in ok["itens"]] == [6.0, 4.0]
+    assert [i["quantidade_solicitada"] for i in ok["itens"]] == [10.0, 4.0] and eventos(rc["id"], "AJUSTE_QUANTIDADE_APROVADA") == 1
+    assert str(ok["total_estimado_solicitado"]) == "29.02" and str(ok["total_estimado_aprovado"]) == "19.02"
+    repetida = svc.aprovar(rc["id"], ator=usr(2, "gerencia"), versao=rc["versao"], idempotency_key="ajuste-pg-ok", ajustes={i1: "6"}, justificativa_ajuste="Verba limitada")
+    assert repetida["versao"] == ok["versao"] and eventos(rc["id"], "AJUSTE_QUANTIDADE_APROVADA") == 1
+    nu = svc.aplicar_nu(rc["id"], [i1], "555", ator=usr(8, "pcp"), versao=ok["versao"], idempotency_key="ajuste-pg-nu")
+    assert nu["status"] == "APROVADA_COM_AJUSTES" and nu["itens"][0]["nu"] == "555"

@@ -50,7 +50,10 @@ def register_requisicoes_compra_routes(app):
         try:
             kw={"ator":_u(),"versao":request.form.get("versao"),"idempotency_key":request.form.get("idempotency_key"),"motivo":request.form.get("motivo")}
             if acao=="enviar": kw.pop("motivo"); enviar(rc_id,**kw)
-            elif acao=="aprovar": kw.pop("motivo"); aprovar(rc_id,**kw)
+            elif acao=="aprovar":
+                kw.pop("motivo")
+                ajustes={k[len("qtd_aprovada_"):]:v for k,v in request.form.items() if k.startswith("qtd_aprovada_")}
+                aprovar(rc_id,ajustes=ajustes,justificativa_ajuste=request.form.get("justificativa_ajuste"),**kw)
             elif acao=="rejeitar": rejeitar(rc_id,**kw)
             elif acao=="cancelar": cancelar(rc_id,**kw)
             else: abort(404)

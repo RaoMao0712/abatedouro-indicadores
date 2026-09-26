@@ -2,14 +2,16 @@
 import json
 import re
 from datetime import datetime
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from database import DATABASE_URL, conectar, q
 from .origens import TIPOS, resolver_origem, verificar_permissao_origem_existente, obter_url, obter_situacao_atual
 
-STATUS = ("RASCUNHO","ABERTA","APROVADA","REJEITADA","CANCELADA","ATENDIDA","PARCIALMENTE_ATENDIDA")
+STATUS = ("RASCUNHO","ABERTA","APROVADA","APROVADA_COM_AJUSTES","REJEITADA","CANCELADA","ATENDIDA","PARCIALMENTE_ATENDIDA")
 PRIORIDADES = ("NORMAL","URGENTE","CRITICA")
 FINAIS = ("REJEITADA","CANCELADA","ATENDIDA")
 UNIDADES = ("un","kg","g","L","mL","m","cm","mm","m²","m³","cx","pct","rolo","par","jogo")
+APROVADAS = ("APROVADA","APROVADA_COM_AJUSTES")
+CENTAVOS = Decimal("0.01")
 PERFIS_NU = {"admin", "gerencia", "pcp"}
 NU_MAX = 30
 class ConflitoRC(RuntimeError): pass
@@ -26,12 +28,15 @@ def criar_tabelas_requisicoes_compra():
     """Bootstrap idempotente apenas no boot; migrations versionadas são a fonte oficial."""
     conn=conectar(); cur=conn.cursor(); pk="SERIAL PRIMARY KEY" if DATABASE_URL else "INTEGER PRIMARY KEY AUTOINCREMENT"; ts="TIMESTAMP" if DATABASE_URL else "TEXT"
     cur.execute(f"""CREATE TABLE IF NOT EXISTS requisicoes_compra (id {pk},numero TEXT UNIQUE,status TEXT NOT NULL,versao INTEGER NOT NULL DEFAULT 0,tipo_origem TEXT NOT NULL,origem_id INTEGER,origem_numero_snapshot TEXT,origem_descricao_snapshot TEXT NOT NULL,origem_setor_snapshot TEXT,origem_equipamento_snapshot TEXT,origem_dados_snapshot TEXT NOT NULL,setor TEXT NOT NULL,solicitante_id INTEGER,solicitante_nome_snapshot TEXT NOT NULL,responsavel_id INTEGER,responsavel_nome_snapshot TEXT,prioridade TEXT NOT NULL,justificativa TEXT,observacoes TEXT,chave_criacao TEXT NOT NULL UNIQUE,criado_por INTEGER,criado_em {ts} NOT NULL,enviado_por INTEGER,enviado_em {ts},aprovado_por INTEGER,aprovado_em {ts},rejeitado_por INTEGER,rejeitado_em {ts},motivo_rejeicao TEXT,cancelado_por INTEGER,cancelado_em {ts},motivo_cancelamento TEXT,atualizado_em {ts} NOT NULL)""")
-    cur.execute(f"""CREATE TABLE IF NOT EXISTS requisicao_compra_itens (id {pk},requisicao_compra_id INTEGER NOT NULL,material_id INTEGER,descricao_snapshot TEXT NOT NULL,unidade_snapshot TEXT NOT NULL,quantidade_solicitada REAL NOT NULL,custo_estimado_unitario REAL,observacao TEXT,status TEXT NOT NULL DEFAULT 'SOLICITADO',pendente_cadastro INTEGER NOT NULL DEFAULT 0,nu TEXT,criado_em {ts} NOT NULL,atualizado_em {ts} NOT NULL)""")
+    cur.execute(f"""CREATE TABLE IF NOT EXISTS requisicao_compra_itens (id {pk},requisicao_compra_id INTEGER NOT NULL,material_id INTEGER,descricao_snapshot TEXT NOT NULL,unidade_snapshot TEXT NOT NULL,quantidade_solicitada REAL NOT NULL,quantidade_aprovada REAL,custo_estimado_unitario REAL,observacao TEXT,status TEXT NOT NULL DEFAULT 'SOLICITADO',pendente_cadastro INTEGER NOT NULL DEFAULT 0,nu TEXT,criado_em {ts} NOT NULL,atualizado_em {ts} NOT NULL)""")
     # Compatibilidade do bootstrap SQLite; PostgreSQL produtivo usa migration versionada.
     if not DATABASE_URL:
         cur.execute("PRAGMA table_info(requisicao_compra_itens)")
-        if "nu" not in {x[1] for x in cur.fetchall()}:
+        colunas={x[1] for x in cur.fetchall()}
+        if "nu" not in colunas:
             cur.execute("ALTER TABLE requisicao_compra_itens ADD COLUMN nu TEXT")
+        if "quantidade_aprovada" not in colunas:
+            cur.execute("ALTER TABLE requisicao_compra_itens ADD COLUMN quantidade_aprovada REAL")
     cur.execute(f"""CREATE TABLE IF NOT EXISTS requisicao_compra_eventos (id {pk},requisicao_compra_id INTEGER NOT NULL,item_id INTEGER,evento TEXT NOT NULL,status_anterior TEXT,status_novo TEXT,dados_anteriores TEXT,dados_novos TEXT,justificativa TEXT,usuario_id INTEGER,usuario_nome TEXT NOT NULL,perfil TEXT NOT NULL,criado_em {ts} NOT NULL,idempotency_key TEXT NOT NULL UNIQUE)""")
     for sql in ("CREATE INDEX IF NOT EXISTS idx_rc_origem ON requisicoes_compra(tipo_origem,origem_id,status)","CREATE INDEX IF NOT EXISTS idx_rc_status_data ON requisicoes_compra(status,criado_em)","CREATE INDEX IF NOT EXISTS idx_rc_solicitante ON requisicoes_compra(solicitante_id)","CREATE INDEX IF NOT EXISTS idx_rc_item_material ON requisicao_compra_itens(material_id,requisicao_compra_id)"):
         cur.execute(sql)
@@ -47,6 +52,54 @@ def _limitar(texto, campo, limite):
     valor=str(texto or "").strip()
     if len(valor)>limite: raise ValueError(f"{campo} excede {limite} caracteres.")
     return valor
+
+def total_estimado(quantidade,custo):
+    """Total oficial do item: quantidade x custo unitário estimado, em centavos (ROUND_HALF_UP)."""
+    if quantidade is None or custo is None or str(custo).strip()=="": return None
+    return (Decimal(str(quantidade))*Decimal(str(custo))).quantize(CENTAVOS,rounding=ROUND_HALF_UP)
+
+def formatar_custo_unitario(custo,moeda=True):
+    """Custo unitário para exibição: 2 casas, ou 3 quando a terceira casa é significativa (ex.: 1,005). None -> None."""
+    if custo is None or str(custo).strip()=="": return None
+    v=Decimal(str(custo)); tres=v.quantize(Decimal("0.001"),rounding=ROUND_HALF_UP)
+    casas=3 if tres!=tres.quantize(CENTAVOS,rounding=ROUND_HALF_UP) else 2
+    n=f"{v.quantize(Decimal(1).scaleb(-casas),rounding=ROUND_HALF_UP):,.{casas}f}".replace(",","X").replace(".",",").replace("X",".")
+    return ("R$ "+n) if moeda else n.replace(".","")
+
+def quantidade_efetiva(item):
+    """Quantidade consumida por processos posteriores: a aprovada, ou a solicitada se não houver aprovação registrada."""
+    q=item.get("quantidade_aprovada")
+    return item["quantidade_solicitada"] if q is None else q
+
+def _totais(rc):
+    sol=apr=Decimal("0.00"); sem_custo=0
+    for i in rc["itens"]:
+        i["quantidade_efetiva"]=quantidade_efetiva(i)
+        i["custo_unitario_formatado"]=formatar_custo_unitario(i.get("custo_estimado_unitario"))
+        i["custo_unitario_input"]=formatar_custo_unitario(i.get("custo_estimado_unitario"),moeda=False)
+        i["tem_ajuste"]=i.get("quantidade_aprovada") is not None and Decimal(str(i["quantidade_aprovada"]))!=Decimal(str(i["quantidade_solicitada"]))
+        i["total_estimado_solicitado"]=total_estimado(i["quantidade_solicitada"],i.get("custo_estimado_unitario"))
+        i["total_estimado_aprovado"]=total_estimado(i["quantidade_efetiva"],i.get("custo_estimado_unitario"))
+        if i["total_estimado_solicitado"] is None: sem_custo+=1
+        else: sol+=i["total_estimado_solicitado"]; apr+=i["total_estimado_aprovado"]
+    rc["total_estimado_solicitado"]=sol; rc["total_estimado_aprovado"]=apr; rc["itens_sem_custo"]=sem_custo; rc["total_parcial"]=sem_custo>0
+    rc["tem_ajuste"]=rc.get("status")=="APROVADA_COM_AJUSTES" or any(i["tem_ajuste"] for i in rc["itens"])
+    rc["ajuste_financeiro"]=sol!=apr
+
+def _ajustes_aprovacao(cur,rid,ajustes,justificativa):
+    """Valida quantidades aprovadas (dict item_id->valor). Retorna (linhas, houve_ajuste)."""
+    ajustes={str(k):v for k,v in (ajustes or {}).items()}
+    cur.execute(q("SELECT id,quantidade_solicitada FROM requisicao_compra_itens WHERE requisicao_compra_id=? ORDER BY id"),(rid,)); itens=[dict(x) for x in cur.fetchall()]
+    if set(ajustes)-{str(i["id"]) for i in itens}: raise ValueError("Todos os itens ajustados devem pertencer à RC.")
+    linhas=[]
+    for i in itens:
+        bruto=ajustes.get(str(i["id"]))
+        aprovada=Decimal(str(i["quantidade_solicitada"])) if bruto is None or str(bruto).strip()=="" else _decimal(bruto,"Quantidade aprovada")
+        if aprovada>Decimal(str(i["quantidade_solicitada"])): raise ValueError("Quantidade aprovada não pode ser superior à quantidade solicitada.")
+        linhas.append({"id":i["id"],"solicitada":Decimal(str(i["quantidade_solicitada"])),"aprovada":aprovada})
+    houve=any(l["aprovada"]!=l["solicitada"] for l in linhas)
+    if houve and not str(justificativa or "").strip(): raise ValueError("Informe a justificativa do ajuste de quantidade.")
+    return linhas,houve
 
 def normalizar_itens(dados):
     if hasattr(dados,"getlist"):
@@ -131,7 +184,7 @@ def editar_rascunho(rid,dados,itens,*,ator,versao,idempotency_key):
         raise
     finally: conn.close()
 
-def _acao(rid,*,ator,versao,idempotency_key,acao,motivo=None):
+def _acao(rid,*,ator,versao,idempotency_key,acao,motivo=None,ajustes=None,justificativa_ajuste=None):
     u=usuario(ator); chave=str(idempotency_key or "").strip()
     if not chave: raise ValueError("Chave idempotente obrigatória.")
     conn=conectar()
@@ -153,13 +206,16 @@ def _acao(rid,*,ator,versao,idempotency_key,acao,motivo=None):
             if u["perfil"] not in {"admin","gerencia"}: raise PermissionError("Somente admin ou gerência pode decidir.")
             if acao=="APROVACAO" and u["id"] is not None and str(u["id"])==str(rc["solicitante_id"]):
                 _evento(cur,rid,"TENTATIVA_AUTOAPROVACAO",ant,ant,u,chave,"Solicitante não pode aprovar a própria RC."); conn.commit(); raise PermissionError("Solicitante não pode aprovar a própria RC.")
-            permitido=ant=="ABERTA"; novo="APROVADA" if acao=="APROVACAO" else "REJEITADA"
+            permitido=ant=="ABERTA"; novo="APROVADA" if acao=="APROVACAO" else "REJEITADA"; linhas_aprovadas=[]
+            if acao=="APROVACAO" and permitido:
+                linhas_aprovadas,houve_ajuste=_ajustes_aprovacao(cur,rid,ajustes,justificativa_ajuste)
+                if houve_ajuste: novo="APROVADA_COM_AJUSTES"; motivo=str(justificativa_ajuste).strip()
             if acao=="REJEICAO" and not str(motivo or "").strip(): raise ValueError("Informe o motivo da rejeição.")
             campos=(("aprovado_por",u["id"],"aprovado_em",agora()) if acao=="APROVACAO" else ("rejeitado_por",u["id"],"rejeitado_em",agora()))
         elif acao=="CANCELAMENTO":
-            if ant not in {"RASCUNHO","ABERTA","APROVADA"}: raise ValueError("Estado não permite cancelamento.")
-            if ant=="APROVADA" and u["perfil"] not in {"admin","gerencia"}: raise PermissionError("RC aprovada só pode ser cancelada por admin ou gerência.")
-            if ant!="APROVADA" and u["perfil"] not in {"admin","gerencia"} and str(u["id"])!=str(rc["solicitante_id"]): raise PermissionError("Somente o autor ou gestão pode cancelar.")
+            if ant not in {"RASCUNHO","ABERTA",*APROVADAS}: raise ValueError("Estado não permite cancelamento.")
+            if ant in APROVADAS and u["perfil"] not in {"admin","gerencia"}: raise PermissionError("RC aprovada só pode ser cancelada por admin ou gerência.")
+            if ant not in APROVADAS and u["perfil"] not in {"admin","gerencia"} and str(u["id"])!=str(rc["solicitante_id"]): raise PermissionError("Somente o autor ou gestão pode cancelar.")
             if u["perfil"] not in {"admin","gerencia"}: verificar_permissao_origem_existente(rc["tipo_origem"],rc["origem_id"],u["perfil"])
             if not str(motivo or "").strip(): raise ValueError("Informe o motivo do cancelamento.")
             permitido=True; novo="CANCELADA"; campos=("cancelado_por",u["id"],"cancelado_em",agora())
@@ -171,7 +227,14 @@ def _acao(rid,*,ator,versao,idempotency_key,acao,motivo=None):
         params += [agora(),rid,int(versao)]
         cur.execute(q(f"UPDATE requisicoes_compra SET status=?,{campos[0]}=?,{campos[2]}=?,versao=versao+1{extras},atualizado_em=? WHERE id=? AND versao=?"),tuple(params))
         if cur.rowcount!=1: raise ConflitoRC("A RC foi alterada por outro usuário.")
-        _evento(cur,rid,acao,ant,novo,u,chave,str(motivo or "").strip() or None); conn.commit(); return buscar_rc(rid)
+        _evento(cur,rid,acao,ant,novo,u,chave,str(motivo or "").strip() or None)
+        if acao=="APROVACAO":
+            t=agora()
+            for l in linhas_aprovadas:
+                cur.execute(q("UPDATE requisicao_compra_itens SET quantidade_aprovada=?,atualizado_em=? WHERE id=? AND requisicao_compra_id=?"),(float(l["aprovada"]),t,l["id"],rid))
+                if l["aprovada"]!=l["solicitada"]:
+                    _evento(cur,rid,"AJUSTE_QUANTIDADE_APROVADA",ant,novo,u,f"{chave}:ajuste:{l['id']}",str(justificativa_ajuste).strip(),antes={"quantidade_solicitada":str(l["solicitada"])},depois={"quantidade_aprovada":str(l["aprovada"])},item_id=l["id"])
+        conn.commit(); return buscar_rc(rid)
     except PermissionError:
         conn.rollback()
         raise
@@ -230,7 +293,7 @@ def aplicar_nu(rid, item_ids, nu, *, ator, versao, idempotency_key, modo="seleci
         if repetido: conn.rollback(); return buscar_rc(repetido["requisicao_compra_id"])
         suf=" FOR UPDATE" if DATABASE_URL else ""; cur.execute(q(f"SELECT * FROM requisicoes_compra WHERE id=?{suf}"),(rid,)); rc=cur.fetchone()
         if not rc: raise ValueError("RC não encontrada.")
-        if rc["status"]!="APROVADA": raise ValueError("NU somente pode ser informada em RC aprovada.")
+        if rc["status"] not in APROVADAS: raise ValueError("NU somente pode ser informada em RC aprovada.")
         if int(rc["versao"])!=int(versao): raise ConflitoRC("A RC foi alterada por outro usuário.")
         marks=",".join("?" for _ in ids); cur.execute(q(f"SELECT id,nu FROM requisicao_compra_itens WHERE requisicao_compra_id=? AND id IN ({marks}){suf}"),tuple([rid,*ids])); itens=[dict(x) for x in cur.fetchall()]
         if len(itens)!=len(ids): raise ValueError("Todos os itens devem pertencer à RC.")
@@ -260,6 +323,7 @@ def buscar_rc(rid):
             if item.get("nu"): resumo[item["nu"]]=resumo.get(item["nu"],0)+1
         rc["resumo_nu"]=[{"nu":nu,"total":total} for nu,total in sorted(resumo.items())]
         rc["itens_sem_nu"]=sum(1 for item in rc["itens"] if not item.get("nu"))
+        _totais(rc)
         cur.execute(q("SELECT * FROM requisicao_compra_eventos WHERE requisicao_compra_id=? ORDER BY id"),(rid,)); rc["eventos"]=[dict(x) for x in cur.fetchall()]
         return rc
     finally: conn.close()
