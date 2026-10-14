@@ -367,6 +367,77 @@ def preflight_encerramento_op(op_id):
         conn.close()
 
 
+def listar_ops_aguardando_encerramento():
+    """Lista OPs abertas sem PI que ainda possuem PA pendente de fechamento.
+
+    A consulta inicial apenas delimita candidatas. Toda classificação e todos os
+    motivos de bloqueio vêm do mesmo preflight usado pelo encerramento oficial.
+    """
+    from .conferencia_embalagem import _hash
+
+    conn = conectar()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            SELECT op.*
+            FROM ordens_producao op
+            WHERE op.status='Aberta'
+              AND COALESCE((
+                SELECT SUM(CASE
+                  WHEN pi.tipo LIKE 'ENTRADA%' THEN pi.quantidade_bandejas
+                  WHEN pi.tipo LIKE 'SAIDA%' THEN -pi.quantidade_bandejas
+                  ELSE pi.quantidade_bandejas END)
+                FROM estoque_produto_intermediario pi WHERE pi.op_id=op.id
+              ),0)=0
+              AND EXISTS (
+                SELECT 1
+                FROM pa_caixa_composicao comp
+                JOIN pa_caixas cx ON cx.id=comp.caixa_id
+                WHERE comp.op_id=op.id
+                  AND UPPER(COALESCE(cx.status,''))
+                    NOT IN ('CANCELADA','CANCELADO','ESTORNADA','ESTORNADO')
+              )
+            ORDER BY op.id
+        """)
+        candidatas = cursor.fetchall()
+        resultado = []
+        for op in candidatas:
+            preflight = _preflight_cursor(cursor, op)
+            if Decimal(str(preflight["pi"]["saldo"] or 0)) != 0:
+                continue
+
+            caixas = [dict(caixa) for caixa in _carregar_caixas(cursor, int(op["id"]))]
+            hash_atual = _hash(caixas)
+            cursor.execute(q("""SELECT hash_conferencia,confirmada
+                FROM embalagem_secundaria_conferencias
+                WHERE op_id=? ORDER BY id DESC LIMIT 1"""), (op["id"],))
+            conferencia = cursor.fetchone()
+            conferencia_valida = bool(
+                conferencia and conferencia["confirmada"]
+                and conferencia["hash_conferencia"] == hash_atual
+            )
+            if not preflight["permitido"]:
+                situacao = "Bloqueada"
+            elif conferencia_valida:
+                situacao = "Conferência válida — pronta para encerrar"
+            else:
+                situacao = "Pronta para conferência"
+
+            resultado.append({
+                "op_id": int(op["id"]),
+                "sku": validar_sku_operacional(op["sku"]),
+                "caixas": int(preflight["caixas_ativas"]),
+                "bandejas": preflight["bandejas_consumidas"],
+                "peso_liquido": preflight["peso_liquido_total"],
+                "conferencia_valida": conferencia_valida,
+                "situacao": situacao,
+                "bloqueios": list(preflight["bloqueios"]),
+            })
+        return resultado
+    finally:
+        conn.close()
+
+
 def _resultado_idempotente(cursor, chave):
     if not chave or not _tabela_existe(cursor, "op_operacoes_auditoria"):
         return None

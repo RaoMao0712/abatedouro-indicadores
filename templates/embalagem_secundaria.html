@@ -57,11 +57,6 @@
             <label>OP para Embalagem Secundária</label>
             <select name="op_id" required onchange="this.form.submit()">
                 <option value="">Selecione a OP</option>
-                {% if op_selecionada and op_id_selecionada and not saldos_pi|selectattr("op_id", "equalto", op_selecionada.op_id)|list %}
-                    <option value="{{ op_selecionada.op_id }}" selected>
-                        OP #{{ op_selecionada.op_id }} — {{ op_selecionada.sku }} — saldo {{ op_selecionada.saldo_bandejas|br_numero }} bandejas
-                    </option>
-                {% endif %}
                 {% for item in saldos_pi %}
                     <option value="{{ item.op_id }}" {% if op_id_selecionada == item.op_id|string %}selected{% endif %}>
                         OP #{{ item.op_id }} — {{ item.sku }} — saldo {{ item.saldo_bandejas|br_numero }} bandejas
@@ -86,6 +81,42 @@
     </div>
     {% else %}
         <p class="obs">Selecione uma OP para iniciar o lançamento contínuo das caixas.</p>
+    {% endif %}
+</div>
+
+<div class="card expedicao-card" id="ops-aguardando-encerramento">
+    <div class="section-title-row">
+        <div>
+            <span class="eyebrow">Aguardando encerramento</span>
+            <h2>OPs aguardando conferência e encerramento</h2>
+            <p class="obs">OPs sem PI disponível continuam visíveis até a conclusão do fluxo oficial.</p>
+        </div>
+    </div>
+
+    {% if ops_aguardando_encerramento %}
+    <div class="tabela-responsiva tabela-executiva expedicao-tabela">
+        <table>
+            <thead><tr><th>OP</th><th>SKU</th><th>Caixas</th><th>Bandejas/unidades</th><th>Peso líquido</th><th>Situação</th><th>Ação</th></tr></thead>
+            <tbody>
+            {% for item in ops_aguardando_encerramento %}
+                <tr>
+                    <td><strong>#{{ item.op_id }}</strong></td>
+                    <td>{{ item.sku }}</td>
+                    <td>{{ item.caixas }}</td>
+                    <td>{{ item.bandejas|br_numero }}</td>
+                    <td>{{ item.peso_liquido|br_numero }} kg</td>
+                    <td>
+                        <strong>{{ item.situacao }}</strong>
+                        {% if item.bloqueios %}<ul>{% for bloqueio in item.bloqueios %}<li>{{ bloqueio }}</li>{% endfor %}</ul>{% endif %}
+                    </td>
+                    <td><a class="botao-principal" href="{{ url_for('embalagem_secundaria', op_id=item.op_id, conferencia=1) }}#conferencia-encerramento">Revisar e encerrar</a></td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+        <p class="obs">Nenhuma OP aguarda conferência ou encerramento.</p>
     {% endif %}
 </div>
 
@@ -115,7 +146,7 @@
 {% endif %}
 
 {% if op_selecionada and fechamento_op %}
-<div class="card expedicao-card">
+<div class="card expedicao-card" id="conferencia-encerramento">
     <div class="section-title-row">
         <div>
             <span class="eyebrow">Conferência da OP</span>

@@ -38,7 +38,10 @@ from modules.expedicao.estoque_service import (  # noqa: E402
 from modules.expedicao.routes import register_expedicao_routes  # noqa: E402
 from modules.expedicao import estornos_embalagem as estornos_embalagem  # noqa: E402
 from modules.expedicao import encerramento_op  # noqa: E402
-from modules.expedicao.encerramento_op import preflight_encerramento_op  # noqa: E402
+from modules.expedicao.encerramento_op import (  # noqa: E402
+    listar_ops_aguardando_encerramento,
+    preflight_encerramento_op,
+)
 from modules.expedicao.conferencia_embalagem import (  # noqa: E402
     confirmar_conferencia_op,
     obter_conferencia_op,
@@ -60,6 +63,7 @@ from modules.producao.operacoes_op import (  # noqa: E402
 )
 from modules.producao import integridade_encerramento as integridade  # noqa: E402
 from modules.producao.commands import register_producao_commands  # noqa: E402
+from modules.label_printing.services import criar_tabelas_impressao_etiquetas  # noqa: E402
 from modules.producao.integridade_encerramento import (  # noqa: E402
     ENCERRADA,
     ESTADO_INCONSISTENTE,
@@ -141,6 +145,8 @@ class ExpedicaoCorretivaTest(unittest.TestCase):
         criar_tabelas_estoque_pi_pa()
         criar_tabelas_estoque_confiavel()
         criar_tabelas_operacoes_op()
+        criar_tabelas_pa_nao_conforme()
+        criar_tabelas_impressao_etiquetas()
         cls.local_abatedouro = consultar_um(
             "SELECT id FROM locais_estoque WHERE nome = 'Abatedouro'"
         )["id"]
@@ -1231,6 +1237,104 @@ class ExpedicaoCorretivaTest(unittest.TestCase):
         balanco = preflight_encerramento_op(op_balanco)
         self.assertFalse(balanco["permitido"])
         self.assertIn("Balanço de aves divergente", " ".join(balanco["bloqueios"]))
+
+    def test_42_op96_sem_pi_aparece_somente_na_fila_de_encerramento(self):
+        op_id = self.criar_op("Galinha Cortada", 2000)
+        executar("""INSERT INTO embalagem_primaria_apontamentos(
+            op_id,data_apontamento,sku,quantidade_bandejas)
+            VALUES(?,'2026-09-10','Galinha Cortada',1964)""", (op_id,))
+        executar("""INSERT INTO apontamentos_descartes(
+            op_id,setor,motivo,categoria,quantidade,unidade)
+            VALUES(?,'Abate','Perdas operacionais','Descarte',36,'aves')""", (op_id,))
+        executar("""INSERT INTO estoque_produto_intermediario(
+            data_movimentacao,tipo,op_id,sku,quantidade_bandejas,origem,observacoes)
+            VALUES('2026-09-10','ENTRADA_EMBALAGEM_PRIMARIA',?,'Galinha Cortada',1964,
+                   'Embalagem Primária','Regressão fila OP 96')""", (op_id,))
+        for indice in range(164):
+            bandejas = 8 if indice == 0 else 12
+            peso = 3.2 if indice == 0 else 12
+            caixa_id = executar("""INSERT INTO pa_caixas(
+                codigo_caixa,sku,data_fabricacao,data_validade,peso_bruto,peso_tara,
+                peso_liquido,quantidade_bandejas,status,origem,local_estoque_id,
+                estoque_operacional,condicao,disponibilidade,zona_estoque,unidade_estoque)
+                VALUES(?,'Galinha Cortada','2026-09-10','2027-09-10',?,0,?,?,'Em estoque',
+                       'Embalagem Secundaria',?,0,'CONFORME','PENDENTE_OP','Conforme','CAIXA')""",
+                (f"CX-FILA-OP96-{indice + 1:03d}", peso, peso, bandejas, self.local_abatedouro))
+            executar("INSERT INTO pa_caixa_composicao(caixa_id,op_id,quantidade_bandejas) VALUES(?,?,?)",
+                     (caixa_id, op_id, bandejas))
+            executar("""INSERT INTO estoque_produto_intermediario(
+                data_movimentacao,tipo,op_id,sku,quantidade_bandejas,origem,caixa_id,
+                observacoes,idempotency_key)
+                VALUES('2026-09-10','SAIDA_EMBALAGEM_SECUNDARIA',?,'Galinha Cortada',?,
+                       'Embalagem Secundária',?,'Regressão fila OP 96',?)""",
+                (op_id, bandejas, caixa_id, f"FILA-OP96-PI-{caixa_id}"))
+
+        painel = obter_conferencia_op(op_id)
+        confirmar_conferencia_op(
+            op_id, usuario="PCP", perfil="pcp", hash_informado=painel["hash"]
+        )
+        antes = {
+            "op": dict(consultar_um("SELECT status FROM ordens_producao WHERE id=?", (op_id,))),
+            "pi": consultar_um("SELECT COUNT(*) total FROM estoque_produto_intermediario WHERE op_id=?", (op_id,))["total"],
+            "pa": consultar_um("SELECT COUNT(*) total FROM pa_caixa_composicao WHERE op_id=?", (op_id,))["total"],
+        }
+        cliente = self.app.test_client()
+        with cliente.session_transaction() as sessao:
+            sessao.update({"usuario_id": 1, "nome": "PCP", "perfil": "pcp"})
+        resposta = cliente.get("/embalagem-secundaria")
+        self.assertEqual(resposta.status_code, 200)
+        html = resposta.get_data(as_text=True)
+        seletor = html.split('<select name="op_id"', 1)[1].split("</select>", 1)[0]
+        self.assertNotIn(f'value="{op_id}"', seletor)
+        self.assertIn("OPs aguardando conferência e encerramento", html)
+        self.assertIn(f"#{op_id}", html)
+        self.assertIn("Conferência válida — pronta para encerrar", html)
+        self.assertIn(f"/embalagem-secundaria?op_id={op_id}&amp;conferencia=1", html)
+        revisao = cliente.get(f"/embalagem-secundaria?op_id={op_id}&conferencia=1")
+        self.assertEqual(revisao.status_code, 200)
+        self.assertIn(
+            f'action="/embalagem-secundaria/{op_id}/conferencia/confirmar"',
+            revisao.get_data(as_text=True),
+        )
+        item = next(item for item in listar_ops_aguardando_encerramento() if item["op_id"] == op_id)
+        self.assertEqual((item["caixas"], item["bandejas"]), (164, 1964))
+        self.assertEqual(Decimal(str(item["peso_liquido"])), Decimal("1959.2"))
+        self.assertTrue(item["conferencia_valida"])
+        self.assertEqual(dict(consultar_um("SELECT status FROM ordens_producao WHERE id=?", (op_id,))), antes["op"])
+        self.assertEqual(consultar_um("SELECT COUNT(*) total FROM estoque_produto_intermediario WHERE op_id=?", (op_id,))["total"], antes["pi"])
+        self.assertEqual(consultar_um("SELECT COUNT(*) total FROM pa_caixa_composicao WHERE op_id=?", (op_id,))["total"], antes["pa"])
+
+    def test_43_filas_separam_formacao_bloqueios_e_status_finais(self):
+        op_com_pi = self.criar_op("Galinha Cortada", 12)
+        executar("""INSERT INTO estoque_produto_intermediario(
+            data_movimentacao,tipo,op_id,sku,quantidade_bandejas,origem)
+            VALUES('2026-10-14','ENTRADA_EMBALAGEM_PRIMARIA',?,'Galinha Cortada',114,'Embalagem Primária')""",
+            (op_com_pi,))
+        op_sem_caixa = self.criar_op("Galinha Cortada", 0)
+        op_bloqueada, caixa_bloqueada = self.preparar_cortada_integra("CX-FILA-BLOQUEADA")
+        executar("UPDATE pa_caixas SET reservado_expedicao_id=999 WHERE id=?", (caixa_bloqueada,))
+        op_encerrada, _ = self.preparar_cortada_integra("CX-FILA-ENCERRADA")
+        executar("UPDATE ordens_producao SET status='Encerrada' WHERE id=?", (op_encerrada,))
+        op_estornada, _ = self.preparar_cortada_integra("CX-FILA-ESTORNADA")
+        executar("UPDATE ordens_producao SET status='Estornada' WHERE id=?", (op_estornada,))
+
+        fila = listar_ops_aguardando_encerramento()
+        ids = {item["op_id"] for item in fila}
+        self.assertNotIn(op_com_pi, ids)
+        self.assertNotIn(op_sem_caixa, ids)
+        self.assertNotIn(op_encerrada, ids)
+        self.assertNotIn(op_estornada, ids)
+        bloqueada = next(item for item in fila if item["op_id"] == op_bloqueada)
+        self.assertEqual(bloqueada["situacao"], "Bloqueada")
+        self.assertIn("reserva operacional ativa", " ".join(bloqueada["bloqueios"]))
+
+        cliente = self.app.test_client()
+        with cliente.session_transaction() as sessao:
+            sessao.update({"usuario_id": 1, "nome": "PCP", "perfil": "pcp"})
+        html = cliente.get("/embalagem-secundaria").get_data(as_text=True)
+        seletor = html.split('<select name="op_id"', 1)[1].split("</select>", 1)[0]
+        self.assertIn(f'value="{op_com_pi}"', seletor)
+        self.assertNotIn(f'value="{op_bloqueada}"', seletor)
 
 
 if __name__ == "__main__":

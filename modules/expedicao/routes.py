@@ -55,7 +55,7 @@ from .estornos_embalagem import (
     funcionalidade_estorno_habilitada,
 )
 from .conferencia_embalagem import confirmar_conferencia_op, obter_conferencia_op
-from .encerramento_op import preflight_encerramento_op
+from .encerramento_op import listar_ops_aguardando_encerramento, preflight_encerramento_op
 from .relatorio_conferencia_embalagem import gerar_relatorio_conferencia_embalagem_pdf
 from .estoque_service import (
     DESTINOS_CONTROLADOS,
@@ -560,6 +560,7 @@ def register_expedicao_routes(app, integracoes=None):
             ))
 
         saldos_pi = buscar_ops_com_saldo_pi()
+        ops_aguardando_encerramento = listar_ops_aguardando_encerramento()
         caixas_pa = buscar_caixas_pa()
         resumo = calcular_resumo_estoques_pi_pa(saldos_pi, caixas_pa)
         op_id_selecionada = request.args.get("op_id", "")
@@ -631,6 +632,7 @@ def register_expedicao_routes(app, integracoes=None):
         return render_template(
             "embalagem_secundaria.html",
             saldos_pi=saldos_pi,
+            ops_aguardando_encerramento=ops_aguardando_encerramento,
             caixas_pa=caixas_pa,
             resumo=resumo,
             hoje=datetime.now().strftime("%Y-%m-%d"),
