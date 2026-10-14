@@ -160,3 +160,83 @@ def test_i_falha_intermediaria_reverte_op_pi_apontamento_e_auditoria(primaria, m
     assert conn.execute("SELECT COUNT(*) FROM estoque_produto_intermediario WHERE tipo='SAIDA_REVERSAO_EMBALAGEM_PRIMARIA'").fetchone()[0] == 0
     assert tuple(conn.execute("SELECT status,versao_operacional FROM ordens_producao WHERE id=7").fetchone()) == ("Aberta", 2)
     conn.close()
+
+
+def test_j_pa_historico_estornado_nao_bloqueia_novo_pi_e_fluxo_secundaria(primaria, monkeypatch):
+    _reverter()
+    conn = primaria()
+    for indice in range(1, 10):
+        caixa_id = 100 + indice
+        conn.execute("""INSERT INTO pa_caixas(
+            id,codigo_caixa,sku,status,estoque_operacional,disponibilidade,
+            peso_bruto,peso_liquido,quantidade_bandejas,criado_em)
+            VALUES(?,?,?,'Estornada',0,'ESTORNADO',10,9.5,?,?)""",
+            (caixa_id, f"CX-HIST-{indice}", "Galinha Cortada", 12 if indice < 9 else 7,
+             "2026-10-08"))
+        conn.execute("""INSERT INTO pa_caixa_composicao(
+            caixa_id,op_id,quantidade_bandejas) VALUES(?,?,?)""",
+            (caixa_id, 7, 12 if indice < 9 else 7))
+    op = conn.execute("SELECT * FROM ordens_producao WHERE id=7").fetchone()
+    conn.commit()
+    conn.close()
+
+    expedicao.registrar_apontamento_embalagem_primaria(op, 100)
+
+    conn = primaria()
+    assert conn.execute("""SELECT COUNT(*) FROM pa_caixas
+        WHERE codigo_caixa LIKE 'CX-HIST-%' AND status='Estornada'
+          AND disponibilidade='ESTORNADO' AND estoque_operacional=0""").fetchone()[0] == 9
+    assert conn.execute("SELECT COUNT(*) FROM pa_caixa_composicao WHERE op_id=7").fetchone()[0] == 9
+    assert conn.execute("SELECT COUNT(*) FROM embalagem_primaria_apontamentos WHERE op_id=7").fetchone()[0] == 2
+    assert conn.execute("SELECT COUNT(*) FROM estoque_produto_intermediario WHERE op_id=7").fetchone()[0] == 3
+    assert conn.execute("""SELECT COALESCE(SUM(CASE WHEN tipo LIKE 'ENTRADA%' THEN quantidade_bandejas
+        ELSE -quantidade_bandejas END),0) FROM estoque_produto_intermediario WHERE op_id=7""").fetchone()[0] == 100
+    conn.close()
+
+    disponiveis = {int(item["op_id"]): float(item["saldo_bandejas"])
+                   for item in expedicao.buscar_ops_com_saldo_pi()}
+    assert disponiveis[7] == 100
+
+    monkeypatch.setattr("modules.label_printing.services.criar_job_caixa_cursor",
+                        lambda *args, **kwargs: None)
+    monkeypatch.setattr(estoque_service, "marcar_pa_pendente", lambda *args, **kwargs: None)
+    monkeypatch.setattr(expedicao, "obter_sku_op", lambda op_id: "Galinha Cortada")
+    monkeypatch.setattr(expedicao, "buscar_op_por_id", lambda op_id: op)
+    codigo = expedicao.registrar_caixa_pa_manual({
+        "op_principal": "7", "bandejas_principal": "12",
+        "peso_bruto": "10.500", "peso_liquido": "10.000",
+        "data_fabricacao": str(op["data"]),
+        "data_validade": expedicao.calcular_validade_padrao(str(op["data"])),
+        "idempotency_key": "OP102-NOVO-PA",
+    }, usuario="Operador")
+    assert codigo
+
+
+def test_k_uma_caixa_ativa_ainda_bloqueia_reapontamento(primaria):
+    _reverter()
+    conn = primaria()
+    conn.execute("""INSERT INTO pa_caixas(
+        id,codigo_caixa,sku,status,estoque_operacional,disponibilidade,criado_em)
+        VALUES(201,'CX-ATIVA','Galinha Cortada','Em estoque',1,'DISPONIVEL','2026-10-14')""")
+    conn.execute("INSERT INTO pa_caixa_composicao(caixa_id,op_id,quantidade_bandejas) VALUES(201,7,12)")
+    op = conn.execute("SELECT * FROM ordens_producao WHERE id=7").fetchone()
+    conn.commit()
+    conn.close()
+
+    with pytest.raises(ValueError, match="já possui caixas PA vinculadas"):
+        expedicao.registrar_apontamento_embalagem_primaria(op, 100)
+
+
+def test_l_pa_historico_nao_remove_limite_da_entrada(primaria):
+    _reverter()
+    conn = primaria()
+    conn.execute("""INSERT INTO pa_caixas(
+        id,codigo_caixa,sku,status,estoque_operacional,disponibilidade,criado_em)
+        VALUES(301,'CX-HIST-LIMITE','Galinha Cortada','Estornada',0,'ESTORNADO','2026-10-08')""")
+    conn.execute("INSERT INTO pa_caixa_composicao(caixa_id,op_id,quantidade_bandejas) VALUES(301,7,100)")
+    op = conn.execute("SELECT * FROM ordens_producao WHERE id=7").fetchone()
+    conn.commit()
+    conn.close()
+
+    with pytest.raises(ValueError, match="possui 100 aves"):
+        expedicao.registrar_apontamento_embalagem_primaria(op, 103)

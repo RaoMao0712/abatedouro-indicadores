@@ -506,8 +506,16 @@ def op_possui_caixa_pa(op_id):
 
     cursor.execute(q("""
     SELECT COUNT(*) AS total
-    FROM pa_caixa_composicao
-    WHERE op_id = ?
+    FROM pa_caixa_composicao comp
+    INNER JOIN pa_caixas cx ON cx.id = comp.caixa_id
+    WHERE comp.op_id = ?
+      AND NOT (
+          COALESCE(cx.estoque_operacional, 0) = 0
+          AND UPPER(COALESCE(cx.status, '')) IN
+              ('CANCELADA', 'CANCELADO', 'ESTORNADA', 'ESTORNADO')
+          AND UPPER(COALESCE(cx.disponibilidade, '')) IN
+              ('CANCELADO', 'ESTORNADO')
+      )
     """), (op_id,))
 
     linha = cursor.fetchone()
