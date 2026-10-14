@@ -5,6 +5,7 @@ from pathlib import Path
 import sys
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
+from decimal import Decimal
 import unittest
 from unittest import mock
 
@@ -1131,6 +1132,105 @@ class ExpedicaoCorretivaTest(unittest.TestCase):
         self.assertIn('"somente_leitura": true', resultado.output)
         self.assertIn('"criticos":', resultado.output)
         self.assertEqual(dict(consultar_um("SELECT status FROM ordens_producao WHERE id=?", (op_id,))), antes)
+
+    def test_39_regressao_op96_usa_um_unico_peso_decimal_canonico(self):
+        op_id = self.criar_op("Galinha Cortada", 2000)
+        executar("""INSERT INTO embalagem_primaria_apontamentos(
+            op_id,data_apontamento,sku,quantidade_bandejas)
+            VALUES(?,'2026-09-10','Galinha Cortada',1964)""", (op_id,))
+        executar("""INSERT INTO apontamentos_descartes(
+            op_id,setor,motivo,categoria,quantidade,unidade)
+            VALUES(?,'Abate','Perdas operacionais','Descarte',36,'aves')""", (op_id,))
+        executar("""INSERT INTO estoque_produto_intermediario(
+            data_movimentacao,tipo,op_id,sku,quantidade_bandejas,origem,observacoes)
+            VALUES('2026-09-10','ENTRADA_EMBALAGEM_PRIMARIA',?,'Galinha Cortada',1964,
+                   'Embalagem Primária','Regressão OP 96')""", (op_id,))
+        for indice in range(164):
+            bandejas = 8 if indice == 0 else 12
+            peso = 3.2 if indice == 0 else 12
+            caixa_id = executar("""INSERT INTO pa_caixas(
+                codigo_caixa,sku,data_fabricacao,data_validade,peso_bruto,peso_tara,
+                peso_liquido,quantidade_bandejas,status,origem,local_estoque_id,
+                estoque_operacional,condicao,disponibilidade,zona_estoque,unidade_estoque)
+                VALUES(?,'Galinha Cortada','2026-09-10','2027-09-10',?,0,?,?,
+                       'Em estoque','Embalagem Secundaria',?,0,'CONFORME','PENDENTE_OP',
+                       'Conforme','CAIXA')""",
+                (f"CX-OP96-{indice + 1:03d}", peso, peso, bandejas, self.local_abatedouro))
+            executar("INSERT INTO pa_caixa_composicao(caixa_id,op_id,quantidade_bandejas) VALUES(?,?,?)",
+                     (caixa_id, op_id, bandejas))
+            executar("""INSERT INTO estoque_produto_intermediario(
+                data_movimentacao,tipo,op_id,sku,quantidade_bandejas,origem,caixa_id,
+                observacoes,idempotency_key)
+                VALUES('2026-09-10','SAIDA_EMBALAGEM_SECUNDARIA',?,'Galinha Cortada',?,
+                       'Embalagem Secundária',?,'Regressão OP 96',?)""",
+                (op_id, bandejas, caixa_id, f"OP96-PI-{caixa_id}"))
+
+        preflight = preflight_encerramento_op(op_id)
+        self.assertTrue(preflight["permitido"])
+        self.assertEqual(preflight["pi"]["saldo"], 0)
+        self.assertEqual(preflight["caixas_ativas"], 164)
+        self.assertEqual(Decimal(str(preflight["peso_liquido_total"])), Decimal("1959.2"))
+        self.assertEqual(Decimal("1959.200").quantize(Decimal("0.001")), Decimal("1959.200"))
+        self.assertEqual(Decimal("1959.199").quantize(Decimal("0.001")), Decimal("1959.199"))
+        movimentos_antes = consultar_um("""SELECT COUNT(*) total FROM estoque_produto_intermediario
+            WHERE op_id=? AND tipo='SAIDA_EMBALAGEM_SECUNDARIA'""", (op_id,))["total"]
+        resultado = finalizar_embalagem_secundaria_op(
+            op_id, idempotency_key=f"REGRESSAO-OP96-{op_id}"
+        )
+        self.assertEqual(Decimal(str(resultado["peso_liquido_total"])), Decimal("1959.2"))
+        self.assertEqual(Decimal(str(resultado["pos_condicoes"]["peso_operacional"])), Decimal("1959.2"))
+        self.assertEqual(consultar_um(
+            "SELECT status FROM ordens_producao WHERE id=?", (op_id,)
+        )["status"], "Encerrada")
+        self.assertEqual(consultar_um("""SELECT COUNT(*) total FROM estoque_produto_intermediario
+            WHERE op_id=? AND tipo='SAIDA_EMBALAGEM_SECUNDARIA'""", (op_id,))["total"], movimentos_antes)
+
+    def test_40_divergencia_fisica_real_continua_bloqueando(self):
+        op_id, caixa_id = self.preparar_cortada_integra("CX-PESO-REAL-DIVERGENTE")
+        original = encerramento_op._calcular_pesos_caixas_ativas
+        chamadas = [0]
+
+        def peso_alterado(cursor, alvo):
+            chamadas[0] += 1
+            pesos = original(cursor, alvo)
+            if chamadas[0] > 1:
+                pesos["peso_liquido"] += Decimal("0.001")
+            return pesos
+
+        with mock.patch.object(encerramento_op, "_calcular_pesos_caixas_ativas", side_effect=peso_alterado):
+            with self.assertRaisesRegex(RuntimeError, "peso operacional"):
+                finalizar_embalagem_secundaria_op(
+                    op_id, idempotency_key=f"PESO-REAL-DIVERGENTE-{op_id}"
+                )
+        self.assertEqual(consultar_um(
+            "SELECT status FROM ordens_producao WHERE id=?", (op_id,)
+        )["status"], "Aberta")
+        caixa = consultar_um(
+            "SELECT estoque_operacional,disponibilidade FROM pa_caixas WHERE id=?", (caixa_id,)
+        )
+        self.assertEqual((caixa["estoque_operacional"], caixa["disponibilidade"]), (0, "PENDENTE_OP"))
+
+    def test_41_guardas_reserva_romaneio_e_balanco_permanecem_ativas(self):
+        op_reserva, caixa_reserva = self.preparar_cortada_integra("CX-GUARDA-RESERVA")
+        executar("UPDATE pa_caixas SET reservado_expedicao_id=999 WHERE id=?", (caixa_reserva,))
+        reserva = preflight_encerramento_op(op_reserva)
+        self.assertFalse(reserva["permitido"])
+        self.assertIn("reserva operacional ativa", " ".join(reserva["bloqueios"]))
+
+        op_romaneio, caixa_romaneio = self.preparar_cortada_integra("CX-GUARDA-ROMANEIO")
+        romaneio = self.criar_romaneio()
+        executar("""INSERT INTO expedicao_itens(
+            expedicao_id,op_id,sku,quantidade_unidades,quantidade_kg,caixa_id)
+            VALUES(?,?,'Galinha Cortada',12,10,?)""", (romaneio, op_romaneio, caixa_romaneio))
+        vinculo = preflight_encerramento_op(op_romaneio)
+        self.assertFalse(vinculo["permitido"])
+        self.assertIn("vinculada a romaneio", " ".join(vinculo["bloqueios"]))
+
+        op_balanco, _ = self.preparar_cortada_integra("CX-GUARDA-BALANCO")
+        executar("UPDATE ordens_producao SET quantidade_aves=13 WHERE id=?", (op_balanco,))
+        balanco = preflight_encerramento_op(op_balanco)
+        self.assertFalse(balanco["permitido"])
+        self.assertIn("Balanço de aves divergente", " ".join(balanco["bloqueios"]))
 
 
 if __name__ == "__main__":

@@ -86,6 +86,43 @@ def _livro_pi(cursor, op_id, bloquear=False):
     return cursor.fetchone()
 
 
+def _calcular_pesos_caixas_ativas(cursor, op_id):
+    """Calcula os pesos da OP por caixa, com aritmética decimal canônica.
+
+    A consulta traz somente os operandos persistidos. O rateio por composição e
+    a soma são feitos em Python com ``Decimal``, sem depender da aritmética
+    binária do banco. A mesma rotina é usada antes e depois da formação do
+    estoque para que as duas validações comparem a mesma fonte e granularidade.
+    """
+    cursor.execute(q("""
+        SELECT cx.id,cx.peso_liquido,cx.peso_bruto,
+          COALESCE(SUM(CASE WHEN comp.op_id=? THEN comp.quantidade_bandejas ELSE 0 END),0)
+            quantidade_op,
+          COALESCE(SUM(comp.quantidade_bandejas),0) quantidade_total
+        FROM pa_caixas cx
+        JOIN pa_caixa_composicao comp ON comp.caixa_id=cx.id
+        WHERE EXISTS (
+          SELECT 1 FROM pa_caixa_composicao alvo
+          WHERE alvo.caixa_id=cx.id AND alvo.op_id=?
+        )
+          AND UPPER(COALESCE(cx.status,''))
+            NOT IN ('CANCELADA','CANCELADO','ESTORNADA','ESTORNADO')
+        GROUP BY cx.id,cx.peso_liquido,cx.peso_bruto
+        ORDER BY cx.id
+    """), (op_id, op_id))
+    liquido = Decimal("0")
+    bruto = Decimal("0")
+    for caixa in cursor.fetchall():
+        quantidade_op = Decimal(str(caixa["quantidade_op"] or 0))
+        quantidade_total = Decimal(str(caixa["quantidade_total"] or 0))
+        if quantidade_total == 0:
+            continue
+        proporcao = quantidade_op / quantidade_total
+        liquido += Decimal(str(caixa["peso_liquido"] or 0)) * proporcao
+        bruto += Decimal(str(caixa["peso_bruto"] or 0)) * proporcao
+    return {"peso_liquido": liquido, "peso_bruto": bruto}
+
+
 def _calcular_fechamento_cursor(cursor, op):
     """Calcula as invariantes sem executar bootstrap, DDL ou commit implícito."""
     op_id = int(op["id"])
@@ -114,23 +151,20 @@ def _calcular_fechamento_cursor(cursor, op):
     )
     cursor.execute(q("""
         SELECT COUNT(DISTINCT cx.id) caixas,
-          COALESCE(SUM(comp.quantidade_bandejas),0) bandejas_consumidas,
-          COALESCE(SUM(cx.peso_liquido*comp.quantidade_bandejas/
-            NULLIF((SELECT SUM(c2.quantidade_bandejas) FROM pa_caixa_composicao c2
-                    WHERE c2.caixa_id=comp.caixa_id),0)),0) peso_liquido_total,
-          COALESCE(SUM(cx.peso_bruto*comp.quantidade_bandejas/
-            NULLIF((SELECT SUM(c2.quantidade_bandejas) FROM pa_caixa_composicao c2
-                    WHERE c2.caixa_id=comp.caixa_id),0)),0) peso_bruto_total
+          COALESCE(SUM(comp.quantidade_bandejas),0) bandejas_consumidas
         FROM pa_caixa_composicao comp
         JOIN pa_caixas cx ON cx.id=comp.caixa_id
         WHERE comp.op_id=? AND UPPER(COALESCE(cx.status,''))
           NOT IN ('CANCELADA','CANCELADO','ESTORNADA','ESTORNADO')
     """), (op_id,))
     caixas = cursor.fetchone()
+    pesos = _calcular_pesos_caixas_ativas(cursor, op_id)
     aves_vivas = float(op["quantidade_aves"] or 0)
     bandejas_consumidas = float(caixas["bandejas_consumidas"] or 0)
-    peso_liquido_total = float(caixas["peso_liquido_total"] or 0)
-    peso_bruto_total = float(caixas["peso_bruto_total"] or 0)
+    peso_liquido_canonico = pesos["peso_liquido"]
+    peso_bruto_canonico = pesos["peso_bruto"]
+    peso_liquido_total = float(peso_liquido_canonico)
+    peso_bruto_total = float(peso_bruto_canonico)
     saldo_aves = aves_vivas - (
         bandejas_primaria + descartes + condenacoes + mortes_antes_pendura
     )
@@ -164,6 +198,8 @@ def _calcular_fechamento_cursor(cursor, op):
         "bandejas_consumidas": bandejas_consumidas,
         "peso_liquido_total": peso_liquido_total,
         "peso_bruto_total": peso_bruto_total,
+        "peso_liquido_canonico": str(peso_liquido_canonico),
+        "peso_bruto_canonico": str(peso_bruto_canonico),
         "saldo_aves": saldo_aves, "saldo_pi": saldo_pi,
         "pendencias": pendencias,
         "pode_encerrar": not pendencias,
@@ -286,6 +322,13 @@ def _preflight_cursor(cursor, op, bloquear=False):
         "saldo_pi": float(pi["saldo"] or 0),
         "peso_liquido_total": fechamento["peso_liquido_total"],
         "peso_bruto_total": fechamento.get("peso_bruto_total", fechamento["peso_liquido_total"]),
+        "peso_liquido_canonico": fechamento.get(
+            "peso_liquido_canonico", str(fechamento["peso_liquido_total"])
+        ),
+        "peso_bruto_canonico": fechamento.get(
+            "peso_bruto_canonico",
+            str(fechamento.get("peso_bruto_total", fechamento["peso_liquido_total"])),
+        ),
         "fechamento": fechamento,
     }
     from modules.producao.integridade_encerramento import (
@@ -295,7 +338,7 @@ def _preflight_cursor(cursor, op, bloquear=False):
         "status": status, "caixas": len(ativas), "caixas_pendentes": pendentes,
         "caixas_operacionais": operacionais, "eventos_formacao": 0,
         "eventos_duplicados": 0, "saldo_pi": pi["saldo"],
-        "bandejas_pi": pi["consumo_liquido"],
+        "bandejas_pi": _valor(pi, "consumo_liquido", pi["saidas"]),
         "bandejas_caixas": fechamento["bandejas_consumidas"],
         "peso_liquido": fechamento["peso_liquido_total"], "caixas_mistas": 0,
         "codigos_duplicados": 0, "auditorias_sucesso": 0, "sucessos_incoerentes": 0,
@@ -467,11 +510,8 @@ def _validar_pos_condicoes(cursor, op_id, preflight, chave):
     depois = _preflight_cursor(cursor, op_final)
     if depois["caixas_dados_hash"] != preflight["caixas_dados_hash"]:
         erros.append("código, fabricação, validade ou composição física de caixa foi alterado")
-    peso_esperado = Decimal(str(preflight["peso_liquido_total"])).quantize(Decimal("0.001"))
-    peso_operacional = sum(
-        (Decimal(str(_valor(c, "peso_liquido", 0) or 0)) for c in ativas
-         if int(_valor(c, "estoque_operacional", 0) or 0) == 1), Decimal("0")
-    ).quantize(Decimal("0.001"))
+    peso_esperado = Decimal(preflight["peso_liquido_canonico"])
+    peso_operacional = _calcular_pesos_caixas_ativas(cursor, op_id)["peso_liquido"]
     if peso_operacional != peso_esperado:
         erros.append(f"peso operacional {peso_operacional} kg diverge do físico {peso_esperado} kg")
     if Decimal(str(depois["bandejas_consumidas"])) != Decimal(str(preflight["bandejas_consumidas"])):
