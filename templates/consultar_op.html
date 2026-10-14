@@ -183,6 +183,25 @@
             <ul>{% for bloqueio in preflight_estorno.bloqueios %}<li>{{ bloqueio }}</li>{% endfor %}</ul>
             {% endif %}
         </details>
+        {% if op.status in ['Estornada', 'ESTORNADA'] %}
+        <details open>
+            <summary><strong>Reverter estorno</strong> &mdash; devolve a OP ao fluxo produtivo</summary>
+            {% if preflight_reversao_estorno and preflight_reversao_estorno.permitido %}
+            <p class="obs">O PI estornado ({{ preflight_reversao_estorno.pi_a_restaurar }} unidade(s)) ser&aacute; restaurado por movimento compensat&oacute;rio. {{ preflight_reversao_estorno.caixas_historicas }} caixa(s) hist&oacute;rica(s) permanecem estornadas.</p>
+            <form method="POST" action="{{ url_for('reverter_estorno_op_route', op_id=op.id) }}">
+                <input type="hidden" name="idempotency_key" value="{{ chaves_operacao.reversao_estorno }}">
+                <input type="hidden" name="versao_operacional" value="{{ preflight_reversao_estorno.versao_operacional }}">
+                <label>Motivo da revers&atilde;o do estorno</label>
+                <textarea name="motivo" minlength="5" required placeholder="Explique por que o estorno deve ser revertido"></textarea>
+                <label><input type="checkbox" name="confirmacao" value="REVERTER_ESTORNO" required> A OP ser&aacute; reaberta e o PI estornado ser&aacute; restaurado. As caixas anteriormente estornadas permanecer&atilde;o apenas como hist&oacute;rico e dever&atilde;o ser formadas novamente.</label>
+                <button type="submit" class="botao-editar">Reverter estorno</button>
+            </form>
+            {% else %}
+            <p class="alerta-operacional"><strong>Revers&atilde;o do estorno indispon&iacute;vel.</strong></p>
+            <ul>{% for bloqueio in (preflight_reversao_estorno.bloqueios if preflight_reversao_estorno else []) %}<li>{{ bloqueio }}</li>{% endfor %}</ul>
+            {% endif %}
+        </details>
+        {% endif %}
     </div>
 </section>
 

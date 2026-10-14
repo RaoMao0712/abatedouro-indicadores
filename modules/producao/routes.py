@@ -1,6 +1,7 @@
 """Rotas operacionais do m?dulo de Produ??o."""
 
 from datetime import datetime
+from decimal import Decimal
 import uuid
 
 from flask import flash, redirect, render_template, request, session, url_for
@@ -73,7 +74,9 @@ from .operacoes_op import (
     estornar_op_integral,
     historico_operacoes_op,
     preflight_operacao_op,
+    preflight_reversao_estorno_op,
     reabrir_op as reabrir_op_operacional,
+    reverter_estorno_op,
 )
 from .protecao_sku_op import auditar_tentativa_bloqueada, validar_alteracao_sku
 from .skus_legados import validar_sku_operacional
@@ -1223,6 +1226,28 @@ def register_producao_routes(app, integracoes=None):
         return redirect(url_for("consultar_op", op_id=op_id))
 
 
+    @app.route("/op/<int:op_id>/reverter-estorno", methods=["POST"])
+    @perfil_permitido("admin", "pcp", "gerencia")
+    def reverter_estorno_op_route(op_id):
+        try:
+            resultado = reverter_estorno_op(
+                op_id, usuario=session.get("nome") or session.get("usuario_nome") or "Usuário",
+                perfil=session.get("perfil"), motivo=request.form.get("motivo"),
+                idempotency_key=request.form.get("idempotency_key"),
+                versao_esperada=request.form.get("versao_operacional"),
+                ip_origem=request.access_route[0] if request.access_route else request.remote_addr,
+                confirmacao=request.form.get("confirmacao") == "REVERTER_ESTORNO",
+            )
+            flash(f"Estorno revertido com sucesso. PI restaurado: {Decimal(resultado['efeitos']['pi_restaurado']):g} unidades.")
+        except (ValueError, PermissionError) as erro:
+            status = 403 if isinstance(erro, PermissionError) else 409
+            return render_template(
+                "erro_operacional.html", titulo="Reversão do estorno não executada",
+                mensagem=str(erro), retorno=url_for("consultar_op", op_id=op_id),
+            ), status
+        return redirect(url_for("embalagem_secundaria", op_id=op_id))
+
+
     @app.route("/consultar-op")
     @perfil_permitido("pcp", "qualidade", "producao", "gerencia", "manutencao")
     def consultar_op():
@@ -1244,6 +1269,7 @@ def register_producao_routes(app, integracoes=None):
         historico_performance_linha = []
         preflight_reabertura = None
         preflight_estorno = None
+        preflight_reversao_estorno = None
         historico_operacional_op = []
         chaves_operacao = {}
 
@@ -1299,10 +1325,12 @@ def register_producao_routes(app, integracoes=None):
                 historico_performance_linha = cursor.fetchall()
                 preflight_reabertura = preflight_operacao_op(op_id, "REABERTURA")
                 preflight_estorno = preflight_operacao_op(op_id, "ESTORNO_INTEGRAL")
+                preflight_reversao_estorno = preflight_reversao_estorno_op(op_id) if str(op["status"] or "").upper() in ("ESTORNADA", "ESTORNADO") else None
                 historico_operacional_op = historico_operacoes_op(op_id)
                 chaves_operacao = {
                     "reabertura": f"REABRIR-OP-{op_id}-{uuid.uuid4()}",
                     "estorno": f"ESTORNAR-OP-{op_id}-{uuid.uuid4()}",
+                    "reversao_estorno": f"REVERTER-ESTORNO-OP-{op_id}-{uuid.uuid4()}",
                 }
             else:
                 velocidades_ativas_performance = []
@@ -1328,6 +1356,7 @@ def register_producao_routes(app, integracoes=None):
             historico_performance_linha=historico_performance_linha,
             preflight_reabertura=preflight_reabertura,
             preflight_estorno=preflight_estorno,
+            preflight_reversao_estorno=preflight_reversao_estorno,
             historico_operacional_op=historico_operacional_op,
             chaves_operacao=chaves_operacao,
         )

@@ -315,6 +315,8 @@ def cte_ops_agregadas(filtros, somente_encerradas=False):
             COALESCE(SUM(CASE WHEN tipo = 'ENTRADA_ESTORNO_CAIXA'
                 THEN quantidade_bandejas ELSE 0 END), 0) AS retorno_estorno_caixa,
             COALESCE(SUM(CASE WHEN tipo = 'SAIDA_ESTORNO_OP'
+                THEN quantidade_bandejas ELSE 0 END), 0)
+              - COALESCE(SUM(CASE WHEN tipo = 'ENTRADA_REVERSAO_ESTORNO_OP'
                 THEN quantidade_bandejas ELSE 0 END), 0) AS estorno_integral,
             COALESCE(SUM(CASE
                 WHEN tipo LIKE 'ENTRADA%%' THEN quantidade_bandejas

@@ -554,6 +554,176 @@ def estornar_op_integral(op_id, *, usuario, perfil, motivo, idempotency_key,
         return resultado
 
 
+TIPO_REVERSAO_ESTORNO_OP = "REVERSAO_ESTORNO_OP"
+TIPO_PI_REVERSAO_ESTORNO_OP = "ENTRADA_REVERSAO_ESTORNO_OP"
+_DISPONIBILIDADES_CAIXA_ESTORNADA = {"ESTORNADO", "ESTORNADA", "CANCELADO", "CANCELADA"}
+
+
+def _compensacoes_estorno_integral(cursor, op_id):
+    """Identifica, sem ambiguidade, os movimentos SAIDA_ESTORNO_OP do último estorno integral."""
+    bloqueios = []
+    cursor.execute(q("""SELECT * FROM op_operacoes_auditoria
+        WHERE op_id=? AND tipo='ESTORNO_INTEGRAL' ORDER BY id DESC LIMIT 1"""), (op_id,))
+    estorno = cursor.fetchone()
+    if not estorno:
+        return None, [], ["Não há registro auditado de estorno integral desta OP; a reversão exige o movimento SAIDA_ESTORNO_OP produzido por ele."]
+    prefixo = f"{estorno['idempotency_key']}:PI:"
+    cursor.execute(q("""SELECT * FROM estoque_produto_intermediario
+        WHERE op_id=? AND tipo='SAIDA_ESTORNO_OP' ORDER BY id"""), (op_id,))
+    movimentos = [m for m in cursor.fetchall() if str(m["idempotency_key"] or "").startswith(prefixo)]
+    try:
+        esperados = json.loads(estorno["efeitos_json"]).get("compensacoes_pi") or []
+    except (TypeError, ValueError):
+        esperados = []
+    if not movimentos:
+        bloqueios.append("O movimento SAIDA_ESTORNO_OP do estorno integral não foi encontrado.")
+    elif len(movimentos) != len(esperados) or sorted(
+        (int(m["movimento_origem_id"] or 0), str(_decimal(m["quantidade_bandejas"]))) for m in movimentos
+    ) != sorted((int(e["movimento_origem_id"]), str(_decimal(e["quantidade"]))) for e in esperados):
+        bloqueios.append("Os movimentos SAIDA_ESTORNO_OP divergem da auditoria do estorno integral; identificação ambígua.")
+    for movimento in movimentos:
+        if not movimento["movimento_origem_id"]:
+            bloqueios.append(f"O movimento SAIDA_ESTORNO_OP #{movimento['id']} não referencia o movimento original de PI.")
+        cursor.execute(q("""SELECT id FROM estoque_produto_intermediario
+            WHERE tipo=? AND movimento_origem_id=?"""), (TIPO_PI_REVERSAO_ESTORNO_OP, movimento["id"]))
+        previa = cursor.fetchone()
+        if previa:
+            bloqueios.append(f"O movimento SAIDA_ESTORNO_OP #{movimento['id']} já foi compensado pelo movimento #{previa['id']}.")
+    return estorno, movimentos, bloqueios
+
+
+def _preflight_reversao_estorno_cursor(cursor, op, *, bloquear=False):
+    op_id = int(op["id"])
+    bloqueios = []
+    status = str(op["status"] or "")
+    if status.upper() not in {"ESTORNADA", "ESTORNADO"}:
+        bloqueios.append(f"Somente OP Estornada pode ter o estorno revertido; situação atual: {status or 'não informada'}.")
+    caixas = _caixas_op(cursor, op_id, bloquear=bloquear)
+    saldo_pi, _ = _saldo_pi_op(cursor, op_id, bloquear=bloquear)
+    if saldo_pi != 0:
+        bloqueios.append(f"O saldo líquido atual de PI da OP é {saldo_pi:f} e deveria ser zero.")
+    estorno, movimentos, bloqueios_mov = _compensacoes_estorno_integral(cursor, op_id)
+    bloqueios.extend(bloqueios_mov)
+    dados = _dados_bloqueios_caixas(cursor, caixas)
+    for caixa in caixas:
+        caixa_id = int(caixa["id"])
+        codigo = caixa["codigo_caixa"]
+        if str(caixa["status"] or "").upper() not in STATUS_INATIVOS:
+            bloqueios.append(f"Caixa {codigo}: não está estornada (situação {caixa['status']}).")
+        if int(caixa["estoque_operacional"] or 0) == 1:
+            bloqueios.append(f"Caixa {codigo}: possui estoque operacional ativo.")
+        disponibilidade = str(caixa["disponibilidade"] or "").upper()
+        if disponibilidade not in _DISPONIBILIDADES_CAIXA_ESTORNADA:
+            bloqueios.append(f"Caixa {codigo}: disponibilidade {disponibilidade or 'não informada'}.")
+        if caixa["reservado_expedicao_id"] or _decimal(caixa["quantidade_pacotes_reservados"]) > 0:
+            bloqueios.append(f"Caixa {codigo}: possui reserva ativa.")
+        for item in dados["expedicoes"].get(caixa_id, []):
+            bloqueios.append(f"Caixa {codigo}: vinculada ao Romaneio nº {item['numero_romaneio']} ({item['status']}).")
+        for item in dados["movimentacoes"].get(caixa_id, []):
+            bloqueios.append(f"Caixa {codigo}: movimentação de PA posterior {item['tipo']}.")
+        for item in dados["eventos"].get(caixa_id, []):
+            bloqueios.append(f"Caixa {codigo}: evento de estoque posterior {item['acao']}.")
+        for item in dados["pncs"].get(caixa_id, []):
+            bloqueios.append(f"Caixa {codigo}: vinculada ao Produto Não Conforme nº {item['id']} ({item['status']}).")
+    quantidade = sum((_decimal(m["quantidade_bandejas"]) for m in movimentos), Decimal("0"))
+    return {
+        "op_id": op_id, "tipo": TIPO_REVERSAO_ESTORNO_OP, "status_atual": status,
+        "permitido": not bloqueios, "bloqueios": list(dict.fromkeys(bloqueios)),
+        "versao_operacional": int(op["versao_operacional"] or 0) if "versao_operacional" in op.keys() else 0,
+        "caixas_historicas": len(caixas), "pi_a_restaurar": str(quantidade),
+        "movimentos_compensar": [int(m["id"]) for m in movimentos],
+        "estorno_auditoria_id": int(estorno["id"]) if estorno else None,
+    }
+
+
+def preflight_reversao_estorno_op(op_id):
+    """Consulta somente leitura das condições para reverter o estorno integral."""
+    criar_tabelas_operacoes_op()
+    conn = conectar()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(q("SELECT * FROM ordens_producao WHERE id=?"), (op_id,))
+        op = cursor.fetchone()
+        if not op:
+            raise ValueError("OP não encontrada.")
+        return _preflight_reversao_estorno_cursor(cursor, op)
+    finally:
+        conn.close()
+
+
+def reverter_estorno_op(op_id, *, usuario, perfil, motivo, idempotency_key,
+                        versao_esperada=None, ip_origem=None, confirmacao=False):
+    """Restaura o PI estornado por compensação e reabre a OP, sem tocar no histórico."""
+    _validar_autorizacao(usuario, perfil, motivo, idempotency_key)
+    if not confirmacao:
+        raise ValueError("Confirme expressamente a reversão do estorno e a restauração do PI.")
+    criar_tabelas_operacoes_op()
+    with transaction() as conn:
+        cursor = conn.cursor()
+        existente = _resultado_idempotente(cursor, idempotency_key)
+        if existente:
+            if existente.get("tipo") != TIPO_REVERSAO_ESTORNO_OP:
+                raise ValueError("A chave de idempotência já foi usada por outra operação.")
+            return existente
+        cursor.execute(q("SELECT * FROM ordens_producao WHERE id=?" + _bloqueio_sql()), (op_id,))
+        op = cursor.fetchone()
+        if not op:
+            raise ValueError("OP não encontrada.")
+        versao_anterior = int(op["versao_operacional"] or 0)
+        if versao_esperada not in (None, "") and int(versao_esperada) != versao_anterior:
+            raise ValueError("A OP foi alterada por outra solicitação; atualize a tela e tente novamente.")
+        preflight = _preflight_reversao_estorno_cursor(cursor, op, bloquear=True)
+        if not preflight["permitido"]:
+            raise ValueError("Reversão do estorno bloqueada: " + " ".join(preflight["bloqueios"]))
+        ids = preflight["movimentos_compensar"]
+        cursor.execute(q("SELECT * FROM estoque_produto_intermediario WHERE id IN ({}) ORDER BY id".format(
+            ",".join("?" for _ in ids))), ids)
+        compensados = cursor.fetchall()
+        novos = []
+        for movimento in compensados:
+            cursor.execute(q("""INSERT INTO estoque_produto_intermediario(
+                data_movimentacao,tipo,op_id,sku,quantidade_bandejas,origem,observacoes,
+                movimento_origem_id,idempotency_key) VALUES(?,?,?,?,?,?,?,?,?)"""), (
+                _agora()[:10], TIPO_PI_REVERSAO_ESTORNO_OP, op_id, movimento["sku"],
+                str(_decimal(movimento["quantidade_bandejas"])), "Reversão do estorno integral da OP",
+                f"Compensação do movimento SAIDA_ESTORNO_OP #{movimento['id']}.",
+                movimento["id"], f"{idempotency_key}:PI:{movimento['id']}",
+            ))
+            novos.append({
+                "movimento_compensado_id": int(movimento["id"]),
+                "quantidade": str(_decimal(movimento["quantidade_bandejas"])),
+            })
+        cursor.execute(q("""UPDATE ordens_producao SET status='Aberta',
+            versao_operacional=COALESCE(versao_operacional,0)+1
+            WHERE id=? AND UPPER(COALESCE(status,'')) IN ('ESTORNADA','ESTORNADO')
+              AND COALESCE(versao_operacional,0)=?"""), (op_id, versao_anterior))
+        if cursor.rowcount != 1:
+            raise ValueError("A OP foi alterada concorrentemente; a reversão do estorno foi cancelada.")
+        cursor.execute(q("UPDATE embalagem_secundaria_conferencias SET confirmada=0 WHERE op_id=? AND confirmada=1"), (op_id,))
+        conferencias_invalidadas = cursor.rowcount
+        saldo_depois, _ = _saldo_pi_op(cursor, op_id)
+        if saldo_depois != _decimal(preflight["pi_a_restaurar"]):
+            raise RuntimeError("Saldo de PI após a reversão diverge do esperado; operação cancelada.")
+        efeitos = {
+            "versao_anterior": versao_anterior, "versao_nova": versao_anterior + 1,
+            "movimentos_saida_estorno_compensados": ids,
+            "compensacoes_pi": novos, "pi_restaurado": preflight["pi_a_restaurar"],
+            "saldo_pi_posterior": str(saldo_depois),
+            "caixas_historicas_preservadas": preflight["caixas_historicas"],
+            "conferencias_invalidadas": conferencias_invalidadas, "hard_delete": False,
+        }
+        resultado = {
+            "sucesso": True, "op_id": int(op_id), "tipo": TIPO_REVERSAO_ESTORNO_OP,
+            "status_op_anterior": op["status"], "status_op_posterior": "Aberta",
+            "etapa_destino": "EMBALAGEM_SECUNDARIA", "efeitos": efeitos,
+        }
+        _auditar(cursor, op_id=op_id, tipo=TIPO_REVERSAO_ESTORNO_OP, chave=idempotency_key,
+                 usuario=usuario, perfil=perfil, motivo=motivo, etapa="EMBALAGEM_SECUNDARIA",
+                 status_anterior=op["status"], status_posterior="Aberta", preflight=preflight,
+                 efeitos=efeitos, resultado=resultado, ip_origem=ip_origem)
+        return resultado
+
+
 def historico_operacoes_op(op_id):
     criar_tabelas_operacoes_op()
     conn = conectar()
