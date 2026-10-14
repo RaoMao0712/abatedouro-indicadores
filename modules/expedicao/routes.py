@@ -16,6 +16,7 @@ from modules.producao.skus_legados import validar_sku_operacional
 from modules.producao.operacoes_op import (
     estornar_op_integral,
     preflight_operacao_op,
+    reverter_apontamento_embalagem_primaria,
     preflight_retomada_embalagem_secundaria,
     retomar_embalagem_secundaria,
 )
@@ -281,7 +282,29 @@ def register_expedicao_routes(app, integracoes=None):
             modo_edicao=modo_edicao,
             locais_segregacao=listar_locais_segregacao(),
             motivos_nc=MOTIVOS,
+            chave_reversao_primaria=str(uuid.uuid4()),
         )
+
+    @app.route("/embalagem-primaria/<int:op_id>/reverter", methods=["POST"])
+    @perfil_permitido("admin", "pcp", "gerencia")
+    def reverter_apontamento_primaria_route(op_id):
+        try:
+            resultado = reverter_apontamento_embalagem_primaria(
+                op_id, motivo=request.form.get("motivo"),
+                usuario=session.get("nome") or session.get("usuario_nome") or "Usuário",
+                perfil=session.get("perfil"),
+                idempotency_key=request.form.get("idempotency_key"),
+                versao_esperada=request.form.get("versao_operacional"),
+                ip_origem=request.access_route[0] if request.access_route else request.remote_addr,
+                confirmacao=request.form.get("confirmacao") == "REVERTER_PRIMARIA",
+            )
+            flash(
+                "Apontamento da Embalagem Primária revertido sem exclusão. "
+                f"Saldo PI atual: {resultado['efeitos']['saldo_pi_posterior']}."
+            )
+        except (ValueError, PermissionError, RuntimeError) as erro:
+            flash(str(erro))
+        return redirect(url_for("embalagem_primaria", op_id=op_id))
 
 
     @app.route("/estoque-produtos")

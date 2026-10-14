@@ -399,12 +399,30 @@ def criar_tabelas_estoque_pi_pa():
             ("caixa_id INTEGER", "caixa_id INTEGER"),
             ("movimento_origem_id INTEGER", "movimento_origem_id INTEGER"),
             ("idempotency_key TEXT", "idempotency_key TEXT"),
+            ("apontamento_origem_id INTEGER", "apontamento_origem_id INTEGER"),
         ]:
             try:
                 if DATABASE_URL:
                     cursor.execute(f"ALTER TABLE estoque_produto_intermediario ADD COLUMN IF NOT EXISTS {postgres_col}")
                 else:
                     cursor.execute(f"ALTER TABLE estoque_produto_intermediario ADD COLUMN {sqlite_col}")
+            except Exception:
+                if DATABASE_URL:
+                    raise
+
+        for postgres_col, sqlite_col in [
+            ("vigente INTEGER NOT NULL DEFAULT 1", "vigente INTEGER NOT NULL DEFAULT 1"),
+            ("invalidado_em TIMESTAMP", "invalidado_em TEXT"),
+            ("invalidado_por TEXT", "invalidado_por TEXT"),
+            ("invalidacao_motivo TEXT", "invalidacao_motivo TEXT"),
+        ]:
+            try:
+                if DATABASE_URL:
+                    cursor.execute(
+                        f"ALTER TABLE embalagem_primaria_apontamentos ADD COLUMN IF NOT EXISTS {postgres_col}"
+                    )
+                else:
+                    cursor.execute(f"ALTER TABLE embalagem_primaria_apontamentos ADD COLUMN {sqlite_col}")
             except Exception:
                 if DATABASE_URL:
                     raise
@@ -428,6 +446,10 @@ def criar_tabelas_estoque_pi_pa():
         cursor.execute("""
         CREATE INDEX IF NOT EXISTS idx_estoque_pi_op_sku
         ON estoque_produto_intermediario (op_id, sku)
+        """)
+        cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_primaria_op_vigente
+        ON embalagem_primaria_apontamentos (op_id, vigente, id)
         """)
         cursor.execute("""
         CREATE INDEX IF NOT EXISTS idx_estoque_pi_caixa_tipo
@@ -558,6 +580,56 @@ def calcular_perdas_aves_op(cursor, op_id):
         "descartes": float(perdas["descartes"] or 0),
         "mortes_na_gaiola": float(perdas["mortes_na_gaiola"] or 0),
     }
+
+
+def _decimal(valor):
+    return Decimal(str(valor or 0))
+
+
+def _formatar_decimal(valor):
+    texto = format(_decimal(valor), "f")
+    texto = texto.rstrip("0").rstrip(".") if "." in texto else texto
+    return texto or "0"
+
+
+def quantidade_maxima_primaria_cursor(cursor, op):
+    """Fonte canônica: aves recebidas menos as perdas em aves já reconhecidas."""
+    if "quantidade_aves" not in op.keys() or "mortes_antes_pendura" not in op.keys():
+        return None, None
+    perdas = calcular_perdas_aves_op(cursor, op["id"])
+    maxima = (
+        _decimal(op["quantidade_aves"])
+        - _decimal(op["mortes_antes_pendura"])
+        - _decimal(perdas["mortes_na_gaiola"])
+        - _decimal(perdas["descartes"])
+        - _decimal(perdas["condenacoes"])
+    )
+    return max(Decimal("0"), maxima), perdas
+
+
+def pi_primaria_liquido_cursor(cursor, op_id):
+    cursor.execute(q("""SELECT COALESCE(SUM(CASE
+        WHEN tipo='ENTRADA_EMBALAGEM_PRIMARIA' THEN quantidade_bandejas
+        WHEN tipo='SAIDA_REVERSAO_EMBALAGEM_PRIMARIA' THEN -quantidade_bandejas
+        ELSE 0 END),0) total
+        FROM estoque_produto_intermediario WHERE op_id=?"""), (op_id,))
+    return _decimal(cursor.fetchone()["total"])
+
+
+def validar_limite_apontamento_primaria_cursor(cursor, op, nova_quantidade):
+    maxima, perdas = quantidade_maxima_primaria_cursor(cursor, op)
+    if maxima is None:
+        raise ValueError("A quantidade válida de entrada da OP não pôde ser identificada.")
+    ja_apontado = pi_primaria_liquido_cursor(cursor, op["id"])
+    nova = _decimal(nova_quantidade)
+    if ja_apontado < 0:
+        raise ValueError("O PI líquido da Embalagem Primária está negativo; regularize a OP antes de apontar.")
+    if ja_apontado + nova > maxima:
+        raise ValueError(
+            f"Quantidade inválida. A OP possui {_formatar_decimal(maxima)} aves disponíveis para apontamento, "
+            f"já possui {_formatar_decimal(ja_apontado)} apontadas e foram informadas {_formatar_decimal(nova)}."
+        )
+    return {"maxima": maxima, "ja_apontado": ja_apontado, "perdas": perdas}
 
 
 def validar_balanco_aves_op(op, aves_produzidas, perdas):
@@ -745,57 +817,37 @@ def registrar_apontamento_embalagem_primaria(
             usuario=usuario, perfil=perfil, idempotency_key=idempotency_key,
             versao_esperada=versao_esperada, ip_origem=ip_origem, request_id=request_id,
         )
-    # Substitui o apontamento anterior da mesma OP, se existir.
-    remover_movimentacoes_estoque_pi_por_op(op["id"])
-
-    conn = conectar()
-    cursor = conn.cursor()
-
-    cursor.execute(q("""
-    INSERT INTO embalagem_primaria_apontamentos (
-        op_id,
-        data_apontamento,
-        sku,
-        quantidade_bandejas,
-        observacoes
-    ) VALUES (?, ?, ?, ?, ?)
-    """), (
-        op["id"],
-        op["data"],
-        sku,
-        bandejas,
-        observacoes or ""
-    ))
-
-    cursor.execute(q("""
-    INSERT INTO estoque_produto_intermediario (
-        data_movimentacao,
-        tipo,
-        op_id,
-        sku,
-        quantidade_bandejas,
-        origem,
-        observacoes
-    ) VALUES (?, ?, ?, ?, ?, ?, ?)
-    """), (
-        op["data"],
-        "ENTRADA_EMBALAGEM_PRIMARIA",
-        op["id"],
-        sku,
-        bandejas,
-        "Embalagem Primária",
-        "PI gerado pelo apontamento da Embalagem Primária. A OP permanece aberta até a validação da Embalagem Secundária."
-    ))
-
-    # A OP ainda não está encerrada. O status apenas sinaliza que há PI aguardando embalagem secundária.
-    cursor.execute(q("""
-    UPDATE ordens_producao
-    SET status = ?
-    WHERE id = ?
-    """), ("Aguardando Embalagem Secundária", op["id"]))
-
-    conn.commit()
-    conn.close()
+    with transaction() as conn:
+        cursor = conn.cursor()
+        bloqueio = " FOR UPDATE" if DATABASE_URL else ""
+        cursor.execute(q("SELECT * FROM ordens_producao WHERE id=?" + bloqueio), (op["id"],))
+        op_bloqueada = cursor.fetchone()
+        if not op_bloqueada:
+            raise ValueError("OP não encontrada.")
+        validar_limite_apontamento_primaria_cursor(cursor, op_bloqueada, bandejas)
+        sql_apontamento = """
+        INSERT INTO embalagem_primaria_apontamentos (
+            op_id,data_apontamento,sku,quantidade_bandejas,observacoes,vigente
+        ) VALUES (?, ?, ?, ?, ?, 1)
+        """
+        cursor.execute(q(sql_apontamento + (" RETURNING id" if DATABASE_URL else "")),
+                       (op["id"], op["data"], sku, bandejas, observacoes or ""))
+        apontamento_id = cursor.fetchone()["id"] if DATABASE_URL else cursor.lastrowid
+        if DATABASE_URL and apontamento_id is None:
+            raise RuntimeError("Não foi possível identificar o apontamento criado.")
+        cursor.execute(q("""
+        INSERT INTO estoque_produto_intermediario (
+            data_movimentacao,tipo,op_id,sku,quantidade_bandejas,origem,
+            observacoes,apontamento_origem_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """), (
+            op["data"], "ENTRADA_EMBALAGEM_PRIMARIA", op["id"], sku, bandejas,
+            "Embalagem Primária",
+            "PI gerado pelo apontamento da Embalagem Primária. A OP permanece aberta até a validação da Embalagem Secundária.",
+            apontamento_id,
+        ))
+        cursor.execute(q("""UPDATE ordens_producao SET status=? WHERE id=?"""),
+                       ("Aguardando Embalagem Secundária", op["id"]))
 
     return {
         "tipo": "pi",
@@ -832,7 +884,7 @@ def buscar_apontamento_embalagem_primaria_por_op(op_id):
     SELECT ep.*, op.data AS data_op, op.fornecedor, op.quantidade_aves
     FROM embalagem_primaria_apontamentos ep
     LEFT JOIN ordens_producao op ON op.id = ep.op_id
-    WHERE ep.op_id = ?
+    WHERE ep.op_id = ? AND COALESCE(ep.vigente,1)=1
     ORDER BY ep.id DESC
     LIMIT 1
     """), (op_id,))
@@ -1262,6 +1314,35 @@ def _validar_lancamento_secundaria_cursor(cursor, consumo_por_op):
             FROM estoque_produto_intermediario WHERE op_id=?"""), (op_id,))
         saldo = Decimal(str(cursor.fetchone()["saldo"] or 0))
         consumo = Decimal(str(consumo_por_op[op_id] or 0))
+        if saldo < 0:
+            raise ValueError(f"A OP #{op_id} possui saldo PI negativo ({saldo:g}) e não pode formar PA.")
+        maxima, _ = quantidade_maxima_primaria_cursor(cursor, op)
+        if maxima is not None:
+            pi_primaria = pi_primaria_liquido_cursor(cursor, op_id)
+            if pi_primaria > maxima:
+                raise ValueError(
+                    f"A OP #{op_id} possui {pi_primaria:g} aves apontadas em PI, acima da entrada válida de {maxima:g}."
+                )
+            cursor.execute(q("""SELECT COUNT(*) total
+            FROM embalagem_primaria_apontamentos a
+            WHERE a.op_id=? AND COALESCE(a.vigente,1)=0
+              AND NOT EXISTS (
+                SELECT 1 FROM estoque_produto_intermediario origem
+                JOIN estoque_produto_intermediario reversao
+                  ON reversao.movimento_origem_id=origem.id
+                 AND reversao.tipo='SAIDA_REVERSAO_EMBALAGEM_PRIMARIA'
+                WHERE origem.tipo='ENTRADA_EMBALAGEM_PRIMARIA'
+                  AND origem.op_id=a.op_id
+                  AND (origem.apontamento_origem_id=a.id OR (
+                    origem.apontamento_origem_id IS NULL
+                    AND origem.sku=a.sku
+                    AND origem.quantidade_bandejas=a.quantidade_bandejas
+                    AND origem.criado_em=a.criado_em))
+              )"""), (op_id,))
+            if int(cursor.fetchone()["total"] or 0):
+                raise ValueError(
+                    f"A OP #{op_id} possui apontamento de Embalagem Primária invalidado sem compensação íntegra."
+                )
         if consumo > saldo:
             raise ValueError(
                 f"A OP #{op_id} possui apenas {saldo:g} bandejas disponíveis em PI. "

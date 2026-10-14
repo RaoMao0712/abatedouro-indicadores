@@ -556,6 +556,8 @@ def estornar_op_integral(op_id, *, usuario, perfil, motivo, idempotency_key,
 
 TIPO_REVERSAO_ESTORNO_OP = "REVERSAO_ESTORNO_OP"
 TIPO_PI_REVERSAO_ESTORNO_OP = "ENTRADA_REVERSAO_ESTORNO_OP"
+TIPO_REVERSAO_PRIMARIA = "REVERSAO_EMBALAGEM_PRIMARIA"
+TIPO_PI_REVERSAO_PRIMARIA = "SAIDA_REVERSAO_EMBALAGEM_PRIMARIA"
 _DISPONIBILIDADES_CAIXA_ESTORNADA = {"ESTORNADO", "ESTORNADA", "CANCELADO", "CANCELADA"}
 
 
@@ -719,6 +721,165 @@ def reverter_estorno_op(op_id, *, usuario, perfil, motivo, idempotency_key,
         }
         _auditar(cursor, op_id=op_id, tipo=TIPO_REVERSAO_ESTORNO_OP, chave=idempotency_key,
                  usuario=usuario, perfil=perfil, motivo=motivo, etapa="EMBALAGEM_SECUNDARIA",
+                 status_anterior=op["status"], status_posterior="Aberta", preflight=preflight,
+                 efeitos=efeitos, resultado=resultado, ip_origem=ip_origem)
+        return resultado
+
+
+def _preflight_reversao_primaria_cursor(cursor, op, *, bloquear=False):
+    op_id = int(op["id"])
+    bloqueio = _bloqueio_sql() if bloquear else ""
+    cursor.execute(q("""SELECT * FROM embalagem_primaria_apontamentos
+        WHERE op_id=? AND COALESCE(vigente,1)=1 ORDER BY id DESC""" + bloqueio), (op_id,))
+    ativos = cursor.fetchall()
+    bloqueios = []
+    if not ativos:
+        return {
+            "op_id": op_id, "tipo": TIPO_REVERSAO_PRIMARIA, "permitido": False,
+            "bloqueios": ["Não há apontamento ativo de Embalagem Primária para reverter."],
+            "versao_operacional": int(op["versao_operacional"] or 0),
+        }
+    apontamento = ativos[0]
+    if str(op["status"] or "") not in {"Aberta", "Aguardando Embalagem Secundária"}:
+        bloqueios.append(f"A OP está em situação {op['status']} e não permite esta reversão.")
+    if bloquear and DATABASE_URL:
+        cursor.execute(q("SELECT id FROM estoque_produto_intermediario WHERE op_id=? ORDER BY id FOR UPDATE"), (op_id,))
+        cursor.fetchall()
+    cursor.execute(q("""SELECT * FROM estoque_produto_intermediario
+        WHERE op_id=? AND tipo='ENTRADA_EMBALAGEM_PRIMARIA'
+          AND (apontamento_origem_id=? OR (
+            apontamento_origem_id IS NULL AND sku=? AND quantidade_bandejas=? AND criado_em=?))
+        ORDER BY id"""), (
+            op_id, apontamento["id"], apontamento["sku"],
+            apontamento["quantidade_bandejas"], apontamento["criado_em"],
+        ))
+    movimentos = cursor.fetchall()
+    total_movimentos = sum((_decimal(item["quantidade_bandejas"]) for item in movimentos), Decimal("0"))
+    if not movimentos or total_movimentos != _decimal(apontamento["quantidade_bandejas"]):
+        bloqueios.append("O vínculo entre o apontamento e os movimentos de PI não é inequívoco.")
+    ids = [int(item["id"]) for item in movimentos]
+    if ids:
+        marcas = ",".join("?" for _ in ids)
+        cursor.execute(q(f"""SELECT COUNT(*) total FROM estoque_produto_intermediario
+            WHERE tipo=? AND movimento_origem_id IN ({marcas})"""),
+            [TIPO_PI_REVERSAO_PRIMARIA, *ids])
+        if int(cursor.fetchone()["total"] or 0):
+            bloqueios.append("O apontamento já possui movimento compensatório de reversão.")
+    cursor.execute(q("""SELECT COUNT(*) total FROM estoque_produto_intermediario saida
+        WHERE saida.op_id=? AND saida.tipo='SAIDA_EMBALAGEM_SECUNDARIA'
+          AND saida.criado_em>=? AND NOT EXISTS (
+            SELECT 1 FROM estoque_produto_intermediario retorno
+            WHERE retorno.tipo='ENTRADA_ESTORNO_CAIXA'
+              AND retorno.movimento_origem_id=saida.id)
+        """), (op_id, apontamento["criado_em"]))
+    if int(cursor.fetchone()["total"] or 0):
+        bloqueios.append("O PI do apontamento já foi consumido por PA e não foi integralmente estornado.")
+    cursor.execute(q("""SELECT COUNT(DISTINCT cx.id) total FROM pa_caixas cx
+        JOIN pa_caixa_composicao comp ON comp.caixa_id=cx.id
+        WHERE comp.op_id=? AND cx.criado_em>=?
+          AND UPPER(COALESCE(cx.status,'')) NOT IN ('ESTORNADA','ESTORNADO','CANCELADA','CANCELADO')"""),
+        (op_id, apontamento["criado_em"]))
+    if int(cursor.fetchone()["total"] or 0):
+        bloqueios.append("Há caixa PA ativa formada após o apontamento.")
+    saldo, _ = _saldo_pi_op(cursor, op_id)
+    if saldo < total_movimentos:
+        bloqueios.append(
+            f"O saldo PI atual ({saldo:g}) é inferior ao PI do apontamento ({total_movimentos:g})."
+        )
+    return {
+        "op_id": op_id, "tipo": TIPO_REVERSAO_PRIMARIA,
+        "permitido": not bloqueios, "bloqueios": list(dict.fromkeys(bloqueios)),
+        "apontamento_id": int(apontamento["id"]),
+        "quantidade": str(_decimal(apontamento["quantidade_bandejas"])),
+        "movimentos": ids, "saldo_pi": str(saldo),
+        "versao_operacional": int(op["versao_operacional"] or 0),
+    }
+
+
+def preflight_reversao_apontamento_primaria(op_id):
+    from modules.expedicao.services import criar_tabelas_estoque_pi_pa
+    criar_tabelas_estoque_pi_pa()
+    criar_tabelas_operacoes_op()
+    conn = conectar()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(q("SELECT * FROM ordens_producao WHERE id=?"), (op_id,))
+        op = cursor.fetchone()
+        if not op:
+            raise ValueError("OP não encontrada.")
+        return _preflight_reversao_primaria_cursor(cursor, op)
+    finally:
+        conn.close()
+
+
+def reverter_apontamento_embalagem_primaria(
+    op_id, *, motivo, usuario, perfil, idempotency_key,
+    versao_esperada=None, ip_origem=None, confirmacao=False,
+):
+    _validar_autorizacao(usuario, perfil, motivo, idempotency_key)
+    if not confirmacao:
+        raise ValueError("Confirme expressamente a reversão do apontamento da Embalagem Primária.")
+    from modules.expedicao.services import criar_tabelas_estoque_pi_pa
+    criar_tabelas_estoque_pi_pa()
+    criar_tabelas_operacoes_op()
+    with transaction() as conn:
+        cursor = conn.cursor()
+        existente = _resultado_idempotente(cursor, idempotency_key)
+        if existente:
+            if existente.get("tipo") != TIPO_REVERSAO_PRIMARIA:
+                raise ValueError("A chave de idempotência já foi usada por outra operação.")
+            return existente
+        cursor.execute(q("SELECT * FROM ordens_producao WHERE id=?" + _bloqueio_sql()), (op_id,))
+        op = cursor.fetchone()
+        if not op:
+            raise ValueError("OP não encontrada.")
+        versao_anterior = int(op["versao_operacional"] or 0)
+        if versao_esperada not in (None, "") and int(versao_esperada) != versao_anterior:
+            raise ValueError("A OP foi alterada por outra solicitação; atualize a tela e tente novamente.")
+        preflight = _preflight_reversao_primaria_cursor(cursor, op, bloquear=True)
+        if not preflight["permitido"]:
+            raise ValueError("Reversão do apontamento bloqueada: " + " ".join(preflight["bloqueios"]))
+        novos = []
+        for movimento_id in preflight["movimentos"]:
+            cursor.execute(q("SELECT * FROM estoque_produto_intermediario WHERE id=?"), (movimento_id,))
+            movimento = cursor.fetchone()
+            cursor.execute(q("""INSERT INTO estoque_produto_intermediario(
+                data_movimentacao,tipo,op_id,sku,quantidade_bandejas,origem,observacoes,
+                movimento_origem_id,idempotency_key,apontamento_origem_id)
+                VALUES(?,?,?,?,?,?,?,?,?,?)"""), (
+                _agora()[:10], TIPO_PI_REVERSAO_PRIMARIA, op_id, movimento["sku"],
+                str(_decimal(movimento["quantidade_bandejas"])),
+                "Reversão da Embalagem Primária",
+                f"Compensação do movimento PI #{movimento_id}.", movimento_id,
+                f"{idempotency_key}:PI:{movimento_id}", preflight["apontamento_id"],
+            ))
+            novos.append({"movimento_origem_id": movimento_id, "quantidade": str(_decimal(movimento["quantidade_bandejas"]))})
+        cursor.execute(q("""UPDATE embalagem_primaria_apontamentos
+            SET vigente=0,invalidado_em=?,invalidado_por=?,invalidacao_motivo=?
+            WHERE id=? AND COALESCE(vigente,1)=1"""),
+            (_agora(), usuario, str(motivo).strip(), preflight["apontamento_id"]))
+        if cursor.rowcount != 1:
+            raise ValueError("O apontamento foi alterado concorrentemente; a reversão foi cancelada.")
+        cursor.execute(q("""UPDATE ordens_producao SET status='Aberta',
+            versao_operacional=COALESCE(versao_operacional,0)+1
+            WHERE id=? AND COALESCE(versao_operacional,0)=?"""), (op_id, versao_anterior))
+        if cursor.rowcount != 1:
+            raise ValueError("A OP foi alterada concorrentemente; a reversão foi cancelada.")
+        cursor.execute(q("UPDATE embalagem_secundaria_conferencias SET confirmada=0 WHERE op_id=? AND confirmada=1"), (op_id,))
+        saldo_depois, _ = _saldo_pi_op(cursor, op_id)
+        efeitos = {
+            "apontamento_invalidado_id": preflight["apontamento_id"],
+            "compensacoes_pi": novos, "saldo_pi_posterior": str(saldo_depois),
+            "versao_anterior": versao_anterior, "versao_nova": versao_anterior + 1,
+            "hard_delete": False,
+        }
+        resultado = {
+            "sucesso": True, "op_id": int(op_id), "tipo": TIPO_REVERSAO_PRIMARIA,
+            "status_op_anterior": op["status"], "status_op_posterior": "Aberta",
+            "etapa_destino": "EMBALAGEM_PRIMARIA", "efeitos": efeitos,
+        }
+        _auditar(cursor, op_id=op_id, tipo=TIPO_REVERSAO_PRIMARIA, chave=idempotency_key,
+                 usuario=usuario, perfil=perfil, motivo=motivo, etapa="EMBALAGEM_PRIMARIA",
                  status_anterior=op["status"], status_posterior="Aberta", preflight=preflight,
                  efeitos=efeitos, resultado=resultado, ip_origem=ip_origem)
         return resultado

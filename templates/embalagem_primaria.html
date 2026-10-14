@@ -144,7 +144,21 @@
                     <td>{{ item.quantidade_bandejas|br_numero }}</td>
                     <td>{{ item.observacoes or "-" }}</td>
                     <td>
-                        <a href="{{ url_for('embalagem_primaria', op_id=item.op_id, editar=1) }}" class="botao-dre-exportar">Editar</a>
+                        {% if item.vigente|default(1) and session.get('perfil') in ['admin','pcp','gerencia'] %}
+                        <details>
+                            <summary><strong>Reverter apontamento da Embalagem Primária</strong></summary>
+                            <p class="obs">O apontamento será revertido por movimento compensatório. O histórico será preservado e a OP voltará à etapa anterior para novo lançamento.</p>
+                            <form method="post" action="{{ url_for('reverter_apontamento_primaria_route', op_id=item.op_id) }}">
+                                <input type="hidden" name="idempotency_key" value="{{ chave_reversao_primaria }}-{{ item.id }}">
+                                <label>Motivo</label>
+                                <textarea name="motivo" minlength="5" required></textarea>
+                                <label><input type="checkbox" name="confirmacao" value="REVERTER_PRIMARIA" required> Confirmo a reversão auditável deste apontamento.</label>
+                                <button type="submit" class="botao-excluir">Reverter apontamento</button>
+                            </form>
+                        </details>
+                        {% else %}
+                        <span class="badge-expedicao neutro">Revertido</span>
+                        {% endif %}
                     </td>
                 </tr>
                 {% endfor %}
