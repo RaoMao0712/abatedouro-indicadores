@@ -1672,45 +1672,71 @@ def cancelar_romaneio(expedicao_id, justificativa):
         sufixo_bloqueio = " FOR UPDATE" if DATABASE_URL else ""
         cursor.execute(q(f"SELECT * FROM expedicoes WHERE id = ?{sufixo_bloqueio}"), (expedicao_id,))
         romaneio = cursor.fetchone()
-        if not romaneio or romaneio["status"] != "Aberto":
-            raise ValueError("Somente romaneios abertos podem ser cancelados.")
+        if not romaneio or romaneio["status"] not in {"Aberto", "Cancelado"}:
+            raise ValueError("Somente romaneios abertos ou já cancelados podem ser cancelados.")
+        reparacao = romaneio["status"] == "Cancelado"
         cursor.execute(q("""
         SELECT i.*, cx.quantidade_bandejas, cx.peso_liquido,
-               cx.unidade_estoque AS unidade_atual
+               cx.unidade_estoque AS unidade_atual,
+               cx.disponibilidade AS disponibilidade_atual,
+               cx.reservado_expedicao_id AS reserva_atual,
+               cx.quantidade_pacotes_reservados AS pacotes_reservados_atuais,
+               cx.quantidade_pacotes AS pacotes_totais,
+               cx.estoque_operacional AS estoque_operacional_atual,
+               cx.status AS status_estoque_atual
         FROM expedicao_itens i
         LEFT JOIN pa_caixas cx ON cx.id = i.caixa_id
         WHERE i.expedicao_id = ? AND COALESCE(i.ativo,1)=1
+        ORDER BY i.id
         """), (expedicao_id,))
-        for item in cursor.fetchall():
+        itens = cursor.fetchall()
+        from modules.qualidade.liberacoes import cancelar_reservas_cursor
+        cancelar_reservas_cursor(cursor, expedicao_id, justificativa.strip(), _usuario(), _perfil(), "romaneio")
+        for item in itens:
             if item["caixa_id"]:
                 if item["unidade_atual"] == "PACOTE":
                     quantidade = int(item["quantidade_pacotes"] or 0)
                     cursor.execute(q("""
-                    UPDATE pa_caixas
-                    SET quantidade_pacotes_reservados = CASE
-                            WHEN COALESCE(quantidade_pacotes_reservados, 0) > ?
-                            THEN COALESCE(quantidade_pacotes_reservados, 0) - ?
-                            ELSE 0 END,
-                        disponibilidade = CASE
-                            WHEN COALESCE(quantidade_pacotes_reservados, 0) - ? >= quantidade_pacotes
-                            THEN 'RESERVADO' ELSE ? END
-                    WHERE id = ? AND COALESCE(quantidade_pacotes_reservados, 0) >= ?
-                    """), (
-                        quantidade,
-                        quantidade,
-                        quantidade,
-                        item["situacao_anterior"] or STATUS_DISPONIVEL,
-                        item["caixa_id"],
-                        quantidade,
-                    ))
+                    SELECT COALESCE(SUM(COALESCE(outro.quantidade_pacotes, 0)), 0) AS total
+                    FROM expedicao_itens outro
+                    JOIN expedicoes e ON e.id = outro.expedicao_id
+                    WHERE outro.caixa_id = ? AND outro.expedicao_id <> ?
+                      AND COALESCE(outro.ativo, 1) = 1 AND e.status = 'Aberto'
+                    """), (item["caixa_id"], expedicao_id))
+                    reservado_outros = int(cursor.fetchone()["total"] or 0)
+                    reservado_atual = int(item["pacotes_reservados_atuais"] or 0)
+                    if reservado_atual >= reservado_outros + quantidade:
+                        novo_reservado = reservado_atual - quantidade
+                        cursor.execute(q("""
+                        UPDATE pa_caixas
+                        SET quantidade_pacotes_reservados = ?,
+                            disponibilidade = CASE WHEN ? >= quantidade_pacotes
+                                THEN 'RESERVADO' ELSE ? END
+                        WHERE id = ? AND COALESCE(quantidade_pacotes_reservados, 0) = ?
+                        """), (
+                            novo_reservado,
+                            novo_reservado,
+                            item["situacao_anterior"] or STATUS_DISPONIVEL,
+                            item["caixa_id"],
+                            reservado_atual,
+                        ))
+                        if cursor.rowcount != 1:
+                            raise ValueError("A reserva quantitativa foi alterada durante o cancelamento.")
+                    elif reparacao and reservado_atual == reservado_outros:
+                        pass
+                    else:
+                        raise ValueError("A reserva quantitativa do item nao esta integra para cancelamento.")
                 else:
-                    cursor.execute(q("""
-                    UPDATE pa_caixas
-                    SET disponibilidade = ?, reservado_expedicao_id = NULL
-                    WHERE id = ? AND reservado_expedicao_id = ?
-                    """), (item["situacao_anterior"] or STATUS_DISPONIVEL, item["caixa_id"], expedicao_id))
-                if cursor.rowcount != 1:
-                    raise ValueError("A reserva do item nao esta integra para cancelamento.")
+                    if item["reserva_atual"] == expedicao_id:
+                        cursor.execute(q("""
+                        UPDATE pa_caixas
+                        SET disponibilidade = ?, reservado_expedicao_id = NULL
+                        WHERE id = ? AND reservado_expedicao_id = ?
+                        """), (item["situacao_anterior"] or STATUS_DISPONIVEL, item["caixa_id"], expedicao_id))
+                        if cursor.rowcount != 1:
+                            raise ValueError("A reserva do item nao esta integra para cancelamento.")
+                    elif not reparacao:
+                        raise ValueError("A reserva do item nao esta integra para cancelamento.")
                 _inserir_evento(
                     cursor,
                     caixa_id=item["caixa_id"],
@@ -1723,23 +1749,37 @@ def cancelar_romaneio(expedicao_id, justificativa):
                     quantidade=item["quantidade_pacotes"] if item["unidade_atual"] == "PACOTE" else item["quantidade_bandejas"],
                     peso=None if item["unidade_atual"] == "PACOTE" else item["peso_liquido"],
                     justificativa=justificativa.strip(),
+                    idempotency_key=f"CANCELAMENTO-ROMANEIO-{expedicao_id}-ITEM-{item['id']}",
                 )
-        from modules.qualidade.liberacoes import cancelar_reservas_cursor
-        cancelar_reservas_cursor(cursor, expedicao_id, justificativa.strip(), _usuario(), _perfil(), "romaneio")
+            cursor.execute(q("""
+            UPDATE expedicao_itens
+            SET ativo=0, removido_em=?, removido_por=?, motivo_remocao=?
+            WHERE id=? AND COALESCE(ativo,1)=1
+            """), (
+                _agora(), _usuario(),
+                "Item inativado pelo cancelamento do romaneio",
+                item["id"],
+            ))
+            if cursor.rowcount != 1:
+                raise ValueError("O item foi alterado por outro processo durante o cancelamento.")
         momento = _agora()
-        cursor.execute(q("""
-        UPDATE expedicoes
-        SET status = 'Cancelado', cancelado_em = ?, atualizado_em = ?,
-            justificativa = ?
-        WHERE id = ?
-        """), (momento, momento, justificativa.strip(), expedicao_id))
+        if not reparacao:
+            cursor.execute(q("""
+            UPDATE expedicoes
+            SET status = 'Cancelado', cancelado_em = ?, atualizado_em = ?,
+                justificativa = ?
+            WHERE id = ? AND status = 'Aberto'
+            """), (momento, momento, justificativa.strip(), expedicao_id))
+            if cursor.rowcount != 1:
+                raise ValueError("O romaneio foi alterado por outro processo durante o cancelamento.")
         registrar_evento_romaneio(
             cursor,
             expedicao_id,
             "CANCELAMENTO_MZ" if romaneio["tipo_movimentacao"] == "HISTORICO_MARCO_ZERO" else "CANCELAMENTO_ROMANEIO_DOCUMENTO",
-            estado_anterior="Aberto",
+            estado_anterior=romaneio["status"],
             estado_novo="Cancelado",
-            dados_alterados={"cancelado_em": momento},
+            dados_alterados={"cancelado_em": romaneio["cancelado_em"] if reparacao else momento,
+                             "itens_inativados": len(itens), "reparacao": reparacao},
             justificativa=justificativa.strip(),
             idempotency_key=f"CANCELAMENTO-ROMANEIO-{expedicao_id}",
         )

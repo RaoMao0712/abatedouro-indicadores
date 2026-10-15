@@ -276,6 +276,38 @@ class ExpedicaoMarcoZeroTest(unittest.TestCase):
             consultar_um("SELECT disponibilidade FROM pa_caixas WHERE id = ?", (caixa_id,))["disponibilidade"],
             "DISPONIVEL",
         )
+        item_cancelado = consultar_um(
+            "SELECT ativo, removido_em, motivo_remocao FROM expedicao_itens "
+            "WHERE expedicao_id = ? AND caixa_id = ?",
+            (romaneio_1, caixa_id),
+        )
+        self.assertEqual(item_cancelado["ativo"], 0)
+        self.assertIsNotNone(item_cancelado["removido_em"])
+        self.assertIn("cancelamento", item_cancelado["motivo_remocao"])
+
+        # Repetir o cancelamento é uma operação idempotente e não duplica auditoria.
+        cancelar_romaneio(romaneio_1, "Correção operacional repetida")
+        self.assertEqual(consultar_um(
+            "SELECT COUNT(*) AS total FROM estoque_eventos "
+            "WHERE expedicao_id=? AND acao='CANCELAMENTO_ROMANEIO_DOCUMENTO'",
+            (romaneio_1,),
+        )["total"], 1)
+
+        # Repara o resíduo histórico observado em produção sem tocar na caixa já liberada.
+        executar(
+            "UPDATE expedicao_itens SET ativo=1, removido_em=NULL, removido_por=NULL, motivo_remocao=NULL "
+            "WHERE expedicao_id=? AND caixa_id=?",
+            (romaneio_1, caixa_id),
+        )
+        cancelar_romaneio(romaneio_1, "Reparação idempotente do item residual")
+        self.assertEqual(consultar_um(
+            "SELECT ativo FROM expedicao_itens WHERE expedicao_id=? AND caixa_id=?",
+            (romaneio_1, caixa_id),
+        )["ativo"], 0)
+        self.assertEqual(
+            consultar_um("SELECT disponibilidade FROM pa_caixas WHERE id = ?", (caixa_id,))["disponibilidade"],
+            "DISPONIVEL",
+        )
 
         reservar_itens(romaneio_2, [caixa_id])
         concluir_romaneio(romaneio_2)
@@ -284,6 +316,12 @@ class ExpedicaoMarcoZeroTest(unittest.TestCase):
         self.assertEqual(transferido["local_estoque_id"], self.local_lsm)
         with self.assertRaises(ValueError):
             concluir_romaneio(romaneio_2)
+        with self.assertRaises(ValueError):
+            cancelar_romaneio(romaneio_2, "Não pode cancelar saída concluída")
+        self.assertEqual(
+            consultar_um("SELECT disponibilidade FROM pa_caixas WHERE id = ?", (caixa_id,))["disponibilidade"],
+            "TRANSFERIDO",
+        )
 
         estornar_romaneio(romaneio_2, "Retorno autorizado")
         restaurado = consultar_um("SELECT * FROM pa_caixas WHERE id = ?", (caixa_id,))
@@ -308,6 +346,42 @@ class ExpedicaoMarcoZeroTest(unittest.TestCase):
         caixa = consultar_um("SELECT * FROM pa_caixas WHERE id = ?", (caixa_id,))
         self.assertEqual(caixa["condicao"], "CONFORME")
         self.assertEqual(caixa["disponibilidade"], "DISPONIVEL")
+
+    def test_05b_cancelamento_quantitativo_isola_duas_reservas(self):
+        self.contexto()
+        op_id = self.criar_op_nova("Galinha Inteira")
+        caixa_id = executar("""
+        INSERT INTO pa_caixas (
+            codigo_caixa, sku, data_fabricacao, data_validade, status, origem,
+            local_estoque_id, estoque_operacional, condicao, disponibilidade,
+            zona_estoque, unidade_estoque, apresentacao, galinhas_por_pacote,
+            quantidade_pacotes, quantidade_galinhas, quantidade_pacotes_reservados
+        ) VALUES (?, 'Galinha Inteira', '2026-07-25', '2027-07-25', 'Em estoque',
+                  'Embalagem Primária', ?, 1, 'CONFORME', 'DISPONIVEL', 'Conforme',
+                  'PACOTE', 'V1', 1, 6, 6, 0)
+        """, (f"GI-CANCEL-{os.urandom(4).hex()}", self.local_abatedouro))
+        executar(
+            "INSERT INTO pa_caixa_composicao (caixa_id, op_id, quantidade_bandejas) VALUES (?, ?, 0)",
+            (caixa_id, op_id),
+        )
+        romaneio_a = self.criar_romaneio()
+        romaneio_b = self.criar_romaneio()
+        reservar_itens(romaneio_a, [caixa_id], {caixa_id: 2})
+        reservar_itens(romaneio_b, [caixa_id], {caixa_id: 1})
+
+        cancelar_romaneio(romaneio_a, "Cancelar somente a reserva A")
+
+        saldo = consultar_um("SELECT * FROM pa_caixas WHERE id=?", (caixa_id,))
+        self.assertEqual(saldo["quantidade_pacotes_reservados"], 1)
+        self.assertEqual(saldo["disponibilidade"], "DISPONIVEL")
+        self.assertEqual(consultar_um(
+            "SELECT ativo FROM expedicao_itens WHERE expedicao_id=? AND caixa_id=?",
+            (romaneio_a, caixa_id),
+        )["ativo"], 0)
+        self.assertEqual(consultar_um(
+            "SELECT ativo FROM expedicao_itens WHERE expedicao_id=? AND caixa_id=?",
+            (romaneio_b, caixa_id),
+        )["ativo"], 1)
 
     def test_06_romaneio_historico_preserva_producao_e_nao_cria_estoque(self):
         self.contexto()
