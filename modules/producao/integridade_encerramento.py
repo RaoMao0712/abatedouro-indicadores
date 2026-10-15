@@ -149,8 +149,11 @@ def _carregar_snapshots(cursor, *, op_id=None, data_corte=None, limite=None,
     ids = [int(item["op_id"]) for item in ops]
     marcas = ",".join("?" for _ in ids)
 
-    primaria = _agrupar(cursor, f"""SELECT op_id,COALESCE(SUM(quantidade_bandejas),0) bandejas_primaria
-        FROM embalagem_primaria_apontamentos WHERE op_id IN ({marcas}) GROUP BY op_id""", ids)
+    primaria = _agrupar(cursor, f"""SELECT op_id,COALESCE(SUM(CASE
+        WHEN tipo='ENTRADA_EMBALAGEM_PRIMARIA' THEN quantidade_bandejas
+        WHEN tipo='SAIDA_REVERSAO_EMBALAGEM_PRIMARIA' THEN -quantidade_bandejas
+        ELSE 0 END),0) bandejas_primaria
+        FROM estoque_produto_intermediario WHERE op_id IN ({marcas}) GROUP BY op_id""", ids)
     perdas = _agrupar(cursor, f"""SELECT op_id,
         COALESCE(SUM(CASE WHEN LOWER(COALESCE(categoria,'')) LIKE '%%conden%%'
                           THEN quantidade ELSE 0 END),0) condenacoes,

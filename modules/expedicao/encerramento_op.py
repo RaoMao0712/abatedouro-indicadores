@@ -8,6 +8,7 @@ import time
 import uuid
 
 from database import DATABASE_URL, conectar, q, transaction
+from modules.expedicao.services import pi_primaria_liquido_cursor
 from modules.producao.services import gerar_producao_automatica_setores
 from modules.producao.skus_legados import SKU_GALINHA_INTEIRA, validar_sku_operacional
 
@@ -126,11 +127,7 @@ def _calcular_pesos_caixas_ativas(cursor, op_id):
 def _calcular_fechamento_cursor(cursor, op):
     """Calcula as invariantes sem executar bootstrap, DDL ou commit implícito."""
     op_id = int(op["id"])
-    cursor.execute(q("""
-        SELECT COALESCE(SUM(quantidade_bandejas),0) total
-        FROM embalagem_primaria_apontamentos WHERE op_id=?
-    """), (op_id,))
-    bandejas_primaria = float(cursor.fetchone()["total"] or 0)
+    bandejas_primaria = float(pi_primaria_liquido_cursor(cursor, op_id))
     cursor.execute(q("""
         SELECT
           COALESCE(SUM(CASE WHEN LOWER(COALESCE(categoria,'')) LIKE '%%conden%%'

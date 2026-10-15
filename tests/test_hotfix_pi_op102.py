@@ -5,6 +5,7 @@ import pytest
 
 from modules.expedicao import services as expedicao
 from modules.expedicao import estoque_service
+from modules.expedicao import encerramento_op as encerramento
 from modules.producao import operacoes_op as operacoes
 from test_p0_2_estorno_reabertura_op import banco  # noqa: F401
 
@@ -240,3 +241,61 @@ def test_l_pa_historico_nao_remove_limite_da_entrada(primaria):
 
     with pytest.raises(ValueError, match="possui 100 aves"):
         expedicao.registrar_apontamento_embalagem_primaria(op, 103)
+
+
+def test_m_balanco_liquido_ignora_apontamento_revertido_e_libera_encerramento(primaria):
+    _reverter()
+    conn = primaria()
+    op = conn.execute("SELECT * FROM ordens_producao WHERE id=7").fetchone()
+    conn.close()
+    expedicao.registrar_apontamento_embalagem_primaria(op, 100)
+
+    conn = primaria()
+    quantidades = [12] * 8 + [4]
+    for indice, quantidade in enumerate(quantidades, start=1):
+        caixa_id = 400 + indice
+        conn.execute("""INSERT INTO pa_caixas(
+            id,codigo_caixa,sku,status,estoque_operacional,disponibilidade,
+            peso_bruto,peso_liquido,quantidade_bandejas,criado_em)
+            VALUES(?,?,?,'Em estoque',0,'PENDENTE_OP',10,9.5,?,?)""",
+            (caixa_id, f"CX-NOVA-{indice}", "Galinha Cortada", quantidade,
+             "2026-10-15"))
+        conn.execute("""INSERT INTO pa_caixa_composicao(
+            caixa_id,op_id,quantidade_bandejas) VALUES(?,?,?)""",
+            (caixa_id, 7, quantidade))
+        conn.execute("""INSERT INTO estoque_produto_intermediario(
+            data_movimentacao,tipo,op_id,sku,quantidade_bandejas,caixa_id)
+            VALUES('2026-10-15','SAIDA_EMBALAGEM_SECUNDARIA',7,
+                   'Galinha Cortada',?,?)""", (quantidade, caixa_id))
+    conn.execute("UPDATE ordens_producao SET status='Aberta' WHERE id=7")
+    conn.commit()
+
+    historico = conn.execute("""SELECT id,quantidade_bandejas,vigente
+        FROM embalagem_primaria_apontamentos WHERE op_id=7 ORDER BY id""").fetchall()
+    movimentos_primaria = conn.execute("""SELECT tipo,quantidade_bandejas
+        FROM estoque_produto_intermediario WHERE op_id=7
+          AND tipo IN ('ENTRADA_EMBALAGEM_PRIMARIA','SAIDA_REVERSAO_EMBALAGEM_PRIMARIA')
+        ORDER BY id""").fetchall()
+    assert [(item["quantidade_bandejas"], item["vigente"]) for item in historico] == [(103, 0), (100, 1)]
+    assert [(item["tipo"], item["quantidade_bandejas"]) for item in movimentos_primaria] == [
+        ("ENTRADA_EMBALAGEM_PRIMARIA", 103),
+        ("SAIDA_REVERSAO_EMBALAGEM_PRIMARIA", 103),
+        ("ENTRADA_EMBALAGEM_PRIMARIA", 100),
+    ]
+
+    fechamento = expedicao.calcular_fechamento_industrial_op(7, conn=conn)
+    op_atual = conn.execute("SELECT * FROM ordens_producao WHERE id=7").fetchone()
+    preflight = encerramento._preflight_cursor(conn.cursor(), op_atual)
+    assert fechamento["aves_vivas"] == 100
+    assert fechamento["bandejas_primaria"] == 100
+    assert fechamento["bandejas_consumidas"] == 100
+    assert fechamento["saldo_pi"] == 0
+    assert fechamento["saldo_aves"] == 0
+    assert fechamento["pode_encerrar"] is True
+    assert preflight["bandejas_primaria"] == 100
+    assert preflight["bandejas_consumidas"] == 100
+    assert preflight["saldo_pi"] == 0
+    assert preflight["fechamento"]["saldo_aves"] == 0
+    assert preflight["permitido"] is True
+    assert len(historico) == 2
+    conn.close()

@@ -1558,12 +1558,7 @@ def calcular_fechamento_industrial_op(op_id, conn=None):
             conn.close()
         raise ValueError("OP não encontrada.")
 
-    cursor.execute(q("""
-    SELECT COALESCE(SUM(quantidade_bandejas), 0) AS total
-    FROM embalagem_primaria_apontamentos
-    WHERE op_id = ?
-    """), (op_id,))
-    bandejas_primaria = float(cursor.fetchone()["total"] or 0)
+    bandejas_primaria = float(pi_primaria_liquido_cursor(cursor, op_id))
 
     cursor.execute(q("""
     SELECT

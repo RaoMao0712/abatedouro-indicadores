@@ -301,8 +301,11 @@ def cte_ops_agregadas(filtros, somente_encerradas=False):
     primaria AS (
         SELECT
             op_id,
-            COALESCE(SUM(quantidade_bandejas), 0) AS producao_primaria
-        FROM embalagem_primaria_apontamentos
+            COALESCE(SUM(CASE
+                WHEN tipo = 'ENTRADA_EMBALAGEM_PRIMARIA' THEN quantidade_bandejas
+                WHEN tipo = 'SAIDA_REVERSAO_EMBALAGEM_PRIMARIA' THEN -quantidade_bandejas
+                ELSE 0 END), 0) AS producao_primaria
+        FROM estoque_produto_intermediario
         GROUP BY op_id
     ),
     pi AS (
