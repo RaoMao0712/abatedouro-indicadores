@@ -705,6 +705,34 @@ class SelecaoMultiplasOpsTest(unittest.TestCase):
         self.assertIn("Nenhuma caixa desta OP corresponde ao peso informado.", template)
         self.assertIn("const ids = pendingForOp(opId)", template)
 
+    def test_interface_seleciona_todas_as_caixas_elegiveis_isolada_por_op(self):
+        template = (ROOT / "templates" / "romaneio_detalhe.html").read_text(encoding="utf-8")
+        self.assertIn('selectAllText.textContent = "Selecionar todas as caixas desta OP"', template)
+        self.assertIn("selectAll.checked = eligible.length > 0 && selectedEligible.length === eligible.length", template)
+        self.assertIn("selectAll.indeterminate = selectedEligible.length > 0 && selectedEligible.length < eligible.length", template)
+        self.assertIn("selectAll.disabled = eligible.length === 0", template)
+        self.assertIn("eligibleForOp(opId).forEach", template)
+        self.assertIn("if (selectAll.checked) draftOrigins.set(id, Number(opId))", template)
+        self.assertIn("else if (draftOrigins.get(id) === Number(opId)) draftOrigins.delete(id)", template)
+
+    def test_post_reserva_exatamente_as_193_caixas_selecionadas_de_200(self):
+        caixas = [self.criar_caixa(f"CX-MASSA-{indice:03d}", 83, 3, 2.5) for indice in range(200)]
+        selecionadas = caixas[:193]
+        resposta = self.cliente().post(
+            f"/expedicao/{self.romaneio}/selecao-ops/83/reservar",
+            json={"caixa_ids": selecionadas},
+        )
+        self.assertEqual(resposta.status_code, 200)
+        self.assertEqual(resposta.get_json()["op"]["selecionadas"], 193)
+        ids_recebidos = {
+            linha[0] for linha in consultar(
+                "SELECT caixa_id FROM expedicao_itens WHERE expedicao_id=? AND COALESCE(ativo, 1)=1",
+                (self.romaneio,),
+            )
+        }
+        self.assertEqual(ids_recebidos, set(selecionadas))
+        self.assertEqual(len(set(caixas) - ids_recebidos), 7)
+
     def test_carregamento_da_op_faz_quantidade_constante_de_selects(self):
         for indice in range(40):
             self.criar_caixa(f"CX-VOLUME-{indice:03d}", 83, 3, 2.5)

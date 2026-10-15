@@ -430,6 +430,11 @@
     const displayWeight = value => value ? `${String(value).replace(".", ",")} kg` : "-";
     const pendingForOp = opId => [...draftOrigins.entries()]
         .filter(([, origin]) => origin === Number(opId)).map(([id]) => id);
+    const eligibleForOp = opId => (collections.get(String(opId)) || []).filter(caixa => {
+        const id = Number(caixa.id);
+        const origin = draftOrigins.get(id);
+        return !selected.has(id) && (origin === undefined || origin === Number(opId));
+    });
     const refreshConclusion = () => {
         const conclusionForm = document.getElementById("form-concluir");
         if (!conclusionForm) return;
@@ -570,6 +575,27 @@
         const wrap = document.createElement("div");
         wrap.className = "tabela-responsiva tabela-executiva expedicao-tabela";
         if (caixas.length) {
+            const selectAllLabel = document.createElement("label");
+            selectAllLabel.className = "romaneio-confirmacao";
+            const selectAll = document.createElement("input");
+            selectAll.type = "checkbox";
+            selectAll.dataset.selectAllOp = String(opId);
+            const eligible = eligibleForOp(opId);
+            const selectedEligible = eligible.filter(caixa => draftOrigins.get(Number(caixa.id)) === Number(opId));
+            selectAll.checked = eligible.length > 0 && selectedEligible.length === eligible.length;
+            selectAll.indeterminate = selectedEligible.length > 0 && selectedEligible.length < eligible.length;
+            selectAll.disabled = eligible.length === 0;
+            const selectAllText = document.createElement("span");
+            selectAllText.textContent = "Selecionar todas as caixas desta OP";
+            selectAllLabel.append(selectAll, selectAllText);
+            selectAll.addEventListener("change", () => {
+                eligibleForOp(opId).forEach(caixa => {
+                    const id = Number(caixa.id);
+                    if (selectAll.checked) draftOrigins.set(id, Number(opId));
+                    else if (draftOrigins.get(id) === Number(opId)) draftOrigins.delete(id);
+                });
+                loaded.forEach((loadedBlock, loadedOpId) => renderResults(loadedBlock, loadedOpId));
+            });
             const table = document.createElement("table");
             const head = document.createElement("thead");
             head.innerHTML = "<tr><th></th><th>Identificação/lote</th><th>SKU</th><th>Apresentação</th><th>Peso bruto</th><th>Peso líquido</th><th>Produção</th><th>Validade</th></tr>";
@@ -588,11 +614,7 @@
                 checkbox.addEventListener("change", () => {
                     if (checkbox.checked) draftOrigins.set(id, Number(opId));
                     else if (draftOrigins.get(id) === Number(opId)) draftOrigins.delete(id);
-                    const reserveButton = block.querySelector("[data-reserve]");
-                    if (reserveButton) reserveButton.textContent = `Reservar selecionadas (${pendingForOp(opId).length})`;
-                    loaded.forEach((otherBlock, otherOpId) => {
-                        if (otherBlock !== block) renderResults(otherBlock, otherOpId);
-                    });
+                    loaded.forEach((loadedBlock, loadedOpId) => renderResults(loadedBlock, loadedOpId));
                 });
                 choose.appendChild(checkbox);
                 row.appendChild(choose);
@@ -606,7 +628,7 @@
                 body.appendChild(row);
             });
             table.append(head, body);
-            wrap.appendChild(table);
+            wrap.append(selectAllLabel, table);
         } else {
             const empty = document.createElement("p");
             empty.className = "romaneio-empty-state";
