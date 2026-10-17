@@ -35,7 +35,20 @@ DROP SCHEMA public CASCADE;
 CREATE SCHEMA public;
 CREATE TABLE expedicoes (
     id SERIAL PRIMARY KEY, numero_romaneio TEXT UNIQUE NOT NULL,
-    status TEXT NOT NULL DEFAULT 'Aberto', tipo_movimentacao TEXT NOT NULL
+    status TEXT NOT NULL DEFAULT 'Aberto', tipo_movimentacao TEXT NOT NULL,
+    destino TEXT, responsavel TEXT, cliente_snapshot TEXT, concluido_em TEXT,
+    estornado_em TEXT, atualizado_em TEXT, justificativa TEXT,
+    destino_local_id INTEGER, cliente_id INTEGER, tipo_saida TEXT
+);
+CREATE TABLE locais_estoque (
+    id SERIAL PRIMARY KEY,
+    nome TEXT UNIQUE NOT NULL,
+    tipo TEXT,
+    ativo TEXT DEFAULT 'Sim'
+);
+INSERT INTO locais_estoque(nome) VALUES ('Abatedouro'), ('Câmara Fria LSM');
+CREATE TABLE ordens_producao (
+    id INTEGER PRIMARY KEY, data TEXT, fornecedor TEXT, sku TEXT, status TEXT
 );
 CREATE TABLE pa_caixas (
     id SERIAL PRIMARY KEY, codigo_caixa TEXT UNIQUE NOT NULL, sku TEXT NOT NULL,
@@ -46,7 +59,8 @@ CREATE TABLE pa_caixas (
     quantidade_pacotes_reservados INTEGER NOT NULL DEFAULT 0,
     quantidade_bandejas INTEGER DEFAULT 0, peso_liquido NUMERIC,
     local_estoque_id INTEGER, reservado_expedicao_id INTEGER,
-    apresentacao TEXT, peso_bruto NUMERIC, peso_tara NUMERIC
+    apresentacao TEXT, peso_bruto NUMERIC, peso_tara NUMERIC,
+    data_fabricacao TEXT, data_validade TEXT
 );
 CREATE TABLE pa_caixa_composicao (
     id SERIAL PRIMARY KEY, caixa_id INTEGER NOT NULL, op_id INTEGER NOT NULL
@@ -173,6 +187,13 @@ def ambiente(monkeypatch):
     monkeypatch.setattr(estoque, "transaction", transacao_independente)
     monkeypatch.setattr(estoque, "criar_tabelas_estoque_confiavel", lambda: None)
     monkeypatch.setattr(pedidos, "vincular_item_reservado_cursor", lambda *args: None)
+    monkeypatch.setattr(pedidos, "validar_e_registrar_atendimento_cursor", lambda *args: None)
+    monkeypatch.setattr(pedidos, "estornar_atendimento_cursor", lambda *args: None)
+    import modules.qualidade.liberacoes as liberacoes
+    import modules.qualidade.produtos_nao_conformes as produtos_nao_conformes
+    monkeypatch.setattr(liberacoes, "concluir_reservas_cursor", lambda *args: None)
+    monkeypatch.setattr(liberacoes, "estornar_baixas_cursor", lambda *args: None)
+    monkeypatch.setattr(produtos_nao_conformes, "impedir_fluxo_legado", lambda *args, **kwargs: False)
     return {"hooks": hooks, "pids": pids, "pids_prontos": pids_prontos}
 
 
@@ -474,3 +495,80 @@ def test_multiplas_ops_e_fluxo_misto_preservados(ambiente):
     assert restantes == [(83, caixa_83), (89, saldo_89)]
     assert disponibilidade == "RESERVADO"
     assert caixas_88[0] not in {item[1] for item in restantes}
+
+
+def test_concluir_estornar_e_reutilizar_mesma_caixa_por_op(ambiente):
+    with conectar() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "TRUNCATE estoque_eventos, expedicao_itens, pa_caixa_composicao, "
+                "pa_caixas, expedicoes, ordens_producao RESTART IDENTITY"
+            )
+            cursor.execute(
+                "INSERT INTO ordens_producao(id,data,fornecedor,sku,status) "
+                "VALUES (121,'2026-10-17','Fornecedor','Galinha Cortada','Encerrada')"
+            )
+            cursor.execute("""
+            INSERT INTO expedicoes(numero_romaneio,status,tipo_movimentacao,destino)
+            VALUES ('EXP001-A','Aberto','TRANSFERENCIA','Câmara Fria LSM') RETURNING id
+            """)
+            primeiro = int(cursor.fetchone()["id"])
+            cursor.execute("""
+            INSERT INTO pa_caixas(
+                codigo_caixa,sku,unidade_estoque,quantidade_bandejas,peso_liquido,
+                apresentacao,local_estoque_id,estoque_operacional,status,condicao,
+                disponibilidade,quantidade_pacotes_reservados
+            ) VALUES ('EXP001-CX','Galinha Cortada','CAIXA',12,10,'Caixa',1,1,
+                      'Em estoque','CONFORME','DISPONIVEL',0) RETURNING id
+            """)
+            caixa_id = int(cursor.fetchone()["id"])
+            cursor.execute(
+                "INSERT INTO pa_caixa_composicao(caixa_id,op_id) VALUES (%s,121)",
+                (caixa_id,),
+            )
+
+    estoque.reservar_itens(primeiro, [caixa_id], op_id_esperada=121)
+    estoque.concluir_romaneio(primeiro)
+    estoque.estornar_romaneio(primeiro, "Regressão EXP-001")
+
+    with conectar() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT * FROM expedicao_itens WHERE expedicao_id=%s", (primeiro,))
+            item_antigo = cursor.fetchone()
+            cursor.execute("SELECT * FROM pa_caixas WHERE id=%s", (caixa_id,))
+            caixa = cursor.fetchone()
+    assert int(item_antigo["ativo"]) == 0
+    assert item_antigo["removido_em"] and item_antigo["removido_por"]
+    assert "ESTORNO_ROMANEIO" in item_antigo["motivo_remocao"]
+    assert caixa["disponibilidade"] == "DISPONIVEL"
+    assert caixa["status"] == "Em estoque"
+    assert caixa["reservado_expedicao_id"] is None
+
+    with pytest.raises(ValueError, match="Somente romaneios concluídos"):
+        estoque.estornar_romaneio(primeiro, "Repetição")
+
+    with conectar() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("""
+            INSERT INTO expedicoes(numero_romaneio,status,tipo_movimentacao,destino)
+            VALUES ('EXP001-B','Aberto','TRANSFERENCIA','Câmara Fria LSM') RETURNING id
+            """)
+            segundo = int(cursor.fetchone()["id"])
+
+    elegiveis = estoque.buscar_caixas_elegiveis_op(segundo, 121)
+    assert [int(item["id"]) for item in elegiveis] == [caixa_id]
+    estoque.reservar_itens(segundo, [caixa_id], op_id_esperada=121)
+
+    with conectar() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT expedicao_id,ativo FROM expedicao_itens "
+                "WHERE caixa_id=%s ORDER BY id", (caixa_id,)
+            )
+            itens = cursor.fetchall()
+            cursor.execute("SELECT reservado_expedicao_id FROM pa_caixas WHERE id=%s", (caixa_id,))
+            reserva = cursor.fetchone()["reservado_expedicao_id"]
+    assert [(int(item["expedicao_id"]), int(item["ativo"])) for item in itens] == [
+        (primeiro, 0), (segundo, 1),
+    ]
+    assert int(reserva) == segundo

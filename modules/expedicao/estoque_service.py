@@ -1785,6 +1785,17 @@ def cancelar_romaneio(expedicao_id, justificativa):
         )
 
 
+def _inativar_itens_romaneio_cursor(cursor, expedicao_id, *, motivo):
+    """Encerra os vínculos operacionais sem remover o histórico documental."""
+    momento = _agora()
+    cursor.execute(q("""
+    UPDATE expedicao_itens
+    SET ativo = 0, removido_em = ?, removido_por = ?, motivo_remocao = ?
+    WHERE expedicao_id = ? AND COALESCE(ativo, 1) = 1
+    """), (momento, _usuario(), motivo, expedicao_id))
+    return int(cursor.rowcount or 0)
+
+
 def estornar_romaneio(expedicao_id, justificativa):
     if not (justificativa or "").strip():
         raise ValueError("Informe a justificativa do estorno.")
@@ -1806,7 +1817,8 @@ def estornar_romaneio(expedicao_id, justificativa):
         INNER JOIN pa_caixas cx ON cx.id = i.caixa_id
         WHERE i.expedicao_id = ? AND COALESCE(i.ativo,1)=1
         """), (expedicao_id,))
-        for item in cursor.fetchall():
+        itens = cursor.fetchall()
+        for item in itens:
             if item["unidade_atual"] == "PACOTE":
                 if int(item["pacotes_reservados_atuais"] or 0) > 0:
                     raise ValueError("Nao e possivel estornar enquanto houver pacotes reservados em outro romaneio.")
@@ -1861,6 +1873,13 @@ def estornar_romaneio(expedicao_id, justificativa):
         estornar_baixas_cursor(cursor, expedicao_id, justificativa.strip(), _usuario(), _perfil(), "romaneio")
         from modules.pedidos_venda.services import estornar_atendimento_cursor
         estornar_atendimento_cursor(cursor, expedicao_id, justificativa.strip())
+        itens_inativados = _inativar_itens_romaneio_cursor(
+            cursor,
+            expedicao_id,
+            motivo="Item inativado pelo ESTORNO_ROMANEIO",
+        )
+        if itens_inativados != len(itens):
+            raise ValueError("Os itens do romaneio foram alterados durante o estorno.")
         cursor.execute(q("""
         UPDATE expedicoes
         SET status = 'Estornado', estornado_em = ?, atualizado_em = ?,
@@ -1873,10 +1892,81 @@ def estornar_romaneio(expedicao_id, justificativa):
             "ESTORNO_ROMANEIO_DOCUMENTO",
             estado_anterior="Concluído",
             estado_novo="Estornado",
-            dados_alterados={"destino": romaneio["destino"]},
+            dados_alterados={
+                "destino": romaneio["destino"],
+                "itens_inativados": itens_inativados,
+            },
             justificativa=justificativa.strip(),
             idempotency_key=f"ESTORNO-ROMANEIO-{expedicao_id}",
         )
+
+
+def reconciliar_itens_romaneio_terminal(expedicao_id, justificativa):
+    """Inativa resíduos históricos de documento terminal sem movimentar estoque."""
+    justificativa = str(justificativa or "").strip()
+    if not justificativa:
+        raise ValueError("Informe a justificativa da reconciliação.")
+    criar_tabelas_estoque_confiavel()
+    with transaction() as conn:
+        cursor = conn.cursor()
+        sufixo_bloqueio = " FOR UPDATE" if DATABASE_URL else ""
+        cursor.execute(q(f"SELECT * FROM expedicoes WHERE id = ?{sufixo_bloqueio}"),
+                       (expedicao_id,))
+        romaneio = cursor.fetchone()
+        if not romaneio or romaneio["status"] not in {"Cancelado", "Estornado"}:
+            raise ValueError("Somente romaneios cancelados ou estornados podem ser reconciliados.")
+
+        bloqueio_itens = " FOR UPDATE OF i" if DATABASE_URL else ""
+        cursor.execute(q(f"""
+        SELECT i.id, i.caixa_id, cx.reservado_expedicao_id,
+               COALESCE(cx.quantidade_pacotes_reservados, 0) AS pacotes_reservados
+        FROM expedicao_itens i
+        LEFT JOIN pa_caixas cx ON cx.id = i.caixa_id
+        WHERE i.expedicao_id = ? AND COALESCE(i.ativo, 1) = 1
+        ORDER BY i.id
+        {bloqueio_itens}
+        """), (expedicao_id,))
+        itens = cursor.fetchall()
+        for item in itens:
+            if not item["caixa_id"]:
+                continue
+            if item["reservado_expedicao_id"] == expedicao_id:
+                raise ValueError(
+                    f"O item {item['id']} ainda possui reserva física do documento terminal."
+                )
+            if int(item["pacotes_reservados"] or 0) > 0:
+                raise ValueError(
+                    f"O item {item['id']} ainda possui reserva quantitativa ativa."
+                )
+            cursor.execute(q("""
+            SELECT 1
+            FROM expedicao_itens outro
+            JOIN expedicoes e ON e.id = outro.expedicao_id
+            WHERE outro.caixa_id = ? AND outro.expedicao_id <> ?
+              AND COALESCE(outro.ativo, 1) = 1 AND e.status = 'Aberto'
+            LIMIT 1
+            """), (item["caixa_id"], expedicao_id))
+            if cursor.fetchone():
+                raise ValueError(
+                    f"O item {item['id']} possui vínculo concorrente com romaneio aberto."
+                )
+
+        quantidade = _inativar_itens_romaneio_cursor(
+            cursor,
+            expedicao_id,
+            motivo=f"Reconciliação EXP-001: {justificativa}",
+        )
+        registrar_evento_romaneio(
+            cursor,
+            expedicao_id,
+            "RECONCILIACAO_ITENS_TERMINAIS",
+            estado_anterior=romaneio["status"],
+            estado_novo=romaneio["status"],
+            dados_alterados={"itens_inativados": quantidade},
+            justificativa=justificativa,
+            idempotency_key=f"RECONCILIACAO-EXP-001-{expedicao_id}",
+        )
+        return {"expedicao_id": int(expedicao_id), "itens_inativados": quantidade}
 
 
 def bloquear_produto(caixa_id, motivo, observacao=""):

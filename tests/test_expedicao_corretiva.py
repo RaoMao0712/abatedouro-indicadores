@@ -24,6 +24,7 @@ from flask import Flask, session  # noqa: E402
 
 from database import conectar, q  # noqa: E402
 from modules.expedicao.estoque_service import (  # noqa: E402
+    buscar_saldos_quantitativos_op,
     buscar_estoque_operacional,
     cancelar_romaneio,
     concluir_romaneio,
@@ -390,6 +391,21 @@ class ExpedicaoCorretivaTest(unittest.TestCase):
             consultar_um("SELECT status FROM expedicoes WHERE id = ?", (romaneio,))["status"],
             "Estornado",
         )
+        item_estornado = consultar_um(
+            "SELECT * FROM expedicao_itens WHERE expedicao_id = ?", (romaneio,)
+        )
+        self.assertEqual(item_estornado["ativo"], 0)
+        self.assertTrue(
+            item_estornado["removido_em"]
+            and item_estornado["removido_por"]
+            and "ESTORNO_ROMANEIO" in item_estornado["motivo_remocao"]
+        )
+
+        romaneio_reuso = self.criar_romaneio()
+        elegiveis = buscar_saldos_quantitativos_op(romaneio_reuso, op_id)
+        self.assertEqual([item["id"] for item in elegiveis], [posicao["id"]])
+        reservar_itens(romaneio_reuso, [posicao["id"]], {posicao["id"]: 1}, op_id)
+        remover_item_reservado(romaneio_reuso, posicao["id"], op_id)
 
         romaneio_cancelado = self.criar_romaneio()
         reservar_itens(romaneio_cancelado, [posicao["id"]], {posicao["id"]: 3})
