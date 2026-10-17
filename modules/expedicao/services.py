@@ -709,7 +709,12 @@ def registrar_posicoes_pa_galinha_inteira(cursor, op, pacotes_v1, pacotes_v2, ob
             caixa_id, op_id, quantidade_bandejas
         ) VALUES (?, ?, ?)
         """), (posicao_id, op["id"], quantidade_galinhas))
-        posicoes.append({"id": posicao_id, "codigo": codigo_lote, "variacao": variacao})
+        posicoes.append({
+            "id": posicao_id,
+            "codigo": codigo_lote,
+            "variacao": variacao,
+            "quantidade_galinhas": quantidade_galinhas,
+        })
     return posicoes
 
 
@@ -776,20 +781,42 @@ def registrar_apontamento_embalagem_primaria(
             validar_balanco_aves_op(op_bloqueada, aves_embaladas, perdas)
             cursor.execute(q("DELETE FROM estoque_produto_intermediario WHERE op_id = ?"), (op_bloqueada["id"],))
             cursor.execute(q("DELETE FROM embalagem_primaria_apontamentos WHERE op_id = ?"), (op_bloqueada["id"],))
-            cursor.execute(q("""
+            sql_apontamento = """
             INSERT INTO embalagem_primaria_apontamentos (
                 op_id, data_apontamento, sku, quantidade_bandejas,
                 observacoes, pacotes_v1, pacotes_v2, total_galinhas
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """), (
+            """
+            cursor.execute(q(sql_apontamento + (" RETURNING id" if DATABASE_URL else "")), (
                 op_bloqueada["id"], op_bloqueada["data"], sku, aves_embaladas,
                 observacao_final, pacotes_1, pacotes_2, aves_embaladas,
+            ))
+            apontamento_id = cursor.fetchone()["id"] if DATABASE_URL else cursor.lastrowid
+            cursor.execute(q("""
+            INSERT INTO estoque_produto_intermediario (
+                data_movimentacao, tipo, op_id, sku, quantidade_bandejas,
+                origem, observacoes, apontamento_origem_id
+            ) VALUES (?, 'ENTRADA_EMBALAGEM_PRIMARIA', ?, ?, ?, ?, ?, ?)
+            """), (
+                op_bloqueada["data"], op_bloqueada["id"], sku, aves_embaladas,
+                "Embalagem Primaria", observacao_final, apontamento_id,
             ))
             posicoes = registrar_posicoes_pa_galinha_inteira(
                 cursor, op_bloqueada, pacotes_1, pacotes_2, observacao_final
             )
             for posicao in posicoes:
                 marcar_pa_pendente(cursor, posicao["id"])
+                cursor.execute(q("""
+                INSERT INTO estoque_produto_intermediario (
+                    data_movimentacao, tipo, op_id, sku, quantidade_bandejas,
+                    origem, observacoes, caixa_id, idempotency_key
+                ) VALUES (?, 'SAIDA_FORMACAO_PA_PRIMARIA', ?, ?, ?, ?, ?, ?, ?)
+                """), (
+                    op_bloqueada["data"], op_bloqueada["id"], sku,
+                    posicao["quantidade_galinhas"], "Embalagem Primaria",
+                    f"Aves consumidas na formação da posição PA {posicao['codigo']}.",
+                    posicao["id"], f"SAIDA-PA-PRIMARIA-{posicao['id']}",
+                ))
             itens_nc = []
             if nao_conformes:
                 por_apresentacao = {item.get("apresentacao"): item for item in nao_conformes}

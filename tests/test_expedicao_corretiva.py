@@ -1,6 +1,7 @@
 """Regressao da sprint corretiva de seguranca transacional da Expedicao."""
 
 import os
+import json
 from pathlib import Path
 import sys
 import tempfile
@@ -274,6 +275,94 @@ class ExpedicaoCorretivaTest(unittest.TestCase):
             "SELECT COUNT(*) total FROM pa_caixa_composicao WHERE op_id = ?", (op_id,)
         )["total"], 2)
 
+    def test_01b_op121_2000_menos_76_encerra_primaria_com_962_pacotes_v2(self):
+        self.contexto("producao")
+        op_id = self.criar_op("Galinha Inteira", 2000)
+        executar("""
+        INSERT INTO apontamentos_descartes (
+            op_id, setor, motivo, categoria, quantidade, unidade
+        ) VALUES (?, 'Recepção e Pendura', 'Morte na gaiola', 'Descarte', 3, 'aves')
+        """, (op_id,))
+        executar("""
+        INSERT INTO apontamentos_descartes (
+            op_id, setor, motivo, categoria, quantidade, unidade
+        ) VALUES (?, 'Evisceração', 'Perdas OP 121', 'Descarte', 73, 'aves')
+        """, (op_id,))
+        op = consultar_um("SELECT * FROM ordens_producao WHERE id = ?", (op_id,))
+        chave = f"HOTFIX-OP121-{op_id}"
+
+        resultado = registrar_apontamento_embalagem_primaria(
+            op, None, pacotes_1_ave=0, pacotes_2_aves=962,
+            idempotency_key=chave,
+        )
+
+        apontamento = consultar_um(
+            "SELECT * FROM embalagem_primaria_apontamentos WHERE op_id = ?", (op_id,)
+        )
+        posicao = consultar_um(
+            "SELECT * FROM pa_caixas WHERE codigo_caixa = ?",
+            (f"GI-PCT-OP-{op_id:05d}-V2",),
+        )
+        entrada = consultar_um("""
+            SELECT COUNT(*) total, COALESCE(SUM(quantidade_bandejas), 0) quantidade
+            FROM estoque_produto_intermediario
+            WHERE op_id = ? AND tipo = 'ENTRADA_EMBALAGEM_PRIMARIA'
+        """, (op_id,))
+        saldo = consultar_um("""
+            SELECT COALESCE(SUM(CASE
+                WHEN tipo LIKE 'ENTRADA%' THEN quantidade_bandejas
+                WHEN tipo LIKE 'SAIDA%' THEN -quantidade_bandejas
+                ELSE quantidade_bandejas END), 0) saldo
+            FROM estoque_produto_intermediario WHERE op_id = ?
+        """, (op_id,))["saldo"]
+        auditoria = consultar_um("""
+            SELECT preflight_json FROM op_operacoes_auditoria
+            WHERE op_id = ? AND tipo = 'ENCERRAMENTO_OP'
+        """, (op_id,))
+        preflight = json.loads(auditoria["preflight_json"])
+
+        self.assertEqual(apontamento["quantidade_bandejas"], 1924)
+        self.assertEqual(apontamento["pacotes_v1"], 0)
+        self.assertEqual(apontamento["pacotes_v2"], 962)
+        self.assertEqual(apontamento["total_galinhas"], 1924)
+        self.assertEqual(posicao["quantidade_pacotes"], 962)
+        self.assertEqual(posicao["quantidade_galinhas"], 1924)
+        self.assertEqual((entrada["total"], entrada["quantidade"]), (1, 1924))
+        self.assertEqual(preflight["bandejas_primaria"], 1924)
+        self.assertEqual(preflight["bandejas_consumidas"], 1924)
+        self.assertEqual(
+            preflight["aves_vivas"] - (
+                preflight["bandejas_primaria"] + preflight["descartes"]
+                + preflight["condenacoes"] + preflight["mortes_antes_pendura"]
+            ),
+            0,
+        )
+        self.assertEqual(preflight["pi"]["saldo"], 0)
+        self.assertTrue(preflight["permitido"])
+        self.assertEqual(saldo, 0)
+        self.assertEqual(resultado["status_posterior"], "Encerrada")
+        self.assertEqual(consultar_um(
+            "SELECT status FROM ordens_producao WHERE id = ?", (op_id,)
+        )["status"], "Encerrada")
+        self.assertEqual(consultar_um("""
+            SELECT COUNT(*) total FROM estoque_produto_intermediario
+            WHERE op_id = ? AND tipo = 'SAIDA_EMBALAGEM_SECUNDARIA'
+        """, (op_id,))["total"], 0)
+        self.assertEqual(consultar_um(
+            "SELECT COUNT(*) total FROM embalagem_secundaria_conferencias WHERE op_id = ?",
+            (op_id,),
+        )["total"], 0)
+
+        repeticao = registrar_apontamento_embalagem_primaria(
+            op, None, pacotes_1_ave=0, pacotes_2_aves=962,
+            idempotency_key=chave,
+        )
+        self.assertTrue(repeticao["ja_encerrada"])
+        self.assertEqual(consultar_um("""
+            SELECT COUNT(*) total FROM estoque_produto_intermediario
+            WHERE op_id = ? AND tipo = 'ENTRADA_EMBALAGEM_PRIMARIA'
+        """, (op_id,))["total"], 1)
+
     def test_02_saida_parcial_de_gi_exige_pacotes_inteiros(self):
         self.contexto()
         op_id = self.criar_op("Galinha Inteira", 6)
@@ -337,6 +426,10 @@ class ExpedicaoCorretivaTest(unittest.TestCase):
             )["total"], 0)
             self.assertEqual(consultar_um(
                 "SELECT COUNT(*) total FROM apontamentos_producao WHERE op_id = ?", (op_id,)
+            )["total"], 0)
+            self.assertEqual(consultar_um(
+                "SELECT COUNT(*) total FROM estoque_produto_intermediario WHERE op_id = ?",
+                (op_id,),
             )["total"], 0)
 
     def test_04_cortada_mantem_caixa_tara_e_rollback_transacional(self):
