@@ -88,12 +88,42 @@ def _preflight_cursor(cursor, op_id, *, bloquear=False):
     saldo_pi = entradas_pi - saidas_pi
 
     ids_caixas = [int(item["id"]) for item in caixas_ativas]
-    vinculos = {"estoque_eventos": 0, "pa_movimentacoes": 0, "expedicao_itens": 0}
+    vinculos = {
+        "estoque_eventos": 0,
+        "pa_movimentacoes_fallback": 0,
+        "expedicao_itens": 0,
+    }
     if ids_caixas:
         marcadores = ",".join(["?"] * len(ids_caixas))
-        for tabela in vinculos:
+        for tabela in ("estoque_eventos", "expedicao_itens"):
             cursor.execute(q(f"SELECT COUNT(*) AS total FROM {tabela} WHERE caixa_id IN ({marcadores})"), tuple(ids_caixas))
             vinculos[tabela] = int(cursor.fetchone()["total"] or 0)
+        cursor.execute("SELECT * FROM pa_movimentacoes WHERE 1=0")
+        colunas_legado = {
+            getattr(item, "name", None) or item[0] for item in cursor.description
+        }
+        if "expedicao_id" in colunas_legado:
+            sql_legado = f"""
+            SELECT COUNT(*) AS total
+            FROM pa_movimentacoes legado
+            WHERE legado.caixa_id IN ({marcadores})
+              AND NOT EXISTS (
+                SELECT 1 FROM estoque_eventos ev
+                WHERE ev.caixa_id=legado.caixa_id
+                  AND (ev.expedicao_id=legado.expedicao_id OR
+                       (ev.expedicao_id IS NULL AND legado.expedicao_id IS NULL))
+                  AND ev.acao IN ('CONFIRMACAO_ROMANEIO','VENDA_DIRETA')
+              )
+            """
+        else:
+            # Schemas históricos sem vínculo documental são, por definição,
+            # fallback: não há chave segura para deduplicá-los com o canônico.
+            sql_legado = f"""
+            SELECT COUNT(*) AS total FROM pa_movimentacoes legado
+            WHERE legado.caixa_id IN ({marcadores})
+            """
+        cursor.execute(q(sql_legado), tuple(ids_caixas))
+        vinculos["pa_movimentacoes_fallback"] = int(cursor.fetchone()["total"] or 0)
 
     cursor.execute(q("""
     SELECT
@@ -156,7 +186,7 @@ def _preflight_cursor(cursor, op_id, *, bloquear=False):
                   item["reservado_expedicao_id"] or _decimal(item["quantidade_pacotes_reservados"]) > 0]
     if reservadas:
         bloqueios.append("Há caixa reservada: " + ", ".join(reservadas))
-    if vinculos["pa_movimentacoes"] or vinculos["expedicao_itens"]:
+    if vinculos["pa_movimentacoes_fallback"] or vinculos["expedicao_itens"]:
         bloqueios.append("Há movimentação, romaneio ou expedição posterior vinculada às caixas.")
     operacionais = [item for item in caixas_ativas if int(item["estoque_operacional"] or 0) == 1]
     if operacionais and len(operacionais) != len(caixas_ativas):

@@ -17,6 +17,7 @@ from modules.expedicao.estornos_embalagem import (
     criar_tabelas_estornos_embalagem,
     funcionalidade_estorno_habilitada,
 )
+from modules.expedicao.movimentacoes_canonicas import buscar_eventos_sucessores_cursor
 from .performance import invalidar_por_reabertura
 
 
@@ -223,20 +224,13 @@ def _dados_bloqueios_caixas(cursor, caixas):
         FROM expedicao_itens i JOIN expedicoes e ON e.id=i.expedicao_id
         WHERE i.caixa_id IN ({marcadores}) ORDER BY i.caixa_id,e.id"""), ids)
     expedicoes = _agrupar_por_caixa(cursor.fetchall())
-    cursor.execute(q(f"""SELECT caixa_id,tipo,id FROM pa_movimentacoes
-        WHERE caixa_id IN ({marcadores}) ORDER BY caixa_id,id"""), ids)
-    movimentacoes = _agrupar_por_caixa(cursor.fetchall())
-    cursor.execute(q(f"""SELECT caixa_id,acao,id FROM estoque_eventos
-        WHERE caixa_id IN ({marcadores})
-          AND acao NOT IN ('FORMACAO_ESTOQUE','ESTORNO_CAIXA_EMBALAGEM')
-        ORDER BY caixa_id,id"""), ids)
-    eventos = _agrupar_por_caixa(cursor.fetchall())
+    eventos = _agrupar_por_caixa(buscar_eventos_sucessores_cursor(cursor, ids))
     cursor.execute(q(f"""SELECT caixa_id,id,status,COALESCE(saldo_destinado_g,0) saldo_destinado_g
         FROM pa_nao_conformes WHERE caixa_id IN ({marcadores}) ORDER BY caixa_id,id"""), ids)
     pncs = _agrupar_por_caixa(cursor.fetchall())
     return {
         "composicoes": composicoes, "expedicoes": expedicoes,
-        "movimentacoes": movimentacoes, "eventos": eventos, "pncs": pncs,
+        "eventos": eventos, "pncs": pncs,
     }
 
 
@@ -249,10 +243,9 @@ def _bloqueios_reabertura(cursor, op_id, caixas):
             bloqueios.append(f"Caixa {caixa['codigo_caixa']}: composição mista com outra OP.")
         for item in dados["expedicoes"].get(caixa_id, []):
             bloqueios.append(f"Caixa {caixa['codigo_caixa']}: Romaneio nº {item['numero_romaneio']} ({item['status']}).")
-        for item in dados["movimentacoes"].get(caixa_id, []):
-            bloqueios.append(f"Caixa {caixa['codigo_caixa']}: movimentação posterior {item['tipo']}.")
         for item in dados["eventos"].get(caixa_id, []):
-            bloqueios.append(f"Caixa {caixa['codigo_caixa']}: evento sucessor {item['acao']}.")
+            descricao = "movimentação posterior" if item["fonte"] == "pa_movimentacoes_fallback" else "evento sucessor"
+            bloqueios.append(f"Caixa {caixa['codigo_caixa']}: {descricao} {item['tipo']}.")
         if caixa["reservado_expedicao_id"] or _decimal(caixa["quantidade_pacotes_reservados"]) > 0:
             bloqueios.append(f"Caixa {caixa['codigo_caixa']}: reserva operacional ativa.")
         for pnc in dados["pncs"].get(caixa_id, []):
@@ -292,12 +285,10 @@ def preflight_operacao_op(op_id, tipo):
                 caixa_id = int(caixa["id"])
                 for item in dados["expedicoes"].get(caixa_id, []):
                     bloqueios.append(f"Caixa {caixa['codigo_caixa']}: A caixa está vinculada ao Romaneio nº {item['numero_romaneio']} ({item['status']}).")
-                for item in dados["movimentacoes"].get(caixa_id, []):
-                    bloqueios.append(f"Caixa {caixa['codigo_caixa']}: A caixa possui movimentação posterior de estoque: {item['tipo']}.")
                 for item in dados["pncs"].get(caixa_id, []):
                     bloqueios.append(f"Caixa {caixa['codigo_caixa']}: A caixa está vinculada ao Produto Não Conforme nº {item['id']} ({item['status']}).")
                 for item in dados["eventos"].get(caixa_id, []):
-                    bloqueios.append(f"Caixa {caixa['codigo_caixa']}: A caixa possui evento sucessor de estoque: {item['acao']}.")
+                    bloqueios.append(f"Caixa {caixa['codigo_caixa']}: A caixa possui evento sucessor de estoque: {item['tipo']}.")
                 if caixa["reservado_expedicao_id"]:
                     bloqueios.append(f"Caixa {caixa['codigo_caixa']}: A caixa está reservada pelo romaneio interno #{caixa['reservado_expedicao_id']}.")
                 if _decimal(caixa["quantidade_pacotes_reservados"]) > 0:
@@ -621,10 +612,9 @@ def _preflight_reversao_estorno_cursor(cursor, op, *, bloquear=False):
             bloqueios.append(f"Caixa {codigo}: possui reserva ativa.")
         for item in dados["expedicoes"].get(caixa_id, []):
             bloqueios.append(f"Caixa {codigo}: vinculada ao Romaneio nº {item['numero_romaneio']} ({item['status']}).")
-        for item in dados["movimentacoes"].get(caixa_id, []):
-            bloqueios.append(f"Caixa {codigo}: movimentação de PA posterior {item['tipo']}.")
         for item in dados["eventos"].get(caixa_id, []):
-            bloqueios.append(f"Caixa {codigo}: evento de estoque posterior {item['acao']}.")
+            descricao = "movimentação de PA posterior" if item["fonte"] == "pa_movimentacoes_fallback" else "evento de estoque posterior"
+            bloqueios.append(f"Caixa {codigo}: {descricao} {item['tipo']}.")
         for item in dados["pncs"].get(caixa_id, []):
             bloqueios.append(f"Caixa {codigo}: vinculada ao Produto Não Conforme nº {item['id']} ({item['status']}).")
     quantidade = sum((_decimal(m["quantidade_bandejas"]) for m in movimentos), Decimal("0"))

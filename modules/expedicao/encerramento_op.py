@@ -9,6 +9,7 @@ import uuid
 
 from database import DATABASE_URL, conectar, q, transaction
 from modules.expedicao.services import pi_primaria_liquido_cursor
+from modules.expedicao.movimentacoes_canonicas import buscar_eventos_sucessores_cursor
 from modules.producao.services import gerar_producao_automatica_setores
 from modules.producao.skus_legados import SKU_GALINHA_INTEIRA, validar_sku_operacional
 
@@ -211,7 +212,6 @@ def _preflight_cursor(cursor, op, bloquear=False):
     fechamento = _calcular_fechamento_cursor(cursor, op)
     bloqueios = list(fechamento["pendencias"])
     saldo_pi = Decimal(str(pi["saldo"] or 0))
-    possui_movimentos_pa = _tabela_existe(cursor, "pa_movimentacoes")
     possui_expedicao_itens = _tabela_existe(cursor, "expedicao_itens")
 
     ids_ativas = [int(caixa["id"]) for caixa in ativas]
@@ -223,10 +223,9 @@ def _preflight_cursor(cursor, op, bloquear=False):
         cursor.execute(q(f"""SELECT caixa_id,COUNT(DISTINCT op_id) total
             FROM pa_caixa_composicao WHERE caixa_id IN ({marcadores}) GROUP BY caixa_id"""), ids_ativas)
         composicoes_por_caixa = {int(item["caixa_id"]): int(item["total"] or 0) for item in cursor.fetchall()}
-        if possui_movimentos_pa:
-            cursor.execute(q(f"""SELECT caixa_id,COUNT(*) total FROM pa_movimentacoes
-                WHERE caixa_id IN ({marcadores}) GROUP BY caixa_id"""), ids_ativas)
-            movimentos_por_caixa = {int(item["caixa_id"]): int(item["total"] or 0) for item in cursor.fetchall()}
+        for item in buscar_eventos_sucessores_cursor(cursor, ids_ativas):
+            caixa_id = int(item["caixa_id"])
+            movimentos_por_caixa[caixa_id] = movimentos_por_caixa.get(caixa_id, 0) + 1
         if possui_expedicao_itens:
             cursor.execute(q(f"""SELECT caixa_id,COUNT(*) total FROM expedicao_itens
                 WHERE caixa_id IN ({marcadores}) GROUP BY caixa_id"""), ids_ativas)

@@ -11,6 +11,7 @@ from openpyxl.utils import get_column_letter
 
 from database import conectar, q
 from modules.expedicao.consolidado_estoque import consolidar_estoque_camara
+from modules.expedicao.movimentacoes_canonicas import cte_movimentacoes_expedicao
 
 
 LOCAL_ABATEDOURO = "Abatedouro"
@@ -190,8 +191,9 @@ def montar_cte_caixas():
             COALESCE(SUM(quantidade_bandejas), 0) AS bandejas_composicao
         FROM pa_caixa_composicao
         GROUP BY caixa_id
-    )
-    """
+    ),
+    {movimentos}
+    """.format(movimentos=cte_movimentacoes_expedicao())
 
 
 def aplicar_filtros_caixa(filtros, alias="cx", comp_alias="comp"):
@@ -262,6 +264,7 @@ def buscar_transferencias(filtros):
             mov.criado_em AS data_evento,
             mov.tipo,
             mov.usuario,
+            mov.fonte AS fonte_livro,
             e.id AS expedicao_id,
             e.numero_romaneio,
             e.data AS data_romaneio,
@@ -280,7 +283,7 @@ def buscar_transferencias(filtros):
             cx.quantidade_bandejas,
             cx.status AS status_caixa,
             COALESCE(local_atual.nome, ?) AS local_atual
-        FROM pa_movimentacoes mov
+        FROM movimentos_expedicao mov
         INNER JOIN pa_caixas cx ON cx.id = mov.caixa_id
         LEFT JOIN comp ON comp.caixa_id = cx.id
         LEFT JOIN locais_estoque origem ON origem.id = mov.local_origem_id
@@ -346,18 +349,20 @@ def buscar_caixa_por_id(caixa_id):
 
 
 def buscar_historico_caixa(caixa_id):
-    return executar_lista("""
+    return executar_lista(f"""
+        WITH {cte_movimentacoes_expedicao()}
         SELECT
             mov.id AS evento_id,
             mov.criado_em AS data_evento,
             mov.tipo,
             mov.usuario,
+            mov.fonte AS fonte_livro,
             origem.nome AS origem_nome,
             destino.nome AS destino_nome,
             e.id AS expedicao_id,
             e.numero_romaneio,
             e.status AS status_romaneio
-        FROM pa_movimentacoes mov
+        FROM movimentos_expedicao mov
         LEFT JOIN locais_estoque origem ON origem.id = mov.local_origem_id
         LEFT JOIN locais_estoque destino ON destino.id = mov.local_destino_id
         LEFT JOIN expedicoes e ON e.id = mov.expedicao_id
@@ -409,7 +414,7 @@ def montar_resumo_gerencial_expedicao(slug, args):
                 COUNT(DISTINCT cx.id) AS caixas,
                 COALESCE(SUM(cx.peso_liquido), 0) AS peso_liquido,
                 COALESCE(SUM(cx.peso_bruto), 0) AS peso_bruto
-            FROM pa_movimentacoes mov
+            FROM movimentos_expedicao mov
             INNER JOIN pa_caixas cx ON cx.id = mov.caixa_id
             LEFT JOIN comp ON comp.caixa_id = cx.id
             LEFT JOIN locais_estoque origem ON origem.id = mov.local_origem_id

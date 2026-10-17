@@ -9,6 +9,7 @@ from database import DATABASE_URL, conectar, q, transaction
 from modules.auth.services import nome_usuario_atual, perfil_atual
 from modules.producao.services import buscar_op_por_id, gerar_producao_automatica_setores
 from modules.producao.skus_legados import validar_sku_operacional
+from modules.expedicao.movimentacoes_canonicas import cte_movimentacoes_expedicao
 
 _CRIAR_BANCO = None
 _SCHEMA_EXPEDICAO_INICIALIZADO = False
@@ -1830,10 +1831,9 @@ def buscar_resumo_pa_completo():
 
 def buscar_saldo_pa_por_local():
     """
-    Visao de fundacao para romaneios futuros.
+    Visão física por local baseada em ``pa_caixas``.
 
-    Nesta sprint o local atual da caixa nasce em Abatedouro. Transferencias,
-    vendas e o livro pa_movimentacoes serao acoplados em sprints futuras.
+    O histórico operacional oficial da Expedição é ``estoque_eventos``.
     """
     criar_tabelas_estoque_pi_pa()
 
@@ -2261,7 +2261,8 @@ def buscar_itens_expedicao(expedicao_id):
     conn = conectar()
     cursor = conn.cursor()
 
-    cursor.execute(q("""
+    cursor.execute(q(f"""
+    WITH {cte_movimentacoes_expedicao()}
     SELECT
         i.*,
         cx.codigo_caixa,
@@ -2280,7 +2281,7 @@ def buscar_itens_expedicao(expedicao_id):
     FROM expedicao_itens i
     LEFT JOIN pa_caixas cx ON cx.id = i.caixa_id
     LEFT JOIN locais_estoque le ON le.id = cx.local_estoque_id
-    LEFT JOIN pa_movimentacoes mov ON mov.expedicao_id = i.expedicao_id
+    LEFT JOIN movimentos_expedicao mov ON mov.expedicao_id = i.expedicao_id
         AND mov.caixa_id = i.caixa_id
         AND mov.tipo = ?
     WHERE i.expedicao_id = ? AND COALESCE(i.ativo,1)=1
@@ -2352,13 +2353,14 @@ def buscar_historico_caixa_pa(caixa_id):
     conn = conectar()
     cursor = conn.cursor()
 
-    cursor.execute(q("""
+    cursor.execute(q(f"""
+    WITH {cte_movimentacoes_expedicao()}
     SELECT
         mov.*,
         origem.nome AS origem_nome,
         destino.nome AS destino_nome,
         e.numero_romaneio
-    FROM pa_movimentacoes mov
+    FROM movimentos_expedicao mov
     LEFT JOIN locais_estoque origem ON origem.id = mov.local_origem_id
     LEFT JOIN locais_estoque destino ON destino.id = mov.local_destino_id
     LEFT JOIN expedicoes e ON e.id = mov.expedicao_id
@@ -2378,7 +2380,8 @@ def buscar_movimentacoes_pa(limite=80):
     conn = conectar()
     cursor = conn.cursor()
 
-    cursor.execute(q("""
+    cursor.execute(q(f"""
+    WITH {cte_movimentacoes_expedicao()}
     SELECT
         mov.*,
         cx.codigo_caixa,
@@ -2387,7 +2390,7 @@ def buscar_movimentacoes_pa(limite=80):
         origem.nome AS origem_nome,
         destino.nome AS destino_nome,
         e.numero_romaneio
-    FROM pa_movimentacoes mov
+    FROM movimentos_expedicao mov
     INNER JOIN pa_caixas cx ON cx.id = mov.caixa_id
     LEFT JOIN pa_caixa_composicao comp ON comp.caixa_id = cx.id
     LEFT JOIN locais_estoque origem ON origem.id = mov.local_origem_id
@@ -2402,6 +2405,7 @@ def buscar_movimentacoes_pa(limite=80):
         mov.expedicao_id,
         mov.usuario,
         mov.criado_em,
+        mov.fonte,
         cx.codigo_caixa,
         cx.sku,
         origem.nome,
@@ -2464,7 +2468,8 @@ def montar_contexto_estoque_produtos():
         """), (50,))
         movimentacoes_pi = cursor.fetchall()
 
-        cursor.execute(q("""
+        cursor.execute(q(f"""
+        WITH {cte_movimentacoes_expedicao()}
         SELECT
             mov.*,
             cx.codigo_caixa,
@@ -2473,7 +2478,7 @@ def montar_contexto_estoque_produtos():
             origem.nome AS origem_nome,
             destino.nome AS destino_nome,
             e.numero_romaneio
-        FROM pa_movimentacoes mov
+        FROM movimentos_expedicao mov
         INNER JOIN pa_caixas cx ON cx.id = mov.caixa_id
         LEFT JOIN pa_caixa_composicao comp ON comp.caixa_id = cx.id
         LEFT JOIN locais_estoque origem ON origem.id = mov.local_origem_id
@@ -2488,6 +2493,7 @@ def montar_contexto_estoque_produtos():
             mov.expedicao_id,
             mov.usuario,
             mov.criado_em,
+            mov.fonte,
             cx.codigo_caixa,
             cx.sku,
             origem.nome,
@@ -2567,6 +2573,13 @@ def montar_contexto_estoque_produtos():
 
 
 def confirmar_transferencia_romaneio(expedicao_id, caixa_ids):
+    """Fluxo legado desativado; o fluxo oficial é estoque_service.concluir_romaneio."""
+    raise RuntimeError(
+        "Fluxo legado desativado. Use reservar_itens() e concluir_romaneio(), "
+        "que registram a movimentação em estoque_eventos."
+    )
+
+    # Mantido temporariamente abaixo apenas como referência histórica para remoção futura.
     criar_tabelas_expedicao()
     criar_tabelas_estoque_pi_pa()
 

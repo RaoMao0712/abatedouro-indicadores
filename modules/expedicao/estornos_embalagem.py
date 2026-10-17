@@ -10,6 +10,7 @@ import json
 import os
 
 from database import DATABASE_URL, conectar, q, transaction
+from modules.expedicao.movimentacoes_canonicas import buscar_eventos_sucessores_cursor
 
 
 PERFIS_ESTORNO = {"admin", "pcp", "gerencia"}
@@ -196,16 +197,14 @@ def _buscar_bloqueios(cursor, caixa):
         JOIN expedicoes e ON e.id=i.expedicao_id WHERE i.caixa_id=? ORDER BY e.id"""), (caixa_id,))
     for item in cursor.fetchall():
         bloqueios.append(f"A caixa está vinculada ao Romaneio nº {item['numero_romaneio']} ({item['status']}).")
-    cursor.execute(q("SELECT tipo FROM pa_movimentacoes WHERE caixa_id=? ORDER BY id"), (caixa_id,))
-    for item in cursor.fetchall():
-        bloqueios.append(f"A caixa possui movimentação posterior de estoque: {item['tipo']}.")
     cursor.execute(q("SELECT id,status FROM pa_nao_conformes WHERE caixa_id=? ORDER BY id"), (caixa_id,))
     for item in cursor.fetchall():
         bloqueios.append(f"A caixa está vinculada ao Produto Não Conforme nº {item['id']} ({item['status']}).")
-    cursor.execute(q("""SELECT acao FROM estoque_eventos WHERE caixa_id=?
-        AND acao NOT IN ('FORMACAO_ESTOQUE','ESTORNO_CAIXA_EMBALAGEM') ORDER BY id"""), (caixa_id,))
-    for item in cursor.fetchall():
-        bloqueios.append(f"A caixa possui evento sucessor de estoque: {item['acao']}.")
+    for item in buscar_eventos_sucessores_cursor(cursor, [caixa_id]):
+        if item["fonte"] == "pa_movimentacoes_fallback":
+            bloqueios.append(f"A caixa possui movimentação posterior de estoque: {item['tipo']}.")
+        else:
+            bloqueios.append(f"A caixa possui evento sucessor de estoque: {item['tipo']}.")
     if caixa["reservado_expedicao_id"]:
         bloqueios.append(f"A caixa está reservada pelo romaneio interno #{caixa['reservado_expedicao_id']}.")
     if _decimal(caixa["quantidade_pacotes_reservados"]) > 0:
@@ -233,17 +232,10 @@ def _buscar_bloqueios_lote(cursor, caixas):
         FROM expedicao_itens i JOIN expedicoes e ON e.id=i.expedicao_id
         WHERE i.caixa_id IN ({marcadores}) ORDER BY i.caixa_id,e.id"""), ids)
     expedicoes = agrupar(cursor.fetchall())
-    cursor.execute(q(f"""SELECT caixa_id,tipo,id FROM pa_movimentacoes
-        WHERE caixa_id IN ({marcadores}) ORDER BY caixa_id,id"""), ids)
-    movimentacoes = agrupar(cursor.fetchall())
     cursor.execute(q(f"""SELECT caixa_id,id,status FROM pa_nao_conformes
         WHERE caixa_id IN ({marcadores}) ORDER BY caixa_id,id"""), ids)
     pncs = agrupar(cursor.fetchall())
-    cursor.execute(q(f"""SELECT caixa_id,acao,id FROM estoque_eventos
-        WHERE caixa_id IN ({marcadores})
-          AND acao NOT IN ('FORMACAO_ESTOQUE','ESTORNO_CAIXA_EMBALAGEM')
-        ORDER BY caixa_id,id"""), ids)
-    eventos = agrupar(cursor.fetchall())
+    eventos = agrupar(buscar_eventos_sucessores_cursor(cursor, ids))
 
     por_caixa = {}
     for caixa in caixas:
@@ -251,12 +243,13 @@ def _buscar_bloqueios_lote(cursor, caixas):
         bloqueios = []
         for item in expedicoes.get(caixa_id, []):
             bloqueios.append(f"A caixa está vinculada ao Romaneio nº {item['numero_romaneio']} ({item['status']}).")
-        for item in movimentacoes.get(caixa_id, []):
-            bloqueios.append(f"A caixa possui movimentação posterior de estoque: {item['tipo']}.")
         for item in pncs.get(caixa_id, []):
             bloqueios.append(f"A caixa está vinculada ao Produto Não Conforme nº {item['id']} ({item['status']}).")
         for item in eventos.get(caixa_id, []):
-            bloqueios.append(f"A caixa possui evento sucessor de estoque: {item['acao']}.")
+            if item["fonte"] == "pa_movimentacoes_fallback":
+                bloqueios.append(f"A caixa possui movimentação posterior de estoque: {item['tipo']}.")
+            else:
+                bloqueios.append(f"A caixa possui evento sucessor de estoque: {item['tipo']}.")
         if caixa["reservado_expedicao_id"]:
             bloqueios.append(f"A caixa está reservada pelo romaneio interno #{caixa['reservado_expedicao_id']}.")
         if _decimal(caixa["quantidade_pacotes_reservados"]) > 0:

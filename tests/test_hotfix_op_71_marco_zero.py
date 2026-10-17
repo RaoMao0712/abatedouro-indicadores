@@ -179,7 +179,11 @@ def test_preflight_fecha_27_caixas_314_bandejas_sem_duplicidade(banco):
     assert Decimal(preflight["caixas"]["peso_liquido"]) == Decimal("366.60")
     assert preflight["pi"]["entradas"] == preflight["pi"]["saidas"] == "314.0"
     assert preflight["pi"]["saldo"] == "0.0"
-    assert preflight["vinculos"] == {"estoque_eventos": 0, "pa_movimentacoes": 0, "expedicao_itens": 0}
+    assert preflight["vinculos"] == {
+        "estoque_eventos": 0,
+        "pa_movimentacoes_fallback": 0,
+        "expedicao_itens": 0,
+    }
 
 
 def test_reconciliacao_reaproveita_caixas_e_pi_e_preserva_op83_financeiro_datas(banco):
