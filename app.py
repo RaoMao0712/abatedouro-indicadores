@@ -57,6 +57,7 @@ from modules.expedicao.services import (
     remover_movimentacoes_estoque_pi_por_op,
 )
 from modules.expedicao.estornos_embalagem import criar_tabelas_estornos_embalagem
+from modules.expedicao.palletizacao import criar_estrutura_palletizacao
 from modules.label_printing import criar_tabelas_impressao_etiquetas
 from modules.label_printing.routes import register_label_printing_routes
 from modules.expedicao.estoque_service import (
@@ -632,6 +633,7 @@ def inicializar_schema_aplicacao():
         criar_tabelas_estoque_pi_pa,
         criar_tabelas_estoque_confiavel,
         criar_tabelas_estornos_embalagem,
+        criar_estrutura_palletizacao,
         criar_tabelas_operacoes_op,
         criar_tabelas_almoxarifado,
         criar_tabelas_estoque_almoxarifado,

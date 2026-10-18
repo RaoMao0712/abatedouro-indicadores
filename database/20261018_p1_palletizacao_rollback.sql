@@ -1,0 +1,10 @@
+BEGIN;
+DROP TRIGGER IF EXISTS trg_pallet_codigo_imutavel ON pallets;
+DROP FUNCTION IF EXISTS bloquear_alteracao_codigo_pallet();
+DROP TRIGGER IF EXISTS trg_pallet_eventos_append_only ON pallet_caixa_eventos;
+DROP FUNCTION IF EXISTS bloquear_mutacao_pallet_evento();
+DROP TABLE IF EXISTS pallet_caixas_atuais;
+DROP TABLE IF EXISTS pallet_caixa_eventos;
+DROP TABLE IF EXISTS pallets;
+DROP SEQUENCE IF EXISTS pallet_codigo_seq;
+COMMIT;
