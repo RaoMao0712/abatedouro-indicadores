@@ -25,9 +25,10 @@ pytestmark = pytest.mark.skipif(
 if TEST_DATABASE_URL:
     os.environ["DATABASE_URL"] = TEST_DATABASE_URL
     import modules.expedicao.estoque_service as estoque  # noqa: E402
+    from modules.expedicao.elegibilidade import avaliar_elegibilidade_expedicao  # noqa: E402
     import modules.pedidos_venda.services as pedidos  # noqa: E402
 else:
-    estoque = pedidos = None
+    estoque = pedidos = avaliar_elegibilidade_expedicao = None
 
 
 DDL = """
@@ -572,3 +573,74 @@ def test_concluir_estornar_e_reutilizar_mesma_caixa_por_op(ambiente):
         (primeiro, 0), (segundo, 1),
     ]
     assert int(reserva) == segundo
+
+
+def test_regra_canonica_preserva_modalidades_e_historico_terminal(ambiente):
+    with conectar() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "TRUNCATE estoque_eventos, expedicao_itens, pa_caixa_composicao, "
+                "pa_caixas, expedicoes, ordens_producao RESTART IDENTITY"
+            )
+            cursor.execute(
+                "INSERT INTO ordens_producao(id,data,fornecedor,sku,status) "
+                "VALUES (130,'2026-10-18','Fornecedor','Galinha Cortada','Encerrada')"
+            )
+            cursor.execute("""
+            INSERT INTO expedicoes(numero_romaneio,status,tipo_movimentacao,destino)
+            VALUES ('HIST-CANCELADO','Cancelado','TRANSFERENCIA','Câmara Fria LSM'),
+                   ('ATUAL','Aberto','TRANSFERENCIA','Câmara Fria LSM'),
+                   ('HIST-CONCLUIDO','Concluído','TRANSFERENCIA','Câmara Fria LSM')
+            RETURNING id,status
+            """)
+            expedicoes = {item["status"]: int(item["id"]) for item in cursor.fetchall()}
+            cursor.execute("""
+            INSERT INTO pa_caixas(codigo_caixa,sku,unidade_estoque,quantidade_bandejas,
+                peso_liquido,apresentacao,local_estoque_id,estoque_operacional,status,
+                condicao,disponibilidade,quantidade_pacotes_reservados)
+            VALUES ('CX-CANCELADA','Cortada','CAIXA',12,10,'Caixa',1,1,'Em estoque',
+                    'CONFORME','DISPONIVEL',0),
+                   ('CX-CONCLUIDA','Cortada','CAIXA',12,10,'Caixa',1,1,'Em estoque',
+                    'CONFORME','DISPONIVEL',0),
+                   ('CX-PNC','Cortada','CAIXA',12,10,'Caixa',1,1,'Em estoque',
+                    'NAO_CONFORME','BLOQUEADO',0)
+            RETURNING id,codigo_caixa
+            """)
+            caixas = {item["codigo_caixa"]: int(item["id"]) for item in cursor.fetchall()}
+            for caixa_id in caixas.values():
+                cursor.execute(
+                    "INSERT INTO pa_caixa_composicao(caixa_id,op_id) VALUES (%s,130)",
+                    (caixa_id,),
+                )
+            for status, codigo in (("Cancelado", "CX-CANCELADA"), ("Concluído", "CX-CONCLUIDA")):
+                cursor.execute("""
+                INSERT INTO expedicao_itens(expedicao_id,caixa_id,op_id,sku,
+                    unidade_estoque,ativo) VALUES (%s,%s,130,'Cortada','CAIXA',1)
+                """, (expedicoes[status], caixas[codigo]))
+
+    elegiveis = estoque.buscar_caixas_elegiveis_op(expedicoes["Aberto"], 130)
+    assert [item["codigo_caixa"] for item in elegiveis] == ["CX-CANCELADA"]
+    estoque.reservar_itens(
+        expedicoes["Aberto"], [caixas["CX-CANCELADA"]], op_id_esperada=130
+    )
+
+    pacote = {
+        "estoque_operacional": 1, "status": "Em estoque", "condicao": "CONFORME",
+        "disponibilidade": "RESERVADO", "unidade_estoque": "PACOTE",
+        "quantidade_pacotes": 100, "quantidade_pacotes_reservados": 40,
+    }
+    parcial = avaliar_elegibilidade_expedicao(
+        pacote, tipo_movimentacao="TRANSFERENCIA", quantidade_solicitada=20
+    )
+    excesso = avaliar_elegibilidade_expedicao(
+        pacote, tipo_movimentacao="TRANSFERENCIA", quantidade_solicitada=61
+    )
+    assert parcial == {
+        "elegivel": True, "codigo_bloqueio": None, "motivo_bloqueio": None,
+        "modalidade": "PACOTE", "saldo_elegivel": 60,
+    }
+    assert excesso["codigo_bloqueio"] == "SEM_SALDO"
+    assert avaliar_elegibilidade_expedicao(
+        {**pacote, "condicao": "NAO_CONFORME", "disponibilidade": "BLOQUEADO"},
+        tipo_movimentacao="TRANSFERENCIA",
+    )["codigo_bloqueio"] == "PNC_BLOQUEADO"

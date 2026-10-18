@@ -55,6 +55,7 @@ from .estornos_embalagem import (
 )
 from .conferencia_embalagem import confirmar_conferencia_op, obter_conferencia_op
 from .encerramento_op import listar_ops_aguardando_encerramento, preflight_encerramento_op
+from .elegibilidade import avaliar_elegibilidade_expedicao
 from .relatorio_conferencia_embalagem import gerar_relatorio_conferencia_embalagem_pdf
 from .estoque_service import (
     DESTINOS_CONTROLADOS,
@@ -858,16 +859,21 @@ def register_expedicao_routes(app, integracoes=None):
                 estoque, _ = buscar_estoque_operacional()
                 caixas_disponiveis = [
                     item for item in estoque
-                    if item["condicao"] == "NAO_CONFORME" and item["disponibilidade"] == "BLOQUEADO"
+                    if avaliar_elegibilidade_expedicao(
+                        item, tipo_movimentacao=expedicao["tipo_movimentacao"],
+                        expedicao_id=expedicao_id,
+                    )["elegivel"]
                 ]
             elif expedicao["tipo_movimentacao"] in {"TRANSFERENCIA", "VENDA_DIRETA"}:
                 estoque, _ = buscar_estoque_operacional()
                 estoque_sem_op = [
                     item for item in estoque
                     if item["op_id"] is None
-                    and item["condicao"] == "CONFORME"
-                    and item["disponibilidade"] == "DISPONIVEL"
                     and int(item["id"]) not in caixas_selecionadas_ids
+                    and avaliar_elegibilidade_expedicao(
+                        item, tipo_movimentacao=expedicao["tipo_movimentacao"],
+                        expedicao_id=expedicao_id,
+                    )["elegivel"]
                 ]
 
         return render_template(

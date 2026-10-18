@@ -13,6 +13,10 @@ from zoneinfo import ZoneInfo
 
 from database import DATABASE_URL, conectar, q, transaction
 from modules.auth.services import nome_usuario_atual, perfil_atual
+from modules.expedicao.elegibilidade import (
+    avaliar_elegibilidade_expedicao,
+    exigir_elegibilidade_expedicao,
+)
 
 
 FUSO_MANAUS = ZoneInfo("America/Manaus")
@@ -839,25 +843,30 @@ def buscar_caixas_elegiveis_op(expedicao_id, op_id, *, op_validada=None):
             cx.data_fabricacao, cx.data_validade, cx.peso_bruto,
             cx.peso_liquido, cx.quantidade_bandejas, cx.condicao,
             cx.unidade_estoque, cx.quantidade_pacotes,
-            cx.quantidade_pacotes_reservados
+            cx.quantidade_pacotes_reservados, cx.estoque_operacional,
+            cx.status, cx.disponibilidade, cx.reservado_expedicao_id,
+            EXISTS (
+                SELECT 1 FROM expedicao_itens ei
+                INNER JOIN expedicoes ex ON ex.id=ei.expedicao_id
+                WHERE ei.caixa_id=cx.id AND COALESCE(ei.ativo,1)=1
+                  AND ex.status IN ('Aberto','Concluído')
+            ) AS item_ativo_incompativel
         FROM pa_caixa_composicao comp
         INNER JOIN pa_caixas cx ON cx.id = comp.caixa_id
         WHERE comp.op_id = ?
           AND cx.local_estoque_id = ?
-          AND COALESCE(cx.estoque_operacional, 0) = 1
-          AND cx.status = 'Em estoque'
-          AND cx.condicao = 'CONFORME'
           AND cx.unidade_estoque <> 'PACOTE'
-          AND cx.disponibilidade = 'DISPONIVEL'
-          AND cx.reservado_expedicao_id IS NULL
-          AND NOT EXISTS (
-              SELECT 1
-              FROM expedicao_itens ei
-              WHERE ei.caixa_id = cx.id AND COALESCE(ei.ativo, 1) = 1
-          )
         ORDER BY cx.data_validade ASC, cx.id ASC
         """), (op["id"], local["id"]))
-        caixas = [dict(item) for item in cursor.fetchall()]
+        caixas = []
+        for linha in cursor.fetchall():
+            caixa = dict(linha)
+            avaliacao = avaliar_elegibilidade_expedicao(
+                caixa, tipo_movimentacao=tipo, expedicao_id=expedicao_id,
+                item_ativo_incompativel=bool(caixa["item_ativo_incompativel"]),
+            )
+            if avaliacao["elegivel"]:
+                caixas.append(caixa)
         for caixa in caixas:
             for campo in ("peso_bruto", "peso_liquido"):
                 valor = caixa[campo]
@@ -893,6 +902,8 @@ def buscar_saldos_quantitativos_op(expedicao_id, op_id, *, op_validada=None):
             cx.data_fabricacao, cx.data_validade, cx.unidade_estoque,
             cx.galinhas_por_pacote, cx.quantidade_pacotes,
             cx.quantidade_pacotes_reservados,
+            cx.estoque_operacional, cx.status, cx.condicao,
+            cx.disponibilidade, cx.reservado_expedicao_id,
             COALESCE((
                 SELECT SUM(ei.quantidade_pacotes)
                 FROM expedicao_itens ei
@@ -903,11 +914,7 @@ def buscar_saldos_quantitativos_op(expedicao_id, op_id, *, op_validada=None):
         INNER JOIN pa_caixas cx ON cx.id = comp.caixa_id
         WHERE comp.op_id = ?
           AND cx.local_estoque_id = ?
-          AND COALESCE(cx.estoque_operacional, 0) = 1
-          AND cx.status = 'Em estoque'
-          AND cx.condicao = 'CONFORME'
           AND cx.unidade_estoque = 'PACOTE'
-          AND cx.disponibilidade IN ('DISPONIVEL', 'RESERVADO')
         ORDER BY cx.data_validade ASC, cx.id ASC
         """), (expedicao_id, op["id"], op["id"], local["id"]))
         saldos = []
@@ -919,10 +926,14 @@ def buscar_saldos_quantitativos_op(expedicao_id, op_id, *, op_validada=None):
             total = int(item["quantidade_pacotes"] or 0)
             reservados = int(item["quantidade_pacotes_reservados"] or 0)
             propria = int(item["quantidade_pacotes_selecionada"] or 0)
-            saldo = max(0, total - reservados)
-            limite = max(0, saldo + propria)
-            if limite <= 0:
+            avaliacao = avaliar_elegibilidade_expedicao(
+                item, tipo_movimentacao=romaneio["tipo_movimentacao"],
+                expedicao_id=expedicao_id, quantidade_propria=propria,
+            )
+            if not avaliacao["elegivel"]:
                 continue
+            saldo = max(0, total - reservados)
+            limite = avaliacao["saldo_elegivel"]
             item.update({
                 "quantidade_disponivel_pacotes": saldo,
                 "quantidade_disponivel_aves": saldo * fator,
@@ -1034,35 +1045,36 @@ def reservar_itens(expedicao_id, caixa_ids, quantidades_pacotes=None, op_id_espe
             SELECT cx.*, (
                 SELECT MIN(comp.op_id) FROM pa_caixa_composicao comp
                 WHERE comp.caixa_id = cx.id
-            ) AS op_id
+            ) AS op_id,
+            EXISTS (
+                SELECT 1 FROM expedicao_itens ei
+                INNER JOIN expedicoes ex ON ex.id=ei.expedicao_id
+                WHERE ei.caixa_id=cx.id AND COALESCE(ei.ativo,1)=1
+                  AND ei.expedicao_id<>?
+                  AND ex.status IN ('Aberto','Concluído')
+            ) AS item_ativo_incompativel
             FROM pa_caixas cx
             WHERE cx.id = ?
-            """ + bloqueio), (caixa_id,))
+            """ + bloqueio), (expedicao_id, caixa_id))
             caixa = cursor.fetchone()
-            if (not caixa or int(caixa["estoque_operacional"] or 0) != 1
-                    or caixa["status"] != "Em estoque"):
-                raise ValueError("Item inexistente ou fora do estoque operacional.")
+            op_compativel = True
             if op_id_esperada is not None:
                 cursor.execute(q("""
                 SELECT 1 FROM pa_caixa_composicao
                 WHERE caixa_id = ? AND op_id = ?
                 """), (caixa_id, op_id_esperada))
-                if not cursor.fetchone():
-                    raise ValueError("A caixa informada não pertence à OP pesquisada.")
+                op_compativel = bool(cursor.fetchone())
+            avaliacao = exigir_elegibilidade_expedicao(
+                caixa, tipo_movimentacao=tipo, expedicao_id=expedicao_id,
+                op_compativel=op_compativel,
+                item_ativo_incompativel=bool(caixa and caixa["item_ativo_incompativel"]),
+            )
             situacao_origem = caixa["disponibilidade"]
-            if tipo in {"TRANSFERENCIA", "VENDA_DIRETA"}:
-                if caixa["condicao"] != "CONFORME" or situacao_origem != STATUS_DISPONIVEL:
-                    raise ValueError("Somente produto conforme e disponivel pode entrar em romaneio normal.")
-            elif tipo in {"DESCARTE", "DEVOLUCAO", "TRANSFERENCIA_AUTORIZADA"}:
-                if caixa["condicao"] != "NAO_CONFORME" or situacao_origem != STATUS_BLOQUEADO:
-                    raise ValueError("Somente Produto Nao Conforme bloqueado pode entrar neste romaneio.")
 
             if caixa["unidade_estoque"] == "PACOTE":
-                if caixa["disponibilidade"] not in {STATUS_DISPONIVEL, STATUS_RESERVADO}:
-                    raise ValueError("O item nao esta disponivel para reserva.")
                 total_pacotes = int(caixa["quantidade_pacotes"] or 0)
                 reservados = int(caixa["quantidade_pacotes_reservados"] or 0)
-                disponiveis = total_pacotes - reservados
+                disponiveis = avaliacao["saldo_elegivel"]
                 valor = quantidades_pacotes.get(str(caixa_id), quantidades_pacotes.get(caixa_id, disponiveis))
                 if valor in (None, ""):
                     valor = disponiveis
@@ -1073,8 +1085,10 @@ def reservar_itens(expedicao_id, caixa_ids, quantidades_pacotes=None, op_id_espe
                 if not quantidade.is_integer() or quantidade <= 0:
                     raise ValueError("A movimentacao de Galinha Inteira aceita somente pacotes inteiros.")
                 quantidade = int(quantidade)
-                if quantidade > disponiveis:
-                    raise ValueError("A quantidade de pacotes excede o saldo disponivel.")
+                exigir_elegibilidade_expedicao(
+                    caixa, tipo_movimentacao=tipo, expedicao_id=expedicao_id,
+                    op_compativel=op_compativel, quantidade_solicitada=quantidade,
+                )
                 cursor.execute(q("""
                 UPDATE pa_caixas
                 SET quantidade_pacotes_reservados = COALESCE(quantidade_pacotes_reservados, 0) + ?,
@@ -1212,11 +1226,13 @@ def atualizar_reserva_quantitativa(
           )
         """ + bloqueio_caixa), (caixa_id, op_id))
         caixa = cursor.fetchone()
-        if (not caixa or int(caixa["estoque_operacional"] or 0) != 1
-                or caixa["status"] != "Em estoque" or caixa["condicao"] != "CONFORME"
-                or caixa["unidade_estoque"] != "PACOTE"
-                or caixa["disponibilidade"] not in {STATUS_DISPONIVEL, STATUS_RESERVADO}):
+        if caixa and caixa["unidade_estoque"] != "PACOTE":
             raise ValueError("O saldo quantitativo não está disponível para reserva.")
+        atual = int(existente["quantidade_pacotes"] or 0) if existente else 0
+        exigir_elegibilidade_expedicao(
+            caixa, tipo_movimentacao=romaneio["tipo_movimentacao"],
+            expedicao_id=expedicao_id, quantidade_propria=atual,
+        )
 
         fator = int(caixa["galinhas_por_pacote"] or 0)
         if fator <= 0:
@@ -1227,12 +1243,13 @@ def atualizar_reserva_quantitativa(
             )
         desejada = aves // fator
 
-        atual = int(existente["quantidade_pacotes"] or 0) if existente else 0
+        exigir_elegibilidade_expedicao(
+            caixa, tipo_movimentacao=romaneio["tipo_movimentacao"],
+            expedicao_id=expedicao_id, quantidade_propria=atual,
+            quantidade_solicitada=desejada,
+        )
         total = int(caixa["quantidade_pacotes"] or 0)
         reservados = int(caixa["quantidade_pacotes_reservados"] or 0)
-        limite = total - reservados + atual
-        if desejada > limite:
-            raise ValueError("A quantidade de aves excede o saldo disponível.")
 
         delta = desejada - atual
         if delta > 0:

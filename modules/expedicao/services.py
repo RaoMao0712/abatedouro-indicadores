@@ -10,6 +10,7 @@ from modules.auth.services import nome_usuario_atual, perfil_atual
 from modules.producao.services import buscar_op_por_id, gerar_producao_automatica_setores
 from modules.producao.skus_legados import validar_sku_operacional
 from modules.expedicao.movimentacoes_canonicas import cte_movimentacoes_expedicao
+from modules.expedicao.elegibilidade import avaliar_elegibilidade_expedicao
 
 _CRIAR_BANCO = None
 _SCHEMA_EXPEDICAO_INICIALIZADO = False
@@ -2295,55 +2296,20 @@ def buscar_itens_expedicao(expedicao_id):
 
 
 def buscar_caixas_disponiveis_transferencia():
-    from .estoque_service import criar_tabelas_estoque_confiavel
+    from .estoque_service import buscar_estoque_operacional, criar_tabelas_estoque_confiavel
 
     criar_tabelas_expedicao()
     criar_tabelas_estoque_pi_pa()
     criar_tabelas_estoque_confiavel()
 
-    conn = conectar()
-    cursor = conn.cursor()
-
-    local_abatedouro_id = obter_local_estoque_id_cursor(cursor, LOCAL_ESTOQUE_ABATEDOURO)
-
-    cursor.execute(q("""
-    SELECT
-        cx.id,
-        cx.codigo_caixa,
-        cx.sku,
-        cx.data_fabricacao,
-        cx.data_validade,
-        cx.peso_bruto,
-        cx.peso_liquido,
-        cx.quantidade_bandejas,
-        cx.status,
-        cx.local_estoque_id,
-        MIN(comp.op_id) AS op_id,
-        ? AS local_estoque
-    FROM pa_caixas cx
-    LEFT JOIN pa_caixa_composicao comp ON comp.caixa_id = cx.id
-    WHERE cx.local_estoque_id = ?
-      AND cx.status = ?
-      AND cx.estoque_operacional = 1
-      AND cx.condicao = 'CONFORME'
-      AND cx.disponibilidade = 'DISPONIVEL'
-    GROUP BY
-        cx.id,
-        cx.codigo_caixa,
-        cx.sku,
-        cx.data_fabricacao,
-        cx.data_validade,
-        cx.peso_bruto,
-        cx.peso_liquido,
-        cx.quantidade_bandejas,
-        cx.status,
-        cx.local_estoque_id
-    ORDER BY cx.data_validade ASC, cx.id ASC
-    """), (LOCAL_ESTOQUE_ABATEDOURO, local_abatedouro_id, "Em estoque"))
-
-    caixas = cursor.fetchall()
-    conn.close()
-    return caixas
+    itens, _ = buscar_estoque_operacional()
+    return [
+        item for item in itens
+        if item["local_estoque"] == LOCAL_ESTOQUE_ABATEDOURO
+        and avaliar_elegibilidade_expedicao(
+            item, tipo_movimentacao="TRANSFERENCIA"
+        )["elegivel"]
+    ]
 
 
 def buscar_historico_caixa_pa(caixa_id):
