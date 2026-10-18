@@ -155,6 +155,17 @@ def reconciliar_movimentacoes_expedicao(*, somente_divergencias=True):
             i.id AS item_id,i.expedicao_id,i.caixa_id,COALESCE(i.ativo,1) AS item_ativo,
             e.numero_romaneio,e.status AS status_documento,e.tipo_movimentacao,
             cx.codigo_caixa,cx.status AS status_caixa,cx.disponibilidade AS estado_atual,
+            COALESCE(i.unidade_estoque,cx.unidade_estoque,'CAIXA') AS unidade_estoque,
+            (
+                SELECT ev.acao FROM estoque_eventos ev
+                WHERE ev.caixa_id=i.caixa_id
+                ORDER BY ev.id DESC LIMIT 1
+            ) AS ultima_acao,
+            (
+                SELECT ev.expedicao_id FROM estoque_eventos ev
+                WHERE ev.caixa_id=i.caixa_id
+                ORDER BY ev.id DESC LIMIT 1
+            ) AS ultima_expedicao_id,
             EXISTS(
                 SELECT 1 FROM estoque_eventos ev
                 WHERE ev.expedicao_id=e.id AND ev.caixa_id=i.caixa_id
@@ -189,11 +200,17 @@ def reconciliar_movimentacoes_expedicao(*, somente_divergencias=True):
             fisico_esperado = None
             if status == "Aberto" and item["item_ativo"]:
                 fisico_esperado = "RESERVADO"
-            elif status == "Concluído" and item["item_ativo"]:
+            elif (
+                status == "Concluído"
+                and item["item_ativo"]
+                and str(item["unidade_estoque"] or "").upper() != "PACOTE"
+                and item["ultima_expedicao_id"] == item["expedicao_id"]
+                and item["ultima_acao"] == evento_esperado
+            ):
                 fisico_esperado = "EXPEDIDO" if tipo == "VENDA_DIRETA" else "TRANSFERIDO"
 
             divergencias = []
-            if not item["evento_encontrado"]:
+            if item["item_ativo"] and not item["evento_encontrado"]:
                 divergencias.append(
                     "SOMENTE_LIVRO_LEGADO" if item["presente_legado"] else "EVENTO_CANONICO_AUSENTE"
                 )
