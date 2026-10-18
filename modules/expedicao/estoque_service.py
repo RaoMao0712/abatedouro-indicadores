@@ -17,6 +17,10 @@ from modules.expedicao.elegibilidade import (
     avaliar_elegibilidade_expedicao,
     exigir_elegibilidade_expedicao,
 )
+from modules.expedicao.eventos_compensatorios import (
+    localizar_origens_compensaveis_cursor,
+    validar_evento_origem_cursor,
+)
 
 
 FUSO_MANAUS = ZoneInfo("America/Manaus")
@@ -231,7 +235,24 @@ def _inserir_evento(
     justificativa=None,
     observacao=None,
     idempotency_key=None,
+    evento_origem_id=None,
 ):
+    if idempotency_key:
+        cursor.execute(q("SELECT id,evento_origem_id FROM estoque_eventos WHERE idempotency_key=?"),
+                       (idempotency_key,))
+        existente = cursor.fetchone()
+        if existente:
+            if evento_origem_id is not None and int(existente["evento_origem_id"] or 0) != int(evento_origem_id):
+                raise ValueError("A chave idempotente já está vinculada a outro evento de origem.")
+            return int(existente["id"])
+    if evento_origem_id is not None:
+        validar_evento_origem_cursor(
+            cursor, evento_origem_id=evento_origem_id, acao=acao,
+            caixa_id=caixa_id, expedicao_id=expedicao_id,
+            quantidade=quantidade,
+            expedicao_item_id=(json.loads(observacao or "{}").get("expedicao_item_id")
+                                if observacao else None),
+        )
     parametros = (
         caixa_id,
         expedicao_id,
@@ -248,6 +269,7 @@ def _inserir_evento(
         _perfil(),
         _agora(),
         idempotency_key,
+        evento_origem_id,
     )
     if DATABASE_URL:
         cursor.execute(q("""
@@ -255,8 +277,8 @@ def _inserir_evento(
             caixa_id, expedicao_id, acao, situacao_anterior, situacao_nova,
             condicao_anterior, condicao_nova, quantidade, peso,
             justificativa, observacao, usuario, perfil, criado_em,
-            idempotency_key
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            idempotency_key, evento_origem_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (idempotency_key) DO NOTHING
         """), parametros)
     else:
@@ -265,9 +287,49 @@ def _inserir_evento(
             caixa_id, expedicao_id, acao, situacao_anterior, situacao_nova,
             condicao_anterior, condicao_nova, quantidade, peso,
             justificativa, observacao, usuario, perfil, criado_em,
-            idempotency_key
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            idempotency_key, evento_origem_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """), parametros)
+    return int(getattr(cursor, "lastrowid", 0) or 0)
+
+
+def _inserir_compensacao(
+    cursor, *, acao, caixa_id, expedicao_id, expedicao_item_id, quantidade,
+    chave_base, **dados,
+):
+    """Registra uma ou mais parcelas, cada qual ligada a uma única origem."""
+    observacao_base = dados.pop("observacao", None)
+    cursor.execute(q("""SELECT evento_origem_id,quantidade FROM estoque_eventos
+        WHERE acao=? AND idempotency_key LIKE ? ORDER BY id"""),
+        (acao, f"{chave_base}:ORIGEM:%"))
+    existentes = cursor.fetchall()
+    if existentes:
+        total_existente = sum((Decimal(str(item["quantidade"] or 0)) for item in existentes), Decimal("0"))
+        if total_existente != abs(Decimal(str(quantidade or 0))):
+            raise ValueError("A tentativa idempotente possui quantidade diferente da compensação original.")
+        return [int(item["evento_origem_id"]) for item in existentes]
+    alocacoes = localizar_origens_compensaveis_cursor(
+        cursor, acao=acao, caixa_id=caixa_id, expedicao_id=expedicao_id,
+        quantidade=quantidade, expedicao_item_id=expedicao_item_id,
+    )
+    for origem, parcela in alocacoes:
+        observacao = {
+            "expedicao_item_id": int(expedicao_item_id) if expedicao_item_id is not None else None,
+            "evento_origem_id": int(origem["id"]),
+        }
+        if observacao_base:
+            try:
+                observacao.update(json.loads(observacao_base))
+            except (TypeError, ValueError, json.JSONDecodeError):
+                observacao["detalhe"] = observacao_base
+        _inserir_evento(
+            cursor, acao=acao, caixa_id=caixa_id, expedicao_id=expedicao_id,
+            quantidade=parcela, observacao=json.dumps(
+                observacao, ensure_ascii=False, sort_keys=True),
+            idempotency_key=f"{chave_base}:ORIGEM:{int(origem['id'])}",
+            evento_origem_id=int(origem["id"]), **dados,
+        )
+    return [int(origem["id"]) for origem, _ in alocacoes]
 
 
 def registrar_evento_romaneio(
@@ -390,9 +452,17 @@ def criar_tabelas_estoque_confiavel():
             usuario TEXT NOT NULL,
             perfil TEXT NOT NULL,
             criado_em {timestamp_type} NOT NULL,
-            idempotency_key TEXT UNIQUE
+            idempotency_key TEXT UNIQUE,
+            evento_origem_id INTEGER
         )
         """)
+
+        if not DATABASE_URL:
+            _alterar_coluna(
+                cursor,
+                "ALTER TABLE estoque_eventos ADD COLUMN IF NOT EXISTS evento_origem_id INTEGER",
+                "ALTER TABLE estoque_eventos ADD COLUMN evento_origem_id INTEGER",
+            )
 
         if not DATABASE_URL:
             # No PostgreSQL de producao essas colunas ja sao provisionadas pela
@@ -1146,7 +1216,7 @@ def reservar_itens(expedicao_id, caixa_ids, quantidades_pacotes=None, op_id_espe
                     caixa["codigo_caixa"],
                 ))
                 peso_evento = caixa["peso_liquido"]
-                quantidade_evento = caixa["quantidade_bandejas"]
+                quantidade_evento = caixa["quantidade_bandejas"] or 1
             cursor.execute(q("""SELECT id FROM expedicao_itens
                 WHERE expedicao_id = ? AND caixa_id = ? AND COALESCE(ativo,1)=1
                 ORDER BY id DESC LIMIT 1"""),
@@ -1165,6 +1235,9 @@ def reservar_itens(expedicao_id, caixa_ids, quantidades_pacotes=None, op_id_espe
                 condicao_nova=caixa["condicao"],
                 quantidade=quantidade_evento,
                 peso=peso_evento,
+                observacao=json.dumps({"expedicao_item_id": int(expedicao_item_id)},
+                                       sort_keys=True),
+                idempotency_key=f"RESERVA-ITEM-{int(expedicao_item_id)}",
             )
 
 
@@ -1314,14 +1387,36 @@ def atualizar_reserva_quantitativa(
 
         from modules.pedidos_venda.services import vincular_item_reservado_cursor
         vincular_item_reservado_cursor(cursor, expedicao_id, expedicao_item_id)
-        if not existente or delta != 0:
+        if not existente:
             _inserir_evento(
                 cursor, caixa_id=caixa_id, expedicao_id=expedicao_id,
-                acao="ATUALIZACAO_RESERVA" if existente else "RESERVA",
+                acao="RESERVA",
                 situacao_anterior=caixa["disponibilidade"],
                 situacao_nova=STATUS_RESERVADO,
                 condicao_anterior=caixa["condicao"], condicao_nova=caixa["condicao"],
-                quantidade=delta if existente else desejada, peso=None,
+                quantidade=desejada, peso=None,
+                observacao=json.dumps({"expedicao_item_id": expedicao_item_id}, sort_keys=True),
+                idempotency_key=f"RESERVA-ITEM-{expedicao_item_id}",
+            )
+        elif delta > 0:
+            _inserir_evento(
+                cursor, caixa_id=caixa_id, expedicao_id=expedicao_id,
+                acao="ATUALIZACAO_RESERVA",
+                situacao_anterior=caixa["disponibilidade"], situacao_nova=STATUS_RESERVADO,
+                condicao_anterior=caixa["condicao"], condicao_nova=caixa["condicao"],
+                quantidade=delta, peso=None,
+                observacao=json.dumps({"expedicao_item_id": expedicao_item_id}, sort_keys=True),
+                idempotency_key=f"AUMENTO-RESERVA-ITEM-{expedicao_item_id}-{desejada}",
+            )
+        elif delta < 0:
+            _inserir_compensacao(
+                cursor, caixa_id=caixa_id, expedicao_id=expedicao_id,
+                expedicao_item_id=expedicao_item_id, acao="LIBERACAO_PARCIAL_RESERVA",
+                quantidade=abs(delta), chave_base=(
+                    f"LIBERACAO-PARCIAL-ITEM-{expedicao_item_id}-{desejada}"
+                ), situacao_anterior=STATUS_RESERVADO, situacao_nova=STATUS_RESERVADO,
+                condicao_anterior=caixa["condicao"], condicao_nova=caixa["condicao"],
+                peso=None,
             )
         novo_reservado = reservados + delta
         return {
@@ -1398,10 +1493,11 @@ def remover_item_reservado(expedicao_id, caixa_id, op_id_esperada=None):
             (_agora(), _usuario(), MOTIVO_REMOCAO_RESERVA, item["id"]))
         if cursor.rowcount != 1:
             raise ValueError("A reserva foi alterada ou removida por outro usuário. Recarregue a OP.")
-        _inserir_evento(
+        _inserir_compensacao(
             cursor,
             caixa_id=caixa_id,
             expedicao_id=expedicao_id,
+            expedicao_item_id=item["id"],
             acao="REMOCAO_RESERVA",
             situacao_anterior=STATUS_RESERVADO,
             situacao_nova=item["situacao_anterior"] or STATUS_DISPONIVEL,
@@ -1415,7 +1511,7 @@ def remover_item_reservado(expedicao_id, caixa_id, op_id_esperada=None):
                 "op_id": int(item["op_id"]) if item["op_id"] is not None else None,
                 "motivo": MOTIVO_REMOCAO_RESERVA,
             }, ensure_ascii=False, sort_keys=True),
-            idempotency_key=f"REMOCAO_RESERVA-{int(item['id'])}",
+            chave_base=f"REMOCAO_RESERVA-{int(item['id'])}",
         )
 
 
@@ -1483,8 +1579,9 @@ def remover_itens_reservados_op(expedicao_id, op_id):
                 raise ValueError(
                     "A reserva foi alterada ou removida por outro usuário. Recarregue a OP."
                 )
-            _inserir_evento(
+            _inserir_compensacao(
                 cursor, caixa_id=caixa_id, expedicao_id=expedicao_id,
+                expedicao_item_id=item["id"],
                 acao="REMOCAO_RESERVA", situacao_anterior=STATUS_RESERVADO,
                 situacao_nova=item["situacao_anterior"] or STATUS_DISPONIVEL,
                 condicao_anterior=item["condicao_anterior"],
@@ -1497,7 +1594,7 @@ def remover_itens_reservados_op(expedicao_id, op_id):
                     "op_id": int(item["op_id"]) if item["op_id"] is not None else None,
                     "motivo": MOTIVO_REMOCAO_RESERVA,
                 }, ensure_ascii=False, sort_keys=True),
-                idempotency_key=f"REMOCAO_RESERVA-{int(item['id'])}",
+                chave_base=f"REMOCAO_RESERVA-{int(item['id'])}",
             )
         return [int(item["caixa_id"]) for item in itens]
 
@@ -1659,7 +1756,7 @@ def concluir_romaneio(expedicao_id):
                 ))
                 if cursor.rowcount != 1:
                     raise ValueError(f"O item {item['codigo_caixa']} nao pode ser baixado.")
-                quantidade_evento = item["quantidade_bandejas"]
+                quantidade_evento = item["quantidade_bandejas"] or 1
                 peso_evento = item["peso_liquido"]
             _inserir_evento(
                 cursor,
@@ -1672,6 +1769,8 @@ def concluir_romaneio(expedicao_id):
                 condicao_nova=item["condicao"],
                 quantidade=quantidade_evento,
                 peso=peso_evento,
+                observacao=json.dumps({"expedicao_item_id": int(item["id"])}, sort_keys=True),
+                idempotency_key=f"SAIDA-ROMANEIO-{expedicao_id}-ITEM-{int(item['id'])}",
             )
 
         from modules.qualidade.liberacoes import concluir_reservas_cursor
@@ -1771,19 +1870,21 @@ def cancelar_romaneio(expedicao_id, justificativa):
                             raise ValueError("A reserva do item nao esta integra para cancelamento.")
                     elif not reparacao:
                         raise ValueError("A reserva do item nao esta integra para cancelamento.")
-                _inserir_evento(
+                _inserir_compensacao(
                     cursor,
                     caixa_id=item["caixa_id"],
                     expedicao_id=expedicao_id,
+                    expedicao_item_id=item["id"],
                     acao="CANCELAMENTO_ROMANEIO",
                     situacao_anterior=STATUS_RESERVADO,
                     situacao_nova=item["situacao_anterior"] or STATUS_DISPONIVEL,
                     condicao_anterior=item["condicao_anterior"],
                     condicao_nova=item["condicao_anterior"],
-                    quantidade=item["quantidade_pacotes"] if item["unidade_atual"] == "PACOTE" else item["quantidade_bandejas"],
+                    quantidade=(item["quantidade_pacotes"] if item["unidade_atual"] == "PACOTE"
+                                else (item["quantidade_bandejas"] or 1)),
                     peso=None if item["unidade_atual"] == "PACOTE" else item["peso_liquido"],
                     justificativa=justificativa.strip(),
-                    idempotency_key=f"CANCELAMENTO-ROMANEIO-{expedicao_id}-ITEM-{item['id']}",
+                    chave_base=f"CANCELAMENTO-ROMANEIO-{expedicao_id}-ITEM-{item['id']}",
                 )
             cursor.execute(q("""
             UPDATE expedicao_itens
@@ -1890,18 +1991,21 @@ def estornar_romaneio(expedicao_id, justificativa):
                     item["local_anterior_id"],
                     item["caixa_id"],
                 ))
-            _inserir_evento(
+            _inserir_compensacao(
                 cursor,
                 caixa_id=item["caixa_id"],
                 expedicao_id=expedicao_id,
+                expedicao_item_id=item["id"],
                 acao="ESTORNO_ROMANEIO",
                 situacao_anterior=item["disponibilidade"],
                 situacao_nova=item["situacao_anterior"] or STATUS_DISPONIVEL,
                 condicao_anterior=item["condicao"],
                 condicao_nova=item["condicao_anterior"] or "CONFORME",
-                quantidade=item["quantidade_pacotes"] if item["unidade_atual"] == "PACOTE" else item["quantidade_bandejas"],
+                quantidade=(item["quantidade_pacotes"] if item["unidade_atual"] == "PACOTE"
+                            else (item["quantidade_bandejas"] or 1)),
                 peso=None if item["unidade_atual"] == "PACOTE" else item["peso_liquido"],
                 justificativa=justificativa.strip(),
+                chave_base=f"ESTORNO-ROMANEIO-{expedicao_id}-ITEM-{item['id']}",
             )
         from modules.qualidade.liberacoes import estornar_baixas_cursor
         estornar_baixas_cursor(cursor, expedicao_id, justificativa.strip(), _usuario(), _perfil(), "romaneio")

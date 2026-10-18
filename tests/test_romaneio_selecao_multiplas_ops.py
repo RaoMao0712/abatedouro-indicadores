@@ -521,7 +521,9 @@ class SelecaoMultiplasOpsTest(unittest.TestCase):
         self.assertEqual(evento["justificativa"], estoque_service.MOTIVO_REMOCAO_RESERVA)
         self.assertIn(f'"expedicao_item_id": {item_antes["id"]}', evento["observacao"])
         self.assertIn('"op_id": 83', evento["observacao"])
-        self.assertEqual(evento["idempotency_key"], f'REMOCAO_RESERVA-{item_antes["id"]}')
+        self.assertTrue(evento["idempotency_key"].startswith(
+            f'REMOCAO_RESERVA-{item_antes["id"]}:ORIGEM:'
+        ))
 
     def test_protocolo_de_locks_declara_ordem_canonica_e_deterministica(self):
         for funcao in (

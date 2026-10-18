@@ -64,7 +64,8 @@ def banco(tmp_path, monkeypatch):
             id INTEGER PRIMARY KEY AUTOINCREMENT,caixa_id INTEGER,expedicao_id INTEGER,
             acao TEXT,situacao_anterior TEXT,situacao_nova TEXT,condicao_anterior TEXT,
             condicao_nova TEXT,quantidade REAL,peso REAL,justificativa TEXT,observacao TEXT,
-            usuario TEXT,perfil TEXT,criado_em TEXT,idempotency_key TEXT UNIQUE
+            usuario TEXT,perfil TEXT,criado_em TEXT,idempotency_key TEXT UNIQUE,
+            evento_origem_id INTEGER
         );
         CREATE TABLE expedicoes(id INTEGER PRIMARY KEY,numero_romaneio TEXT,status TEXT);
         CREATE TABLE expedicao_itens(id INTEGER PRIMARY KEY,expedicao_id INTEGER,caixa_id INTEGER);
@@ -86,6 +87,10 @@ def banco(tmp_path, monkeypatch):
           ('2026-08-21','SAIDA_EMBALAGEM_SECUNDARIA',7,'Galinha Cortada',12,'Embalagem Secundária','Bandejas consumidas na formação da caixa PA #1.',1,'SAIDA-1'),
           ('2026-08-21','SAIDA_EMBALAGEM_SECUNDARIA',7,'Galinha Cortada',10,'Embalagem Secundária','Bandejas consumidas na formação da caixa PA #2.',2,'SAIDA-2'),
           ('2026-08-21','SAIDA_EMBALAGEM_SECUNDARIA',7,'Galinha Cortada',12,'Embalagem Secundária','Bandejas consumidas na formação da caixa PA #3.',3,'SAIDA-3');
+        INSERT INTO estoque_eventos(caixa_id,acao,quantidade,criado_em,idempotency_key)
+        VALUES(1,'FORMACAO_ESTOQUE',12,'2026-08-21 08:00:00','FORMACAO-1'),
+              (2,'FORMACAO_ESTOQUE',10,'2026-08-21 08:01:00','FORMACAO-2'),
+              (3,'FORMACAO_ESTOQUE',12,'2026-08-21 08:02:00','FORMACAO-3');
     """)
     conn.commit()
     conn.close()
@@ -113,10 +118,15 @@ def test_estorno_individual_parcial_preserva_demais_caixas_e_reverte_pi_pa(banco
     conn = banco()
     caixas = conn.execute("SELECT id,status,estoque_operacional FROM pa_caixas ORDER BY id").fetchall()
     reversao = conn.execute("SELECT * FROM estoque_produto_intermediario WHERE tipo='ENTRADA_ESTORNO_CAIXA'").fetchone()
+    evento = conn.execute("""SELECT comp.evento_origem_id,origem.acao AS acao_origem
+        FROM estoque_eventos comp JOIN estoque_eventos origem
+          ON origem.id=comp.evento_origem_id
+        WHERE comp.acao='ESTORNO_CAIXA_EMBALAGEM'""").fetchone()
     auditoria = conn.execute("SELECT * FROM embalagem_secundaria_estornos WHERE tipo='CAIXA'").fetchone()
     assert [(c["id"], c["status"]) for c in caixas] == [(1, "Em estoque"), (2, "Estornada"), (3, "Em estoque")]
     assert caixas[1]["estoque_operacional"] == 0
     assert (reversao["caixa_id"], reversao["movimento_origem_id"], reversao["quantidade_bandejas"]) == (2, 2, 10)
+    assert evento["evento_origem_id"] is not None and evento["acao_origem"] == "FORMACAO_ESTOQUE"
     assert resultado["totais_antes"] == {"caixas": 3, "bandejas": "34.0", "peso_bruto": "36.26", "peso_liquido": "34.76"}
     assert resultado["totais_depois"] == {"caixas": 2, "bandejas": "24.0", "peso_bruto": "25.76", "peso_liquido": "24.76"}
     snapshot = json.loads(auditoria["snapshot_json"])
@@ -514,6 +524,9 @@ def test_homologacao_cinco_caixas_estorna_duas_preserva_tres_e_invalida_ao_conti
         INSERT INTO estoque_produto_intermediario(data_movimentacao,tipo,op_id,sku,quantidade_bandejas,origem,observacoes,caixa_id,idempotency_key)
         VALUES('2026-08-21','SAIDA_EMBALAGEM_SECUNDARIA',7,'Galinha Cortada',12,'Embalagem Secundária','Bandejas consumidas na formação da caixa PA #4.',4,'SAIDA-4'),
               ('2026-08-21','SAIDA_EMBALAGEM_SECUNDARIA',7,'Galinha Cortada',12,'Embalagem Secundária','Bandejas consumidas na formação da caixa PA #5.',5,'SAIDA-5');
+            INSERT INTO estoque_eventos(caixa_id,acao,quantidade,criado_em,idempotency_key)
+            VALUES(4,'FORMACAO_ESTOQUE',12,'2026-08-21 08:10:00','FORMACAO-4'),
+                  (5,'FORMACAO_ESTOQUE',12,'2026-08-21 08:11:00','FORMACAO-5');
     """)
     conn.commit(); conn.close()
     resultado = estornos.estornar_caixas_embalagem_secundaria_em_lote(

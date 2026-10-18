@@ -227,3 +227,9 @@ def reconciliar_movimentacoes_expedicao(*, somente_divergencias=True):
         return resultado
     finally:
         conn.close()
+
+
+def reconciliar_vinculos_compensatorios():
+    """Reconcilia, sem escrita, a integridade relacional das reversões."""
+    from modules.expedicao.eventos_compensatorios import diagnosticar_vinculos_compensatorios
+    return diagnosticar_vinculos_compensatorios()

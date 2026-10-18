@@ -38,7 +38,7 @@ CREATE TABLE expedicoes (
     id SERIAL PRIMARY KEY, numero_romaneio TEXT UNIQUE NOT NULL,
     status TEXT NOT NULL DEFAULT 'Aberto', tipo_movimentacao TEXT NOT NULL,
     destino TEXT, responsavel TEXT, cliente_snapshot TEXT, concluido_em TEXT,
-    estornado_em TEXT, atualizado_em TEXT, justificativa TEXT,
+    estornado_em TEXT, cancelado_em TEXT, atualizado_em TEXT, justificativa TEXT,
     destino_local_id INTEGER, cliente_id INTEGER, tipo_saida TEXT
 );
 CREATE TABLE locais_estoque (
@@ -81,7 +81,7 @@ CREATE TABLE estoque_eventos (
     situacao_anterior TEXT, situacao_nova TEXT, condicao_anterior TEXT,
     condicao_nova TEXT, quantidade NUMERIC, peso NUMERIC, justificativa TEXT,
     observacao TEXT, usuario TEXT, perfil TEXT, criado_em TEXT,
-    idempotency_key TEXT UNIQUE
+    idempotency_key TEXT UNIQUE, evento_origem_id INTEGER
 );
 """
 
@@ -194,6 +194,7 @@ def ambiente(monkeypatch):
     import modules.qualidade.produtos_nao_conformes as produtos_nao_conformes
     monkeypatch.setattr(liberacoes, "concluir_reservas_cursor", lambda *args: None)
     monkeypatch.setattr(liberacoes, "estornar_baixas_cursor", lambda *args: None)
+    monkeypatch.setattr(liberacoes, "cancelar_reservas_cursor", lambda *args: None)
     monkeypatch.setattr(produtos_nao_conformes, "impedir_fluxo_legado", lambda *args, **kwargs: False)
     return {"hooks": hooks, "pids": pids, "pids_prontos": pids_prontos}
 
@@ -327,7 +328,7 @@ def test_edicao_primeiro_remove_quantidade_recarregada(ambiente, repeticao):
         lambda: estoque.remover_itens_reservados_op(expedicao_id, 88),
     )
     assert erros == {}
-    assert_invariante_zero(expedicao_id)
+    assert_invariante_zero(expedicao_id, eventos=2)
 
 
 @pytest.mark.parametrize("repeticao", range(20))
@@ -427,7 +428,7 @@ def test_edicao_de_um_item_contra_remocao_de_op_com_multiplos_itens(ambiente, re
     assert erros == {}
     final = estado(expedicao_id)
     assert final["reservado"] == final["itens"] == final["ativos"] == 0
-    assert final["fisico"] == 480 and final["eventos_remocao"] == 2
+    assert final["fisico"] == 480 and final["eventos_remocao"] == 3
 
 
 def test_rollback_da_detentora_libera_operacao_que_aguardava(ambiente):
@@ -544,6 +545,10 @@ def test_concluir_estornar_e_reutilizar_mesma_caixa_por_op(ambiente):
     assert caixa["disponibilidade"] == "DISPONIVEL"
     assert caixa["status"] == "Em estoque"
     assert caixa["reservado_expedicao_id"] is None
+    estornos = _eventos("ESTORNO_ROMANEIO")
+    assert len(estornos) == 1
+    assert estornos[0]["acao_origem"] == "CONFIRMACAO_ROMANEIO"
+    assert estornos[0]["evento_origem_id"] is not None
 
     with pytest.raises(ValueError, match="Somente romaneios concluídos"):
         estoque.estornar_romaneio(primeiro, "Repetição")
@@ -573,6 +578,82 @@ def test_concluir_estornar_e_reutilizar_mesma_caixa_por_op(ambiente):
         (primeiro, 0), (segundo, 1),
     ]
     assert int(reserva) == segundo
+
+
+def _eventos(acao):
+    with conectar() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("""SELECT ev.*,origem.acao AS acao_origem
+                FROM estoque_eventos ev
+                LEFT JOIN estoque_eventos origem ON origem.id=ev.evento_origem_id
+                WHERE ev.acao=%s ORDER BY ev.id""", (acao,))
+            return cursor.fetchall()
+
+
+def test_c3_reserva_remocao_e_retry_idempotente(ambiente):
+    expedicao_id, caixas = limpar_e_criar(inicial=80)
+    estoque.remover_itens_reservados_op(expedicao_id, 88)
+    eventos = _eventos("REMOCAO_RESERVA")
+    assert len(eventos) == 1
+    assert eventos[0]["evento_origem_id"] is not None
+    assert eventos[0]["acao_origem"] == "RESERVA"
+    assert int(eventos[0]["quantidade"]) == 80
+    assert estoque.remover_itens_reservados_op(expedicao_id, 88) == []
+    assert len(_eventos("REMOCAO_RESERVA")) == 1
+
+
+def test_c3_cancelamento_liga_reserva(ambiente):
+    expedicao_id, _ = limpar_e_criar(inicial=80)
+    estoque.cancelar_romaneio(expedicao_id, "cancelamento C3")
+    eventos = _eventos("CANCELAMENTO_ROMANEIO")
+    assert len(eventos) == 1
+    assert eventos[0]["acao_origem"] == "RESERVA"
+    assert int(eventos[0]["quantidade"]) == 80
+
+
+def test_c3_pacote_parcial_limite_e_origem_incompativel(ambiente):
+    expedicao_id, caixas = limpar_e_criar(inicial=100)
+    estoque.atualizar_reserva_quantitativa(expedicao_id, 88, caixas[0], 60, 100)
+    estoque.atualizar_reserva_quantitativa(expedicao_id, 88, caixas[0], 20, 60)
+    eventos = _eventos("LIBERACAO_PARCIAL_RESERVA")
+    assert len(eventos) == 2
+    assert sum(int(item["quantidade"]) for item in eventos) == 80
+    assert all(item["acao_origem"] == "RESERVA" for item in eventos)
+    with conectar() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT id FROM estoque_eventos WHERE acao='RESERVA' LIMIT 1")
+        reserva_id = int(cursor.fetchone()["id"])
+        with pytest.raises(ValueError, match="incompatível"):
+            estoque._inserir_evento(
+                cursor, caixa_id=caixas[0], expedicao_id=expedicao_id,
+                acao="ESTORNO_ROMANEIO", quantidade=1,
+                evento_origem_id=reserva_id,
+            )
+        with pytest.raises(ValueError, match="excede"):
+            estoque._inserir_compensacao(
+                cursor, acao="LIBERACAO_PARCIAL_RESERVA", caixa_id=caixas[0],
+                expedicao_id=expedicao_id, expedicao_item_id=None, quantidade=21,
+                chave_base="C3-EXCESSO",
+            )
+
+
+def test_c3_historico_ambiguo_nao_e_pareado(ambiente):
+    from modules.expedicao.eventos_compensatorios import classificar_pareamento_legado_cursor
+    expedicao_id, caixas = limpar_e_criar(inicial=80)
+    with conectar() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""INSERT INTO estoque_eventos(
+            caixa_id,expedicao_id,acao,quantidade,observacao,criado_em,idempotency_key)
+            VALUES (%s,%s,'RESERVA',80,'{}','2026-10-18','C3-ORIGEM-DUP')""",
+            (caixas[0], expedicao_id))
+        cursor.execute("""INSERT INTO estoque_eventos(
+            caixa_id,expedicao_id,acao,quantidade,observacao,criado_em,idempotency_key)
+            VALUES (%s,%s,'REMOCAO_RESERVA',80,'{}','2026-10-18','C3-LEGADO')
+            RETURNING *""", (caixas[0], expedicao_id))
+        legado = cursor.fetchone()
+        classificacao, origem_id = classificar_pareamento_legado_cursor(cursor, legado)
+    assert classificacao == "AMBIGUO"
+    assert origem_id is None
 
 
 def test_regra_canonica_preserva_modalidades_e_historico_terminal(ambiente):

@@ -277,15 +277,23 @@ def _movimentos_pi_originais(cursor, op_id, caixa_id, composicoes):
 
 
 def _inserir_evento_estoque(cursor, caixa, justificativa, chave, usuario, perfil,
-                            evento_origem_id=None):
+                            evento_origem=None):
+    from modules.expedicao.eventos_compensatorios import validar_evento_origem_cursor
+    if not evento_origem:
+        raise ValueError("A formação de estoque original não foi identificada de forma inequívoca.")
+    quantidade = evento_origem["quantidade"]
+    validar_evento_origem_cursor(
+        cursor, evento_origem_id=evento_origem["id"], acao="ESTORNO_CAIXA_EMBALAGEM",
+        caixa_id=caixa["id"], expedicao_id=None, quantidade=quantidade,
+    )
     cursor.execute(q("""INSERT INTO estoque_eventos(
         caixa_id,acao,situacao_anterior,situacao_nova,condicao_anterior,condicao_nova,
         quantidade,peso,justificativa,observacao,usuario,perfil,criado_em,idempotency_key,evento_origem_id)
         VALUES(?,?,?,?,?,?,?,?,?,?,?, ?,?,?,?)"""),
         (caixa["id"], "ESTORNO_CAIXA_EMBALAGEM", caixa["disponibilidade"], "ESTORNADO",
-         caixa["condicao"], caixa["condicao"], 1, str(_decimal(caixa["peso_liquido"])),
+         caixa["condicao"], caixa["condicao"], quantidade, str(_decimal(caixa["peso_liquido"])),
          justificativa, "Reversão lógica da formação de PA.", usuario, perfil,
-         _agora(), chave, evento_origem_id))
+         _agora(), chave, evento_origem["id"]))
 
 
 def _estornar_caixa_cursor(cursor, op_id, caixa_id, usuario, perfil, justificativa,
@@ -313,8 +321,15 @@ def _estornar_caixa_cursor(cursor, op_id, caixa_id, usuario, perfil, justificati
         reversoes.append({"original": movimento["id"], "idempotency_key": chave_mov,
                           "bandejas": str(_decimal(movimento["quantidade_bandejas"]))})
 
-    cursor.execute(q("SELECT id FROM estoque_eventos WHERE caixa_id=? AND acao='FORMACAO_ESTOQUE' ORDER BY id DESC LIMIT 1"), (caixa_id,))
-    formacao = cursor.fetchone()
+    cursor.execute(q("""SELECT origem.* FROM estoque_eventos origem
+        WHERE origem.caixa_id=? AND origem.acao='FORMACAO_ESTOQUE'
+          AND NOT EXISTS (SELECT 1 FROM estoque_eventos comp
+                          WHERE comp.evento_origem_id=origem.id)
+        ORDER BY origem.id"""), (caixa_id,))
+    formacoes = cursor.fetchall()
+    if len(formacoes) != 1:
+        raise ValueError("A formação de estoque original não foi identificada de forma inequívoca.")
+    formacao = formacoes[0]
     cursor.execute(q("""UPDATE pa_caixas SET status='Estornada', estoque_operacional=0,
         disponibilidade='ESTORNADO', reservado_expedicao_id=NULL, estornada_em=?,
         estornada_por=?, estorno_motivo=?, versao=COALESCE(versao,0)+1
@@ -360,7 +375,7 @@ def _estornar_caixa_cursor(cursor, op_id, caixa_id, usuario, perfil, justificati
     evento_id = cursor.fetchone()["id"] if DATABASE_URL else cursor.lastrowid
     cursor.execute(q("UPDATE pa_caixas SET estorno_evento_id=? WHERE id=?"), (evento_id, caixa_id))
     _inserir_evento_estoque(cursor, caixa, justificativa, f"ESTORNO-PA-{caixa_id}", usuario, perfil,
-                            formacao["id"] if formacao else None)
+                            formacao)
     return resultado
 
 
