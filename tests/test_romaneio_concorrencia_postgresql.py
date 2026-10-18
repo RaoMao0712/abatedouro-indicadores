@@ -395,7 +395,7 @@ def test_multiplos_itens_ordem_deterministica_e_rollback(ambiente):
 
     for trecho in (
         "UPDATE PA_CAIXAS",
-        "DELETE FROM EXPEDICAO_ITENS",
+        "UPDATE EXPEDICAO_ITENS",
         "INSERT INTO ESTOQUE_EVENTOS",
     ):
         expedicao_id, _ = limpar_e_criar()

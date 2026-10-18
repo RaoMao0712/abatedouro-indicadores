@@ -32,6 +32,7 @@ def test_migration_sqlite_upgrade_downgrade_upgrade(tmp_path):
 def test_remocoes_operacionais_nao_usam_hard_delete():
     fontes = "\n".join((
         inspect.getsource(estoque_service.remover_item_reservado),
+        inspect.getsource(estoque_service.remover_itens_reservados_op),
         inspect.getsource(estoque_service.registrar_itens_historicos),
         inspect.getsource(liberacoes.remover_reserva_operacional),
     ))

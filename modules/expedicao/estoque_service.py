@@ -56,6 +56,7 @@ STATUS_DEVOLVIDO = "DEVOLVIDO"
 STATUS_REPROCESSAMENTO = "REPROCESSAMENTO"
 STATUS_LEGADO = "LEGADO"
 STATUS_PENDENTE = "PENDENTE_OP"
+MOTIVO_REMOCAO_RESERVA = "Reserva removida do romaneio aberto"
 CICLO_HISTORICA = "HISTORICA"
 CICLO_TRANSICAO = "TRANSICAO_OPERACIONAL"
 CICLO_OPERACIONAL = "OPERACIONAL"
@@ -1394,7 +1395,7 @@ def remover_item_reservado(expedicao_id, caixa_id, op_id_esperada=None):
         cursor.execute(q("""UPDATE expedicao_itens
             SET ativo=0,removido_em=?,removido_por=?,motivo_remocao=?
             WHERE id=? AND COALESCE(ativo,1)=1"""),
-            (_agora(), _usuario(), "Reserva removida do romaneio aberto", item["id"]))
+            (_agora(), _usuario(), MOTIVO_REMOCAO_RESERVA, item["id"]))
         if cursor.rowcount != 1:
             raise ValueError("A reserva foi alterada ou removida por outro usuário. Recarregue a OP.")
         _inserir_evento(
@@ -1408,11 +1409,18 @@ def remover_item_reservado(expedicao_id, caixa_id, op_id_esperada=None):
             condicao_nova=item["condicao_anterior"],
             quantidade=item["quantidade_pacotes"] if caixa["unidade_atual"] == "PACOTE" else caixa["quantidade_bandejas"],
             peso=None if caixa["unidade_atual"] == "PACOTE" else caixa["peso_liquido"],
+            justificativa=MOTIVO_REMOCAO_RESERVA,
+            observacao=json.dumps({
+                "expedicao_item_id": int(item["id"]),
+                "op_id": int(item["op_id"]) if item["op_id"] is not None else None,
+                "motivo": MOTIVO_REMOCAO_RESERVA,
+            }, ensure_ascii=False, sort_keys=True),
+            idempotency_key=f"REMOCAO_RESERVA-{int(item['id'])}",
         )
 
 
 def remover_itens_reservados_op(expedicao_id, op_id):
-    """Remove, de forma atômica, todas as caixas visíveis sob uma OP carregada."""
+    """Inativa, de forma atômica, todas as reservas ativas de uma OP."""
     criar_tabelas_estoque_confiavel()
     with transaction() as conn:
         cursor = conn.cursor()
@@ -1467,8 +1475,10 @@ def remover_itens_reservados_op(expedicao_id, op_id):
                 if cursor.rowcount != 1:
                     raise ValueError(f"A reserva de {caixa['codigo_caixa']} não está mais íntegra.")
             cursor.execute(q("""
-            DELETE FROM expedicao_itens WHERE id = ? AND COALESCE(ativo,1)=1
-            """), (item["id"],))
+            UPDATE expedicao_itens
+            SET ativo = 0, removido_em = ?, removido_por = ?, motivo_remocao = ?
+            WHERE id = ? AND COALESCE(ativo,1)=1
+            """), (_agora(), _usuario(), MOTIVO_REMOCAO_RESERVA, item["id"]))
             if cursor.rowcount != 1:
                 raise ValueError(
                     "A reserva foi alterada ou removida por outro usuário. Recarregue a OP."
@@ -1481,6 +1491,13 @@ def remover_itens_reservados_op(expedicao_id, op_id):
                 condicao_nova=item["condicao_anterior"],
                 quantidade=item["quantidade_pacotes"] if caixa["unidade_atual"] == "PACOTE" else caixa["quantidade_bandejas"],
                 peso=None if caixa["unidade_atual"] == "PACOTE" else caixa["peso_liquido"],
+                justificativa=MOTIVO_REMOCAO_RESERVA,
+                observacao=json.dumps({
+                    "expedicao_item_id": int(item["id"]),
+                    "op_id": int(item["op_id"]) if item["op_id"] is not None else None,
+                    "motivo": MOTIVO_REMOCAO_RESERVA,
+                }, ensure_ascii=False, sort_keys=True),
+                idempotency_key=f"REMOCAO_RESERVA-{int(item['id'])}",
             )
         return [int(item["caixa_id"]) for item in itens]
 

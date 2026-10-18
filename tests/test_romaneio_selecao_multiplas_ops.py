@@ -314,7 +314,18 @@ class SelecaoMultiplasOpsTest(unittest.TestCase):
             json={"confirmar_remocao_caixas": True},
         )
         self.assertEqual(set(removida.get_json()["caixa_ids"]), {a, b})
-        self.assertEqual(consultar("SELECT * FROM expedicao_itens"), [])
+        historico = consultar("""
+            SELECT caixa_id,ativo,removido_em,removido_por,motivo_remocao
+            FROM expedicao_itens ORDER BY id
+        """)
+        self.assertEqual([item["caixa_id"] for item in historico], [a, b])
+        self.assertTrue(all(item["ativo"] == 0 for item in historico))
+        self.assertTrue(all(item["removido_em"] for item in historico))
+        self.assertTrue(all(item["removido_por"] for item in historico))
+        self.assertTrue(all(
+            item["motivo_remocao"] == estoque_service.MOTIVO_REMOCAO_RESERVA
+            for item in historico
+        ))
         texto = (ROOT / "templates" / "romaneio_detalhe.html").read_text(encoding="utf-8")
         self.assertIn("também retirará esses itens", texto)
 
@@ -468,23 +479,49 @@ class SelecaoMultiplasOpsTest(unittest.TestCase):
             eventos_antes,
         )
 
-    def test_remocao_da_op_faz_rollback_se_exclusao_falhar(self):
-        saldo_id = self.criar_saldo_quantitativo("GI-ROLLBACK-DELETE", 83, 100)
+    def test_remocao_da_op_faz_rollback_se_inativacao_falhar(self):
+        saldo_id = self.criar_saldo_quantitativo("GI-ROLLBACK-INATIVACAO", 83, 100)
         atualizar_reserva_quantitativa(self.romaneio, 83, saldo_id, 80)
         executar("""
-        CREATE TRIGGER falhar_delete_reserva BEFORE DELETE ON expedicao_itens
-        BEGIN SELECT RAISE(ABORT, 'falha simulada no delete'); END
+        CREATE TRIGGER falhar_inativacao_reserva BEFORE UPDATE OF ativo ON expedicao_itens
+        WHEN NEW.ativo=0
+        BEGIN SELECT RAISE(ABORT, 'falha simulada na inativacao'); END
         """)
         try:
-            with self.assertRaisesRegex(Exception, "falha simulada"):
+            with self.assertRaisesRegex(Exception, "falha simulada na inativacao"):
                 estoque_service.remover_itens_reservados_op(self.romaneio, 83)
         finally:
-            executar("DROP TRIGGER falhar_delete_reserva")
+            executar("DROP TRIGGER falhar_inativacao_reserva")
 
         self.assertEqual(len(buscar_itens_expedicao(self.romaneio)), 1)
         self.assertEqual(consultar(
             "SELECT quantidade_pacotes_reservados FROM pa_caixas WHERE id=?", (saldo_id,)
         )[0][0], 80)
+
+    def test_remocao_integral_preserva_historico_e_evento_rastreavel(self):
+        saldo_id = self.criar_saldo_quantitativo("GI-HISTORICO", 83, 100)
+        atualizar_reserva_quantitativa(self.romaneio, 83, saldo_id, 40)
+        item_antes = dict(consultar(
+            "SELECT * FROM expedicao_itens WHERE expedicao_id=? AND caixa_id=?",
+            (self.romaneio, saldo_id),
+        )[0])
+
+        estoque_service.remover_itens_reservados_op(self.romaneio, 83)
+
+        item_depois = dict(consultar(
+            "SELECT * FROM expedicao_itens WHERE id=?", (item_antes["id"],)
+        )[0])
+        for campo in ("expedicao_id", "caixa_id", "op_id", "sku", "pedido_item_id"):
+            self.assertEqual(item_depois.get(campo), item_antes.get(campo))
+        self.assertEqual(item_depois["ativo"], 0)
+        evento = consultar("""
+            SELECT justificativa,observacao,idempotency_key
+            FROM estoque_eventos WHERE acao='REMOCAO_RESERVA' AND caixa_id=?
+        """, (saldo_id,))[-1]
+        self.assertEqual(evento["justificativa"], estoque_service.MOTIVO_REMOCAO_RESERVA)
+        self.assertIn(f'"expedicao_item_id": {item_antes["id"]}', evento["observacao"])
+        self.assertIn('"op_id": 83', evento["observacao"])
+        self.assertEqual(evento["idempotency_key"], f'REMOCAO_RESERVA-{item_antes["id"]}')
 
     def test_protocolo_de_locks_declara_ordem_canonica_e_deterministica(self):
         for funcao in (

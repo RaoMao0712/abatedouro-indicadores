@@ -222,6 +222,26 @@ def test_reserva_oficial_do_romaneio_cria_vinculo_por_item(base):
     # Reserva parcial mantém a posição disponível para outro saldo, sem baixa física.
     assert posicao["disponibilidade"] == "DISPONIVEL"
 
+    assert estoque.remover_itens_reservados_op(expedicao_id, op_id) == [caixa_id]
+    pedido_apos_remocao = pedidos.buscar_pedido(pedido_id)
+    assert pedido_apos_remocao["status"] == "CONFIRMADO"
+    assert pedido_apos_remocao["itens"][0]["quantidade_reservada_mil"] == 0
+    assert pedido_apos_remocao["itens"][0]["quantidade_entregue_mil"] == 0
+    conn = db.get_connection(); cursor = conn.cursor()
+    cursor.execute("""SELECT ativo,pedido_item_id,removido_em,motivo_remocao
+        FROM expedicao_itens WHERE expedicao_id=? AND caixa_id=?""",
+        (expedicao_id, caixa_id))
+    removido = cursor.fetchone()
+    cursor.execute("SELECT quantidade_pacotes_reservados FROM pa_caixas WHERE id=?", (caixa_id,))
+    reservado = cursor.fetchone()["quantidade_pacotes_reservados"]
+    cursor.execute("SELECT COUNT(*) AS total FROM pedido_venda_atendimentos WHERE expedicao_id=?",
+                   (expedicao_id,))
+    atendimentos = cursor.fetchone()["total"]
+    conn.close()
+    assert removido["ativo"] == 0 and removido["pedido_item_id"] == item["id"]
+    assert removido["removido_em"] and removido["motivo_remocao"]
+    assert reservado == 0 and atendimentos == 0
+
 
 def test_cancelamento_exige_gestao_motivo_e_audita_negativa(base):
     pedido_id, _ = criar_confirmado()
