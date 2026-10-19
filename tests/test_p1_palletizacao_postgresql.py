@@ -37,7 +37,8 @@ CREATE TABLE pa_caixas(
  id SERIAL PRIMARY KEY,codigo_caixa TEXT UNIQUE NOT NULL,sku TEXT NOT NULL,
  quantidade_bandejas NUMERIC DEFAULT 0,peso_liquido NUMERIC DEFAULT 0,
  quantidade_pacotes INTEGER DEFAULT 0,quantidade_galinhas INTEGER DEFAULT 0,
- status TEXT DEFAULT 'Em estoque',disponibilidade TEXT DEFAULT 'DISPONIVEL',
+ unidade_estoque TEXT DEFAULT 'CAIXA',apresentacao TEXT,
+ status TEXT DEFAULT 'Em estoque',disponibilidade TEXT DEFAULT 'DISPONIVEL',condicao TEXT DEFAULT 'CONFORME',
  estoque_operacional INTEGER DEFAULT 1,local_estoque_id INTEGER
 );
 CREATE TABLE pa_caixa_composicao(
@@ -272,3 +273,41 @@ def test_historico_e_append_only_no_banco():
         evento_id = cursor.fetchone()["id"]
         with pytest.raises(psycopg2.Error):
             cursor.execute("DELETE FROM pallet_caixa_eventos WHERE id=%s", (evento_id,))
+
+
+def test_p2_consulta_agregacoes_filtros_e_localizacao_por_codigo():
+    pallet = criar("PALLET-P2")
+    palletizacao.adicionar_caixa(pallet["id"], 1, usuario="Teste", idempotency_key="ADD-P2")
+    detalhe = palletizacao.consultar_pallet(pallet["id"])
+    assert detalhe["produtos_texto"] == "Galinha Inteira"
+    assert detalhe["ops_texto"] == "121"
+    assert detalhe["totais"]["peso_liquido"] == 100.0
+    assert detalhe["ops"][0]["pacotes"] == 962
+    assert palletizacao.buscar_pallet_por_codigo(f"  {pallet['codigo'].lower()}  ")["id"] == pallet["id"]
+    for filtros in (
+        {"codigo": pallet["codigo"][-3:]}, {"status": "ABERTO"},
+        {"produto": "inteira"}, {"op": "121"}, {"localizacao": "1"},
+    ):
+        assert [item["id"] for item in palletizacao.listar_pallets(filtros)] == [pallet["id"]]
+
+
+def test_p2_criacao_concorrente_codigo_unico_e_idempotencia():
+    barreira = threading.Barrier(4)
+    resultados, erros = [], []
+
+    def alvo(chave):
+        try:
+            barreira.wait(timeout=5)
+            resultados.append(criar(chave))
+        except Exception as erro:
+            erros.append(erro)
+
+    threads = [threading.Thread(target=alvo, args=(chave,)) for chave in ("P2-C1", "P2-C2", "P2-IDEM", "P2-IDEM")]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=20)
+    assert not erros
+    assert len({item["codigo"] for item in resultados}) == 3
+    assert len({item["id"] for item in resultados if item["codigo"] == next(r["codigo"] for r in resultados if r["id"] == resultados[-1]["id"])}) >= 1
+    assert contagem("pallets") == 3

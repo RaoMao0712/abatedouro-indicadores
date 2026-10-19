@@ -172,14 +172,19 @@ def criar_pallet(
 
 
 def consultar_pallet_cursor(cursor, pallet_id):
-    cursor.execute(q("SELECT * FROM pallets WHERE id=?"), (pallet_id,))
+    cursor.execute(q("""SELECT p.*, le.nome AS localizacao_nome
+                         FROM pallets p
+                         LEFT JOIN locais_estoque le ON le.id=p.localizacao_atual_id
+                         WHERE p.id=?"""), (pallet_id,))
     pallet = cursor.fetchone()
     if not pallet:
         raise ValueError("Pallet nao encontrado.")
     resultado = dict(pallet)
     cursor.execute(q("""SELECT ca.*, cx.codigo_caixa, cx.sku,
                               cx.quantidade_bandejas, cx.peso_liquido,
-                              cx.quantidade_pacotes, cx.quantidade_galinhas
+                              cx.quantidade_pacotes, cx.quantidade_galinhas,
+                              cx.unidade_estoque, cx.apresentacao, cx.status,
+                              cx.disponibilidade, cx.condicao
                        FROM pallet_caixas_atuais ca
                        JOIN pa_caixas cx ON cx.id=ca.caixa_id
                        WHERE ca.pallet_id=? ORDER BY ca.id"""), (pallet_id,))
@@ -197,6 +202,7 @@ def consultar_pallet_cursor(cursor, pallet_id):
                        JOIN pallet_caixas_atuais ca ON ca.caixa_id=comp.caixa_id
                        WHERE ca.pallet_id=? ORDER BY comp.caixa_id, comp.id"""), (pallet_id,))
     resultado["composicao_op"] = [dict(item) for item in cursor.fetchall()]
+    _enriquecer_pallet(resultado)
     return resultado
 
 
@@ -204,6 +210,138 @@ def consultar_pallet(pallet_id):
     conn = conectar()
     try:
         return consultar_pallet_cursor(conn.cursor(), pallet_id)
+    finally:
+        conn.close()
+
+
+def _enriquecer_pallet(pallet):
+    caixas = pallet.get("caixas", [])
+    composicoes = pallet.get("composicao_op", [])
+    por_caixa = {}
+    for composicao in composicoes:
+        por_caixa.setdefault(int(composicao["caixa_id"]), []).append(composicao)
+    ops = {}
+    for caixa in caixas:
+        caixa_ops = por_caixa.get(int(caixa["caixa_id"]), [])
+        caixa["ops"] = sorted({int(item["op_id"]) for item in caixa_ops})
+        caixa["ops_texto"] = ", ".join(str(item) for item in caixa["ops"]) or "-"
+        total_composicao = sum(float(item.get("quantidade_bandejas") or 0) for item in caixa_ops)
+        for item in caixa_ops:
+            op_id = int(item["op_id"])
+            proporcao = (
+                float(item.get("quantidade_bandejas") or 0) / total_composicao
+                if total_composicao > 0
+                else (1 / len(caixa_ops) if caixa_ops else 0)
+            )
+            grupo = ops.setdefault(op_id, {
+                "op_id": op_id, "produto": caixa.get("sku"), "caixa_ids": set(),
+                "peso": 0.0, "bandejas": 0.0, "pacotes": 0, "aves": 0,
+            })
+            if int(caixa["caixa_id"]) not in grupo["caixa_ids"]:
+                grupo["caixa_ids"].add(int(caixa["caixa_id"]))
+                grupo["peso"] += float(caixa.get("peso_liquido") or 0) * proporcao
+                grupo["pacotes"] += round(int(caixa.get("quantidade_pacotes") or 0) * proporcao)
+                grupo["aves"] += round(int(caixa.get("quantidade_galinhas") or 0) * proporcao)
+            grupo["bandejas"] += float(item.get("quantidade_bandejas") or 0)
+    pallet["ops"] = []
+    for grupo in sorted(ops.values(), key=lambda item: item["op_id"]):
+        grupo["quantidade_posicoes"] = len(grupo.pop("caixa_ids"))
+        pallet["ops"].append(grupo)
+    pallet["produtos"] = sorted({str(item.get("sku")) for item in caixas if item.get("sku")})
+    pallet["produtos_texto"] = ", ".join(pallet["produtos"]) or "-"
+    pallet["ops_texto"] = ", ".join(str(item["op_id"]) for item in pallet["ops"]) or "-"
+    pallet["condicoes"] = sorted({str(item.get("condicao")) for item in caixas if item.get("condicao")})
+    pallet["condicoes_texto"] = ", ".join(pallet["condicoes"]) or "-"
+    pallet["payload_identificacao"] = pallet["codigo"]
+
+
+def listar_locais_pallet():
+    conn = conectar()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT id,nome,tipo FROM locais_estoque WHERE ativo='Sim' ORDER BY nome")
+        return [dict(item) for item in cursor.fetchall()]
+    finally:
+        conn.close()
+
+
+def _pallet_atende_filtros(pallet, filtros):
+    codigo = str(filtros.get("codigo") or "").strip().lower()
+    status = str(filtros.get("status") or "").strip()
+    produto = str(filtros.get("produto") or "").strip().lower()
+    op = str(filtros.get("op") or "").strip()
+    localizacao = str(filtros.get("localizacao") or "").strip()
+    if codigo and codigo not in str(pallet["codigo"]).lower():
+        return False
+    if status and pallet["status"] != status:
+        return False
+    if produto and not any(produto in item.lower() for item in pallet["produtos"]):
+        return False
+    if op and op not in {str(item["op_id"]) for item in pallet["ops"]}:
+        return False
+    if localizacao and str(pallet.get("localizacao_atual_id") or "") != localizacao:
+        return False
+    return True
+
+
+def listar_pallets(filtros=None):
+    filtros = filtros or {}
+    conn = conectar()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT id FROM pallets ORDER BY id DESC")
+        pallets = [consultar_pallet_cursor(cursor, item["id"]) for item in cursor.fetchall()]
+    finally:
+        conn.close()
+    return [item for item in pallets if _pallet_atende_filtros(item, filtros)]
+
+
+def resumo_pallets():
+    conn = conectar()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT status,COUNT(*) AS total FROM pallets GROUP BY status")
+        contagens = {item["status"]: int(item["total"]) for item in cursor.fetchall()}
+    finally:
+        conn.close()
+    return {
+        "total": sum(contagens.values()),
+        "disponiveis": contagens.get("DISPONIVEL", 0),
+        "reservados": contagens.get("RESERVADO", 0),
+        "em_carregamento": contagens.get("PARCIALMENTE_CARREGADO", 0) + contagens.get("CARREGADO", 0),
+        "encerrados": contagens.get("ENCERRADO", 0),
+    }
+
+
+def buscar_pallet_por_codigo(codigo):
+    codigo = str(codigo or "").strip()
+    if not codigo:
+        return None
+    conn = conectar()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(q("SELECT id FROM pallets WHERE LOWER(codigo)=LOWER(?)"), (codigo,))
+        item = cursor.fetchone()
+        return consultar_pallet_cursor(cursor, item["id"]) if item else None
+    finally:
+        conn.close()
+
+
+def listar_eventos_pallet(pallet_id):
+    conn = conectar()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(q("""SELECT e.*, cx.codigo_caixa,
+                                    po.codigo AS pallet_origem_codigo,
+                                    pd.codigo AS pallet_destino_codigo
+                             FROM pallet_caixa_eventos e
+                             LEFT JOIN pa_caixas cx ON cx.id=e.caixa_id
+                             LEFT JOIN pallets po ON po.id=e.pallet_origem_id
+                             LEFT JOIN pallets pd ON pd.id=e.pallet_destino_id
+                             WHERE e.pallet_id=? OR e.pallet_origem_id=?
+                             ORDER BY e.criado_em DESC,e.id DESC"""),
+                       (pallet_id, pallet_id))
+        return [dict(item) for item in cursor.fetchall()]
     finally:
         conn.close()
 

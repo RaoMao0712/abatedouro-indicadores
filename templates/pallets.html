@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block conteudo %}
+<div class="expedicao-page pallet-page">
+  <header class="pallet-header">
+    <div><span class="eyebrow">Expedição</span><h2>Pallets</h2><p>Unidade logística para movimentação, carregamento e organização do estoque.</p></div>
+    {% if pode_criar %}<a class="romaneio-btn romaneio-btn-primary" href="{{ url_for('novo_pallet_expedicao') }}">+ Novo pallet</a>{% endif %}
+  </header>
+  {% set expedicao_tab='pallets' %}{% include '_expedicao_tabs.html' %}
+  <section class="pallet-kpis">
+    {% for titulo, valor in [('Total',resumo.total),('Disponíveis',resumo.disponiveis),('Reservados',resumo.reservados),('Em carregamento',resumo.em_carregamento),('Encerrados',resumo.encerrados)] %}
+    <div class="card"><span>{{ titulo }}</span><strong>{{ valor }}</strong></div>{% endfor %}
+  </section>
+  <form method="get" class="card pallet-filtros">
+    <label>Código<input name="codigo" value="{{ filtros.codigo }}" placeholder="PALT-000001" autocomplete="off"></label>
+    <label>Status<select name="status"><option value="">Todos</option>{% for item in status_opcoes %}<option value="{{ item }}"{% if filtros.status==item %} selected{% endif %}>{{ item|replace('_',' ')|title }}</option>{% endfor %}</select></label>
+    <label>Produto<input name="produto" value="{{ filtros.produto }}"></label>
+    <label>OP<input name="op" value="{{ filtros.op }}" inputmode="numeric"></label>
+    <label>Localização<select name="localizacao"><option value="">Todas</option>{% for local in locais %}<option value="{{ local.id }}"{% if filtros.localizacao|string==local.id|string %} selected{% endif %}>{{ local.nome }}</option>{% endfor %}</select></label>
+    <div class="pallet-filter-actions"><button class="romaneio-btn romaneio-btn-filter">Filtrar</button><a class="romaneio-btn romaneio-btn-secondary" href="{{ url_for('pallets_expedicao') }}">Limpar</a></div>
+  </form>
+  <section class="card pallet-table-card"><div class="tabela-responsiva"><table>
+    <thead><tr><th>Código</th><th>Status</th><th>Produto</th><th>Caixas/posições</th><th>Peso total</th><th>OPs</th><th>Localização</th><th></th></tr></thead>
+    <tbody>{% for pallet in pallets %}<tr><td><code>{{ pallet.codigo }}</code></td><td><span class="pallet-badge status-{{ pallet.status|lower }}">{{ pallet.status|replace('_',' ')|title }}</span></td><td>{{ pallet.produtos_texto }}</td><td>{{ pallet.totais.caixas }}</td><td>{{ pallet.totais.peso_liquido|br_numero(3) }} kg</td><td>{{ pallet.ops_texto }}</td><td>{{ pallet.localizacao_nome or '-' }}{% if pallet.posicao_atual %} · {{ pallet.posicao_atual }}{% endif %}</td><td><a class="pallet-link" href="{{ url_for('detalhe_pallet_expedicao',pallet_id=pallet.id) }}">Ver</a></td></tr>{% else %}<tr><td colspan="8" class="pallet-empty">Nenhum pallet corresponde aos filtros informados.</td></tr>{% endfor %}</tbody>
+  </table></div></section>
+  <form class="card pallet-localizar" action="{{ url_for('localizar_pallet_expedicao') }}" method="get"><label>Localizar por código<input name="codigo" placeholder="Digite ou leia PALT-000001" autocomplete="off" required autofocus></label><button class="romaneio-btn romaneio-btn-secondary">Abrir pallet</button></form>
+</div>
+{% endblock %}

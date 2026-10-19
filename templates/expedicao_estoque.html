@@ -5,7 +5,7 @@
         <div><span class="eyebrow">Expedição</span><h2>Estoque da Câmara</h2><small>Visão física e disponibilidade operacional posterior ao marco zero</small></div>
         <button class="romaneio-btn romaneio-btn-primary no-print" type="button" data-abrir-relatorio-estoque>Gerar relatório consolidado</button>
     </section>
-    <nav class="romaneio-tabs no-print"><a href="{{ url_for('expedicao') }}">Romaneios</a><a class="ativo" href="{{ url_for('estoque_camara_expedicao') }}">Estoque da Câmara</a><a href="{{ url_for('nao_conformes_expedicao') }}">Produtos Não Conformes</a><a href="{{ url_for('historico_estoque_expedicao') }}">Histórico</a></nav>
+    {% set expedicao_tab='estoque' %}{% include '_expedicao_tabs.html' %}
     <section class="expedicao-kpis">
         <div class="card expedicao-kpi verde"><span>Legado agregado dispon&iacute;vel</span><strong>{{ resumo.peso_legado_disponivel|br_numero(3) }} kg</strong><small>Origem preservada, sem OP ou lote fict&iacute;cio</small></div>
         {% for titulo, css, quantidades, observacao in [

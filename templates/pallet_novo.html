@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block conteudo %}
+<div class="expedicao-page pallet-page pallet-form-page">
+  <header class="pallet-header"><div><span class="eyebrow">Expedição · Pallets</span><h2>Novo pallet</h2><p>O código de identificação será gerado automaticamente.</p></div><a class="romaneio-btn romaneio-btn-secondary" href="{{ url_for('pallets_expedicao') }}">Voltar</a></header>
+  {% set expedicao_tab='pallets' %}{% include '_expedicao_tabs.html' %}
+  <form method="post" class="card pallet-form">
+    <input type="hidden" name="idempotency_key" value="{{ chave }}">
+    <label>Localização<select name="localizacao_atual_id"><option value="">Sem localização definida</option>{% for local in locais %}<option value="{{ local.id }}">{{ local.nome }}</option>{% endfor %}</select></label>
+    <label>Posição física <span>Opcional</span><input name="posicao_atual" maxlength="120" placeholder="Ex.: Câmara A · Rua 02"></label>
+    <label class="pallet-span-all">Observação <span>Opcional</span><textarea name="observacao" maxlength="1000" rows="4"></textarea></label>
+    <div class="pallet-form-actions"><button class="romaneio-btn romaneio-btn-primary">Criar pallet</button></div>
+  </form>
+</div>
+{% endblock %}

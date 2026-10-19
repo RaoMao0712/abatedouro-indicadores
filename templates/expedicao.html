@@ -10,12 +10,7 @@
         <a href="{{ url_for('novo_romaneio_expedicao') }}" class="romaneio-btn romaneio-btn-primary no-print">+ Novo romaneio</a>
     </header>
 
-    <nav class="romaneio-tabs no-print" aria-label="Navegação da Expedição">
-        <a class="ativo" href="{{ url_for('expedicao') }}">Romaneios</a>
-        <a href="{{ url_for('estoque_camara_expedicao') }}">Estoque da Câmara</a>
-        <a href="{{ url_for('nao_conformes_expedicao') }}">Produtos Não Conformes</a>
-        <a href="{{ url_for('historico_estoque_expedicao') }}">Histórico</a>
-    </nav>
+    {% set expedicao_tab='romaneios' %}{% include '_expedicao_tabs.html' %}
 
     <form method="GET" class="card expedicao-filtro-form romaneio-filtros">
         <label>Número<input name="numero" value="{{ numero }}"></label>

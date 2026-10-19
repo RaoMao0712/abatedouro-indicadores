@@ -96,6 +96,15 @@ from modules.parceiros.services import (
     PAPEL_CLIENTE, listar_clientes_ativos, listar_parceiros_por_papel,
 )
 from .relatorio_entregas import gerar_relatorio_entregas_pdf
+from .palletizacao import (
+    buscar_pallet_por_codigo,
+    consultar_pallet,
+    criar_pallet,
+    listar_eventos_pallet,
+    listar_locais_pallet,
+    listar_pallets,
+    resumo_pallets,
+)
 
 
 def listar_clientes(*, somente_ativos=True):
@@ -217,6 +226,75 @@ def alinhar_resumo_ao_consolidado(resumo, consolidado, saldos_legados):
 def register_expedicao_routes(app, integracoes=None):
     integracoes = integracoes or {}
     configurar_integracoes(criar_banco=integracoes.get("criar_banco"))
+
+    @app.get("/expedicao/pallets")
+    @perfil_permitido("pcp", "qualidade")
+    def pallets_expedicao():
+        filtros = {nome: request.args.get(nome, "") for nome in (
+            "codigo", "status", "produto", "op", "localizacao",
+        )}
+        return render_template(
+            "pallets.html", pallets=listar_pallets(filtros), filtros=filtros,
+            resumo=resumo_pallets(), locais=listar_locais_pallet(),
+            pode_criar=session.get("perfil") in {"admin", "pcp"},
+            status_opcoes=("ABERTO", "EM_FORMACAO", "DISPONIVEL", "RESERVADO",
+                            "PARCIALMENTE_CARREGADO", "CARREGADO", "ENCERRADO", "CANCELADO"),
+        )
+
+    @app.get("/expedicao/pallets/novo")
+    @perfil_permitido("pcp")
+    def novo_pallet_expedicao():
+        chave = session.get("pallet_criacao_chave") or str(uuid.uuid4())
+        session["pallet_criacao_chave"] = chave
+        return render_template("pallet_novo.html", locais=listar_locais_pallet(), chave=chave)
+
+    @app.post("/expedicao/pallets/novo")
+    @perfil_permitido("pcp")
+    def criar_pallet_expedicao():
+        try:
+            chave = request.form.get("idempotency_key")
+            if not chave or chave != session.get("pallet_criacao_chave"):
+                raise ValueError("Solicitacao de criacao invalida. Reabra o formulario.")
+            localizacao = request.form.get("localizacao_atual_id") or None
+            pallet = criar_pallet(
+                usuario=session.get("nome") or "Usuario nao identificado",
+                idempotency_key=chave,
+                localizacao_atual_id=int(localizacao) if localizacao else None,
+                posicao_atual=(request.form.get("posicao_atual") or "").strip() or None,
+                observacao=(request.form.get("observacao") or "").strip() or None,
+            )
+            session.pop("pallet_criacao_chave", None)
+            flash(f"Pallet {pallet['codigo']} criado com sucesso.")
+            return redirect(url_for("detalhe_pallet_expedicao", pallet_id=pallet["id"]))
+        except (TypeError, ValueError) as erro:
+            flash(str(erro))
+            return redirect(url_for("novo_pallet_expedicao"))
+
+    @app.get("/expedicao/pallets/localizar")
+    @perfil_permitido("pcp", "qualidade")
+    def localizar_pallet_expedicao():
+        codigo = request.args.get("codigo") or ""
+        pallet = buscar_pallet_por_codigo(codigo)
+        if not pallet:
+            flash(f"Pallet {codigo.strip() or 'informado'} nao encontrado.")
+            return redirect(url_for("pallets_expedicao", codigo=codigo.strip()))
+        return redirect(url_for("detalhe_pallet_expedicao", pallet_id=pallet["id"]))
+
+    @app.get("/expedicao/pallets/<int:pallet_id>")
+    @perfil_permitido("pcp", "qualidade")
+    def detalhe_pallet_expedicao(pallet_id):
+        try:
+            pallet = consultar_pallet(pallet_id)
+        except ValueError as erro:
+            flash(str(erro))
+            return redirect(url_for("pallets_expedicao"))
+        aba = request.args.get("aba", "visao-geral")
+        if aba not in {"visao-geral", "caixas", "ops", "movimentacoes"}:
+            aba = "visao-geral"
+        return render_template(
+            "pallet_detalhe.html", pallet=pallet, aba=aba,
+            eventos=listar_eventos_pallet(pallet_id),
+        )
 
     @app.route("/embalagem-primaria", methods=["GET", "POST"])
     @perfil_permitido("pcp", "producao")

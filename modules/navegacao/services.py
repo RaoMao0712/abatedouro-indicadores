@@ -185,6 +185,7 @@ NAVEGACAO = [
         "perfis": ("admin", "pcp", "qualidade"),
         "card": True,
         "itens": [
+            {"titulo": "Pallets", "endpoint": "pallets_expedicao", "perfis": ("admin", "pcp", "qualidade"), "principal": True, "active_endpoints": ("pallets_expedicao", "novo_pallet_expedicao", "criar_pallet_expedicao", "localizar_pallet_expedicao", "detalhe_pallet_expedicao")},
             {"titulo": "Pedidos de Venda", "endpoint": "pedidos_venda", "perfis": ("admin", "pcp"), "principal": True, "active_endpoints": ("pedidos_venda", "novo_pedido_venda", "editar_pedido_venda", "detalhe_pedido_venda", "imprimir_pedido_venda")},
             {"titulo": "Central de Romaneios", "endpoint": "expedicao", "perfis": ("admin", "pcp", "qualidade"), "principal": True, "active_endpoints": ("expedicao", "detalhe_romaneio_expedicao", "imprimir_romaneio_expedicao")},
             {"titulo": "Novo Romaneio", "endpoint": "novo_romaneio_expedicao", "perfis": ("admin", "pcp", "qualidade")},
