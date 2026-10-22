@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block conteudo %}
+<section class="hero-dashboard expedicao-hero"><div><span class="eyebrow">OP #{{ op.id }}</span><h2>Organização em pallets</h2><div class="hero-resumo-inline"><span><strong>Produto:</strong> {{ op.sku }}</span><span><strong>Progresso:</strong> {{ organizacao.organizadas }} / {{ organizacao.totais.posicoes }}</span><span><strong>Sem pallet:</strong> {{ organizacao.nao_organizadas }}</span></div></div></section>
+
+<div class="card expedicao-card">
+  <div class="section-title-row"><div><span class="eyebrow">Retomada persistente</span><h2>Caixas/posições da OP</h2><p class="obs">Selecione todas as posições sem pallet e desmarque apenas as exceções. O backend revalida a OP e o vínculo antes de gravar o lote.</p></div></div>
+  {% if organizacao.sem_pallet %}
+  <form method="post" data-organizacao-pallets>
+    <input type="hidden" name="idempotency_key" value="{{ chave }}">
+    <div class="form-grid"><div><label>Pallet destino</label><select name="pallet_id"><option value="">Selecione</option>{% for pallet in pallets %}<option value="{{ pallet.id }}">{{ pallet.codigo }} — {{ pallet.status }} — {{ pallet.localizacao_nome or 'Sem localização' }} — {{ pallet.totais.caixas }} posição(ões)</option>{% endfor %}</select></div></div>
+    <p><label><input type="checkbox" data-selecionar-todas checked> Selecionar todas as caixas sem pallet desta OP</label></p>
+    <div class="tabela-responsiva tabela-executiva"><table><thead><tr><th>Selecionar</th><th>Código</th><th>Unidade</th><th>Peso</th><th>Bandejas</th><th>Pacotes</th><th>Aves</th></tr></thead><tbody>{% for caixa in organizacao.sem_pallet %}<tr><td><input type="checkbox" name="caixa_ids" value="{{ caixa.id }}" checked data-caixa-op></td><td><strong>{{ caixa.codigo_caixa }}</strong></td><td>{{ caixa.unidade_estoque }}</td><td>{{ caixa.peso_liquido|default(0, true)|br_numero(3) }}</td><td>{{ caixa.quantidade_bandejas|default(0, true)|br_numero }}</td><td>{{ caixa.quantidade_pacotes|default(0, true) }}</td><td>{{ caixa.quantidade_galinhas|default(0, true) }}</td></tr>{% endfor %}</tbody></table></div>
+    <button class="botao-principal" type="submit" name="acao" value="vincular">Vincular selecionadas</button>
+  </form>
+  {% else %}<p><strong>Organização completa.</strong> Todas as caixas/posições desta OP estão palletizadas.</p>{% endif %}
+</div>
+
+<div class="card expedicao-card"><div class="section-title-row"><div><span class="eyebrow">Sem sair da operação</span><h2>Criar novo pallet</h2></div></div><form method="post" class="form-grid"><input type="hidden" name="idempotency_key" value="{{ chave }}"><div><label>Localização</label><select name="localizacao_atual_id"><option value="">Sem localização</option>{% for local in locais %}<option value="{{ local.id }}">{{ local.nome }}</option>{% endfor %}</select></div><div><label>Posição</label><input name="posicao_atual"></div><div class="form-span-2"><button class="botao-principal" type="submit" name="acao" value="criar">Criar pallet e continuar</button></div></form></div>
+
+{% for pallet in organizacao.pallets %}<div class="card expedicao-card"><h3>{{ pallet.codigo }}</h3><p>{{ pallet.totais.posicoes }} posição(ões) · {{ pallet.totais.peso|br_numero(3) }} kg · {{ pallet.totais.bandejas|br_numero }} bandejas · {{ pallet.totais.pacotes }} pacotes · {{ pallet.totais.aves }} aves</p></div>{% endfor %}
+<p><a class="botao-secundario" href="{{ url_for('embalagem_secundaria', op_id=op.id) }}#organizacao-pallets">Voltar ao encerramento</a></p>
+<script>document.querySelector('[data-selecionar-todas]')?.addEventListener('change',function(){document.querySelectorAll('[data-caixa-op]').forEach((item)=>item.checked=this.checked);});</script>
+{% endblock %}

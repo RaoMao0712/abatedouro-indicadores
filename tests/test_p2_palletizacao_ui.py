@@ -164,3 +164,52 @@ def test_p5_visao_estoque_hierarquia_filtros_indicadores_e_sem_acoes(ambiente, m
         assert texto in resposta.data
     assert b"Remover do pallet" not in resposta.data
 
+
+def test_p4_tela_organizacao_selecao_em_massa_criacao_e_retomada(ambiente, monkeypatch):
+    cliente, armazenados = ambiente
+    armazenados.append(pallet_vazio())
+    caixas = [{
+        "id": indice, "codigo_caixa": f"CX-{indice}", "unidade_estoque": "CAIXA",
+        "peso_liquido": 20, "quantidade_bandejas": 12,
+        "quantidade_pacotes": 0, "quantidade_galinhas": 0,
+    } for indice in range(1, 4)]
+    estado = {"sem_pallet": list(caixas), "pallets": []}
+
+    def resumo(_op_id):
+        return {
+            "op": {"id": 121, "sku": "Galinha Cortada", "status": "Aberta"},
+            "caixas": caixas, "sem_pallet": list(estado["sem_pallet"]),
+            "pallets": list(estado["pallets"]),
+            "totais": {"posicoes": 3, "peso": 60, "bandejas": 36, "pacotes": 0, "aves": 0},
+            "organizadas": 3 - len(estado["sem_pallet"]),
+            "nao_organizadas": len(estado["sem_pallet"]),
+            "percentual": (3 - len(estado["sem_pallet"])) * 100 / 3,
+            "completa": not estado["sem_pallet"],
+        }
+
+    monkeypatch.setattr(routes, "buscar_op_por_id", lambda op_id: {"id": op_id, "sku": "Galinha Cortada"})
+    monkeypatch.setattr(routes, "resumo_organizacao_op", resumo)
+
+    def adicionar(pallet_id, ids, **_kwargs):
+        selecionadas = {int(item) for item in ids}
+        estado["sem_pallet"] = [item for item in estado["sem_pallet"] if item["id"] not in selecionadas]
+        estado["pallets"] = [{"id": pallet_id, "codigo": "PALT-000001",
+                              "totais": {"posicoes": len(selecionadas), "peso": 40,
+                                         "bandejas": 24, "pacotes": 0, "aves": 0}}]
+        return armazenados[0]
+
+    monkeypatch.setattr(routes, "adicionar_caixas", adicionar)
+    pagina = cliente.get("/op/121/pallets/organizar")
+    assert pagina.status_code == 200
+    for texto in (b"Organiza", b"Selecionar todas", b"CX-1", b"Criar novo pallet"):
+        assert texto in pagina.data
+    with cliente.session_transaction() as sessao:
+        chave = sessao["op_121_palletizacao_chave"]
+    resposta = cliente.post("/op/121/pallets/organizar", data={
+        "idempotency_key": chave, "pallet_id": "1", "acao": "vincular",
+        "caixa_ids": ["1", "2"],
+    })
+    assert resposta.status_code == 302
+    retomada = cliente.get("/op/121/pallets/organizar")
+    assert b"1 / 3" not in retomada.data and b"CX-3" in retomada.data
+

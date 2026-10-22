@@ -55,6 +55,19 @@ CREATE TABLE IF NOT EXISTS pallet_caixas_atuais (
     CONSTRAINT ux_pallet_caixas_atuais_caixa UNIQUE (caixa_id)
 );
 
+CREATE TABLE IF NOT EXISTS op_palletizacao_excecoes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    op_id INTEGER NOT NULL REFERENCES ordens_producao(id) ON DELETE RESTRICT,
+    justificativa TEXT NOT NULL,
+    usuario TEXT NOT NULL,
+    idempotency_key TEXT NOT NULL UNIQUE,
+    caixas_sem_pallet INTEGER NOT NULL CHECK (caixas_sem_pallet >= 0),
+    criado_em TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_op_palletizacao_excecoes_op
+    ON op_palletizacao_excecoes(op_id, criado_em, id);
+
 CREATE INDEX IF NOT EXISTS idx_pallets_local_status ON pallets(localizacao_atual_id, status);
 CREATE INDEX IF NOT EXISTS idx_pallet_caixas_atuais_pallet ON pallet_caixas_atuais(pallet_id, id);
 CREATE INDEX IF NOT EXISTS idx_pallet_eventos_pallet_data ON pallet_caixa_eventos(pallet_id, criado_em, id);

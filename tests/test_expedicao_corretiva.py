@@ -515,7 +515,10 @@ class ExpedicaoCorretivaTest(unittest.TestCase):
             self.assertEqual(
                 cliente.post(
                     f"/embalagem-secundaria/{op_id}/finalizar",
-                    data={"conferencia_hash": conferencia["hash"]},
+                    data={
+                        "conferencia_hash": conferencia["hash"],
+                        "pallet_justificativa": "Fluxo legado sem pallet nesta fixture",
+                    },
                 ).status_code,
                 302,
             )
@@ -1015,6 +1018,7 @@ class ExpedicaoCorretivaTest(unittest.TestCase):
                 "conferencia_hash": conferencia["hash"],
                 "idempotency_key": f"TESTE-CONFIRMA-{op_id}",
                 "versao_operacional": "0",
+                "pallet_justificativa": "Fluxo legado sem pallet nesta fixture",
             },
         )
         self.assertEqual(resposta.status_code, 302)

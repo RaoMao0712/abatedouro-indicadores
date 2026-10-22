@@ -146,6 +146,19 @@
 {% endif %}
 
 {% if op_selecionada and fechamento_op %}
+<div class="card expedicao-card" id="organizacao-pallets">
+    <div class="section-title-row"><div><span class="eyebrow">Etapa logística</span><h2>Organização em pallets</h2><p class="obs">A organização é persistida separadamente. O preflight produtivo abaixo continua sendo a autoridade final.</p></div></div>
+    {% if organizacao_pallets %}
+    <div class="expedicao-kpis">
+        <div class="card kpi-card destaque"><span class="kpi-label">Progresso</span><strong>{{ organizacao_pallets.organizadas }} / {{ organizacao_pallets.totais.posicoes }}</strong><small>{{ organizacao_pallets.percentual|br_numero(1) }}% organizado</small></div>
+        <div class="card kpi-card"><span class="kpi-label">Pallets utilizados</span><strong>{{ organizacao_pallets.pallets|length }}</strong><small>agrupadores logísticos</small></div>
+        <div class="card kpi-card"><span class="kpi-label">Sem pallet</span><strong>{{ organizacao_pallets.nao_organizadas }}</strong><small>caixas/posições pendentes</small></div>
+    </div>
+    {% if organizacao_pallets.completa %}<p><strong>Organização completa.</strong></p>{% else %}<p class="alerta-operacional"><strong>Atenção:</strong> existem caixas sem pallet. Organize-as ou informe justificativa explícita no encerramento.</p>{% endif %}
+    {% for pallet in organizacao_pallets.pallets %}<p><strong>{{ pallet.codigo }}</strong> — {{ pallet.totais.posicoes }} posição(ões), {{ pallet.totais.peso|br_numero(3) }} kg, {{ pallet.totais.bandejas|br_numero }} bandejas.</p>{% endfor %}
+    <a class="botao-principal" href="{{ url_for('organizar_pallets_op', op_id=op_selecionada.op_id) }}">Organizar caixas</a>
+    {% endif %}
+</div>
 <div class="card expedicao-card" id="conferencia-encerramento">
     <div class="section-title-row">
         <div>
@@ -249,6 +262,7 @@
         <input type="hidden" name="conferencia_hash" value="{{ conferencia_op.hash if conferencia_op else '' }}">
         <input type="hidden" name="idempotency_key" value="{{ chave_encerramento }}">
         <input type="hidden" name="versao_operacional" value="{{ fechamento_op.versao_operacional }}">
+        {% if organizacao_pallets and not organizacao_pallets.completa %}<div class="obs"><label>Justificativa para encerrar com caixas sem pallet</label><textarea name="pallet_justificativa" required minlength="5" rows="2"></textarea></div>{% endif %}
         <section class="pa-nc-encerramento">
             <div class="section-title-row"><div><span class="eyebrow">Segregação controlada</span><h3>Produtos Acabados Não Conformes</h3><p class="obs">Opcional. Marque zero ou várias caixas. Cada item marcado nascerá bloqueado e fora do estoque comercial.</p></div></div>
             <div class="tabela-responsiva tabela-executiva"><table>
@@ -606,6 +620,7 @@ document.addEventListener("DOMContentLoaded", function () {
         <input type="hidden" name="csrf_token" value="{{ csrf_estorno }}">
         <input type="hidden" name="conferencia_hash" value="{{ conferencia_op.hash }}">
         <input type="hidden" name="idempotency_key" value="{{ chave_encerramento }}">
+        {% if organizacao_pallets and not organizacao_pallets.completa %}<div class="obs"><label>Justificativa para encerrar com caixas sem pallet</label><textarea name="pallet_justificativa" required minlength="5" rows="2"></textarea></div>{% endif %}
         <input type="hidden" name="versao_operacional" value="{{ fechamento_op.versao_operacional if fechamento_op else 0 }}">
         <label><input type="checkbox" name="confirmacao" value="1" required> <strong>Conferi os lançamentos da Embalagem Secundária desta OP.</strong></label>
         <button type="submit" class="botao-principal" data-botao-encerramento style="margin-top:.8rem;">Conferir e encerrar OP</button>

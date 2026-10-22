@@ -32,7 +32,7 @@ CREATE TABLE locais_estoque(
  id SERIAL PRIMARY KEY,nome TEXT UNIQUE NOT NULL,tipo TEXT,ativo TEXT DEFAULT 'Sim'
 );
 CREATE TABLE expedicoes(id SERIAL PRIMARY KEY,numero_romaneio TEXT,status TEXT DEFAULT 'Aberto');
-CREATE TABLE ordens_producao(id INTEGER PRIMARY KEY,sku TEXT);
+CREATE TABLE ordens_producao(id INTEGER PRIMARY KEY,sku TEXT,status TEXT DEFAULT 'Aberta');
 CREATE TABLE pa_caixas(
  id SERIAL PRIMARY KEY,codigo_caixa TEXT UNIQUE NOT NULL,sku TEXT NOT NULL,
  quantidade_bandejas NUMERIC DEFAULT 0,peso_liquido NUMERIC DEFAULT 0,
@@ -50,7 +50,7 @@ CREATE TABLE expedicao_itens(
  id SERIAL PRIMARY KEY,expedicao_id INTEGER,caixa_id INTEGER,ativo INTEGER DEFAULT 1
 );
 INSERT INTO locais_estoque(nome,tipo) VALUES('Abatedouro','interno'),('Camara Fria LSM','interno');
-INSERT INTO ordens_producao VALUES(121,'Galinha Inteira'),(122,'Galinha Cortada');
+INSERT INTO ordens_producao(id,sku) VALUES(121,'Galinha Inteira'),(122,'Galinha Cortada');
 INSERT INTO pa_caixas(
  codigo_caixa,sku,quantidade_bandejas,peso_liquido,quantidade_pacotes,
  quantidade_galinhas,local_estoque_id
@@ -88,7 +88,7 @@ def schema_postgresql():
 def estado_limpo(monkeypatch):
     with conectar() as conn:
         with conn.cursor() as cursor:
-            cursor.execute("TRUNCATE pallet_caixas_atuais, pallet_caixa_eventos, pallets RESTART IDENTITY")
+            cursor.execute("TRUNCATE op_palletizacao_excecoes, pallet_caixas_atuais, pallet_caixa_eventos, pallets RESTART IDENTITY")
 
     @contextmanager
     def transacao_real():
@@ -384,3 +384,40 @@ def test_p5_agregacoes_filtros_reserva_pacote_sem_pallet_e_zero_mutacao():
         assert [dict(item) for item in cursor.fetchall()] == antes
         cursor.execute("SELECT id,sku FROM ordens_producao ORDER BY id")
         assert [dict(item) for item in cursor.fetchall()] == ops_antes
+
+
+def test_p4_organizacao_op_excecao_retry_e_zero_mutacao_postgresql():
+    pallet = criar("P4-PG-PALLET")
+    with conectar() as conn, conn.cursor() as cursor:
+        cursor.execute("""SELECT id,status,disponibilidade,estoque_operacional,
+                                  quantidade_pacotes_reservados,reservado_expedicao_id
+                             FROM pa_caixas WHERE id IN (2,3) ORDER BY id""")
+        antes = [dict(item) for item in cursor.fetchall()]
+        cursor.execute("SELECT id,sku,status FROM ordens_producao WHERE id=122")
+        op_antes = dict(cursor.fetchone())
+    palletizacao.adicionar_caixa(
+        pallet["id"], 2, usuario="PCP", idempotency_key="P4-PG-ADD",
+        dados={"op_id": 122, "origem": "ENCERRAMENTO_OP"},
+    )
+    resumo = palletizacao.resumo_organizacao_op(122)
+    assert resumo["organizadas"] == 1 and resumo["nao_organizadas"] == 1
+    with pytest.raises(ValueError, match="justificativa"):
+        palletizacao.validar_organizacao_para_encerramento(122)
+    primeira = palletizacao.validar_organizacao_para_encerramento(
+        122, justificativa="Excecao operacional controlada", usuario="PCP",
+        idempotency_key="P4-PG-EXCECAO",
+    )
+    retry = palletizacao.validar_organizacao_para_encerramento(
+        122, justificativa="Excecao operacional controlada", usuario="PCP",
+        idempotency_key="P4-PG-EXCECAO",
+    )
+    assert primeira["nao_organizadas"] == retry["nao_organizadas"] == 1
+    assert contagem("op_palletizacao_excecoes", "op_id=122") == 1
+    with conectar() as conn, conn.cursor() as cursor:
+        cursor.execute("""SELECT id,status,disponibilidade,estoque_operacional,
+                                  quantidade_pacotes_reservados,reservado_expedicao_id
+                             FROM pa_caixas WHERE id IN (2,3) ORDER BY id""")
+        depois = [dict(item) for item in cursor.fetchall()]
+        cursor.execute("SELECT id,sku,status FROM ordens_producao WHERE id=122")
+        op_depois = dict(cursor.fetchone())
+    assert antes == depois and op_antes == op_depois

@@ -101,6 +101,16 @@
             </div>{% endfor %}
         </section>
 
+        <section class="form-span-2 campo-galinha-inteira pa-nc-encerramento">
+            <span class="eyebrow">Organização em pallets</span>
+            <h3>Destino das posições PACOTE</h3>
+            <p class="obs">As posições V1/V2 permanecem indivisíveis e serão vinculadas sem alterar pacotes, aves ou disponibilidade.</p>
+            <div class="form-grid">
+                <div><label>Pallet destino</label><select name="pallet_destino_id"><option value="">Prosseguir sem pallet</option>{% for pallet in pallets_organizacao %}<option value="{{ pallet.id }}">{{ pallet.codigo }} — {{ pallet.status }} — {{ pallet.localizacao_nome or 'Sem localização' }} — {{ pallet.totais.caixas }} posição(ões)</option>{% endfor %}</select></div>
+                <div><label>Justificativa se ficar sem pallet</label><textarea name="pallet_justificativa" rows="2" placeholder="Obrigatória quando nenhum pallet for selecionado"></textarea></div>
+            </div>
+        </section>
+
         <div class="form-span-2">
             <button type="submit" class="botao-principal" id="botao-embalagem-primaria" data-botao-encerramento-primaria>{% if modo_edicao and apontamento_edicao %}Atualizar PI{% else %}Registrar PI{% endif %}</button>
             {% if modo_edicao and apontamento_edicao %}

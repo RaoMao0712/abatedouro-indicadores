@@ -839,6 +839,7 @@ def registrar_apontamento_embalagem_primaria(
                 "resultado_extra": {
                     "tipo": "encerramento_primaria",
                     "codigos_lote": [item["codigo"] for item in posicoes],
+                    "posicao_ids": [item["id"] for item in posicoes],
                     "aves_embaladas": aves_embaladas,
                     "unidades_vendaveis": unidades_vendaveis,
                     "pacotes_v1": pacotes_1,

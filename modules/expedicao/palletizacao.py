@@ -649,6 +649,96 @@ def listar_caixas_disponiveis_palletizacao(filtros=None):
         conn.close()
 
 
+def resumo_organizacao_op(op_id):
+    """Fotografia derivada das posições PA da OP e de seus vínculos logísticos."""
+    conn = conectar()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(q("SELECT id,sku,status FROM ordens_producao WHERE id=?"), (op_id,))
+        op = cursor.fetchone()
+        if not op:
+            raise ValueError("OP nao encontrada.")
+        cursor.execute(q("""SELECT DISTINCT cx.*,ca.pallet_id,p.codigo AS pallet_codigo,
+                                    p.status AS pallet_status,p.posicao_atual,
+                                    le.nome AS pallet_localizacao
+                               FROM pa_caixa_composicao comp
+                               JOIN pa_caixas cx ON cx.id=comp.caixa_id
+                               LEFT JOIN pallet_caixas_atuais ca ON ca.caixa_id=cx.id
+                               LEFT JOIN pallets p ON p.id=ca.pallet_id
+                               LEFT JOIN locais_estoque le ON le.id=p.localizacao_atual_id
+                              WHERE comp.op_id=?
+                                AND UPPER(COALESCE(cx.status,'')) NOT IN
+                                    ('ESTORNADA','ESTORNADO','CANCELADA','CANCELADO')
+                              ORDER BY cx.id"""), (op_id,))
+        caixas = [dict(item) for item in cursor.fetchall()]
+        por_pallet = {}
+        sem_pallet = []
+        for caixa in caixas:
+            if caixa.get("pallet_id") is None:
+                sem_pallet.append(caixa)
+                continue
+            grupo = por_pallet.setdefault(int(caixa["pallet_id"]), {
+                "id": int(caixa["pallet_id"]), "codigo": caixa["pallet_codigo"],
+                "status": caixa["pallet_status"], "posicao": caixa.get("posicao_atual"),
+                "localizacao": caixa.get("pallet_localizacao"), "caixas": [],
+            })
+            grupo["caixas"].append(caixa)
+        def totais(itens):
+            return {
+                "posicoes": len(itens),
+                "peso": sum(float(item.get("peso_liquido") or 0) for item in itens),
+                "bandejas": sum(float(item.get("quantidade_bandejas") or 0) for item in itens),
+                "pacotes": sum(int(item.get("quantidade_pacotes") or 0) for item in itens),
+                "aves": sum(int(item.get("quantidade_galinhas") or 0) for item in itens),
+            }
+        pallets = list(por_pallet.values())
+        for pallet in pallets:
+            pallet["totais"] = totais(pallet["caixas"])
+        total = len(caixas)
+        organizadas = total - len(sem_pallet)
+        return {
+            "op": dict(op), "caixas": caixas, "sem_pallet": sem_pallet,
+            "pallets": pallets, "totais": totais(caixas),
+            "organizadas": organizadas, "nao_organizadas": len(sem_pallet),
+            "percentual": round((organizadas * 100 / total), 1) if total else 100.0,
+            "completa": not sem_pallet,
+        }
+    finally:
+        conn.close()
+
+
+def validar_organizacao_para_encerramento(op_id, *, justificativa=None, usuario=None,
+                                           idempotency_key=None):
+    """Não interfere no preflight produtivo; apenas audita a exceção logística."""
+    resumo = resumo_organizacao_op(op_id)
+    if resumo["completa"]:
+        return resumo
+    motivo = str(justificativa or "").strip()
+    if len(motivo) < 5:
+        raise ValueError(
+            f"A OP possui {resumo['nao_organizadas']} caixa(s)/posicao(oes) sem pallet. "
+            "Informe uma justificativa explicita para prosseguir."
+        )
+    chave = _validar_chave(idempotency_key)
+    with transaction() as conn:
+        cursor = conn.cursor()
+        _bloquear_idempotencia(cursor, chave)
+        cursor.execute(q("SELECT * FROM op_palletizacao_excecoes WHERE idempotency_key=?"), (chave,))
+        existente = cursor.fetchone()
+        if existente:
+            if int(existente["op_id"]) != int(op_id):
+                raise ValueError("idempotency_key ja usada por outra operacao.")
+            return resumo
+        cursor.execute(q("""INSERT INTO op_palletizacao_excecoes(
+            op_id,justificativa,usuario,idempotency_key,caixas_sem_pallet
+        ) VALUES(?,?,?,?,?)"""), (
+            op_id, motivo, usuario or "Usuario nao identificado", chave,
+            resumo["nao_organizadas"],
+        ))
+    resumo["excecao_registrada"] = True
+    return resumo
+
+
 def listar_pallets_destino(pallet_origem_id):
     return [
         item for item in listar_pallets()

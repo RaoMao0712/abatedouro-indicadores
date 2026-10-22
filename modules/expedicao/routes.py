@@ -107,8 +107,10 @@ from .palletizacao import (
     listar_pallets,
     listar_pallets_destino,
     remover_caixas,
+    resumo_organizacao_op,
     resumo_pallets,
     transferir_caixas,
+    validar_organizacao_para_encerramento,
     visao_estoque_por_pallet,
 )
 
@@ -123,6 +125,32 @@ def _csrf_estorno_valido():
     informado = str(request.form.get("csrf_token") or "")
     esperado = str(session.get("estorno_embalagem_csrf") or "")
     return bool(informado and esperado and secrets.compare_digest(informado, esperado))
+
+
+def _schema_palletizacao_ausente(erro):
+    texto = str(erro).casefold()
+    return "pallet_caixas_atuais" in texto and (
+        "no such table" in texto or "does not exist" in texto
+    )
+
+
+def _validar_organizacao_encerramento(op_id, **dados):
+    try:
+        return validar_organizacao_para_encerramento(op_id, **dados)
+    except Exception as erro:
+        if _schema_palletizacao_ausente(erro):
+            return None
+        raise
+
+
+def _pallets_ativos_organizacao():
+    try:
+        return [item for item in listar_pallets()
+                if item["status"] not in {"ENCERRADO", "CANCELADO"}]
+    except Exception as erro:
+        if _schema_palletizacao_ausente(erro) or "no such table: pallets" in str(erro).casefold():
+            return []
+        raise
 
 
 from .consolidado_estoque import ROTULOS_SITUACOES, consolidar_estoque_camara
@@ -232,6 +260,59 @@ def alinhar_resumo_ao_consolidado(resumo, consolidado, saldos_legados):
 def register_expedicao_routes(app, integracoes=None):
     integracoes = integracoes or {}
     configurar_integracoes(criar_banco=integracoes.get("criar_banco"))
+
+    @app.route("/op/<int:op_id>/pallets/organizar", methods=["GET", "POST"])
+    @perfil_permitido("pcp", "producao")
+    def organizar_pallets_op(op_id):
+        try:
+            op = buscar_op_por_id(op_id)
+            if not op:
+                raise ValueError("OP nao encontrada.")
+            if request.method == "POST":
+                chave = request.form.get("idempotency_key") or ""
+                esperada = session.get(f"op_{op_id}_palletizacao_chave")
+                if not chave or chave != esperada:
+                    raise ValueError("Solicitacao de organizacao expirada. Atualize a pagina.")
+                pallet_id = request.form.get("pallet_id")
+                if request.form.get("acao") == "criar":
+                    pallet = criar_pallet(
+                        usuario=session.get("nome") or "Usuario nao identificado",
+                        idempotency_key=f"{chave}-CRIAR",
+                        localizacao_atual_id=(int(request.form["localizacao_atual_id"])
+                                              if request.form.get("localizacao_atual_id") else None),
+                        posicao_atual=(request.form.get("posicao_atual") or "").strip() or None,
+                        observacao=f"Criado durante organizacao da OP #{op_id}",
+                    )
+                    pallet_id = pallet["id"]
+                    flash(f"Pallet {pallet['codigo']} criado. Selecione as posicoes para vincular.")
+                ids = request.form.getlist("caixa_ids")
+                if ids:
+                    permitidas = {int(item["id"]) for item in resumo_organizacao_op(op_id)["sem_pallet"]}
+                    selecionadas = [int(item) for item in ids]
+                    if not selecionadas or any(item not in permitidas for item in selecionadas):
+                        raise ValueError("A selecao contem caixa/posicao fora da OP ou ja movimentada.")
+                    if not pallet_id:
+                        raise ValueError("Selecione ou crie um pallet de destino.")
+                    adicionar_caixas(
+                        int(pallet_id), selecionadas,
+                        usuario=session.get("nome") or "Usuario nao identificado",
+                        idempotency_key=f"{chave}-VINCULAR",
+                        dados={"op_id": op_id, "origem": "ENCERRAMENTO_OP"},
+                    )
+                    flash(f"{len(selecionadas)} caixa(s)/posicao(oes) organizadas com sucesso.")
+                session.pop(f"op_{op_id}_palletizacao_chave", None)
+                return redirect(url_for("organizar_pallets_op", op_id=op_id))
+            chave = str(uuid.uuid4())
+            session[f"op_{op_id}_palletizacao_chave"] = chave
+            return render_template(
+                "op_organizar_pallets.html", op=op,
+                organizacao=resumo_organizacao_op(op_id),
+                pallets=_pallets_ativos_organizacao(),
+                locais=listar_locais_pallet(), chave=chave,
+            )
+        except (TypeError, ValueError) as erro:
+            flash(str(erro))
+            return redirect(url_for("embalagem_secundaria", op_id=op_id))
 
     @app.get("/expedicao/pallets")
     @perfil_permitido("pcp", "qualidade")
@@ -421,6 +502,12 @@ def register_expedicao_routes(app, integracoes=None):
             try:
                 op_id = int(request.form.get("op_id") or 0)
                 op = buscar_op_por_id(op_id)
+                if (op and validar_sku_operacional(op["sku"]) == "Galinha Inteira"
+                        and not request.form.get("pallet_destino_id")
+                        and len((request.form.get("pallet_justificativa") or "").strip()) < 5):
+                    raise ValueError(
+                        "Selecione um pallet para as posicoes PACOTE ou informe justificativa explicita."
+                    )
                 resultado = registrar_apontamento_embalagem_primaria(
                     op=op,
                     quantidade_bandejas=request.form.get("quantidade_bandejas"),
@@ -437,6 +524,20 @@ def register_expedicao_routes(app, integracoes=None):
                     request_id=request.headers.get("X-Request-ID"),
                 )
                 if resultado.get("tipo") == "encerramento_primaria":
+                    pallet_id = request.form.get("pallet_destino_id")
+                    if pallet_id:
+                        adicionar_caixas(
+                            int(pallet_id), resultado.get("posicao_ids") or [],
+                            usuario=session.get("nome") or "Usuario",
+                            idempotency_key=f"{request.form.get('idempotency_key')}-PALLET",
+                            dados={"op_id": op_id, "origem": "ENCERRAMENTO_PRIMARIA"},
+                        )
+                    else:
+                        _validar_organizacao_encerramento(
+                            op_id, justificativa=request.form.get("pallet_justificativa"),
+                            usuario=session.get("nome") or "Usuario",
+                            idempotency_key=f"{request.form.get('idempotency_key')}-EXCECAO-PALLET",
+                        )
                     flash(
                         "Galinha Inteira encerrada na Embalagem Primaria. "
                         f"Posicoes: {', '.join(resultado['codigos_lote'])} | "
@@ -478,6 +579,7 @@ def register_expedicao_routes(app, integracoes=None):
             locais_segregacao=listar_locais_segregacao(),
             motivos_nc=MOTIVOS,
             chave_reversao_primaria=str(uuid.uuid4()),
+            pallets_organizacao=_pallets_ativos_organizacao(),
         )
 
     @app.route("/embalagem-primaria/<int:op_id>/reverter", methods=["POST"])
@@ -517,6 +619,11 @@ def register_expedicao_routes(app, integracoes=None):
     @perfil_permitido("pcp", "producao")
     def finalizar_embalagem_secundaria(op_id):
         try:
+            _validar_organizacao_encerramento(
+                op_id, justificativa=request.form.get("pallet_justificativa"),
+                usuario=session.get("nome") or "Usuario",
+                idempotency_key=f"{request.form.get('idempotency_key')}-EXCECAO-PALLET",
+            )
             fechamento = finalizar_embalagem_secundaria_op(
                 op_id, nao_conformes=_itens_nc_caixas(request.form),
                 conferencia_hash=request.form.get("conferencia_hash"),
@@ -629,6 +736,11 @@ def register_expedicao_routes(app, integracoes=None):
             conferencia = confirmar_conferencia_op(
                 op_id, usuario=session.get("nome") or "Usuário",
                 perfil=session.get("perfil") or "", hash_informado=request.form.get("conferencia_hash"),
+            )
+            _validar_organizacao_encerramento(
+                op_id, justificativa=request.form.get("pallet_justificativa"),
+                usuario=session.get("nome") or "Usuario",
+                idempotency_key=f"{request.form.get('idempotency_key')}-EXCECAO-PALLET",
             )
             resultado = finalizar_embalagem_secundaria_op(
                 op_id, conferencia_hash=conferencia["hash"], exigir_conferencia=True,
@@ -787,6 +899,7 @@ def register_expedicao_routes(app, integracoes=None):
         fechamento_op = None
         conferencia_op = None
         retomada_op = None
+        organizacao_pallets = None
 
         if op_id_selecionada:
             try:
@@ -840,6 +953,14 @@ def register_expedicao_routes(app, integracoes=None):
                     retomada_op = preflight_retomada_embalagem_secundaria(op_id_int)
                 except ValueError as erro:
                     retomada_op = {"permitido": False, "bloqueios": [str(erro)]}
+                try:
+                    organizacao_pallets = resumo_organizacao_op(op_id_int)
+                except Exception:
+                    app.logger.info(
+                        "Organizacao em pallets indisponivel para a OP #%s neste schema.",
+                        op_id_int,
+                    )
+                    organizacao_pallets = None
 
         estorno_habilitado = funcionalidade_estorno_habilitada()
         csrf_estorno = session.get("estorno_embalagem_csrf") or secrets.token_urlsafe(32)
@@ -876,6 +997,7 @@ def register_expedicao_routes(app, integracoes=None):
             retomada_op=retomada_op,
             jobs_etiqueta=jobs_etiqueta,
             label_printing_enabled=bool(app.config.get("LABEL_PRINTING_ENABLED", False)),
+            organizacao_pallets=organizacao_pallets,
             data_fabricacao_padrao=(op_selecionada["data_op"] if op_selecionada else datetime.now().strftime("%Y-%m-%d")),
         )
 

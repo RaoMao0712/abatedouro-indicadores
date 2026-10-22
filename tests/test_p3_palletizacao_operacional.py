@@ -57,6 +57,7 @@ def banco(tmp_path, monkeypatch):
             ALTER TABLE pa_caixas ADD COLUMN quantidade_pacotes_reservados INTEGER DEFAULT 0;
             ALTER TABLE pa_caixas ADD COLUMN reservado_expedicao_id INTEGER;
             ALTER TABLE expedicoes ADD COLUMN status TEXT DEFAULT 'Aberto';
+            ALTER TABLE ordens_producao ADD COLUMN status TEXT DEFAULT 'Aberta';
             CREATE TABLE expedicao_itens(id INTEGER PRIMARY KEY,expedicao_id INTEGER,caixa_id INTEGER,ativo INTEGER DEFAULT 1);
         """)
         conn.executescript(MIGRACAO)
@@ -92,6 +93,48 @@ def snapshot(conectar, ids):
             f"SELECT id,status,disponibilidade,estoque_operacional FROM pa_caixas WHERE id IN ({marcadores}) ORDER BY id",
             ids,
         )]
+
+
+def test_p4_resumo_retomada_excecao_e_zero_mutacao(banco):
+    pallet = criar("P4-RESUMO")
+    antes = snapshot(banco, [1, 2])
+    inicial = palletizacao.resumo_organizacao_op(121)
+    assert inicial["nao_organizadas"] == 3  # inclui a posição PNC, ainda pertencente à OP
+    palletizacao.adicionar_caixas(
+        pallet["id"], [1, 2], usuario="PCP", idempotency_key="P4-ADD",
+        dados={"op_id": 121, "origem": "ENCERRAMENTO_OP"},
+    )
+    retomada = palletizacao.resumo_organizacao_op(121)
+    assert retomada["organizadas"] == 2 and retomada["nao_organizadas"] == 1
+    assert retomada["pallets"][0]["totais"]["posicoes"] == 2
+    with pytest.raises(ValueError, match="justificativa"):
+        palletizacao.validar_organizacao_para_encerramento(121)
+    aprovado = palletizacao.validar_organizacao_para_encerramento(
+        121, justificativa="Posição PNC segregada fora do pallet",
+        usuario="PCP", idempotency_key="P4-EXC",
+    )
+    assert aprovado["excecao_registrada"] is True
+    assert snapshot(banco, [1, 2]) == antes
+
+
+def test_p4_selecao_em_massa_200_duas_distribuicoes_e_sete_excecoes(banco):
+    with banco() as conn:
+        conn.execute("INSERT INTO ordens_producao(id,sku) VALUES(200,'Galinha Cortada')")
+        for indice in range(1000, 1200):
+            conn.execute("""INSERT INTO pa_caixas(
+                id,codigo_caixa,sku,quantidade_bandejas,peso_liquido,unidade_estoque,
+                apresentacao,status,disponibilidade,condicao,estoque_operacional,local_estoque_id
+            ) VALUES(?,?,?,?,?,'CAIXA','BANDEJA','Em estoque','DISPONIVEL','CONFORME',1,1)""",
+                         (indice, f"P4-{indice}", "Galinha Cortada", 12, 20))
+            conn.execute("INSERT INTO pa_caixa_composicao(caixa_id,op_id,quantidade_bandejas) VALUES(?,?,12)",
+                         (indice, 200))
+        conn.commit()
+    p1, p2 = criar("P4-200-A"), criar("P4-200-B")
+    palletizacao.adicionar_caixas(p1["id"], range(1000, 1100), usuario="PCP", idempotency_key="P4-LOTE-A")
+    palletizacao.adicionar_caixas(p2["id"], range(1100, 1193), usuario="PCP", idempotency_key="P4-LOTE-B")
+    resumo = palletizacao.resumo_organizacao_op(200)
+    assert resumo["organizadas"] == 193 and resumo["nao_organizadas"] == 7
+    assert len(resumo["pallets"]) == 2
 
 
 def test_adicionar_lote_ops_compativeis_retry_e_preservacao(banco):
