@@ -300,3 +300,69 @@ def test_dashboard_usa_a_mesma_base_fisica_de_pa_ativo(banco, monkeypatch):
     assert dados["kg_produzidos_rendimento"] == 165
     assert dados["peso_entrada_rendimento"] == 300
     assert dados["kg_produzidos_rendimento"] != 1998
+
+
+def test_linha_tempo_ordena_ops_e_representa_ausencia_com_zero(banco):
+    contexto = producao.montar_contexto_relatorio_producao(
+        "perdas", filtros(causa="Condenacao sanitaria")
+    )
+    linha_tempo = contexto["linha_tempo"]
+    assert linha_tempo["rotulos"] == ["OP-00001", "OP-00003"]
+    assert linha_tempo["series"] == [{
+        "nome": "Condenacao sanitaria", "valores": [3.0, 0],
+    }]
+    assert {item["motivo"] for item in linha_tempo["detalhes"]} == {"Condenacao sanitaria"}
+
+
+def test_linha_tempo_filtra_origem_tipo_e_destaca_maior_incidencia(banco):
+    conn = banco()
+    conn.execute("""INSERT INTO apontamentos_descartes
+        (id,op_id,data,setor,categoria,motivo,quantidade,unidade)
+        VALUES(4,3,'2026-08-01','Inspecao','Condenacao','Condenacao sanitaria',4,'aves')""")
+    conn.commit()
+    conn.close()
+    contexto = producao.montar_contexto_relatorio_producao(
+        "condenacoes", filtros(fornecedor="Fornecedor B")
+    )
+    linha_tempo = contexto["linha_tempo"]
+    assert linha_tempo["rotulos"] == ["OP-00003"]
+    assert all(item["tipo_ocorrencia"] == "Condenacao" for item in linha_tempo["detalhes"])
+    assert linha_tempo["resumo"]["maior_percentual"]["op_id"] == 3
+    assert linha_tempo["resumo"]["maior_percentual"]["incidencia"] == 8.0
+
+
+def test_linha_tempo_nao_converte_kg_em_aves_e_percentual_nao_e_calculavel(banco):
+    conn = banco()
+    conn.execute("""INSERT INTO apontamentos_descartes
+        (id,op_id,data,setor,categoria,motivo,quantidade,unidade)
+        VALUES(4,1,'2026-08-01','Corte','Perda','Escaldagem',2.75,'kg')""")
+    conn.commit()
+    conn.close()
+    contexto = producao.montar_contexto_relatorio_producao(
+        "perdas", filtros(causa="Escaldagem", unidade_exibicao="kg")
+    )
+    item = contexto["linha_tempo"]["detalhes"][0]
+    assert item["peso_kg"] == 2.75
+    assert item["quantidade_aves"] == 0
+    assert item["incidencia"] is None
+    assert contexto["linha_tempo"]["resumo"]["total"] == 2.75
+    percentual = producao.montar_contexto_relatorio_producao(
+        "perdas", filtros(causa="Escaldagem", unidade_exibicao="percentual")
+    )["linha_tempo"]
+    assert percentual["series"][0]["valores"] == [None, 0.0]
+
+
+def test_excel_da_linha_tempo_exporta_exatamente_os_dados_filtrados(banco):
+    contexto = producao.montar_contexto_relatorio_producao(
+        "condenacoes", filtros(causa="Condenacao sanitaria")
+    )
+    arquivo = producao.gerar_excel_relatorio_producao(contexto)
+    planilha = load_workbook(BytesIO(arquivo.read()), data_only=True).active
+    linhas = list(planilha.iter_rows(values_only=True))
+    indice = next(i for i, linha in enumerate(linhas) if linha[0] == "data_op" and "tipo_ocorrencia" in linha)
+    cabecalho = linhas[indice]
+    dados = dict(zip(cabecalho, linhas[indice + 1]))
+    assert dados["lote"] == "OP-00001"
+    assert dados["motivo"] == "Condenacao sanitaria"
+    assert dados["quantidade_aves"] == 3
+    assert dados["peso_kg"] == 0

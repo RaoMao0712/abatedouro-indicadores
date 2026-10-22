@@ -8332,6 +8332,60 @@ small {
     text-align: center;
 }
 
+.perdas-timeline-page {
+    --perdas-verde: #176b57;
+}
+
+.perdas-timeline-filtros {
+    grid-template-columns: repeat(5, minmax(140px, 1fr));
+}
+
+.perdas-timeline-kpis {
+    grid-template-columns: repeat(7, minmax(145px, 1fr));
+}
+
+.perdas-timeline-kpis .relatorio-producao-kpi strong {
+    font-size: clamp(1rem, 1.6vw, 1.35rem);
+    overflow-wrap: anywhere;
+}
+
+.perdas-timeline-chart-card {
+    min-height: 420px;
+}
+
+.perdas-chart-wrap {
+    position: relative;
+    height: 340px;
+    margin-top: 16px;
+}
+
+.perdas-timeline-tabela table {
+    min-width: 1320px;
+}
+
+.perdas-timeline-tabela td:nth-child(12) {
+    min-width: 180px;
+    white-space: normal;
+}
+
+@media (max-width: 1200px) {
+    .perdas-timeline-filtros,
+    .perdas-timeline-kpis {
+        grid-template-columns: repeat(3, minmax(150px, 1fr));
+    }
+}
+
+@media (max-width: 720px) {
+    .perdas-timeline-filtros,
+    .perdas-timeline-kpis {
+        grid-template-columns: 1fr;
+    }
+
+    .perdas-chart-wrap {
+        height: 300px;
+    }
+}
+
 @media (max-width: 1500px) {
     .relatorio-producao-hero {
         grid-template-columns: minmax(0, 1fr) !important;

@@ -4,6 +4,7 @@ from collections import defaultdict
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from io import BytesIO
+import unicodedata
 from urllib.parse import urlencode
 
 from openpyxl import Workbook
@@ -160,6 +161,16 @@ def normalizar_filtros(args):
     if granularidade not in ["dia", "semana", "mes"]:
         granularidade = "mes"
 
+    tipo_ocorrencia = (args.get("tipo_ocorrencia") or "Todos").strip()
+    if tipo_ocorrencia not in {"Todos", "Perda", "Descarte", "Condenacao"}:
+        tipo_ocorrencia = "Todos"
+    unidade_exibicao = (args.get("unidade_exibicao") or "quantidade").strip()
+    if unidade_exibicao not in {"quantidade", "kg", "percentual"}:
+        unidade_exibicao = "quantidade"
+    ordenacao = (args.get("ordenacao") or "cronologica").strip()
+    if ordenacao not in {"cronologica", "quantidade", "peso", "incidencia"}:
+        ordenacao = "cronologica"
+
     return {
         "data_inicio": args.get("data_inicio") or primeiro_dia_mes(),
         "data_fim": args.get("data_fim") or hoje_iso(),
@@ -173,6 +184,9 @@ def normalizar_filtros(args):
         "situacao": args.get("situacao") or "Todas",
         "escopo": args.get("escopo") or "producao_valida",
         "granularidade": granularidade,
+        "tipo_ocorrencia": tipo_ocorrencia,
+        "unidade_exibicao": unidade_exibicao,
+        "ordenacao": ordenacao,
         "por_pagina": 200,
     }
 
@@ -413,6 +427,18 @@ def executar_lista(sql, parametros=None):
     linhas = cursor.fetchall()
     conn.close()
     return [dict(item) for item in linhas]
+
+
+def coluna_existe(tabela, coluna):
+    conn = conectar()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(q(f"SELECT {coluna} FROM {tabela} WHERE 1 = 0"))
+        return True
+    except Exception:
+        return False
+    finally:
+        conn.close()
 
 
 def buscar_ops_agregadas(filtros, somente_encerradas=False, limite=500):
@@ -852,6 +878,7 @@ def buscar_perdas_detalhadas(filtros, tipo="todas", limite=500):
         condicoes.append("(LOWER(COALESCE(d.categoria, '')) LIKE ? OR LOWER(COALESCE(d.motivo, '')) LIKE ?)")
         parametros.extend(["%conden%", "%conden%"])
     where_sql = " AND ".join(condicoes)
+    observacoes_sql = "COALESCE(d.observacoes, '')" if coluna_existe("apontamentos_descartes", "observacoes") else "''"
     linhas = executar_lista(f"""
     SELECT
         d.id, d.op_id, o.data AS data_op, o.fornecedor, COALESCE(NULLIF(TRIM(o.sku), ''), 'SKU indisponível') AS sku,
@@ -861,6 +888,7 @@ def buscar_perdas_detalhadas(filtros, tipo="todas", limite=500):
         COALESCE(d.motivo, 'Sem motivo') AS motivo,
         COALESCE(d.quantidade, 0) AS quantidade,
         COALESCE(d.unidade, '') AS unidade,
+        {observacoes_sql} AS observacoes,
         COALESCE(o.quantidade_aves, 0) AS aves_recebidas,
         CASE
             WHEN LOWER(TRIM(COALESCE(d.motivo, ''))) = 'morte na gaiola' THEN 'Morte na gaiola'
@@ -896,6 +924,7 @@ def buscar_perdas_detalhadas(filtros, tipo="todas", limite=500):
             'Mortes antes da pendura' AS motivo,
             COALESCE(o.mortes_antes_pendura, 0) AS quantidade,
             'aves' AS unidade,
+            '' AS observacoes,
             COALESCE(o.quantidade_aves, 0) AS aves_recebidas,
             'Mortes antes da pendura' AS tipo_perda
         FROM ordens_producao o
@@ -935,6 +964,188 @@ def agrupar_perdas(linhas, tipo="todas"):
             "participacao": percentual(item["quantidade_aves"], total_aves),
         })
     return sorted(saida, key=lambda item: (item["quantidade_aves"], item["quantidade_kg"]), reverse=True)
+
+
+def _texto_sem_acentos(valor):
+    texto = unicodedata.normalize("NFKD", str(valor or ""))
+    return "".join(caractere for caractere in texto if not unicodedata.combining(caractere)).lower()
+
+
+def classificar_tipo_ocorrencia(categoria, motivo):
+    """Classifica usando somente os campos oficiais, sem alterar o dado persistido."""
+    texto = f"{_texto_sem_acentos(categoria)} {_texto_sem_acentos(motivo)}"
+    if "conden" in texto:
+        return "Condenacao"
+    if "perda" in texto or "morte" in texto:
+        return "Perda"
+    return "Descarte"
+
+
+def _valor_linha_tempo(linha, unidade):
+    if unidade == "kg":
+        return valor_float(linha.get("peso_kg"))
+    if unidade == "percentual":
+        return linha.get("incidencia")
+    return valor_float(linha.get("quantidade_aves"))
+
+
+def montar_linha_tempo_perdas(filtros, tipo_config="todas"):
+    """Monta a serie por OP e a tabela analitica da mesma base filtrada."""
+    filtros_ops = dict(filtros)
+    filtros_ops["causa"] = "Todos"
+    filtros_ops["setor"] = "Todos"
+    condicoes, parametros = montar_condicoes_ops(filtros_ops, "o")
+    ops = executar_lista(f"""
+        SELECT o.id AS op_id, o.data AS data_op,
+               COALESCE(NULLIF(TRIM(o.sku), ''), 'SKU indisponível') AS sku,
+               COALESCE(NULLIF(TRIM(o.fornecedor), ''), 'Origem não informada') AS fornecedor,
+               COALESCE(o.status, 'Aberta') AS status,
+               COALESCE(o.quantidade_aves, 0) AS aves_consideradas
+        FROM ordens_producao o
+        WHERE {" AND ".join(condicoes)}
+        ORDER BY o.data ASC, o.id ASC
+    """, parametros)
+
+    op_ids = {item["op_id"] for item in ops}
+    ocorrencias = buscar_perdas_detalhadas(filtros_ops, "todas", limite=1000000)
+    causa = filtros.get("causa") or "Todos"
+    setor = filtros.get("setor") or "Todos"
+    tipo_filtro = filtros.get("tipo_ocorrencia") or "Todos"
+    if tipo_config == "condenacao":
+        tipo_filtro = "Condenacao"
+
+    detalhes = []
+    for item in ocorrencias:
+        if item.get("op_id") not in op_ids:
+            continue
+        item["tipo_ocorrencia"] = classificar_tipo_ocorrencia(item.get("categoria"), item.get("motivo"))
+        if tipo_filtro != "Todos" and item["tipo_ocorrencia"] != tipo_filtro:
+            continue
+        if causa != "Todos" and item.get("motivo") != causa:
+            continue
+        if setor != "Todos" and item.get("setor") != setor:
+            continue
+        item["aves_consideradas"] = valor_float(item.get("aves_recebidas"))
+        eh_kg = str(item.get("unidade") or "").lower() == "kg"
+        item["quantidade_aves"] = 0 if eh_kg else valor_float(item.get("quantidade"))
+        item["peso_kg"] = valor_float(item.get("quantidade")) if eh_kg else 0
+        item["incidencia"] = (
+            percentual(item["quantidade_aves"], item["aves_consideradas"])
+            if not eh_kg and item["aves_consideradas"] > 0 else None
+        )
+        detalhes.append(item)
+
+    agregados = defaultdict(lambda: {
+        "quantidade_aves": 0.0, "peso_kg": 0.0, "causas": defaultdict(float),
+        "causas_kg": set(), "causas_aves": set(),
+    })
+    for item in detalhes:
+        agg = agregados[item["op_id"]]
+        agg["quantidade_aves"] += item["quantidade_aves"]
+        agg["peso_kg"] += item["peso_kg"]
+        causa_item = item.get("motivo") or "Sem causa informada"
+        agg["causas_kg" if item["peso_kg"] else "causas_aves"].add(causa_item)
+        valor_causa = item["peso_kg"] if filtros.get("unidade_exibicao", "quantidade") == "kg" else item["quantidade_aves"]
+        agg["causas"][causa_item] += valor_causa
+
+    pontos = []
+    for op in ops:
+        agg = agregados[op["op_id"]]
+        ponto = dict(op)
+        ponto["lote"] = f"OP-{valor_int(op['op_id']):05d}"
+        ponto["quantidade_aves"] = round(agg["quantidade_aves"], 2)
+        ponto["peso_kg"] = round(agg["peso_kg"], 3)
+        somente_peso = ponto["peso_kg"] > 0 and ponto["quantidade_aves"] == 0
+        ponto["incidencia"] = (
+            percentual(ponto["quantidade_aves"], ponto["aves_consideradas"])
+            if ponto["aves_consideradas"] > 0 and not somente_peso else None
+        )
+        ponto["causas"] = dict(agg["causas"])
+        ponto["causas_kg"] = sorted(agg["causas_kg"])
+        ponto["causas_aves"] = sorted(agg["causas_aves"])
+        pontos.append(ponto)
+
+    unidade = filtros.get("unidade_exibicao", "quantidade")
+    causas_totais = defaultdict(float)
+    for ponto in pontos:
+        for nome, valor in ponto["causas"].items():
+            causas_totais[nome] += valor
+    causas_series = [nome for nome, _ in sorted(causas_totais.items(), key=lambda par: par[1], reverse=True)[:5]]
+    if causa != "Todos" and causa not in causas_series:
+        causas_series = [causa]
+    series = []
+    for nome in causas_series:
+        valores = []
+        for ponto in pontos:
+            if unidade == "percentual":
+                quantidade = ponto["causas"].get(nome, 0)
+                somente_kg = nome in ponto["causas_kg"] and nome not in ponto["causas_aves"]
+                valor = None if somente_kg or ponto["aves_consideradas"] <= 0 else percentual(quantidade, ponto["aves_consideradas"])
+            else:
+                valor = round(ponto["causas"].get(nome, 0), 3)
+            valores.append(valor)
+        series.append({"nome": nome, "valores": valores})
+
+    pontos_calculaveis = [p for p in pontos if _valor_linha_tempo(p, unidade) is not None]
+    pior_op = max(pontos_calculaveis, key=lambda p: _valor_linha_tempo(p, unidade), default=None)
+    pior_percentual = max((p for p in pontos if p["incidencia"] is not None), key=lambda p: p["incidencia"], default=None)
+    campo_absoluto = "peso_kg" if unidade == "kg" else "quantidade_aves"
+    pior_absoluto = max(pontos, key=lambda p: p[campo_absoluto], default=None)
+
+    origem_totais = defaultdict(float)
+    if unidade == "percentual":
+        origem_base = defaultdict(lambda: {"numerador": 0.0, "denominador": 0.0})
+        for ponto in pontos:
+            origem_base[ponto["fornecedor"]]["numerador"] += ponto["quantidade_aves"]
+            origem_base[ponto["fornecedor"]]["denominador"] += valor_float(ponto["aves_consideradas"])
+        for origem, base in origem_base.items():
+            if base["denominador"] > 0:
+                origem_totais[origem] = percentual(base["numerador"], base["denominador"])
+    else:
+        for ponto in pontos:
+            origem_totais[ponto["fornecedor"]] += _valor_linha_tempo(ponto, unidade) or 0
+    pior_origem = max(origem_totais.items(), key=lambda par: par[1], default=("Não calculável", None))
+    valores_calculaveis = [_valor_linha_tempo(p, unidade) for p in pontos if _valor_linha_tempo(p, unidade) is not None]
+    if unidade == "percentual":
+        total_unidade = percentual(
+            sum(p["quantidade_aves"] for p in pontos),
+            sum(valor_float(p["aves_consideradas"]) for p in pontos),
+        ) if any(valor_float(p["aves_consideradas"]) > 0 for p in pontos) else 0
+        media_op = round(sum(valores_calculaveis) / len(valores_calculaveis), 3) if valores_calculaveis else 0
+        denominador_total = sum(valor_float(p["aves_consideradas"]) for p in pontos)
+        causas_exibicao = {nome: percentual(valor, denominador_total) for nome, valor in causas_totais.items()} if denominador_total > 0 else {}
+    else:
+        total_unidade = sum(valores_calculaveis)
+        media_op = round(total_unidade / len(pontos), 3) if pontos else 0
+        causas_exibicao = dict(causas_totais)
+    pior_causa = max(causas_exibicao.items(), key=lambda par: par[1], default=("Sem ocorrência", 0))
+
+    ordenacao = filtros.get("ordenacao", "cronologica")
+    if ordenacao == "quantidade":
+        detalhes.sort(key=lambda item: item["quantidade_aves"], reverse=True)
+    elif ordenacao == "peso":
+        detalhes.sort(key=lambda item: item["peso_kg"], reverse=True)
+    elif ordenacao == "incidencia":
+        detalhes.sort(key=lambda item: item["incidencia"] if item["incidencia"] is not None else -1, reverse=True)
+    else:
+        detalhes.sort(key=lambda item: (item.get("data_op") or "", item.get("op_id") or 0, item.get("id") or 0))
+
+    return {
+        "pontos": pontos,
+        "rotulos": [p["lote"] for p in pontos],
+        "series": series,
+        "detalhes": detalhes,
+        "unidade": unidade,
+        "resumo": {
+            "total": round(total_unidade, 3),
+            "media_op": media_op,
+            "pior_op": pior_op,
+            "pior_origem": {"nome": pior_origem[0], "valor": pior_origem[1]},
+            "pior_causa": {"nome": pior_causa[0], "valor": round(pior_causa[1], 3)},
+            "maior_absoluto": pior_absoluto,
+            "maior_percentual": pior_percentual,
+        },
+    }
 
 
 def buscar_opcoes_filtro():
@@ -1206,11 +1417,13 @@ def montar_contexto_relatorio_producao(slug, args):
     detalhes_validos = [item for item in detalhes if item.get("producao_valida")]
     agrupamentos = []
     perdas_detalhes = []
+    linha_tempo = None
     limitacoes = []
 
     if config["familia"] == "perdas":
-        perdas_detalhes = buscar_perdas_detalhadas(filtros, config.get("tipo_perda", "todas"))
-        perdas_validas = [item for item in perdas_detalhes if str(item.get("status") or "").upper() == "ENCERRADA"]
+        linha_tempo = montar_linha_tempo_perdas(filtros, config.get("tipo_perda", "todas"))
+        perdas_detalhes = linha_tempo["detalhes"]
+        perdas_validas = perdas_detalhes
         agrupamentos = agrupar_perdas(perdas_validas, config.get("tipo_perda", "todas"))
         totais = somar_ops(detalhes_validos)
         totais["perdas_aves"] = sum(valor_float(i.get("quantidade")) for i in perdas_validas if str(i.get("unidade", "")).lower() != "kg")
@@ -1257,6 +1470,7 @@ def montar_contexto_relatorio_producao(slug, args):
         "agrupamentos": agrupamentos,
         "detalhes": detalhes,
         "detalhes_validos": detalhes_validos,
+        "linha_tempo": linha_tempo,
         "limitacoes": limitacoes,
         "query_string": urlencode({k: v for k, v in filtros.items() if v not in ["", "Todos", "Todas"]}),
         "granularidades": [("dia", "Dia"), ("semana", "Semana"), ("mes", "Mes")],
@@ -1287,8 +1501,17 @@ def gerar_excel_relatorio_producao(contexto):
         ws.append([chave, valor])
     ws.append([])
     ws.append(["Indicador", "Valor", "Unidade"])
-    for item in contexto["resumo"]:
-        ws.append([item["rotulo"], item["valor"], item["unidade"]])
+    if contexto.get("linha_tempo"):
+        resumo_timeline = contexto["linha_tempo"]["resumo"]
+        unidade = contexto["linha_tempo"]["unidade"]
+        ws.append(["Total de ocorrencias", resumo_timeline["total"], unidade])
+        ws.append(["Media por OP", resumo_timeline["media_op"], unidade])
+        ws.append(["OP com maior incidencia", (resumo_timeline["pior_op"] or {}).get("lote", "Nao calculavel"), unidade])
+        ws.append(["Origem com maior incidencia", resumo_timeline["pior_origem"]["nome"], unidade])
+        ws.append(["Pior causa", resumo_timeline["pior_causa"]["nome"], unidade])
+    else:
+        for item in contexto["resumo"]:
+            ws.append([item["rotulo"], item["valor"], item["unidade"]])
     ws.append([])
     if contexto["agrupamentos"]:
         ws.append(["Agrupamentos"])
@@ -1304,7 +1527,13 @@ def gerar_excel_relatorio_producao(contexto):
             ws.append(linha)
         ws.append([])
     ws.append(["Detalhes"])
-    if contexto["config"].get("familia") == "eficiencia":
+    if contexto.get("linha_tempo"):
+        colunas = [
+            "data_op", "lote", "sku", "fornecedor", "tipo_ocorrencia",
+            "motivo", "setor", "quantidade_aves", "peso_kg",
+            "aves_consideradas", "incidencia", "observacoes",
+        ]
+    elif contexto["config"].get("familia") == "eficiencia":
         colunas = [
             "op_id", "lote", "data_op", "fornecedor", "sku", "status",
             "aves_recebidas", "peso_vivo", "peso_produzido", "kg_produzidos",

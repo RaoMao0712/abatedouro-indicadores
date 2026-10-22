@@ -85,7 +85,12 @@ def register_relatorios_routes(app):
         familia = RELATORIOS_PRODUCAO[slug].get("familia")
         if familia == "oee":
             return render_template("relatorio_oee.html", **montar_contexto_oee(request.args, slug))
-        template = "relatorio_eficiencia_producao.html" if familia == "eficiencia" else "relatorio_producao_oficial.html"
+        if familia == "eficiencia":
+            template = "relatorio_eficiencia_producao.html"
+        elif familia == "perdas":
+            template = "relatorio_perdas_linha_tempo.html"
+        else:
+            template = "relatorio_producao_oficial.html"
         return render_template(
             template,
             **montar_contexto_relatorio_producao(slug, request.args),

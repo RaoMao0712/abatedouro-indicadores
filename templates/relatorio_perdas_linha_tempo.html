@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+<div class="relatorio-producao-page perdas-timeline-page">
+    <section class="hero-dashboard relatorio-producao-hero perdas-timeline-hero">
+        <div>
+            <span class="eyebrow">Produção · Condenações</span>
+            <h2>Evolução das ocorrências por OP</h2>
+            <p>Perdas, descartes e condenações na ordem cronológica das OPs, preservando aves e kg como grandezas distintas.</p>
+        </div>
+
+        <form method="GET" action="{{ url_for('relatorio_producao_oficial', slug=slug) }}" class="relatorio-producao-filtros perdas-timeline-filtros">
+            <div><label>Data inicial</label><input type="date" name="data_inicio" value="{{ filtros.data_inicio }}"></div>
+            <div><label>Data final</label><input type="date" name="data_fim" value="{{ filtros.data_fim }}"></div>
+            <div>
+                <label>SKU</label>
+                <select name="sku"><option value="Todos">Todos</option>{% for item in opcoes.skus %}<option value="{{ item }}" {% if filtros.sku == item %}selected{% endif %}>{{ item }}</option>{% endfor %}</select>
+            </div>
+            <div>
+                <label>Fornecedor / Origem</label>
+                <select name="fornecedor"><option value="Todos">Todos</option>{% for item in opcoes.fornecedores %}<option value="{{ item }}" {% if filtros.fornecedor == item %}selected{% endif %}>{{ item }}</option>{% endfor %}</select>
+            </div>
+            <div>
+                <label>Causa</label>
+                <select name="causa"><option value="Todos">Todas</option>{% for item in opcoes.causas %}<option value="{{ item }}" {% if filtros.causa == item %}selected{% endif %}>{{ item }}</option>{% endfor %}</select>
+            </div>
+            <div>
+                <label>Setor</label>
+                <select name="setor"><option value="Todos">Todos</option>{% for item in opcoes.setores %}<option value="{{ item }}" {% if filtros.setor == item %}selected{% endif %}>{{ item }}</option>{% endfor %}</select>
+            </div>
+            <div>
+                <label>Tipo</label>
+                {% if slug == 'condenacoes' %}
+                <input type="hidden" name="tipo_ocorrencia" value="Condenacao"><input value="Condenações" disabled>
+                {% else %}
+                <select name="tipo_ocorrencia">
+                    <option value="Todos" {% if filtros.tipo_ocorrencia == 'Todos' %}selected{% endif %}>Todos</option>
+                    <option value="Perda" {% if filtros.tipo_ocorrencia == 'Perda' %}selected{% endif %}>Perdas</option>
+                    <option value="Descarte" {% if filtros.tipo_ocorrencia == 'Descarte' %}selected{% endif %}>Descartes</option>
+                    <option value="Condenacao" {% if filtros.tipo_ocorrencia == 'Condenacao' %}selected{% endif %}>Condenações</option>
+                </select>
+                {% endif %}
+            </div>
+            <div>
+                <label>Unidade</label>
+                <select name="unidade_exibicao">
+                    <option value="quantidade" {% if filtros.unidade_exibicao == 'quantidade' %}selected{% endif %}>Quantidade (aves)</option>
+                    <option value="kg" {% if filtros.unidade_exibicao == 'kg' %}selected{% endif %}>Peso (kg)</option>
+                    <option value="percentual" {% if filtros.unidade_exibicao == 'percentual' %}selected{% endif %}>Incidência (%)</option>
+                </select>
+            </div>
+            <div>
+                <label>Ordenar tabela</label>
+                <select name="ordenacao">
+                    <option value="cronologica" {% if filtros.ordenacao == 'cronologica' %}selected{% endif %}>Cronológica</option>
+                    <option value="quantidade" {% if filtros.ordenacao == 'quantidade' %}selected{% endif %}>Maior quantidade</option>
+                    <option value="peso" {% if filtros.ordenacao == 'peso' %}selected{% endif %}>Maior peso</option>
+                    <option value="incidencia" {% if filtros.ordenacao == 'incidencia' %}selected{% endif %}>Maior incidência</option>
+                </select>
+            </div>
+            <input type="hidden" name="escopo" value="producao_valida">
+            <button type="submit">Aplicar filtros</button>
+        </form>
+    </section>
+
+    <div class="relatorio-producao-acoes">
+        <a href="{{ url_for('biblioteca_relatorios', dominio='Producao') }}" class="botao-dre-imprimir">Biblioteca</a>
+        <a href="{{ url_for('relatorio_producao_oficial_exportar', slug=slug) }}{% if query_string %}?{{ query_string }}{% endif %}" class="botao-dre-exportar">Exportar Excel</a>
+    </div>
+
+    {% set unidade = '%' if linha_tempo.unidade == 'percentual' else ('kg' if linha_tempo.unidade == 'kg' else 'aves') %}
+    {% set resumo_lt = linha_tempo.resumo %}
+    <section class="relatorio-producao-kpis perdas-timeline-kpis">
+        <div class="card relatorio-producao-kpi"><span>Total no período</span><strong>{{ resumo_lt.total|br_numero(2) }}</strong><small>{{ unidade }}</small></div>
+        <div class="card relatorio-producao-kpi"><span>OP com maior incidência</span><strong>{{ resumo_lt.pior_op.lote if resumo_lt.pior_op else 'Não calculável' }}</strong><small>{% if resumo_lt.pior_op %}{{ resumo_lt.pior_op.fornecedor }} · {{ resumo_lt.pior_op.data_op|br_data }}{% else %}sem base{% endif %}</small></div>
+        <div class="card relatorio-producao-kpi"><span>Origem com maior incidência</span><strong>{{ resumo_lt.pior_origem.nome }}</strong><small>{% if resumo_lt.pior_origem.valor is not none %}{{ resumo_lt.pior_origem.valor|br_numero(2) }} {{ unidade }}{% else %}sem base{% endif %}</small></div>
+        <div class="card relatorio-producao-kpi"><span>Média por OP</span><strong>{{ resumo_lt.media_op|br_numero(2) }}</strong><small>{{ unidade }}</small></div>
+        <div class="card relatorio-producao-kpi"><span>Pior causa</span><strong>{{ resumo_lt.pior_causa.nome }}</strong><small>{{ resumo_lt.pior_causa.valor|br_numero(2) }} {{ unidade }}</small></div>
+        <div class="card relatorio-producao-kpi"><span>Maior valor absoluto</span><strong>{{ resumo_lt.maior_absoluto.lote if resumo_lt.maior_absoluto else 'Não calculável' }}</strong><small>{% if resumo_lt.maior_absoluto %}{% if linha_tempo.unidade == 'kg' %}{{ resumo_lt.maior_absoluto.peso_kg|br_numero(3) }} kg{% else %}{{ resumo_lt.maior_absoluto.quantidade_aves|br_numero(0) }} aves{% endif %}{% else %}sem base{% endif %}</small></div>
+        <div class="card relatorio-producao-kpi"><span>Maior percentual</span><strong>{{ resumo_lt.maior_percentual.lote if resumo_lt.maior_percentual else 'Não calculável' }}</strong><small>{% if resumo_lt.maior_percentual %}{{ resumo_lt.maior_percentual.incidencia|br_percentual }} · {{ resumo_lt.maior_percentual.fornecedor }}{% else %}sem denominador oficial{% endif %}</small></div>
+    </section>
+
+    <section class="card relatorio-producao-card perdas-timeline-chart-card">
+        <div class="section-title-row"><div><span class="eyebrow">Linha do tempo</span><h2>Evolução por OP</h2></div><small>Até 5 causas por vez para preservar a leitura.</small></div>
+        {% if linha_tempo.pontos %}
+        <div class="perdas-chart-wrap"><canvas id="grafico-perdas-op" aria-label="Evolução das ocorrências por OP"></canvas></div>
+        {% else %}<div class="relatorio-producao-vazio">Nenhuma OP encontrada no período selecionado.</div>{% endif %}
+    </section>
+
+    <section class="card relatorio-producao-card">
+        <div class="section-title-row"><div><span class="eyebrow">Base analítica</span><h2>Ocorrências filtradas</h2></div></div>
+        {% if linha_tempo.detalhes %}
+        <div class="tabela-responsiva tabela-executiva relatorio-producao-tabela perdas-timeline-tabela">
+            <table><thead><tr><th>Data</th><th>OP</th><th>SKU</th><th>Origem / Fornecedor</th><th>Tipo</th><th>Causa</th><th>Setor</th><th>Quantidade</th><th>Peso kg</th><th>Aves consideradas</th><th>Incidência %</th><th>Observação</th></tr></thead>
+            <tbody>{% for item in linha_tempo.detalhes %}<tr>
+                <td>{{ item.data_op|br_data }}</td><td><strong>{{ item.lote }}</strong></td><td>{{ item.sku }}</td><td>{{ item.fornecedor }}</td>
+                <td>{{ 'Condenação' if item.tipo_ocorrencia == 'Condenacao' else item.tipo_ocorrencia }}</td><td>{{ item.motivo }}</td><td>{{ item.setor }}</td>
+                <td>{{ item.quantidade_aves|br_numero(0) if item.quantidade_aves else '—' }}</td><td>{{ item.peso_kg|br_numero(3) if item.peso_kg else '—' }}</td>
+                <td>{{ item.aves_consideradas|br_numero(0) }}</td><td>{% if item.incidencia is none %}Não calculável{% else %}{{ item.incidencia|br_percentual }}{% endif %}</td><td>{{ item.observacoes or '—' }}</td>
+            </tr>{% endfor %}</tbody></table>
+        </div>
+        {% else %}<div class="relatorio-producao-vazio">Nenhuma ocorrência corresponde aos filtros. As OPs do período permanecem no gráfico com valor zero.</div>{% endif %}
+    </section>
+</div>
+
+{% if linha_tempo.pontos %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+(function () {
+    const cores = ['#176b57', '#c78b2a', '#a64035', '#356c9b', '#73569b'];
+    const series = {{ linha_tempo.series|tojson }};
+    const unidade = {{ unidade|tojson }};
+    new Chart(document.getElementById('grafico-perdas-op'), {
+        type: 'line',
+        data: {
+            labels: {{ linha_tempo.rotulos|tojson }},
+            datasets: series.map((serie, indice) => ({
+                label: serie.nome, data: serie.valores, borderColor: cores[indice % cores.length],
+                backgroundColor: cores[indice % cores.length], tension: 0.2, pointRadius: 4,
+                pointHoverRadius: 6, spanGaps: false
+            }))
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            interaction: {mode: 'index', intersect: false},
+            scales: {y: {beginAtZero: true, title: {display: true, text: unidade}}},
+            plugins: {tooltip: {callbacks: {label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y === null ? 'Não calculável' : ctx.parsed.y + ' ' + unidade}`}}}
+        }
+    });
+}());
+</script>
+{% endif %}
+{% endblock %}
