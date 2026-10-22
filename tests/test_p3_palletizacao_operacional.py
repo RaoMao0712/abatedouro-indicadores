@@ -53,6 +53,11 @@ def banco(tmp_path, monkeypatch):
               (7,'CX-7','Galinha Cortada',4,7,0,0,'CAIXA','BANDEJA','ESTORNADA','DISPONIVEL','CONFORME',0,1);
             INSERT INTO pa_caixa_composicao(caixa_id,op_id,quantidade_bandejas) VALUES
               (1,121,12),(2,121,8),(3,122,10),(4,123,0),(5,123,0),(6,121,4),(7,121,4);
+            ALTER TABLE pa_caixas ADD COLUMN peso_bruto REAL;
+            ALTER TABLE pa_caixas ADD COLUMN quantidade_pacotes_reservados INTEGER DEFAULT 0;
+            ALTER TABLE pa_caixas ADD COLUMN reservado_expedicao_id INTEGER;
+            ALTER TABLE expedicoes ADD COLUMN status TEXT DEFAULT 'Aberto';
+            CREATE TABLE expedicao_itens(id INTEGER PRIMARY KEY,expedicao_id INTEGER,caixa_id INTEGER,ativo INTEGER DEFAULT 1);
         """)
         conn.executescript(MIGRACAO)
 
@@ -169,3 +174,35 @@ def test_listagem_especifica_exclui_pnc_estorno_e_vinculadas(banco):
     palletizacao.adicionar_caixa(pallet["id"], 1, usuario="PCP", idempotency_key="P3-F-ADD")
     disponiveis = palletizacao.listar_caixas_disponiveis_palletizacao({"op": "121"})
     assert [item["id"] for item in disponiveis] == [2]
+
+
+def test_p5_estoque_agregado_filtros_reservas_pnc_pacote_e_sem_mutacao(banco):
+    vazio, cortada, pacote = criar("P5-VAZIO"), criar("P5-CORTADA"), criar("P5-PACOTE")
+    palletizacao.adicionar_caixas(cortada["id"], [1, 2, 3], usuario="PCP", idempotency_key="P5-ADD-C")
+    palletizacao.adicionar_caixa(pacote["id"], 4, usuario="PCP", idempotency_key="P5-ADD-P")
+    with banco() as conn:
+        conn.execute("UPDATE pa_caixas SET disponibilidade='RESERVADO',reservado_expedicao_id=10 WHERE id=1")
+        conn.execute("UPDATE pa_caixas SET quantidade_pacotes_reservados=100 WHERE id=4")
+        conn.execute("UPDATE pa_caixas SET condicao='NAO_CONFORME' WHERE id=3")
+        conn.execute("INSERT INTO expedicoes(id,numero_romaneio,status) VALUES(10,'R-10','Aberto')")
+        conn.execute("INSERT INTO expedicao_itens(id,expedicao_id,caixa_id,ativo) VALUES(1,10,1,1)")
+        conn.commit()
+    antes = snapshot(banco, [1, 2, 3, 4, 5, 6, 7])
+    visao = palletizacao.visao_estoque_por_pallet()
+    por_id = {item["id"]: item for item in visao["pallets"]}
+    assert por_id[vazio["id"]]["disponibilidade_agregada"] == "VAZIO"
+    assert por_id[cortada["id"]]["disponibilidade_agregada"] == "COM_RESTRICOES"
+    assert "MISTO POR OP" in por_id[cortada["id"]]["alertas"]
+    assert "Conteudo com restricoes" in por_id[cortada["id"]]["alertas"]
+    assert por_id[cortada["id"]]["totais"]["peso_liquido"] == 54
+    assert por_id[pacote["id"]]["totais"]["pacotes"] == 962
+    assert por_id[pacote["id"]]["caixas"][0]["posicao_quantitativa_parcial"] is True
+    assert por_id[pacote["id"]]["disponibilidade_agregada"] == "PARCIALMENTE_RESERVADO"
+    assert {item["id"] for item in visao["sem_pallet"]} == {5, 6}
+    assert palletizacao.visao_estoque_por_pallet({"op": "122"})["pallets"][0]["id"] == cortada["id"]
+    assert palletizacao.visao_estoque_por_pallet({"produto": "inteira"})["pallets"][0]["id"] == pacote["id"]
+    assert palletizacao.visao_estoque_por_pallet({"localizacao": "1"})["pallets"]
+    assert palletizacao.visao_estoque_por_pallet({}, {"op": "123"})["sem_pallet"][0]["id"] == 5
+    assert visao["indicadores"]["posicoes_palletizadas"] == 4
+    assert visao["indicadores"]["posicoes_sem_pallet"] == 2
+    assert snapshot(banco, [1, 2, 3, 4, 5, 6, 7]) == antes

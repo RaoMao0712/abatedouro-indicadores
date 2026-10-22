@@ -109,6 +109,7 @@ from .palletizacao import (
     remover_caixas,
     resumo_pallets,
     transferir_caixas,
+    visao_estoque_por_pallet,
 )
 
 
@@ -236,11 +237,17 @@ def register_expedicao_routes(app, integracoes=None):
     @perfil_permitido("pcp", "qualidade")
     def pallets_expedicao():
         filtros = {nome: request.args.get(nome, "") for nome in (
-            "codigo", "status", "produto", "op", "localizacao",
+            "codigo", "status", "produto", "op", "localizacao", "posicao",
+            "condicao", "disponibilidade", "restricao",
         )}
+        filtros_sem_pallet = {nome: request.args.get(f"sem_{nome}", "") for nome in (
+            "op", "produto", "condicao", "localizacao",
+        )}
+        visao = visao_estoque_por_pallet(filtros, filtros_sem_pallet)
         return render_template(
-            "pallets.html", pallets=listar_pallets(filtros), filtros=filtros,
-            resumo=resumo_pallets(), locais=listar_locais_pallet(),
+            "pallets.html", pallets=visao["pallets"], sem_pallet=visao["sem_pallet"],
+            indicadores=visao["indicadores"], filtros=filtros,
+            filtros_sem_pallet=filtros_sem_pallet, locais=listar_locais_pallet(),
             pode_criar=session.get("perfil") in {"admin", "pcp"},
             status_opcoes=("ABERTO", "EM_FORMACAO", "DISPONIVEL", "RESERVADO",
                             "PARCIALMENTE_CARREGADO", "CARREGADO", "ENCERRADO", "CANCELADO"),

@@ -31,7 +31,7 @@ CREATE SCHEMA public;
 CREATE TABLE locais_estoque(
  id SERIAL PRIMARY KEY,nome TEXT UNIQUE NOT NULL,tipo TEXT,ativo TEXT DEFAULT 'Sim'
 );
-CREATE TABLE expedicoes(id SERIAL PRIMARY KEY,numero_romaneio TEXT);
+CREATE TABLE expedicoes(id SERIAL PRIMARY KEY,numero_romaneio TEXT,status TEXT DEFAULT 'Aberto');
 CREATE TABLE ordens_producao(id INTEGER PRIMARY KEY,sku TEXT);
 CREATE TABLE pa_caixas(
  id SERIAL PRIMARY KEY,codigo_caixa TEXT UNIQUE NOT NULL,sku TEXT NOT NULL,
@@ -39,11 +39,15 @@ CREATE TABLE pa_caixas(
  quantidade_pacotes INTEGER DEFAULT 0,quantidade_galinhas INTEGER DEFAULT 0,
  unidade_estoque TEXT DEFAULT 'CAIXA',apresentacao TEXT,
  status TEXT DEFAULT 'Em estoque',disponibilidade TEXT DEFAULT 'DISPONIVEL',condicao TEXT DEFAULT 'CONFORME',
- estoque_operacional INTEGER DEFAULT 1,local_estoque_id INTEGER
+ estoque_operacional INTEGER DEFAULT 1,local_estoque_id INTEGER,peso_bruto NUMERIC,
+ quantidade_pacotes_reservados INTEGER DEFAULT 0,reservado_expedicao_id INTEGER
 );
 CREATE TABLE pa_caixa_composicao(
  id SERIAL PRIMARY KEY,caixa_id INTEGER NOT NULL REFERENCES pa_caixas(id),
  op_id INTEGER NOT NULL REFERENCES ordens_producao(id),quantidade_bandejas NUMERIC DEFAULT 0
+);
+CREATE TABLE expedicao_itens(
+ id SERIAL PRIMARY KEY,expedicao_id INTEGER,caixa_id INTEGER,ativo INTEGER DEFAULT 1
 );
 INSERT INTO locais_estoque(nome,tipo) VALUES('Abatedouro','interno'),('Camara Fria LSM','interno');
 INSERT INTO ordens_producao VALUES(121,'Galinha Inteira'),(122,'Galinha Cortada');
@@ -54,6 +58,7 @@ INSERT INTO pa_caixas(
  ('CX-1','Galinha Inteira',0,100,962,1924,1),
  ('CX-2','Galinha Cortada',12,22,0,0,1),
  ('CX-3','Galinha Cortada',8,14,0,0,1);
+UPDATE pa_caixas SET unidade_estoque='PACOTE',apresentacao='PACOTE' WHERE codigo_caixa='CX-1';
 INSERT INTO pa_caixa_composicao(caixa_id,op_id,quantidade_bandejas)
 VALUES(1,121,0),(2,122,12),(3,122,8);
 """
@@ -345,3 +350,37 @@ def test_p3_transferencia_concorrente_da_mesma_caixa_apenas_uma_vence():
     assert len(erros) == 1
     assert contagem("pallet_caixas_atuais", "caixa_id=2") == 1
     assert contagem("pallet_caixa_eventos", "tipo_evento='CAIXA_TRANSFERIDA' AND caixa_id=2") == 1
+
+
+def test_p5_agregacoes_filtros_reserva_pacote_sem_pallet_e_zero_mutacao():
+    vazio, cortada, pacote = criar("P5-PG-V"), criar("P5-PG-C"), criar("P5-PG-P")
+    palletizacao.adicionar_caixas(cortada["id"], [2, 3], usuario="Teste", idempotency_key="P5-PG-ADD-C")
+    palletizacao.adicionar_caixa(pacote["id"], 1, usuario="Teste", idempotency_key="P5-PG-ADD-P")
+    with conectar() as conn, conn.cursor() as cursor:
+        cursor.execute("UPDATE pa_caixas SET disponibilidade='RESERVADO',reservado_expedicao_id=10 WHERE id=2")
+        cursor.execute("UPDATE pa_caixas SET quantidade_pacotes_reservados=100 WHERE id=1")
+        cursor.execute("INSERT INTO expedicoes(id,numero_romaneio,status) VALUES(10,'PG-10','Aberto')")
+        cursor.execute("INSERT INTO expedicao_itens(expedicao_id,caixa_id,ativo) VALUES(10,2,1)")
+        cursor.execute("""SELECT id,status,disponibilidade,estoque_operacional,
+                                  quantidade_pacotes_reservados,reservado_expedicao_id
+                           FROM pa_caixas ORDER BY id""")
+        antes = [dict(item) for item in cursor.fetchall()]
+        cursor.execute("SELECT id,sku FROM ordens_producao ORDER BY id")
+        ops_antes = [dict(item) for item in cursor.fetchall()]
+    visao = palletizacao.visao_estoque_por_pallet()
+    por_id = {item["id"]: item for item in visao["pallets"]}
+    assert por_id[vazio["id"]]["disponibilidade_agregada"] == "VAZIO"
+    assert por_id[cortada["id"]]["disponibilidade_agregada"] == "PARCIALMENTE_RESERVADO"
+    assert por_id[pacote["id"]]["disponibilidade_agregada"] == "PARCIALMENTE_RESERVADO"
+    assert por_id[cortada["id"]]["totais"]["peso_liquido"] == 36
+    assert por_id[pacote["id"]]["totais"]["pacotes"] == 962
+    assert palletizacao.visao_estoque_por_pallet({"op": "122"})["pallets"][0]["id"] == cortada["id"]
+    assert palletizacao.visao_estoque_por_pallet({"produto": "inteira"})["pallets"][0]["id"] == pacote["id"]
+    assert visao["sem_pallet"] == []
+    with conectar() as conn, conn.cursor() as cursor:
+        cursor.execute("""SELECT id,status,disponibilidade,estoque_operacional,
+                                  quantidade_pacotes_reservados,reservado_expedicao_id
+                           FROM pa_caixas ORDER BY id""")
+        assert [dict(item) for item in cursor.fetchall()] == antes
+        cursor.execute("SELECT id,sku FROM ordens_producao ORDER BY id")
+        assert [dict(item) for item in cursor.fetchall()] == ops_antes

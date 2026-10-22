@@ -49,6 +49,17 @@ def ambiente(monkeypatch):
         "codigo_caixa": None, "pallet_origem_codigo": None,
         "pallet_destino_codigo": None, "usuario": "PCP", "justificativa": None,
     }])
+    def visao(filtros=None, filtros_sem_pallet=None):
+        for pallet in armazenados:
+            pallet.setdefault("disponibilidade_agregada", "VAZIO")
+            pallet.setdefault("alertas", [])
+        return {
+            "pallets": list(armazenados), "sem_pallet": [],
+            "indicadores": {"pallets_ativos": len(armazenados), "pallets_disponiveis": 0,
+                            "pallets_com_restricao": 0, "posicoes_palletizadas": 0,
+                            "posicoes_sem_pallet": 0, "peso_palletizado": 0, "peso_sem_pallet": 0},
+        }
+    monkeypatch.setattr(routes, "visao_estoque_por_pallet", visao)
     cliente = aplicacao.app.test_client()
     with cliente.session_transaction() as sessao:
         sessao.update(usuario_id=1, perfil="pcp", nome="PCP")
@@ -126,4 +137,30 @@ def test_p3_javascript_op_independente_excecao_e_indeterminate():
     assert "belongsTo(box, selector.dataset.selectOp)" in javascript
     assert "box.checked = selector.checked" in javascript
     assert "selector.indeterminate = checked > 0 && checked < group.length" in javascript
+
+
+def test_p5_visao_estoque_hierarquia_filtros_indicadores_e_sem_acoes(ambiente, monkeypatch):
+    cliente, _ = ambiente
+    caixa = {"codigo_caixa": "CX-10", "sku": "Galinha Cortada", "peso_liquido": 22,
+             "unidade_estoque": "CAIXA", "condicao": "CONFORME", "status": "Em estoque",
+             "disponibilidade": "DISPONIVEL", "romaneio_ativo_id": None,
+             "reserva_ativa": False, "localizacao_nome": "Câmara A"}
+    pallet = pallet_vazio()
+    pallet.update(disponibilidade_agregada="DISPONIVEL", alertas=["MISTO POR OP"],
+                  produtos_texto="Galinha Cortada", condicoes_texto="CONFORME", ops_texto="121")
+    pallet["totais"].update(caixas=1, peso_liquido=22, peso_bruto=23, bandejas=12)
+    pallet["ops"] = [{"op_id": 121, "produto": "Galinha Cortada", "quantidade_posicoes": 1,
+                      "peso": 22, "disponibilidade_agregada": "DISPONIVEL", "caixas": [caixa]}]
+    monkeypatch.setattr(routes, "visao_estoque_por_pallet", lambda *args: {
+        "pallets": [pallet], "sem_pallet": [dict(caixa, id=20, ops_texto="122")],
+        "indicadores": {"pallets_ativos": 1, "pallets_disponiveis": 1,
+                        "pallets_com_restricao": 0, "posicoes_palletizadas": 1,
+                        "posicoes_sem_pallet": 1, "peso_palletizado": 22, "peso_sem_pallet": 22},
+    })
+    resposta = cliente.get("/expedicao/pallets?op=121&disponibilidade=DISPONIVEL")
+    assert resposta.status_code == 200
+    for texto in (b"Estoque por pallet", b"Pallets ativos", b"Limpar filtros", b"Estoque sem pallet",
+                  b"OP #121", b"CX-10", b"MISTO POR OP"):
+        assert texto in resposta.data
+    assert b"Remover do pallet" not in resposta.data
 

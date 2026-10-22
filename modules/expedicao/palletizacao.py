@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from database import DATABASE_URL, conectar, q, transaction
+from .elegibilidade import avaliar_elegibilidade_expedicao
 
 
 STATUS_BLOQUEADOS = {"ENCERRADO", "CANCELADO"}
@@ -314,6 +315,179 @@ def resumo_pallets():
         "em_carregamento": contagens.get("PARCIALMENTE_CARREGADO", 0) + contagens.get("CARREGADO", 0),
         "encerrados": contagens.get("ENCERRADO", 0),
     }
+
+
+def _resumo_disponibilidade(caixas):
+    if not caixas:
+        return "VAZIO"
+    if any(item["restricoes"] for item in caixas):
+        return "COM_RESTRICOES"
+    if any(item["posicao_quantitativa_parcial"] for item in caixas):
+        return "PARCIALMENTE_RESERVADO"
+    reservadas = sum(1 for item in caixas if item["reserva_ativa"])
+    if reservadas == len(caixas):
+        return "RESERVADO"
+    if reservadas:
+        return "PARCIALMENTE_RESERVADO"
+    return "DISPONIVEL"
+
+
+def _enriquecer_estoque_pallet(pallet):
+    _enriquecer_pallet(pallet)
+    caixas = pallet["caixas"]
+    for caixa in caixas:
+        elegibilidade = avaliar_elegibilidade_expedicao(
+            caixa, tipo_movimentacao="VENDA_DIRETA",
+        )
+        caixa["reserva_ativa"] = bool(
+            caixa.get("reservado_expedicao_id")
+            or int(caixa.get("quantidade_pacotes_reservados") or 0) > 0
+            or caixa.get("romaneio_ativo_id")
+        )
+        caixa["posicao_quantitativa_parcial"] = bool(
+            str(caixa.get("unidade_estoque") or "").upper() == "PACOTE"
+            and 0 < int(caixa.get("quantidade_pacotes_reservados") or 0)
+            < int(caixa.get("quantidade_pacotes") or 0)
+        )
+        caixa["restricoes"] = []
+        if str(caixa.get("condicao") or "").upper() == "NAO_CONFORME":
+            caixa["restricoes"].append("PNC")
+        if not elegibilidade["elegivel"] and not caixa["reserva_ativa"]:
+            caixa["restricoes"].append(elegibilidade["motivo_bloqueio"])
+    pallet["totais"] = {
+        "caixas": len(caixas),
+        "bandejas": sum(float(item.get("quantidade_bandejas") or 0) for item in caixas),
+        "peso_liquido": sum(float(item.get("peso_liquido") or 0) for item in caixas),
+        "peso_bruto": sum(float(item.get("peso_bruto") or item.get("peso_liquido") or 0) for item in caixas),
+        "pacotes": sum(int(item.get("quantidade_pacotes") or 0) for item in caixas),
+        "aves": sum(int(item.get("quantidade_galinhas") or 0) for item in caixas),
+    }
+    alertas = []
+    if len({str(item.get("status")) for item in caixas}) > 1:
+        alertas.append("Status divergentes")
+    if len(pallet["condicoes"]) > 1:
+        alertas.append("MISTO POR CONDICAO")
+    if len(pallet["produtos"]) > 1:
+        alertas.append("MISTO POR PRODUTO")
+    if len(pallet["ops"]) > 1:
+        alertas.append("MISTO POR OP")
+    if any(item["reserva_ativa"] for item in caixas):
+        alertas.append("Reserva ativa")
+    if any(item["posicao_quantitativa_parcial"] for item in caixas):
+        alertas.append("Posicao quantitativa parcial")
+    if any(item["restricoes"] for item in caixas):
+        alertas.append("Conteudo com restricoes")
+    pallet["alertas"] = alertas
+    pallet["disponibilidade_agregada"] = _resumo_disponibilidade(caixas)
+    for op in pallet["ops"]:
+        itens = [item for item in caixas if op["op_id"] in item["ops"]]
+        op["condicoes_texto"] = ", ".join(sorted({str(item.get("condicao")) for item in itens}))
+        op["disponibilidade_agregada"] = _resumo_disponibilidade(itens)
+        op["caixas"] = itens
+
+
+def _pallet_estoque_atende_filtros(pallet, filtros):
+    if not _pallet_atende_filtros(pallet, filtros):
+        return False
+    posicao = str(filtros.get("posicao") or "").strip().casefold()
+    condicao = str(filtros.get("condicao") or "").strip().casefold()
+    disponibilidade = str(filtros.get("disponibilidade") or "").strip()
+    restricao = str(filtros.get("restricao") or "").strip()
+    if posicao and posicao not in str(pallet.get("posicao_atual") or "").casefold():
+        return False
+    if condicao and condicao not in {item.casefold() for item in pallet["condicoes"]}:
+        return False
+    if disponibilidade and pallet["disponibilidade_agregada"] != disponibilidade:
+        return False
+    if restricao == "com" and not pallet["alertas"]:
+        return False
+    if restricao == "sem" and pallet["alertas"]:
+        return False
+    return True
+
+
+def visao_estoque_por_pallet(filtros=None, filtros_sem_pallet=None):
+    """Monta a leitura PALLET -> OP -> CAIXAS em consultas de quantidade constante."""
+    filtros, filtros_sem_pallet = filtros or {}, filtros_sem_pallet or {}
+    conn = conectar()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""SELECT p.*,le.nome AS localizacao_nome
+                          FROM pallets p LEFT JOIN locais_estoque le ON le.id=p.localizacao_atual_id
+                          ORDER BY p.id DESC""")
+        pallets = [dict(item) for item in cursor.fetchall()]
+        por_id = {int(item["id"]): item for item in pallets}
+        for pallet in pallets:
+            pallet["caixas"], pallet["composicao_op"] = [], []
+        cursor.execute("""SELECT ca.pallet_id,ca.caixa_id,cx.*,le.nome AS localizacao_nome
+                          FROM pallet_caixas_atuais ca JOIN pa_caixas cx ON cx.id=ca.caixa_id
+                          LEFT JOIN locais_estoque le ON le.id=cx.local_estoque_id
+                          ORDER BY ca.pallet_id,ca.id""")
+        por_caixa = {}
+        for linha in cursor.fetchall():
+            caixa = dict(linha)
+            caixa["id"] = caixa["caixa_id"]
+            caixa["romaneio_ativo_id"] = None
+            por_caixa[int(caixa["caixa_id"])] = caixa
+            por_id[int(caixa["pallet_id"])]["caixas"].append(caixa)
+        cursor.execute("""SELECT comp.caixa_id,comp.op_id,comp.quantidade_bandejas
+                          FROM pa_caixa_composicao comp JOIN pallet_caixas_atuais ca ON ca.caixa_id=comp.caixa_id
+                          ORDER BY ca.pallet_id,comp.caixa_id,comp.id""")
+        for linha in cursor.fetchall():
+            item = dict(linha)
+            caixa = por_caixa.get(int(item["caixa_id"]))
+            if caixa:
+                por_id[int(caixa["pallet_id"])]["composicao_op"].append(item)
+        cursor.execute("""SELECT i.caixa_id,MIN(i.expedicao_id) AS expedicao_id
+                          FROM expedicao_itens i JOIN expedicoes e ON e.id=i.expedicao_id
+                          WHERE COALESCE(i.ativo,1)=1 AND e.status='Aberto' AND i.caixa_id IS NOT NULL
+                          GROUP BY i.caixa_id""")
+        for linha in cursor.fetchall():
+            caixa = por_caixa.get(int(linha["caixa_id"]))
+            if caixa:
+                caixa["romaneio_ativo_id"] = linha["expedicao_id"]
+        for pallet in pallets:
+            _enriquecer_estoque_pallet(pallet)
+
+        cursor.execute("""SELECT cx.*,le.nome AS localizacao_nome
+                          FROM pa_caixas cx LEFT JOIN locais_estoque le ON le.id=cx.local_estoque_id
+                          LEFT JOIN pallet_caixas_atuais ca ON ca.caixa_id=cx.id
+                          WHERE ca.caixa_id IS NULL AND COALESCE(cx.estoque_operacional,0)=1
+                          ORDER BY cx.codigo_caixa,cx.id""")
+        sem_pallet = [dict(item) for item in cursor.fetchall()]
+        ids_sem = [int(item["id"]) for item in sem_pallet]
+        comps_sem = {}
+        if ids_sem:
+            marcadores = ",".join("?" for _ in ids_sem)
+            cursor.execute(q(f"SELECT caixa_id,op_id FROM pa_caixa_composicao WHERE caixa_id IN ({marcadores})"), tuple(ids_sem))
+            for item in cursor.fetchall():
+                comps_sem.setdefault(int(item["caixa_id"]), set()).add(int(item["op_id"]))
+        for caixa in sem_pallet:
+            caixa["ops"] = sorted(comps_sem.get(int(caixa["id"]), set()))
+            caixa["ops_texto"] = ", ".join(str(item) for item in caixa["ops"]) or "-"
+    finally:
+        conn.close()
+
+    pallets_filtrados = [item for item in pallets if _pallet_estoque_atende_filtros(item, filtros)]
+    def atende_sem(item):
+        return (
+            (not filtros_sem_pallet.get("op") or str(filtros_sem_pallet["op"]) in {str(op) for op in item["ops"]})
+            and (not filtros_sem_pallet.get("produto") or str(filtros_sem_pallet["produto"]).casefold() in str(item.get("sku") or "").casefold())
+            and (not filtros_sem_pallet.get("condicao") or str(filtros_sem_pallet["condicao"]).casefold() == str(item.get("condicao") or "").casefold())
+            and (not filtros_sem_pallet.get("localizacao") or str(filtros_sem_pallet["localizacao"]) == str(item.get("local_estoque_id") or ""))
+        )
+    sem_pallet_filtrado = [item for item in sem_pallet if atende_sem(item)]
+    ativos = [item for item in pallets if item["status"] not in STATUS_BLOQUEADOS]
+    indicadores = {
+        "pallets_ativos": len(ativos),
+        "pallets_disponiveis": sum(item["disponibilidade_agregada"] == "DISPONIVEL" for item in ativos),
+        "pallets_com_restricao": sum(item["disponibilidade_agregada"] == "COM_RESTRICOES" for item in ativos),
+        "posicoes_palletizadas": sum(item["totais"]["caixas"] for item in ativos),
+        "posicoes_sem_pallet": len(sem_pallet),
+        "peso_palletizado": sum(item["totais"]["peso_liquido"] for item in ativos),
+        "peso_sem_pallet": sum(float(item.get("peso_liquido") or 0) for item in sem_pallet),
+    }
+    return {"pallets": pallets_filtrados, "sem_pallet": sem_pallet_filtrado, "indicadores": indicadores}
 
 
 def buscar_pallet_por_codigo(codigo):
