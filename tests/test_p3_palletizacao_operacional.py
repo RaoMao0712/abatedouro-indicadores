@@ -1,0 +1,171 @@
+"""P3: vínculo operacional em lote sem alterar estoque, OP ou disponibilidade."""
+
+from contextlib import contextmanager
+from pathlib import Path
+import sqlite3
+
+import pytest
+
+from modules.expedicao import palletizacao
+
+
+ROOT = Path(__file__).resolve().parents[1]
+MIGRACAO = (ROOT / "database" / "20261018_p1_palletizacao_sqlite.sql").read_text(encoding="utf-8")
+
+
+@pytest.fixture
+def banco(tmp_path, monkeypatch):
+    caminho = tmp_path / "p3.db"
+
+    def conectar():
+        conn = sqlite3.connect(caminho)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys=ON")
+        return conn
+
+    with conectar() as conn:
+        conn.executescript("""
+            CREATE TABLE locais_estoque(id INTEGER PRIMARY KEY,nome TEXT, tipo TEXT, ativo TEXT DEFAULT 'Sim');
+            CREATE TABLE expedicoes(id INTEGER PRIMARY KEY, numero_romaneio TEXT);
+            CREATE TABLE ordens_producao(id INTEGER PRIMARY KEY, sku TEXT);
+            CREATE TABLE pa_caixas(
+              id INTEGER PRIMARY KEY,codigo_caixa TEXT UNIQUE,sku TEXT,
+              quantidade_bandejas REAL DEFAULT 0,peso_liquido REAL DEFAULT 0,
+              quantidade_pacotes INTEGER DEFAULT 0,quantidade_galinhas INTEGER DEFAULT 0,
+              unidade_estoque TEXT DEFAULT 'CAIXA',apresentacao TEXT,
+              status TEXT DEFAULT 'Em estoque',disponibilidade TEXT DEFAULT 'DISPONIVEL',
+              condicao TEXT DEFAULT 'CONFORME',estoque_operacional INTEGER DEFAULT 1,
+              local_estoque_id INTEGER
+            );
+            CREATE TABLE pa_caixa_composicao(
+              id INTEGER PRIMARY KEY,caixa_id INTEGER,op_id INTEGER,quantidade_bandejas REAL DEFAULT 0
+            );
+            INSERT INTO locais_estoque VALUES(1,'Câmara A','interno','Sim');
+            INSERT INTO ordens_producao VALUES
+              (121,'Galinha Cortada'),(122,'Galinha Cortada'),(123,'Galinha Inteira');
+            INSERT INTO pa_caixas VALUES
+              (1,'CX-1','Galinha Cortada',12,22,0,0,'CAIXA','BANDEJA','Em estoque','DISPONIVEL','CONFORME',1,1),
+              (2,'CX-2','Galinha Cortada',8,14,0,0,'CAIXA','BANDEJA','Em estoque','DISPONIVEL','CONFORME',1,1),
+              (3,'CX-3','Galinha Cortada',10,18,0,0,'CAIXA','BANDEJA','Em estoque','DISPONIVEL','CONFORME',1,1),
+              (4,'PA-4','Galinha Inteira',0,100,962,1924,'PACOTE','PACOTE','Em estoque','DISPONIVEL','CONFORME',1,1),
+              (5,'CX-5','Galinha Inteira',0,50,0,0,'CAIXA','BANDEJA','Em estoque','DISPONIVEL','CONFORME',1,1),
+              (6,'CX-6','Galinha Cortada',4,7,0,0,'CAIXA','BANDEJA','Em estoque','DISPONIVEL','NAO_CONFORME',1,1),
+              (7,'CX-7','Galinha Cortada',4,7,0,0,'CAIXA','BANDEJA','ESTORNADA','DISPONIVEL','CONFORME',0,1);
+            INSERT INTO pa_caixa_composicao(caixa_id,op_id,quantidade_bandejas) VALUES
+              (1,121,12),(2,121,8),(3,122,10),(4,123,0),(5,123,0),(6,121,4),(7,121,4);
+        """)
+        conn.executescript(MIGRACAO)
+
+    @contextmanager
+    def transaction():
+        conn = conectar()
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    monkeypatch.setattr(palletizacao, "conectar", conectar)
+    monkeypatch.setattr(palletizacao, "transaction", transaction)
+    monkeypatch.setattr(palletizacao, "DATABASE_URL", None)
+    return conectar
+
+
+def criar(chave):
+    return palletizacao.criar_pallet(
+        usuario="PCP", idempotency_key=chave, localizacao_atual_id=1,
+    )
+
+
+def snapshot(conectar, ids):
+    with conectar() as conn:
+        marcadores = ",".join("?" for _ in ids)
+        return [tuple(item) for item in conn.execute(
+            f"SELECT id,status,disponibilidade,estoque_operacional FROM pa_caixas WHERE id IN ({marcadores}) ORDER BY id",
+            ids,
+        )]
+
+
+def test_adicionar_lote_ops_compativeis_retry_e_preservacao(banco):
+    pallet = criar("P3-A")
+    antes = snapshot(banco, [1, 2, 3])
+    resultado = palletizacao.adicionar_caixas(
+        pallet["id"], [1, 2, 3], usuario="PCP", idempotency_key="P3-ADD",
+    )
+    retry = palletizacao.adicionar_caixas(
+        pallet["id"], [3, 2, 1], usuario="PCP", idempotency_key="P3-ADD",
+    )
+    assert resultado["totais"]["caixas"] == retry["totais"]["caixas"] == 3
+    assert {op["op_id"] for op in resultado["ops"]} == {121, 122}
+    assert snapshot(banco, [1, 2, 3]) == antes
+    with banco() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM pallet_caixas_atuais").fetchone()[0] == 3
+        assert conn.execute("SELECT COUNT(*) FROM pallet_caixa_eventos WHERE tipo_evento='CAIXA_ADICIONADA'").fetchone()[0] == 3
+
+
+def test_caixa_ja_vinculada_incompatibilidade_e_lote_atomico(banco):
+    primeiro, segundo = criar("P3-B1"), criar("P3-B2")
+    palletizacao.adicionar_caixa(primeiro["id"], 1, usuario="PCP", idempotency_key="P3-B-ADD")
+    with pytest.raises(ValueError, match="ja vinculada"):
+        palletizacao.adicionar_caixa(segundo["id"], 1, usuario="PCP", idempotency_key="P3-B-DUP")
+    with pytest.raises(ValueError, match="conteudo homogeneo"):
+        palletizacao.adicionar_caixa(primeiro["id"], 5, usuario="PCP", idempotency_key="P3-B-SKU")
+    with pytest.raises(ValueError, match="condicao nao permite"):
+        palletizacao.adicionar_caixas(segundo["id"], [2, 6], usuario="PCP", idempotency_key="P3-B-LOTE")
+    assert palletizacao.consultar_pallet(segundo["id"])["totais"]["caixas"] == 0
+    with banco() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM pallet_caixa_eventos WHERE idempotency_key LIKE 'P3-B-LOTE%'").fetchone()[0] == 0
+
+
+def test_remover_e_transferir_lotes_historico_completo(banco):
+    origem, destino = criar("P3-C1"), criar("P3-C2")
+    palletizacao.adicionar_caixas(origem["id"], [1, 2, 3], usuario="PCP", idempotency_key="P3-C-ADD")
+    palletizacao.remover_caixas(origem["id"], [1, 2], usuario="PCP", idempotency_key="P3-C-REM")
+    palletizacao.adicionar_caixas(origem["id"], [1, 2], usuario="PCP", idempotency_key="P3-C-READD")
+    movido = palletizacao.transferir_caixas(
+        origem["id"], destino["id"], [1, 2, 3], usuario="PCP", idempotency_key="P3-C-TRANS",
+    )
+    assert movido["totais"]["caixas"] == 3
+    assert palletizacao.consultar_pallet(origem["id"])["totais"]["caixas"] == 0
+    eventos = palletizacao.listar_eventos_pallet(origem["id"])
+    tipos = [item["tipo_evento"] for item in eventos]
+    assert tipos.count("CAIXA_ADICIONADA") == 5
+    assert tipos.count("CAIXA_REMOVIDA") == 2
+    assert tipos.count("CAIXA_TRANSFERIDA") == 3
+
+
+def test_transferencia_incompativel_rollback_integral(banco):
+    origem, destino = criar("P3-D1"), criar("P3-D2")
+    palletizacao.adicionar_caixas(origem["id"], [1, 2], usuario="PCP", idempotency_key="P3-D-ADD1")
+    palletizacao.adicionar_caixa(destino["id"], 5, usuario="PCP", idempotency_key="P3-D-ADD2")
+    with pytest.raises(ValueError, match="conteudo homogeneo"):
+        palletizacao.transferir_caixas(
+            origem["id"], destino["id"], [1, 2], usuario="PCP", idempotency_key="P3-D-TRANS",
+        )
+    assert palletizacao.consultar_pallet(origem["id"])["totais"]["caixas"] == 2
+    assert palletizacao.consultar_pallet(destino["id"])["totais"]["caixas"] == 1
+
+
+def test_pacote_e_posicao_fisica_unica(banco):
+    pallet = criar("P3-E")
+    antes = snapshot(banco, [4])
+    resultado = palletizacao.adicionar_caixa(
+        pallet["id"], 4, usuario="PCP", idempotency_key="P3-E-ADD",
+    )
+    assert resultado["totais"] == {
+        "caixas": 1, "bandejas": 0.0, "peso_liquido": 100.0,
+        "pacotes": 962, "aves": 1924,
+    }
+    assert snapshot(banco, [4]) == antes
+    with banco() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM pallet_caixas_atuais WHERE caixa_id=4").fetchone()[0] == 1
+
+
+def test_listagem_especifica_exclui_pnc_estorno_e_vinculadas(banco):
+    pallet = criar("P3-F")
+    palletizacao.adicionar_caixa(pallet["id"], 1, usuario="PCP", idempotency_key="P3-F-ADD")
+    disponiveis = palletizacao.listar_caixas_disponiveis_palletizacao({"op": "121"})
+    assert [item["id"] for item in disponiveis] == [2]

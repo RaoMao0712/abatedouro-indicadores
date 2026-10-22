@@ -184,9 +184,12 @@ def consultar_pallet_cursor(cursor, pallet_id):
                               cx.quantidade_bandejas, cx.peso_liquido,
                               cx.quantidade_pacotes, cx.quantidade_galinhas,
                               cx.unidade_estoque, cx.apresentacao, cx.status,
-                              cx.disponibilidade, cx.condicao
+                              cx.disponibilidade, cx.condicao,
+                              cx.estoque_operacional, cx.local_estoque_id,
+                              le.nome AS localizacao_nome
                        FROM pallet_caixas_atuais ca
                        JOIN pa_caixas cx ON cx.id=ca.caixa_id
+                       LEFT JOIN locais_estoque le ON le.id=cx.local_estoque_id
                        WHERE ca.pallet_id=? ORDER BY ca.id"""), (pallet_id,))
     caixas = [dict(item) for item in cursor.fetchall()]
     resultado["caixas"] = caixas
@@ -346,67 +349,241 @@ def listar_eventos_pallet(pallet_id):
         conn.close()
 
 
+def _normalizar_lista_ids(caixa_ids):
+    try:
+        ids = sorted({int(item) for item in caixa_ids})
+    except (TypeError, ValueError):
+        raise ValueError("Selecao de caixas/posicoes invalida.")
+    if not ids or any(item <= 0 for item in ids):
+        raise ValueError("Selecione ao menos uma caixa/posicao.")
+    return ids
+
+
+def _chave_item(chave_lote, caixa_id, total):
+    return chave_lote if total == 1 else f"{chave_lote}:caixa:{caixa_id}"
+
+
+def _compatibilidade_caixa(caixa):
+    return (
+        str(caixa.get("sku") or "").strip().casefold(),
+        str(caixa.get("condicao") or "").strip().casefold(),
+        str(caixa.get("unidade_estoque") or "CAIXA").strip().casefold(),
+    )
+
+
+def _descricao_compatibilidade(caixa):
+    return (
+        f"produto {caixa.get('sku') or 'nao informado'}, "
+        f"condicao {caixa.get('condicao') or 'nao informada'} e "
+        f"unidade {caixa.get('unidade_estoque') or 'CAIXA'}"
+    )
+
+
+def _validar_caixa_operacional(caixa):
+    if int(caixa.get("estoque_operacional") or 0) != 1:
+        raise ValueError(f"{caixa.get('codigo_caixa')}: posicao nao esta no estoque operacional.")
+    status = str(caixa.get("status") or "").strip().upper()
+    if status in {"ESTORNADA", "ESTORNADO", "CANCELADA", "CANCELADO"}:
+        raise ValueError(f"{caixa.get('codigo_caixa')}: posicao estornada ou cancelada.")
+    if str(caixa.get("condicao") or "").strip().upper() != "CONFORME":
+        raise ValueError(f"{caixa.get('codigo_caixa')}: condicao nao permite palletizacao.")
+
+
+def _caixas_do_pallet_cursor(cursor, pallet_id, *, excluir_ids=()):
+    parametros = [pallet_id]
+    exclusao = ""
+    if excluir_ids:
+        marcadores = ",".join("?" for _ in excluir_ids)
+        exclusao = f" AND cx.id NOT IN ({marcadores})"
+        parametros.extend(excluir_ids)
+    cursor.execute(q(f"""SELECT cx.*
+                            FROM pallet_caixas_atuais ca
+                            JOIN pa_caixas cx ON cx.id=ca.caixa_id
+                            WHERE ca.pallet_id=?{exclusao}
+                            ORDER BY cx.id"""), tuple(parametros))
+    return [dict(item) for item in cursor.fetchall()]
+
+
+def _validar_compatibilidade(destino, existentes, novas):
+    todas = list(existentes) + list(novas)
+    if not todas:
+        return
+    referencia = _compatibilidade_caixa(todas[0])
+    incompativeis = [item for item in todas[1:] if _compatibilidade_caixa(item) != referencia]
+    if incompativeis:
+        primeira = incompativeis[0]
+        raise ValueError(
+            f"Pallet {destino['codigo']} exige conteudo homogeneo; "
+            f"{primeira.get('codigo_caixa')} possui {_descricao_compatibilidade(primeira)}, "
+            f"incompativel com {_descricao_compatibilidade(todas[0])}."
+        )
+
+
+def listar_caixas_disponiveis_palletizacao(filtros=None):
+    """Lista posições vinculáveis sem reutilizar ou alterar elegibilidade de expedição."""
+    filtros = filtros or {}
+    condicoes = [
+        "COALESCE(cx.estoque_operacional,0)=1",
+        "UPPER(COALESCE(cx.status,'')) NOT IN ('ESTORNADA','ESTORNADO','CANCELADA','CANCELADO')",
+        "UPPER(COALESCE(cx.condicao,''))='CONFORME'",
+        "ca.caixa_id IS NULL",
+    ]
+    parametros = []
+    if str(filtros.get("op") or "").strip():
+        try:
+            op_id = int(filtros["op"])
+        except (TypeError, ValueError):
+            return []
+        condicoes.append("EXISTS(SELECT 1 FROM pa_caixa_composicao fop WHERE fop.caixa_id=cx.id AND fop.op_id=?)")
+        parametros.append(op_id)
+    if str(filtros.get("produto") or "").strip():
+        condicoes.append("LOWER(COALESCE(cx.sku,'')) LIKE LOWER(?)")
+        parametros.append(f"%{str(filtros['produto']).strip()}%")
+    if str(filtros.get("codigo") or "").strip():
+        condicoes.append("LOWER(COALESCE(cx.codigo_caixa,'')) LIKE LOWER(?)")
+        parametros.append(f"%{str(filtros['codigo']).strip()}%")
+    if str(filtros.get("localizacao") or "").strip():
+        condicoes.append("CAST(cx.local_estoque_id AS TEXT)=?")
+        parametros.append(str(filtros["localizacao"]).strip())
+    conn = conectar()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(q(f"""SELECT cx.*,le.nome AS localizacao_nome
+                                FROM pa_caixas cx
+                                LEFT JOIN pallet_caixas_atuais ca ON ca.caixa_id=cx.id
+                                LEFT JOIN locais_estoque le ON le.id=cx.local_estoque_id
+                                WHERE {' AND '.join(condicoes)}
+                                ORDER BY cx.codigo_caixa,cx.id"""), tuple(parametros))
+        caixas = [dict(item) for item in cursor.fetchall()]
+        if not caixas:
+            return []
+        ids = [item["id"] for item in caixas]
+        marcadores = ",".join("?" for _ in ids)
+        cursor.execute(q(f"""SELECT caixa_id,op_id,quantidade_bandejas
+                                FROM pa_caixa_composicao
+                                WHERE caixa_id IN ({marcadores})
+                                ORDER BY caixa_id,op_id"""), tuple(ids))
+        por_caixa = {}
+        for item in cursor.fetchall():
+            por_caixa.setdefault(int(item["caixa_id"]), []).append(dict(item))
+        for caixa in caixas:
+            composicoes = por_caixa.get(int(caixa["id"]), [])
+            caixa["ops"] = sorted({int(item["op_id"]) for item in composicoes})
+            caixa["ops_texto"] = ", ".join(str(item) for item in caixa["ops"]) or "-"
+        return caixas
+    finally:
+        conn.close()
+
+
+def listar_pallets_destino(pallet_origem_id):
+    return [
+        item for item in listar_pallets()
+        if int(item["id"]) != int(pallet_origem_id) and item["status"] not in STATUS_BLOQUEADOS
+    ]
+
+
 def adicionar_caixa(
     pallet_id, caixa_id, *, usuario, idempotency_key, justificativa=None, dados=None,
 ):
+    return adicionar_caixas(
+        pallet_id, [caixa_id], usuario=usuario, idempotency_key=idempotency_key,
+        justificativa=justificativa, dados=dados,
+    )
+
+
+def adicionar_caixas(
+    pallet_id, caixa_ids, *, usuario, idempotency_key, justificativa=None, dados=None,
+):
+    ids = _normalizar_lista_ids(caixa_ids)
     chave = _validar_chave(idempotency_key)
     with transaction() as conn:
         cursor = conn.cursor()
         _bloquear_idempotencia(cursor, chave)
-        existente = _evento_por_chave(cursor, chave)
-        if existente:
-            if (existente["tipo_evento"] != "CAIXA_ADICIONADA" or
-                    int(existente["pallet_id"]) != int(pallet_id) or
-                    int(existente["caixa_id"]) != int(caixa_id)):
+        chaves = [_chave_item(chave, caixa_id, len(ids)) for caixa_id in ids]
+        existentes = [_evento_por_chave(cursor, item) for item in chaves]
+        if any(existentes):
+            if not all(existentes) or any(
+                item["tipo_evento"] != "CAIXA_ADICIONADA"
+                or int(item["pallet_id"]) != int(pallet_id)
+                or int(item["caixa_id"]) != caixa_id
+                for item, caixa_id in zip(existentes, ids)
+            ):
                 raise ValueError("idempotency_key ja usada por outra operacao.")
             return consultar_pallet_cursor(cursor, pallet_id)
-        _obter_caixa(cursor, caixa_id, bloquear=True)
-        _obter_pallet(cursor, pallet_id, bloquear=True, operacional=True)
-        cursor.execute(q("SELECT pallet_id FROM pallet_caixas_atuais WHERE caixa_id=?"), (caixa_id,))
-        if cursor.fetchone():
-            raise ValueError("Caixa/posicao ja vinculada a um pallet.")
-        evento_id = _registrar_evento(
-            cursor, pallet_id=pallet_id, caixa_id=caixa_id,
-            tipo_evento="CAIXA_ADICIONADA", pallet_destino_id=pallet_id,
-            usuario=usuario, idempotency_key=chave, justificativa=justificativa, dados=dados,
-        )
-        _id_inserido(
-            cursor,
-            """INSERT INTO pallet_caixas_atuais(
-                   pallet_id,caixa_id,adicionado_por,evento_origem_id
-               ) VALUES(?,?,?,?)""",
-            (pallet_id, caixa_id, usuario, evento_id),
-        )
+        destino = dict(_obter_pallet(cursor, pallet_id, bloquear=True, operacional=True))
+        caixas = []
+        for caixa_id in ids:
+            caixa = dict(_obter_caixa(cursor, caixa_id, bloquear=True))
+            _validar_caixa_operacional(caixa)
+            cursor.execute(q("SELECT pallet_id FROM pallet_caixas_atuais WHERE caixa_id=?" + _bloqueio()), (caixa_id,))
+            vinculo = cursor.fetchone()
+            if vinculo:
+                raise ValueError(f"{caixa.get('codigo_caixa')}: caixa/posicao ja vinculada a um pallet.")
+            caixas.append(caixa)
+        _validar_compatibilidade(destino, _caixas_do_pallet_cursor(cursor, pallet_id), caixas)
+        for caixa, chave_item in zip(caixas, chaves):
+            evento_id = _registrar_evento(
+                cursor, pallet_id=pallet_id, caixa_id=caixa["id"],
+                tipo_evento="CAIXA_ADICIONADA", pallet_destino_id=pallet_id,
+                usuario=usuario, idempotency_key=chave_item,
+                justificativa=justificativa, dados={**(dados or {}), "lote": chave},
+            )
+            _id_inserido(
+                cursor,
+                """INSERT INTO pallet_caixas_atuais(
+                       pallet_id,caixa_id,adicionado_por,evento_origem_id
+                   ) VALUES(?,?,?,?)""",
+                (pallet_id, caixa["id"], usuario, evento_id),
+            )
         return consultar_pallet_cursor(cursor, pallet_id)
 
 
 def remover_caixa(
     pallet_id, caixa_id, *, usuario, idempotency_key, justificativa=None, dados=None,
 ):
+    return remover_caixas(
+        pallet_id, [caixa_id], usuario=usuario, idempotency_key=idempotency_key,
+        justificativa=justificativa, dados=dados,
+    )
+
+
+def remover_caixas(
+    pallet_id, caixa_ids, *, usuario, idempotency_key, justificativa=None, dados=None,
+):
+    ids = _normalizar_lista_ids(caixa_ids)
     chave = _validar_chave(idempotency_key)
     with transaction() as conn:
         cursor = conn.cursor()
         _bloquear_idempotencia(cursor, chave)
-        existente = _evento_por_chave(cursor, chave)
-        if existente:
-            if (existente["tipo_evento"] != "CAIXA_REMOVIDA" or
-                    int(existente["pallet_id"]) != int(pallet_id) or
-                    int(existente["caixa_id"]) != int(caixa_id)):
+        chaves = [_chave_item(chave, caixa_id, len(ids)) for caixa_id in ids]
+        existentes = [_evento_por_chave(cursor, item) for item in chaves]
+        if any(existentes):
+            if not all(existentes) or any(
+                item["tipo_evento"] != "CAIXA_REMOVIDA"
+                or int(item["pallet_id"]) != int(pallet_id)
+                or int(item["caixa_id"]) != caixa_id
+                for item, caixa_id in zip(existentes, ids)
+            ):
                 raise ValueError("idempotency_key ja usada por outra operacao.")
             return consultar_pallet_cursor(cursor, pallet_id)
-        _obter_caixa(cursor, caixa_id, bloquear=True)
         _obter_pallet(cursor, pallet_id, bloquear=True, operacional=True)
-        cursor.execute(q("SELECT * FROM pallet_caixas_atuais WHERE caixa_id=?" + _bloqueio()), (caixa_id,))
-        vinculo = cursor.fetchone()
-        if not vinculo or int(vinculo["pallet_id"]) != int(pallet_id):
-            raise ValueError("Caixa/posicao nao pertence ao pallet informado.")
-        _registrar_evento(
-            cursor, pallet_id=pallet_id, caixa_id=caixa_id,
-            tipo_evento="CAIXA_REMOVIDA", pallet_origem_id=pallet_id,
-            evento_origem_id=vinculo["evento_origem_id"], usuario=usuario,
-            idempotency_key=chave, justificativa=justificativa, dados=dados,
-        )
-        cursor.execute(q("DELETE FROM pallet_caixas_atuais WHERE id=?"), (vinculo["id"],))
+        vinculos = []
+        for caixa_id in ids:
+            caixa = dict(_obter_caixa(cursor, caixa_id, bloquear=True))
+            cursor.execute(q("SELECT * FROM pallet_caixas_atuais WHERE caixa_id=?" + _bloqueio()), (caixa_id,))
+            vinculo = cursor.fetchone()
+            if not vinculo or int(vinculo["pallet_id"]) != int(pallet_id):
+                raise ValueError(f"{caixa.get('codigo_caixa')}: caixa/posicao nao pertence ao pallet informado.")
+            vinculos.append((caixa, dict(vinculo)))
+        for (caixa, vinculo), chave_item in zip(vinculos, chaves):
+            _registrar_evento(
+                cursor, pallet_id=pallet_id, caixa_id=caixa["id"],
+                tipo_evento="CAIXA_REMOVIDA", pallet_origem_id=pallet_id,
+                evento_origem_id=vinculo["evento_origem_id"], usuario=usuario,
+                idempotency_key=chave_item, justificativa=justificativa,
+                dados={**(dados or {}), "lote": chave},
+            )
+            cursor.execute(q("DELETE FROM pallet_caixas_atuais WHERE id=?"), (vinculo["id"],))
         return consultar_pallet_cursor(cursor, pallet_id)
 
 
@@ -414,36 +591,61 @@ def transferir_caixa(
     pallet_origem_id, pallet_destino_id, caixa_id, *, usuario, idempotency_key,
     justificativa=None, dados=None,
 ):
+    return transferir_caixas(
+        pallet_origem_id, pallet_destino_id, [caixa_id], usuario=usuario,
+        idempotency_key=idempotency_key, justificativa=justificativa, dados=dados,
+    )
+
+
+def transferir_caixas(
+    pallet_origem_id, pallet_destino_id, caixa_ids, *, usuario, idempotency_key,
+    justificativa=None, dados=None,
+):
     if int(pallet_origem_id) == int(pallet_destino_id):
         raise ValueError("Pallet de origem e destino devem ser diferentes.")
+    ids = _normalizar_lista_ids(caixa_ids)
     chave = _validar_chave(idempotency_key)
     with transaction() as conn:
         cursor = conn.cursor()
         _bloquear_idempotencia(cursor, chave)
-        existente = _evento_por_chave(cursor, chave)
-        if existente:
-            if (existente["tipo_evento"] != "CAIXA_TRANSFERIDA" or
-                    int(existente["pallet_origem_id"]) != int(pallet_origem_id) or
-                    int(existente["pallet_destino_id"]) != int(pallet_destino_id) or
-                    int(existente["caixa_id"]) != int(caixa_id)):
+        chaves = [_chave_item(chave, caixa_id, len(ids)) for caixa_id in ids]
+        existentes = [_evento_por_chave(cursor, item) for item in chaves]
+        if any(existentes):
+            if not all(existentes) or any(
+                item["tipo_evento"] != "CAIXA_TRANSFERIDA"
+                or int(item["pallet_origem_id"]) != int(pallet_origem_id)
+                or int(item["pallet_destino_id"]) != int(pallet_destino_id)
+                or int(item["caixa_id"]) != caixa_id
+                for item, caixa_id in zip(existentes, ids)
+            ):
                 raise ValueError("idempotency_key ja usada por outra operacao.")
             return consultar_pallet_cursor(cursor, pallet_destino_id)
-        _obter_caixa(cursor, caixa_id, bloquear=True)
+        pallets = {}
         for pallet_id in sorted((int(pallet_origem_id), int(pallet_destino_id))):
-            _obter_pallet(cursor, pallet_id, bloquear=True, operacional=True)
-        cursor.execute(q("SELECT * FROM pallet_caixas_atuais WHERE caixa_id=?" + _bloqueio()), (caixa_id,))
-        vinculo = cursor.fetchone()
-        if not vinculo or int(vinculo["pallet_id"]) != int(pallet_origem_id):
-            raise ValueError("Caixa/posicao nao pertence ao pallet de origem.")
-        evento_id = _registrar_evento(
-            cursor, pallet_id=pallet_destino_id, caixa_id=caixa_id,
-            tipo_evento="CAIXA_TRANSFERIDA", pallet_origem_id=pallet_origem_id,
-            pallet_destino_id=pallet_destino_id, evento_origem_id=vinculo["evento_origem_id"],
-            usuario=usuario, idempotency_key=chave, justificativa=justificativa, dados=dados,
-        )
-        cursor.execute(q("""UPDATE pallet_caixas_atuais
-                            SET pallet_id=?,adicionado_em=CURRENT_TIMESTAMP,
-                                adicionado_por=?,evento_origem_id=?,versao=versao+1
-                            WHERE id=?"""),
-                       (pallet_destino_id, usuario, evento_id, vinculo["id"]))
+            pallets[pallet_id] = dict(_obter_pallet(cursor, pallet_id, bloquear=True, operacional=True))
+        caixas, vinculos = [], []
+        for caixa_id in ids:
+            caixa = dict(_obter_caixa(cursor, caixa_id, bloquear=True))
+            _validar_caixa_operacional(caixa)
+            cursor.execute(q("SELECT * FROM pallet_caixas_atuais WHERE caixa_id=?" + _bloqueio()), (caixa_id,))
+            vinculo = cursor.fetchone()
+            if not vinculo or int(vinculo["pallet_id"]) != int(pallet_origem_id):
+                raise ValueError(f"{caixa.get('codigo_caixa')}: caixa/posicao nao pertence ao pallet de origem.")
+            caixas.append(caixa)
+            vinculos.append(dict(vinculo))
+        destino = pallets[int(pallet_destino_id)]
+        _validar_compatibilidade(destino, _caixas_do_pallet_cursor(cursor, pallet_destino_id), caixas)
+        for caixa, vinculo, chave_item in zip(caixas, vinculos, chaves):
+            evento_id = _registrar_evento(
+                cursor, pallet_id=pallet_destino_id, caixa_id=caixa["id"],
+                tipo_evento="CAIXA_TRANSFERIDA", pallet_origem_id=pallet_origem_id,
+                pallet_destino_id=pallet_destino_id, evento_origem_id=vinculo["evento_origem_id"],
+                usuario=usuario, idempotency_key=chave_item, justificativa=justificativa,
+                dados={**(dados or {}), "lote": chave},
+            )
+            cursor.execute(q("""UPDATE pallet_caixas_atuais
+                                SET pallet_id=?,adicionado_em=CURRENT_TIMESTAMP,
+                                    adicionado_por=?,evento_origem_id=?,versao=versao+1
+                                WHERE id=?"""),
+                           (pallet_destino_id, usuario, evento_id, vinculo["id"]))
         return consultar_pallet_cursor(cursor, pallet_destino_id)

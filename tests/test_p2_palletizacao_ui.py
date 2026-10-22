@@ -1,5 +1,7 @@
 """P2: contrato HTTP e visual de criação, consulta e identificação de pallets."""
 
+from pathlib import Path
+
 import pytest
 
 import app as aplicacao
@@ -83,4 +85,45 @@ def test_m_permissao_consulta_sem_criacao_e_post_rejeitado(ambiente):
     assert lista.status_code == 200 and b"Novo pallet" not in lista.data
     assert cliente.post("/expedicao/pallets/novo", data={}).status_code == 302
     assert armazenados == []
+
+
+def test_p3_contrato_visual_selecao_em_massa_e_permissao(ambiente, monkeypatch):
+    cliente, armazenados = ambiente
+    pallet = pallet_vazio()
+    pallet["caixas"] = [{
+        "caixa_id": 1, "codigo_caixa": "CX-1", "ops": [121], "ops_texto": "121",
+        "sku": "Galinha Cortada", "peso_liquido": 22, "condicao": "CONFORME",
+        "localizacao_nome": "Câmara A", "status": "Em estoque",
+    }]
+    pallet["ops"] = [{
+        "op_id": 121, "produto": "Galinha Cortada", "quantidade_posicoes": 1,
+        "peso": 22, "bandejas": 12, "pacotes": 0, "aves": 0,
+    }]
+    pallet["totais"].update(caixas=1, peso_liquido=22, bandejas=12)
+    armazenados.append(pallet)
+    monkeypatch.setattr(routes, "listar_caixas_disponiveis_palletizacao", lambda filtros=None: [{
+        "id": 2, "codigo_caixa": "CX-2", "ops": [121], "ops_texto": "121",
+        "sku": "Galinha Cortada", "peso_liquido": 14, "condicao": "CONFORME",
+        "localizacao_nome": "Câmara A", "status": "Em estoque",
+    }])
+    monkeypatch.setattr(routes, "listar_pallets_destino", lambda pallet_id: [pallet_vazio(2, "PALT-000002")])
+    detalhe = cliente.get("/expedicao/pallets/1?aba=caixas")
+    assert detalhe.status_code == 200
+    for texto in (b"Adicionar caixas", b"Transferir caixas", b"Remover do pallet", b"Selecionar todas da OP"):
+        assert texto in detalhe.data
+    adicao = cliente.get("/expedicao/pallets/1/adicionar")
+    assert b'data-select-op="121"' in adicao.data and b'data-caixa' in adicao.data
+    transferencia = cliente.get("/expedicao/pallets/1/transferir?caixa_ids=1")
+    assert transferencia.status_code == 200 and b"PALT-000002" in transferencia.data
+    with cliente.session_transaction() as sessao:
+        sessao["perfil"] = "qualidade"
+    assert cliente.get("/expedicao/pallets/1/adicionar").status_code == 302
+    assert b"Adicionar caixas" not in cliente.get("/expedicao/pallets/1?aba=caixas").data
+
+
+def test_p3_javascript_op_independente_excecao_e_indeterminate():
+    javascript = (Path(__file__).resolve().parents[1] / "static" / "palletizacao.js").read_text(encoding="utf-8")
+    assert "belongsTo(box, selector.dataset.selectOp)" in javascript
+    assert "box.checked = selector.checked" in javascript
+    assert "selector.indeterminate = checked > 0 && checked < group.length" in javascript
 

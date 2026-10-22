@@ -1,0 +1,12 @@
+{% extends "base.html" %}{% block conteudo %}
+<div class="expedicao-page pallet-page pallet-transfer-page">
+  <header class="pallet-header"><div><span class="eyebrow">Pallet {{ pallet.codigo }}</span><h2>Transferir caixas</h2><p>A transferência é atômica: todas as posições são transferidas ou nenhuma é alterada.</p></div><a class="romaneio-btn romaneio-btn-secondary" href="{{ url_for('detalhe_pallet_expedicao',pallet_id=pallet.id,aba='caixas') }}">Cancelar</a></header>
+  <form class="card pallet-transfer-form" method="post">
+    <input type="hidden" name="idempotency_key" value="{{ chave }}">{% for caixa in caixas %}<input type="hidden" name="caixa_ids" value="{{ caixa.caixa_id }}">{% endfor %}
+    <section><span class="eyebrow">Resumo</span><h3>{{ caixas|length }} caixa(s)/posição(ões)</h3><ul>{% for caixa in caixas %}<li><code>{{ caixa.codigo_caixa }}</code><span>OP {{ caixa.ops_texto }} · {{ caixa.sku }} · {{ caixa.peso_liquido|br_numero(3) }} kg</span></li>{% endfor %}</ul></section>
+    <label>Pallet destino<select name="pallet_destino_id" required><option value="">Selecione</option>{% for destino in destinos %}<option value="{{ destino.id }}">{{ destino.codigo }} · {{ destino.produtos_texto }} · {{ destino.totais.caixas }} posição(ões)</option>{% endfor %}</select></label>
+    <label>Motivo <span>Opcional</span><input name="justificativa" maxlength="500"></label>
+    {% if destinos %}<div class="pallet-form-actions"><button class="romaneio-btn romaneio-btn-primary">Confirmar transferência</button></div>{% else %}<div class="pallet-empty">Nenhum pallet de destino operacional está disponível.</div>{% endif %}
+  </form>
+</div>
+{% endblock %}

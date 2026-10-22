@@ -311,3 +311,37 @@ def test_p2_criacao_concorrente_codigo_unico_e_idempotencia():
     assert len({item["codigo"] for item in resultados}) == 3
     assert len({item["id"] for item in resultados if item["codigo"] == next(r["codigo"] for r in resultados if r["id"] == resultados[-1]["id"])}) >= 1
     assert contagem("pallets") == 3
+
+
+def test_p3_transferencia_concorrente_da_mesma_caixa_apenas_uma_vence():
+    origem = criar("P3-CONC-ORIGEM")
+    destinos = [criar("P3-CONC-D1"), criar("P3-CONC-D2")]
+    palletizacao.adicionar_caixa(
+        origem["id"], 2, usuario="Concorrencia", idempotency_key="P3-CONC-ADD",
+    )
+    barreira = threading.Barrier(2)
+    resultados, erros = [], []
+
+    def alvo(destino, chave):
+        try:
+            barreira.wait(timeout=5)
+            palletizacao.transferir_caixa(
+                origem["id"], destino["id"], 2,
+                usuario="Concorrencia", idempotency_key=chave,
+            )
+            resultados.append(destino["id"])
+        except Exception as erro:
+            erros.append(erro)
+
+    threads = [
+        threading.Thread(target=alvo, args=(destinos[0], "P3-CONC-T1")),
+        threading.Thread(target=alvo, args=(destinos[1], "P3-CONC-T2")),
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=20)
+    assert len(resultados) == 1
+    assert len(erros) == 1
+    assert contagem("pallet_caixas_atuais", "caixa_id=2") == 1
+    assert contagem("pallet_caixa_eventos", "tipo_evento='CAIXA_TRANSFERIDA' AND caixa_id=2") == 1

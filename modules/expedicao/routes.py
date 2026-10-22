@@ -97,13 +97,18 @@ from modules.parceiros.services import (
 )
 from .relatorio_entregas import gerar_relatorio_entregas_pdf
 from .palletizacao import (
+    adicionar_caixas,
     buscar_pallet_por_codigo,
     consultar_pallet,
     criar_pallet,
+    listar_caixas_disponiveis_palletizacao,
     listar_eventos_pallet,
     listar_locais_pallet,
     listar_pallets,
+    listar_pallets_destino,
+    remover_caixas,
     resumo_pallets,
+    transferir_caixas,
 )
 
 
@@ -291,10 +296,116 @@ def register_expedicao_routes(app, integracoes=None):
         aba = request.args.get("aba", "visao-geral")
         if aba not in {"visao-geral", "caixas", "ops", "movimentacoes"}:
             aba = "visao-geral"
+        chave_remocao = session.get(f"pallet_{pallet_id}_remocao_chave") or str(uuid.uuid4())
+        session[f"pallet_{pallet_id}_remocao_chave"] = chave_remocao
         return render_template(
             "pallet_detalhe.html", pallet=pallet, aba=aba,
             eventos=listar_eventos_pallet(pallet_id),
+            chave_remocao=chave_remocao,
+            pode_operar=session.get("perfil") in {"admin", "pcp"},
         )
+
+    @app.get("/expedicao/pallets/<int:pallet_id>/adicionar")
+    @perfil_permitido("pcp")
+    def adicionar_caixas_pallet_expedicao(pallet_id):
+        try:
+            pallet = consultar_pallet(pallet_id)
+        except ValueError as erro:
+            flash(str(erro))
+            return redirect(url_for("pallets_expedicao"))
+        filtros = {nome: request.args.get(nome, "") for nome in (
+            "op", "produto", "codigo", "localizacao",
+        )}
+        chave = session.get(f"pallet_{pallet_id}_adicao_chave") or str(uuid.uuid4())
+        session[f"pallet_{pallet_id}_adicao_chave"] = chave
+        return render_template(
+            "pallet_adicionar_caixas.html", pallet=pallet, filtros=filtros,
+            caixas=listar_caixas_disponiveis_palletizacao(filtros),
+            locais=listar_locais_pallet(), chave=chave,
+        )
+
+    @app.post("/expedicao/pallets/<int:pallet_id>/adicionar")
+    @perfil_permitido("pcp")
+    def confirmar_adicao_caixas_pallet_expedicao(pallet_id):
+        try:
+            chave = request.form.get("idempotency_key") or ""
+            if chave != session.get(f"pallet_{pallet_id}_adicao_chave"):
+                raise ValueError("Solicitacao de adicao invalida. Reabra a selecao.")
+            ids = request.form.getlist("caixa_ids")
+            adicionar_caixas(
+                pallet_id, ids, usuario=session.get("nome") or "Usuario nao identificado",
+                idempotency_key=chave,
+            )
+            session.pop(f"pallet_{pallet_id}_adicao_chave", None)
+            flash(f"{len(ids)} caixa(s)/posicao(oes) adicionada(s) ao pallet.")
+            return redirect(url_for("detalhe_pallet_expedicao", pallet_id=pallet_id, aba="caixas"))
+        except (TypeError, ValueError) as erro:
+            flash(str(erro))
+            return redirect(url_for("adicionar_caixas_pallet_expedicao", pallet_id=pallet_id))
+
+    @app.post("/expedicao/pallets/<int:pallet_id>/remover")
+    @perfil_permitido("pcp")
+    def remover_caixas_pallet_expedicao(pallet_id):
+        try:
+            chave = request.form.get("idempotency_key") or ""
+            if chave != session.get(f"pallet_{pallet_id}_remocao_chave"):
+                raise ValueError("Solicitacao de remocao invalida. Reabra o pallet.")
+            ids = request.form.getlist("caixa_ids")
+            remover_caixas(
+                pallet_id, ids, usuario=session.get("nome") or "Usuario nao identificado",
+                idempotency_key=chave,
+                justificativa=(request.form.get("justificativa") or "").strip() or None,
+            )
+            session.pop(f"pallet_{pallet_id}_remocao_chave", None)
+            flash(f"{len(ids)} caixa(s)/posicao(oes) removida(s) do pallet.")
+            return redirect(url_for("detalhe_pallet_expedicao", pallet_id=pallet_id, aba="movimentacoes"))
+        except (TypeError, ValueError) as erro:
+            flash(str(erro))
+            return redirect(url_for("detalhe_pallet_expedicao", pallet_id=pallet_id, aba="caixas"))
+
+    @app.get("/expedicao/pallets/<int:pallet_id>/transferir")
+    @perfil_permitido("pcp")
+    def transferir_caixas_pallet_expedicao(pallet_id):
+        try:
+            pallet = consultar_pallet(pallet_id)
+            ids = {int(item) for item in request.args.getlist("caixa_ids")}
+            selecionadas = [item for item in pallet["caixas"] if int(item["caixa_id"]) in ids]
+            if not selecionadas or len(selecionadas) != len(ids):
+                raise ValueError("Selecione caixas/posicoes validas do pallet de origem.")
+            chave = str(uuid.uuid4())
+            session[f"pallet_{pallet_id}_transferencia_chave"] = chave
+            session[f"pallet_{pallet_id}_transferencia_ids"] = sorted(ids)
+            return render_template(
+                "pallet_transferir_caixas.html", pallet=pallet, caixas=selecionadas,
+                destinos=listar_pallets_destino(pallet_id), chave=chave,
+            )
+        except (TypeError, ValueError) as erro:
+            flash(str(erro))
+            return redirect(url_for("detalhe_pallet_expedicao", pallet_id=pallet_id, aba="caixas"))
+
+    @app.post("/expedicao/pallets/<int:pallet_id>/transferir")
+    @perfil_permitido("pcp")
+    def confirmar_transferencia_caixas_pallet_expedicao(pallet_id):
+        try:
+            chave = request.form.get("idempotency_key") or ""
+            ids = [int(item) for item in request.form.getlist("caixa_ids")]
+            if (chave != session.get(f"pallet_{pallet_id}_transferencia_chave") or
+                    sorted(ids) != session.get(f"pallet_{pallet_id}_transferencia_ids")):
+                raise ValueError("Solicitacao de transferencia invalida. Reabra a selecao.")
+            destino_id = int(request.form.get("pallet_destino_id") or 0)
+            destino = transferir_caixas(
+                pallet_id, destino_id, ids,
+                usuario=session.get("nome") or "Usuario nao identificado",
+                idempotency_key=chave,
+                justificativa=(request.form.get("justificativa") or "").strip() or None,
+            )
+            session.pop(f"pallet_{pallet_id}_transferencia_chave", None)
+            session.pop(f"pallet_{pallet_id}_transferencia_ids", None)
+            flash(f"{len(ids)} caixa(s)/posicao(oes) transferida(s) para {destino['codigo']}.")
+            return redirect(url_for("detalhe_pallet_expedicao", pallet_id=destino_id, aba="movimentacoes"))
+        except (TypeError, ValueError) as erro:
+            flash(str(erro))
+            return redirect(url_for("detalhe_pallet_expedicao", pallet_id=pallet_id, aba="caixas"))
 
     @app.route("/embalagem-primaria", methods=["GET", "POST"])
     @perfil_permitido("pcp", "producao")
