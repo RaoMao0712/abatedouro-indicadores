@@ -504,6 +504,67 @@ def buscar_pallet_por_codigo(codigo):
         conn.close()
 
 
+def resumo_pallet_para_romaneio(expedicao_id, codigo):
+    """Preflight somente leitura; a reserva volta a validar tudo sob lock."""
+    criar_estrutura_palletizacao()
+    conn = conectar()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(q("SELECT * FROM expedicoes WHERE id=?"), (expedicao_id,))
+        romaneio = cursor.fetchone()
+        if not romaneio or romaneio["status"] != "Aberto":
+            raise ValueError("Somente romaneios abertos podem receber itens.")
+        cursor.execute(q("SELECT * FROM pallets WHERE LOWER(codigo)=LOWER(?)"),
+                       (str(codigo or "").strip(),))
+        pallet = cursor.fetchone()
+        if not pallet:
+            raise ValueError("Pallet nao encontrado.")
+        if pallet["status"] in STATUS_BLOQUEADOS:
+            raise ValueError("Pallet encerrado ou cancelado nao aceita carregamento.")
+        cursor.execute(q("""
+        SELECT cx.*,
+               (SELECT MIN(comp.op_id) FROM pa_caixa_composicao comp
+                WHERE comp.caixa_id=cx.id) AS op_id,
+               EXISTS(SELECT 1 FROM expedicao_itens ei JOIN expedicoes e ON e.id=ei.expedicao_id
+                      WHERE ei.caixa_id=cx.id AND COALESCE(ei.ativo,1)=1
+                        AND ei.expedicao_id<>? AND e.status IN ('Aberto','Concluído'))
+                   AS item_ativo_incompativel
+        FROM pallet_caixas_atuais ca JOIN pa_caixas cx ON cx.id=ca.caixa_id
+        WHERE ca.pallet_id=? ORDER BY cx.id
+        """), (expedicao_id, pallet["id"]))
+        itens = []
+        for linha in cursor.fetchall():
+            item = dict(linha)
+            avaliacao = avaliar_elegibilidade_expedicao(
+                item, tipo_movimentacao=romaneio["tipo_movimentacao"],
+                expedicao_id=expedicao_id,
+                item_ativo_incompativel=bool(item["item_ativo_incompativel"]),
+            )
+            item.update(avaliacao)
+            item["quantidade_padrao"] = (avaliacao["saldo_elegivel"]
+                                           if item.get("unidade_estoque") == "PACOTE" else 1)
+            itens.append(item)
+        return {
+            "pallet": dict(pallet), "itens": itens,
+            "elegiveis": sum(bool(item["elegivel"]) for item in itens),
+            "inelegiveis": sum(not item["elegivel"] for item in itens),
+        }
+    finally:
+        conn.close()
+
+
+def reservar_pallet_no_romaneio(
+        expedicao_id, pallet_id, caixa_ids, quantidades_pacotes, *, usuario,
+        idempotency_key):
+    """Delega o lote ao mecanismo canônico, preservando atomicidade e auditoria."""
+    from .estoque_service import reservar_itens
+    return reservar_itens(
+        expedicao_id, caixa_ids, quantidades_pacotes,
+        pallet_origem_id=pallet_id, usuario=usuario,
+        idempotency_key=idempotency_key,
+    )
+
+
 def listar_eventos_pallet(pallet_id):
     conn = conectar()
     try:

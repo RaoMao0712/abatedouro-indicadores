@@ -24,6 +24,10 @@ from flask import Flask  # noqa: E402
 
 from database import conectar, q  # noqa: E402
 import modules.expedicao.estoque_service as estoque_service  # noqa: E402
+from modules.expedicao.palletizacao import (  # noqa: E402
+    adicionar_caixas, criar_estrutura_palletizacao, criar_pallet, reservar_pallet_no_romaneio,
+    resumo_pallet_para_romaneio,
+)
 from modules.expedicao.estoque_service import (  # noqa: E402
     atualizar_reserva_quantitativa,
     buscar_caixas_elegiveis_op,
@@ -84,6 +88,7 @@ class SelecaoMultiplasOpsTest(unittest.TestCase):
         criar_tabelas_expedicao()
         criar_tabelas_estoque_pi_pa()
         criar_tabelas_estoque_confiavel()
+        criar_estrutura_palletizacao()
         cls.local_abatedouro = consultar(
             "SELECT id FROM locais_estoque WHERE nome='Abatedouro'"
         )[0]["id"]
@@ -114,6 +119,7 @@ class SelecaoMultiplasOpsTest(unittest.TestCase):
     def setUp(self):
         conn = conectar()
         for tabela in (
+            "pallet_caixas_atuais",
             "estoque_eventos", "expedicao_itens", "pa_caixa_composicao",
             "pa_caixas", "expedicoes", "ordens_producao",
         ):
@@ -798,6 +804,87 @@ class SelecaoMultiplasOpsTest(unittest.TestCase):
         for texto in (impressao, css_impressao):
             self.assertNotIn("selecao-ops", texto)
             self.assertNotIn("Peso bruto ou líquido", texto)
+
+    def test_p6_pallet_preflight_reserva_parcial_auditoria_e_vinculo_fisico(self):
+        caixa_a = self.criar_caixa("P6-CX-A", 83, 3, 2.5)
+        caixa_b = self.criar_caixa("P6-CX-B", 84, 4, 3.5)
+        pallet = criar_pallet(usuario="PCP", idempotency_key="P6-PALLET")
+        adicionar_caixas(
+            pallet["id"], [caixa_a, caixa_b], usuario="PCP",
+            idempotency_key="P6-ADD",
+        )
+        resumo = resumo_pallet_para_romaneio(self.romaneio, pallet["codigo"])
+        self.assertEqual(resumo["elegiveis"], 2)
+        reservar_pallet_no_romaneio(
+            self.romaneio, pallet["id"], [caixa_a], {},
+            usuario="PCP", idempotency_key="P6-RESERVA",
+        )
+        itens = consultar("SELECT * FROM expedicao_itens WHERE expedicao_id=? ORDER BY caixa_id",
+                          (self.romaneio,))
+        self.assertEqual({item["caixa_id"] for item in itens}, {caixa_a})
+        self.assertTrue(all(item["origem_selecao"] == "PALLET" for item in itens))
+        self.assertTrue(all(item["pallet_origem_codigo"] == pallet["codigo"] for item in itens))
+        self.assertEqual(consultar("SELECT COUNT(*) n FROM pallet_caixas_atuais WHERE pallet_id=?",
+                                   (pallet["id"],))[0]["n"], 2)
+        evento = consultar("SELECT * FROM pallet_caixa_eventos WHERE idempotency_key='P6-RESERVA'")[0]
+        self.assertEqual(evento["tipo_evento"], "PALLET_RESERVADO")
+        self.assertEqual(evento["expedicao_id"], self.romaneio)
+        # Retry não duplica reserva nem evento.
+        reservar_pallet_no_romaneio(
+            self.romaneio, pallet["id"], [caixa_a], {},
+            usuario="PCP", idempotency_key="P6-RESERVA",
+        )
+        self.assertEqual(consultar("SELECT COUNT(*) n FROM expedicao_itens WHERE expedicao_id=?",
+                                   (self.romaneio,))[0]["n"], 1)
+
+    def test_p6_pallet_pacote_reserva_quantitativa(self):
+        pacote = self.criar_saldo_quantitativo("P6-PAC", 83, 10, 2)
+        pallet = criar_pallet(usuario="PCP", idempotency_key="P6-PALLET-PAC")
+        adicionar_caixas(pallet["id"], [pacote], usuario="PCP", idempotency_key="P6-ADD-PAC")
+        reservar_pallet_no_romaneio(
+            self.romaneio, pallet["id"], [pacote], {str(pacote): "4"},
+            usuario="PCP", idempotency_key="P6-RESERVA-PAC",
+        )
+        item = consultar("SELECT * FROM expedicao_itens WHERE expedicao_id=?", (self.romaneio,))[0]
+        self.assertEqual((item["quantidade_pacotes"], item["quantidade_galinhas"]), (4, 8))
+
+    def test_p6_tela_busca_selecao_em_massa_e_confirmacao(self):
+        caixa = self.criar_caixa("P6-UI", 83, 3, 2.5)
+        pallet = criar_pallet(usuario="PCP", idempotency_key="P6-PALLET-UI")
+        adicionar_caixas(pallet["id"], [caixa], usuario="PCP", idempotency_key="P6-ADD-UI")
+        cliente = self.cliente()
+        resposta = cliente.get(
+            f"/expedicao/{self.romaneio}/adicionar-pallet?codigo={pallet['codigo']}"
+        )
+        pagina = resposta.get_data(as_text=True)
+        self.assertEqual(resposta.status_code, 200)
+        for trecho in ("Selecionar todos", "Desmarcar todos", 'id="mestre"', "Totais selecionados"):
+            self.assertIn(trecho, pagina)
+        with cliente.session_transaction() as sessao:
+            chave = sessao[f"romaneio_{self.romaneio}_pallet_chave"]
+        resposta = cliente.post(f"/expedicao/{self.romaneio}/adicionar-pallet", data={
+            "codigo": pallet["codigo"], "pallet_id": pallet["id"],
+            "idempotency_key": chave, "caixa_ids": str(caixa),
+        })
+        self.assertEqual(resposta.status_code, 302)
+        detalhe = cliente.get(f"/expedicao/{self.romaneio}").get_data(as_text=True)
+        self.assertIn(f"Selecionado via pallet {pallet['codigo']}", detalhe)
+
+    def test_p6_lote_invalido_faz_rollback_integral(self):
+        caixa_a = self.criar_caixa("P6-OK", 83, 3, 2.5)
+        caixa_b = self.criar_caixa("P6-BLOQ", 83, 3, 2.5, disponibilidade="RESERVADO")
+        pallet = criar_pallet(usuario="PCP", idempotency_key="P6-PALLET-ROLLBACK")
+        adicionar_caixas(pallet["id"], [caixa_a, caixa_b], usuario="PCP",
+                         idempotency_key="P6-ADD-ROLLBACK")
+        with self.assertRaises(ValueError):
+            reservar_pallet_no_romaneio(
+                self.romaneio, pallet["id"], [caixa_a, caixa_b], {},
+                usuario="PCP", idempotency_key="P6-ROLLBACK",
+            )
+        self.assertEqual(consultar("SELECT COUNT(*) n FROM expedicao_itens WHERE expedicao_id=?",
+                                   (self.romaneio,))[0]["n"], 0)
+        self.assertEqual(consultar("SELECT disponibilidade FROM pa_caixas WHERE id=?",
+                                   (caixa_a,))[0]["disponibilidade"], "DISPONIVEL")
 
 
 if __name__ == "__main__":

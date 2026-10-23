@@ -107,6 +107,8 @@ from .palletizacao import (
     listar_pallets,
     listar_pallets_destino,
     remover_caixas,
+    reservar_pallet_no_romaneio,
+    resumo_pallet_para_romaneio,
     resumo_organizacao_op,
     resumo_pallets,
     transferir_caixas,
@@ -1239,6 +1241,48 @@ def register_expedicao_routes(app, integracoes=None):
             })
         except ValueError as erro:
             return jsonify({"ok": False, "mensagem": str(erro)}), 400
+
+    @app.route("/expedicao/<int:expedicao_id>/adicionar-pallet", methods=["GET", "POST"])
+    @perfil_permitido("pcp", "qualidade", "gerencia", "expedicao")
+    def adicionar_pallet_romaneio(expedicao_id):
+        expedicao = buscar_expedicao_por_id(expedicao_id)
+        if not expedicao:
+            flash("Romaneio não encontrado.")
+            return redirect(url_for("expedicao"))
+        resumo = None
+        codigo = request.values.get("codigo") or ""
+        try:
+            if request.method == "POST":
+                chave = request.form.get("idempotency_key")
+                if chave != session.get(f"romaneio_{expedicao_id}_pallet_chave"):
+                    raise ValueError("A seleção expirou. Pesquise o pallet novamente.")
+                pallet_id = int(request.form.get("pallet_id") or 0)
+                caixa_ids = request.form.getlist("caixa_ids")
+                quantidades = {
+                    caixa_id: request.form.get(f"quantidade_pacotes_{caixa_id}")
+                    for caixa_id in caixa_ids
+                }
+                reservar_pallet_no_romaneio(
+                    expedicao_id, pallet_id, caixa_ids, quantidades,
+                    usuario=session.get("nome") or "Usuario nao identificado",
+                    idempotency_key=chave,
+                )
+                session.pop(f"romaneio_{expedicao_id}_pallet_chave", None)
+                flash(f"{len(caixa_ids)} item(ns) do pallet reservados com sucesso.")
+                return redirect(url_for("detalhe_romaneio_expedicao", expedicao_id=expedicao_id))
+            if codigo.strip():
+                resumo = resumo_pallet_para_romaneio(expedicao_id, codigo)
+                chave = str(uuid.uuid4())
+                session[f"romaneio_{expedicao_id}_pallet_chave"] = chave
+            else:
+                chave = None
+        except (TypeError, ValueError) as erro:
+            flash(str(erro))
+            chave = None
+        return render_template(
+            "romaneio_adicionar_pallet.html", expedicao=expedicao,
+            resumo=resumo, codigo=codigo, idempotency_key=chave,
+        )
 
     @app.get("/expedicao/<int:expedicao_id>/selecao-ops/<int:op_id>/caixas")
     @perfil_permitido("pcp", "qualidade", "gerencia", "expedicao")

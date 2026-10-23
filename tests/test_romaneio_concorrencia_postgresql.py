@@ -74,7 +74,8 @@ CREATE TABLE expedicao_itens (
     galinhas_por_pacote INTEGER, quantidade_pacotes INTEGER,
     quantidade_galinhas INTEGER, peso_bruto NUMERIC, peso_tara NUMERIC,
     lote TEXT, ativo INTEGER NOT NULL DEFAULT 1, removido_em TEXT,
-    removido_por TEXT, motivo_remocao TEXT
+    removido_por TEXT, motivo_remocao TEXT, origem_selecao TEXT,
+    pallet_origem_id INTEGER, pallet_origem_codigo TEXT
 );
 CREATE TABLE estoque_eventos (
     id SERIAL PRIMARY KEY, caixa_id INTEGER, expedicao_id INTEGER, acao TEXT NOT NULL,

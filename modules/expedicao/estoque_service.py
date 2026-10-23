@@ -553,6 +553,9 @@ def criar_tabelas_estoque_confiavel():
             "removido_em TEXT",
             "removido_por TEXT",
             "motivo_remocao TEXT",
+            "origem_selecao TEXT",
+            "pallet_origem_id INTEGER",
+            "pallet_origem_codigo TEXT",
         ]
         for coluna in colunas_item:
             _alterar_coluna(
@@ -1072,7 +1075,9 @@ def buscar_historico_estoque(limite=300):
         conn.close()
 
 
-def reservar_itens(expedicao_id, caixa_ids, quantidades_pacotes=None, op_id_esperada=None):
+def reservar_itens(
+        expedicao_id, caixa_ids, quantidades_pacotes=None, op_id_esperada=None,
+        *, pallet_origem_id=None, usuario=None, idempotency_key=None):
     """Reserva caixas inteiras ou uma quantidade inteira de pacotes de GI."""
     criar_tabelas_estoque_confiavel()
     try:
@@ -1087,6 +1092,31 @@ def reservar_itens(expedicao_id, caixa_ids, quantidades_pacotes=None, op_id_espe
         raise ValueError("Selecione itens distintos para reservar.")
     with transaction() as conn:
         cursor = conn.cursor()
+        if pallet_origem_id is not None:
+            from .palletizacao import (_bloquear_idempotencia, _evento_por_chave,
+                                       _obter_pallet, _validar_chave)
+            idempotency_key = _validar_chave(idempotency_key)
+            _bloquear_idempotencia(cursor, idempotency_key)
+            evento_existente = _evento_por_chave(cursor, idempotency_key)
+            if evento_existente:
+                if (evento_existente["tipo_evento"] != "PALLET_RESERVADO"
+                        or int(evento_existente["pallet_id"]) != int(pallet_origem_id)
+                        or int(evento_existente["expedicao_id"]) != int(expedicao_id)):
+                    raise ValueError("idempotency_key ja usada por outra operacao.")
+                return
+            pallet_origem = _obter_pallet(
+                cursor, int(pallet_origem_id), bloquear=True, operacional=True)
+            marcadores = ",".join("?" for _ in ids)
+            cursor.execute(q(f"""
+            SELECT caixa_id FROM pallet_caixas_atuais
+            WHERE pallet_id=? AND caixa_id IN ({marcadores})
+            {"FOR UPDATE" if DATABASE_URL else ""}
+            """), (int(pallet_origem_id), *ids))
+            vinculadas = {int(item["caixa_id"]) for item in cursor.fetchall()}
+            if vinculadas != set(ids):
+                raise ValueError("A seleção contém item que não pertence mais ao pallet informado.")
+        else:
+            pallet_origem = None
         sufixo_bloqueio = " FOR UPDATE" if DATABASE_URL else ""
         cursor.execute(q(f"SELECT * FROM expedicoes WHERE id = ?{sufixo_bloqueio}"), (expedicao_id,))
         romaneio = cursor.fetchone()
@@ -1181,13 +1211,16 @@ def reservar_itens(expedicao_id, caixa_ids, quantidades_pacotes=None, op_id_espe
                     quantidade_kg, situacao_anterior, condicao_anterior,
                     local_anterior_id, unidade_estoque, apresentacao,
                     galinhas_por_pacote, quantidade_pacotes, quantidade_galinhas,
-                    peso_bruto, peso_tara, lote
-                ) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, 'PACOTE', ?, ?, ?, ?, NULL, NULL, ?)
+                    peso_bruto, peso_tara, lote, origem_selecao, pallet_origem_id,
+                    pallet_origem_codigo
+                ) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, 'PACOTE', ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?)
                 """), (
                     expedicao_id, caixa_id, op_id_esperada or caixa["op_id"], caixa["sku"], quantidade,
                     situacao_origem, caixa["condicao"], caixa["local_estoque_id"],
                     caixa["apresentacao"], caixa["galinhas_por_pacote"],
                     quantidade, galinhas, caixa["codigo_caixa"],
+                    "PALLET" if pallet_origem_id is not None else None, pallet_origem_id,
+                    pallet_origem["codigo"] if pallet_origem else None,
                 ))
                 peso_evento = None
                 quantidade_evento = quantidade
@@ -1206,14 +1239,17 @@ def reservar_itens(expedicao_id, caixa_ids, quantidades_pacotes=None, op_id_espe
                     expedicao_id, caixa_id, op_id, sku, quantidade_unidades,
                     quantidade_kg, situacao_anterior, condicao_anterior,
                     local_anterior_id, unidade_estoque, apresentacao,
-                    peso_bruto, peso_tara, lote
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'CAIXA', ?, ?, ?, ?)
+                    peso_bruto, peso_tara, lote, origem_selecao, pallet_origem_id,
+                    pallet_origem_codigo
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'CAIXA', ?, ?, ?, ?, ?, ?, ?)
                 """), (
                     expedicao_id, caixa_id, op_id_esperada or caixa["op_id"], caixa["sku"],
                     caixa["quantidade_bandejas"], caixa["peso_liquido"],
                     situacao_origem, caixa["condicao"], caixa["local_estoque_id"],
                     caixa["apresentacao"], caixa["peso_bruto"], caixa["peso_tara"],
                     caixa["codigo_caixa"],
+                    "PALLET" if pallet_origem_id is not None else None, pallet_origem_id,
+                    pallet_origem["codigo"] if pallet_origem else None,
                 ))
                 peso_evento = caixa["peso_liquido"]
                 quantidade_evento = caixa["quantidade_bandejas"] or 1
@@ -1238,6 +1274,15 @@ def reservar_itens(expedicao_id, caixa_ids, quantidades_pacotes=None, op_id_espe
                 observacao=json.dumps({"expedicao_item_id": int(expedicao_item_id)},
                                        sort_keys=True),
                 idempotency_key=f"RESERVA-ITEM-{int(expedicao_item_id)}",
+            )
+        if pallet_origem_id is not None:
+            from .palletizacao import _registrar_evento
+            _registrar_evento(
+                cursor, pallet_id=int(pallet_origem_id), tipo_evento="PALLET_RESERVADO",
+                expedicao_id=int(expedicao_id), usuario=usuario or "Usuario nao identificado",
+                idempotency_key=idempotency_key,
+                dados={"pallet_codigo": pallet_origem["codigo"], "quantidade_itens": len(ids),
+                       "caixa_ids": ids},
             )
 
 
