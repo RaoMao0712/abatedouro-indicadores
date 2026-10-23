@@ -89,6 +89,10 @@ def estado_limpo(monkeypatch):
     with conectar() as conn:
         with conn.cursor() as cursor:
             cursor.execute("TRUNCATE op_palletizacao_excecoes, pallet_caixas_atuais, pallet_caixa_eventos, pallets RESTART IDENTITY")
+            cursor.execute("DELETE FROM pa_caixa_composicao WHERE caixa_id IN (SELECT id FROM pa_caixas WHERE posicao_origem_id IS NOT NULL)")
+            cursor.execute("DELETE FROM pa_caixas WHERE posicao_origem_id IS NOT NULL")
+            cursor.execute("""UPDATE pa_caixas SET quantidade_galinhas=1924,quantidade_pacotes=962,
+                peso_liquido=100,peso_bruto=NULL,quantidade_original_galinhas=NULL WHERE id=1""")
 
     @contextmanager
     def transacao_real():
@@ -121,6 +125,44 @@ def contagem(tabela, where="TRUE", args=()):
         with conn.cursor() as cursor:
             cursor.execute(f"SELECT COUNT(*) AS total FROM {tabela} WHERE {where}", args)
             return int(cursor.fetchone()["total"])
+
+
+def test_p10_postgresql_fracionamento_concorrente_idempotente_e_invariante():
+    criar("P10-SCHEMA")
+    with conectar() as conn, conn.cursor() as cursor:
+        cursor.execute("ALTER TABLE pa_caixas ADD COLUMN IF NOT EXISTS galinhas_por_pacote INTEGER")
+        cursor.execute("DELETE FROM pa_caixa_composicao WHERE caixa_id IN (SELECT id FROM pa_caixas WHERE posicao_origem_id=1)")
+        cursor.execute("DELETE FROM pa_caixas WHERE posicao_origem_id=1")
+        cursor.execute("""UPDATE pa_caixas SET quantidade_galinhas=1924,quantidade_pacotes=962,
+            galinhas_por_pacote=2,peso_liquido=100,peso_bruto=100,
+            quantidade_original_galinhas=NULL,posicao_origem_id=NULL,
+            quantidade_pacotes_reservados=0,reservado_expedicao_id=NULL WHERE id=1""")
+    pallet_a, pallet_b = criar("P10-PG-A"), criar("P10-PG-B")
+    erros = []
+
+    def operar(pallet_id, quantidade, chave):
+        try:
+            palletizacao.palletizar_quantidade_pacote(
+                pallet_id, 1, quantidade, usuario="PCP", idempotency_key=chave)
+        except Exception as erro:
+            erros.append(erro)
+
+    threads = [threading.Thread(target=operar, args=(pallet_a["id"], 330, "P10-PG-330")),
+               threading.Thread(target=operar, args=(pallet_b["id"], 500, "P10-PG-500"))]
+    for thread in threads: thread.start()
+    for thread in threads: thread.join()
+    assert not erros
+    palletizacao.palletizar_quantidade_pacote(
+        pallet_a["id"], 1, 330, usuario="PCP", idempotency_key="P10-PG-330")
+    with conectar() as conn, conn.cursor() as cursor:
+        cursor.execute("SELECT quantidade_galinhas FROM pa_caixas WHERE id=1")
+        assert cursor.fetchone()["quantidade_galinhas"] == 1094
+        cursor.execute("SELECT quantidade_galinhas FROM pa_caixas WHERE posicao_origem_id=1 ORDER BY quantidade_galinhas")
+        assert [item["quantidade_galinhas"] for item in cursor.fetchall()] == [330, 500]
+    assert palletizacao.auditar_fracionamento_posicao(1)["status"] == "OK"
+    with conectar() as conn, conn.cursor() as cursor:
+        cursor.execute("""UPDATE pa_caixas SET quantidade_galinhas=1924,quantidade_pacotes=962,
+            peso_liquido=100,peso_bruto=NULL,quantidade_original_galinhas=NULL WHERE id=1""")
 
 
 def test_a_b_c_criar_codigo_unico_consultar_e_retry_idempotente():

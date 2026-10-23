@@ -98,6 +98,7 @@ from modules.parceiros.services import (
 from .relatorio_entregas import gerar_relatorio_entregas_pdf
 from .palletizacao import (
     adicionar_caixas,
+    palletizar_quantidade_pacote,
     buscar_pallet_por_codigo,
     consultar_pallet,
     criar_pallet,
@@ -550,12 +551,24 @@ def register_expedicao_routes(app, integracoes=None):
             if chave != session.get(f"pallet_{pallet_id}_adicao_chave"):
                 raise ValueError("Solicitacao de adicao invalida. Reabra a selecao.")
             ids = request.form.getlist("caixa_ids")
-            adicionar_caixas(
-                pallet_id, ids, usuario=session.get("nome") or "Usuario nao identificado",
-                idempotency_key=chave,
-            )
+            usuario = session.get("nome") or "Usuario nao identificado"
+            caixas = {str(item["id"]): item for item in listar_caixas_disponiveis_palletizacao({})
+                      if str(item["id"]) in set(ids)}
+            for caixa_id in ids:
+                caixa = caixas.get(str(caixa_id))
+                if not caixa:
+                    raise ValueError("Caixa/posicao selecionada nao esta disponivel.")
+                chave_item = f"{chave}:{caixa_id}"
+                if str(caixa.get("unidade_estoque") or "").upper() == "PACOTE":
+                    palletizar_quantidade_pacote(
+                        pallet_id, int(caixa_id), request.form.get(f"quantidade_galinhas_{caixa_id}"),
+                        usuario=usuario, idempotency_key=chave_item,
+                    )
+                else:
+                    adicionar_caixas(pallet_id, [caixa_id], usuario=usuario,
+                                     idempotency_key=chave_item)
             session.pop(f"pallet_{pallet_id}_adicao_chave", None)
-            flash(f"{len(ids)} caixa(s)/posicao(oes) adicionada(s) ao pallet.")
+            flash(f"{len(ids)} caixa(s)/posicao(oes) vinculada(s) ao pallet com saldo preservado.")
             return redirect(url_for("detalhe_pallet_expedicao", pallet_id=pallet_id, aba="caixas"))
         except (TypeError, ValueError) as erro:
             flash(str(erro))

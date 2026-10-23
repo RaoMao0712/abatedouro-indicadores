@@ -57,6 +57,10 @@ def banco(tmp_path, monkeypatch):
             ALTER TABLE pa_caixas ADD COLUMN peso_bruto REAL;
             ALTER TABLE pa_caixas ADD COLUMN quantidade_pacotes_reservados INTEGER DEFAULT 0;
             ALTER TABLE pa_caixas ADD COLUMN reservado_expedicao_id INTEGER;
+            ALTER TABLE pa_caixas ADD COLUMN galinhas_por_pacote INTEGER;
+            ALTER TABLE pa_caixas ADD COLUMN posicao_origem_id INTEGER;
+            ALTER TABLE pa_caixas ADD COLUMN quantidade_original_galinhas INTEGER;
+            UPDATE pa_caixas SET galinhas_por_pacote=2 WHERE unidade_estoque='PACOTE';
             ALTER TABLE expedicoes ADD COLUMN status TEXT DEFAULT 'Aberto';
             ALTER TABLE ordens_producao ADD COLUMN status TEXT DEFAULT 'Aberta';
             CREATE TABLE expedicao_itens(id INTEGER PRIMARY KEY,expedicao_id INTEGER,caixa_id INTEGER,ativo INTEGER DEFAULT 1);
@@ -99,6 +103,49 @@ def snapshot(conectar, ids):
             f"SELECT id,status,disponibilidade,estoque_operacional FROM pa_caixas WHERE id IN ({marcadores}) ORDER BY id",
             ids,
         )]
+
+
+def test_p10_fracionamento_sucessivo_idempotente_e_invariante(banco):
+    pallet_a = criar("P10-PALLET-A")
+    pallet_b = criar("P10-PALLET-B")
+    palletizacao.palletizar_quantidade_pacote(
+        pallet_a["id"], 4, 330, usuario="PCP", idempotency_key="P10-FRAC-330",
+    )
+    palletizacao.palletizar_quantidade_pacote(
+        pallet_a["id"], 4, 330, usuario="PCP", idempotency_key="P10-FRAC-330",
+    )
+    palletizacao.palletizar_quantidade_pacote(
+        pallet_b["id"], 4, 400, usuario="PCP", idempotency_key="P10-FRAC-400",
+    )
+    with banco() as conn:
+        origem = conn.execute("SELECT quantidade_galinhas,quantidade_pacotes FROM pa_caixas WHERE id=4").fetchone()
+        filhas = conn.execute("SELECT quantidade_galinhas,posicao_origem_id FROM pa_caixas WHERE posicao_origem_id=4 ORDER BY id").fetchall()
+        assert tuple(origem) == (1194, 597)
+        assert [tuple(item) for item in filhas] == [(330, 4), (400, 4)]
+        assert conn.execute("SELECT COUNT(*) FROM pallet_caixa_eventos WHERE tipo_evento='FRACIONAMENTO_POSICAO_PACOTE'").fetchone()[0] == 2
+    assert palletizacao.auditar_fracionamento_posicao(4)["status"] == "OK"
+
+
+def test_p10_quantidade_total_nao_cria_filha_e_validacoes(banco):
+    pallet = criar("P10-TOTAL-PALLET")
+    palletizacao.palletizar_quantidade_pacote(
+        pallet["id"], 4, 1924, usuario="PCP", idempotency_key="P10-TOTAL",
+    )
+    with banco() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM pa_caixas WHERE posicao_origem_id=4").fetchone()[0] == 0
+        assert conn.execute("SELECT caixa_id FROM pallet_caixas_atuais").fetchone()[0] == 4
+
+
+@pytest.mark.parametrize("quantidade", [0, -1, 1925, "1.5", 331])
+def test_p10_rejeita_quantidade_invalida_sem_mutacao(banco, quantidade):
+    pallet = criar(f"P10-INV-PALLET-{quantidade}")
+    with pytest.raises(ValueError):
+        palletizacao.palletizar_quantidade_pacote(
+            pallet["id"], 4, quantidade, usuario="PCP", idempotency_key=f"P10-INV-{quantidade}",
+        )
+    with banco() as conn:
+        assert conn.execute("SELECT quantidade_galinhas FROM pa_caixas WHERE id=4").fetchone()[0] == 1924
+        assert conn.execute("SELECT COUNT(*) FROM pallet_caixas_atuais").fetchone()[0] == 0
 
 
 def test_p8_primeira_impressao_reimpressao_desatualizacao_e_zero_mutacao(banco):

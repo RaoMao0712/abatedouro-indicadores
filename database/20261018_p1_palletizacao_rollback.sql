@@ -8,4 +8,6 @@ DROP TABLE IF EXISTS pallet_caixas_atuais;
 DROP TABLE IF EXISTS pallet_caixa_eventos;
 DROP TABLE IF EXISTS pallets;
 DROP SEQUENCE IF EXISTS pallet_codigo_seq;
+ALTER TABLE pa_caixas DROP COLUMN IF EXISTS posicao_origem_id;
+ALTER TABLE pa_caixas DROP COLUMN IF EXISTS quantidade_original_galinhas;
 COMMIT;

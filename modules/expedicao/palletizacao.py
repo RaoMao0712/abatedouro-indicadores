@@ -1,6 +1,7 @@
 """Fundacao transacional de palletizacao, sem autoridade sobre estoque."""
 
 import json
+import hashlib
 from pathlib import Path
 
 from database import DATABASE_URL, conectar, q, transaction
@@ -37,15 +38,32 @@ def criar_estrutura_palletizacao():
                 'PALLET_RESERVADO','RESERVA_PALLET_CANCELADA','PALLET_CARREGADO',
                 'CARREGAMENTO_PARCIAL','CARREGAMENTO_PALLET_ESTORNADO',
                 'PALLET_DEVOLVIDO_ESTOQUE','PALLET_ENCERRADO','PALLET_REABERTO',
-                'PALLET_CANCELADO','ETIQUETA_PALLET_IMPRESSA'))""")
+                'PALLET_CANCELADO','ETIQUETA_PALLET_IMPRESSA',
+                'FRACIONAMENTO_POSICAO_PACOTE'))""")
         else:
             conn.executescript(sql)
+        _garantir_schema_fracionamento(cursor)
         conn.commit()
     except Exception:
         conn.rollback()
         raise
     finally:
         conn.close()
+
+
+def _garantir_schema_fracionamento(cursor):
+    """Schema aditivo P10; posições antigas continuam válidas sem retroatividade."""
+    if DATABASE_URL:
+        cursor.execute("ALTER TABLE pa_caixas ADD COLUMN IF NOT EXISTS posicao_origem_id INTEGER REFERENCES pa_caixas(id) ON DELETE RESTRICT")
+        cursor.execute("ALTER TABLE pa_caixas ADD COLUMN IF NOT EXISTS quantidade_original_galinhas INTEGER")
+    else:
+        cursor.execute("PRAGMA table_info(pa_caixas)")
+        colunas = {item[1] for item in cursor.fetchall()}
+        if "posicao_origem_id" not in colunas:
+            cursor.execute("ALTER TABLE pa_caixas ADD COLUMN posicao_origem_id INTEGER REFERENCES pa_caixas(id) ON DELETE RESTRICT")
+        if "quantidade_original_galinhas" not in colunas:
+            cursor.execute("ALTER TABLE pa_caixas ADD COLUMN quantidade_original_galinhas INTEGER")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_pa_caixas_posicao_origem ON pa_caixas(posicao_origem_id)")
 
 
 def _id_inserido(cursor, sql, parametros):
@@ -962,6 +980,156 @@ def listar_pallets_destino(pallet_origem_id):
         item for item in listar_pallets()
         if int(item["id"]) != int(pallet_origem_id) and item["status"] not in STATUS_BLOQUEADOS
     ]
+
+
+def _inteiro_quantitativo(valor):
+    texto = str(valor if valor is not None else "").strip()
+    if not texto or not texto.lstrip("-").isdigit():
+        raise ValueError("Quantidade para o pallet deve ser um numero inteiro.")
+    quantidade = int(texto)
+    if quantidade <= 0:
+        raise ValueError("Quantidade para o pallet deve ser maior que zero.")
+    return quantidade
+
+
+def _inserir_fracao(cursor, origem, quantidade, chave):
+    total = int(origem.get("quantidade_galinhas") or 0)
+    fator = int(origem.get("galinhas_por_pacote") or 0)
+    if fator <= 0 or quantidade % fator:
+        raise ValueError("Quantidade incompativel com o fator de aves por pacote da posicao.")
+    proporcao = quantidade / total
+    cursor.execute("SELECT * FROM pa_caixas WHERE 1=0")
+    colunas_existentes = {item[0] for item in cursor.description}
+    ignoradas = {
+        "id", "codigo_caixa", "criado_em", "quantidade_galinhas", "quantidade_pacotes",
+        "quantidade_pacotes_reservados", "reservado_expedicao_id", "posicao_origem_id",
+        "quantidade_original_galinhas", "peso_bruto", "peso_liquido",
+    }
+    colunas = [item for item in origem if item in colunas_existentes and item not in ignoradas]
+    codigo = f"{origem['codigo_caixa']}-F{hashlib.sha256(chave.encode()).hexdigest()[:10].upper()}"
+    peso_bruto = float(origem.get("peso_bruto") or 0)
+    peso_liquido = float(origem.get("peso_liquido") or 0)
+    extras = {
+        "codigo_caixa": codigo,
+        "quantidade_galinhas": quantidade,
+        "quantidade_pacotes": quantidade // fator,
+        "quantidade_pacotes_reservados": 0,
+        "reservado_expedicao_id": None,
+        "posicao_origem_id": int(origem["id"]),
+        "quantidade_original_galinhas": quantidade,
+        "peso_bruto": peso_bruto * proporcao,
+        "peso_liquido": peso_liquido * proporcao,
+    }
+    extras = {nome: valor for nome, valor in extras.items() if nome in colunas_existentes}
+    nomes = colunas + list(extras)
+    valores = [origem[nome] for nome in colunas] + list(extras.values())
+    marcadores = ",".join("?" for _ in nomes)
+    sql = f"INSERT INTO pa_caixas ({','.join(nomes)}) VALUES ({marcadores})"
+    filho_id = _id_inserido(cursor, sql, tuple(valores))
+    cursor.execute(q("SELECT * FROM pa_caixa_composicao WHERE caixa_id=? ORDER BY id"), (origem["id"],))
+    composicoes = [dict(item) for item in cursor.fetchall()]
+    for item in composicoes:
+        anterior = float(item.get("quantidade_bandejas") or 0)
+        destacada = anterior * proporcao
+        cursor.execute(q("UPDATE pa_caixa_composicao SET quantidade_bandejas=? WHERE id=?"),
+                       (anterior - destacada, item["id"]))
+        cursor.execute(q("INSERT INTO pa_caixa_composicao(caixa_id,op_id,quantidade_bandejas) VALUES(?,?,?)"),
+                       (filho_id, item["op_id"], destacada))
+    cursor.execute(q("""UPDATE pa_caixas SET quantidade_galinhas=?, quantidade_pacotes=?,
+                         peso_bruto=?, peso_liquido=?,
+                         quantidade_original_galinhas=COALESCE(quantidade_original_galinhas,?)
+                         WHERE id=?"""),
+                   (total - quantidade, (total - quantidade) // fator,
+                    peso_bruto * (1 - proporcao), peso_liquido * (1 - proporcao),
+                    total, origem["id"]))
+    return filho_id
+
+
+def palletizar_quantidade_pacote(
+    pallet_id, posicao_id, quantidade_galinhas, *, usuario, idempotency_key,
+):
+    """Fraciona PACOTE e vincula a fração atomicamente; quantidade total não muda."""
+    chave = _validar_chave(idempotency_key)
+    quantidade = _inteiro_quantitativo(quantidade_galinhas)
+    with transaction() as conn:
+        cursor = conn.cursor()
+        _bloquear_idempotencia(cursor, chave)
+        existente = _evento_por_chave(cursor, chave)
+        if existente:
+            if existente["tipo_evento"] not in {"FRACIONAMENTO_POSICAO_PACOTE", "CAIXA_ADICIONADA"}:
+                raise ValueError("idempotency_key ja usada por outra operacao.")
+            return consultar_pallet_cursor(cursor, pallet_id)
+        pallet = dict(_obter_pallet(cursor, pallet_id, bloquear=True, operacional=True))
+        origem = dict(_obter_caixa(cursor, posicao_id, bloquear=True))
+        _validar_caixa_operacional(origem)
+        if str(origem.get("unidade_estoque") or "").upper() != "PACOTE":
+            raise ValueError("Fracionamento quantitativo permitido somente para posicao PACOTE.")
+        cursor.execute(q("SELECT pallet_id FROM pallet_caixas_atuais WHERE caixa_id=?" + _bloqueio()),
+                       (posicao_id,))
+        if cursor.fetchone():
+            raise ValueError("Posicao ja vinculada a um pallet.")
+        disponivel = int(origem.get("quantidade_galinhas") or 0)
+        reservado = int(origem.get("quantidade_pacotes_reservados") or 0)
+        if reservado:
+            raise ValueError("Posicao com reserva nao pode ser fracionada para palletizacao.")
+        if quantidade > disponivel:
+            raise ValueError("Quantidade para o pallet superior ao saldo disponivel.")
+        if pallet.get("localizacao_atual_id") is not None and int(origem.get("local_estoque_id") or 0) != int(pallet["localizacao_atual_id"]):
+            raise ValueError("Localizacao fisica diverge do pallet.")
+        _validar_compatibilidade(pallet, _caixas_do_pallet_cursor(cursor, pallet_id), [origem])
+        caixa_destino_id = int(posicao_id)
+        tipo = "CAIXA_ADICIONADA"
+        if quantidade < disponivel:
+            caixa_destino_id = _inserir_fracao(cursor, origem, quantidade, chave)
+            tipo = "FRACIONAMENTO_POSICAO_PACOTE"
+        cursor.execute(q("SELECT DISTINCT op_id FROM pa_caixa_composicao WHERE caixa_id=? ORDER BY op_id"),
+                       (caixa_destino_id,))
+        ops = [int(item["op_id"]) for item in cursor.fetchall()]
+        evento_id = _registrar_evento(
+            cursor, pallet_id=pallet_id, caixa_id=caixa_destino_id, tipo_evento=tipo,
+            pallet_destino_id=pallet_id, usuario=usuario, idempotency_key=chave,
+            dados={"posicao_origem_id": int(posicao_id), "posicao_criada_id": caixa_destino_id,
+                   "op_ids": ops,
+                   "quantidade_anterior": disponivel, "quantidade_destacada": quantidade,
+                   "quantidade_remanescente": disponivel - quantidade, "pallet_destino_id": pallet_id},
+        )
+        _id_inserido(cursor, """INSERT INTO pallet_caixas_atuais(
+            pallet_id,caixa_id,adicionado_por,evento_origem_id) VALUES(?,?,?,?)""",
+            (pallet_id, caixa_destino_id, usuario, evento_id))
+        return consultar_pallet_cursor(cursor, pallet_id)
+
+
+def auditar_fracionamento_posicao(posicao_id):
+    """Diagnóstico read-only da invariável original = remanescente + descendentes."""
+    conn = conectar()
+    try:
+        cursor = conn.cursor()
+        atual = int(posicao_id)
+        while True:
+            cursor.execute(q("SELECT id,posicao_origem_id FROM pa_caixas WHERE id=?"), (atual,))
+            linha = cursor.fetchone()
+            if not linha:
+                raise ValueError("Posicao nao encontrada.")
+            if linha["posicao_origem_id"] is None:
+                raiz = int(linha["id"])
+                break
+            atual = int(linha["posicao_origem_id"])
+        cursor.execute(q("""WITH RECURSIVE cadeia(id,quantidade_galinhas) AS (
+            SELECT id,COALESCE(quantidade_galinhas,0) FROM pa_caixas WHERE id=?
+            UNION ALL
+            SELECT c.id,COALESCE(c.quantidade_galinhas,0) FROM pa_caixas c
+            JOIN cadeia p ON c.posicao_origem_id=p.id)
+            SELECT COALESCE(SUM(quantidade_galinhas),0) AS soma,COUNT(*) AS posicoes FROM cadeia"""), (raiz,))
+        soma = cursor.fetchone()
+        cursor.execute(q("SELECT quantidade_original_galinhas,quantidade_galinhas FROM pa_caixas WHERE id=?"), (raiz,))
+        origem = cursor.fetchone()
+        original = int(origem["quantidade_original_galinhas"] or origem["quantidade_galinhas"] or 0)
+        total = int(soma["soma"] or 0)
+        return {"posicao_origem_id": raiz, "quantidade_original": original,
+                "soma_atual": total, "divergencia": total - original,
+                "posicoes": int(soma["posicoes"]), "status": "OK" if total == original else "DIVERGENTE"}
+    finally:
+        conn.close()
 
 
 def adicionar_caixa(
