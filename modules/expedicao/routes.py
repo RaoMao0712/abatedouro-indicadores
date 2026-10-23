@@ -112,6 +112,12 @@ from .palletizacao import (
     resumo_organizacao_op,
     resumo_pallets,
     transferir_caixas,
+    mover_pallet,
+    encerrar_pallet,
+    reabrir_pallet,
+    cancelar_pallet,
+    agrupar_pallets,
+    desagrupar_pallet,
     validar_organizacao_para_encerramento,
     visao_estoque_por_pallet,
 )
@@ -376,7 +382,7 @@ def register_expedicao_routes(app, integracoes=None):
         return redirect(url_for("detalhe_pallet_expedicao", pallet_id=pallet["id"]))
 
     @app.get("/expedicao/pallets/<int:pallet_id>")
-    @perfil_permitido("pcp", "qualidade")
+    @perfil_permitido("pcp", "qualidade", "expedicao", "admin")
     def detalhe_pallet_expedicao(pallet_id):
         try:
             pallet = consultar_pallet(pallet_id)
@@ -392,8 +398,78 @@ def register_expedicao_routes(app, integracoes=None):
             "pallet_detalhe.html", pallet=pallet, aba=aba,
             eventos=listar_eventos_pallet(pallet_id),
             chave_remocao=chave_remocao,
-            pode_operar=session.get("perfil") in {"admin", "pcp"},
+            locais=listar_locais_pallet(),
+            chave_ciclo=session.setdefault(f"pallet_{pallet_id}_ciclo_chave", str(uuid.uuid4())),
+            pode_operar=session.get("perfil") in {"admin", "pcp", "expedicao"},
+            pode_risco=session.get("perfil") in {"admin", "gerencia"},
+            outros_pallets=listar_pallets_destino(pallet_id),
         )
+
+    @app.post("/expedicao/pallets/<int:pallet_id>/agrupar")
+    @perfil_permitido("pcp", "admin")
+    def agrupar_pallets_expedicao(pallet_id):
+        try:
+            chave = request.form.get("idempotency_key") or ""
+            if chave != session.get(f"pallet_{pallet_id}_ciclo_chave"):
+                raise ValueError("Solicitação expirada. Reabra o pallet.")
+            resultado = agrupar_pallets(
+                pallet_id, request.form.getlist("pallet_origem_ids"),
+                usuario=session.get("nome") or "Usuario nao identificado",
+                idempotency_key=chave,
+                justificativa=(request.form.get("justificativa") or "").strip() or None,
+            )
+            flash(f"Pallets agrupados em {resultado['codigo']} com rastreabilidade preservada.")
+        except (TypeError, ValueError) as erro:
+            flash(str(erro))
+        return redirect(url_for("detalhe_pallet_expedicao", pallet_id=pallet_id,
+                                aba="movimentacoes"))
+
+    @app.post("/expedicao/pallets/<int:pallet_id>/ciclo")
+    @perfil_permitido("pcp", "expedicao", "admin", "gerencia")
+    def operar_ciclo_pallet_expedicao(pallet_id):
+        try:
+            chave = request.form.get("idempotency_key") or ""
+            if chave != session.get(f"pallet_{pallet_id}_ciclo_chave"):
+                raise ValueError("Solicitação expirada. Reabra o pallet.")
+            usuario = session.get("nome") or "Usuario nao identificado"
+            perfil = session.get("perfil")
+            acao = request.form.get("acao")
+            justificativa = (request.form.get("justificativa") or "").strip() or None
+            if acao in {"mover", "devolver"}:
+                if perfil not in {"pcp", "expedicao", "admin"}:
+                    raise ValueError("Perfil sem permissão para movimentar pallet.")
+                mover_pallet(
+                    pallet_id, int(request.form.get("local_destino_id") or 0),
+                    posicao_destino=(request.form.get("posicao_destino") or "").strip() or None,
+                    usuario=usuario, idempotency_key=chave, motivo=justificativa,
+                    evento_tipo="PALLET_DEVOLVIDO_ESTOQUE" if acao == "devolver" else "PALLET_MOVIMENTADO",
+                    evento_origem_id=int(request.form.get("evento_origem_id") or 0) or None,
+                    versao_esperada=int(request.form.get("versao_esperada"))
+                    if request.form.get("versao_esperada") not in (None, "") else None,
+                )
+            elif acao == "encerrar":
+                if perfil not in {"pcp", "admin"}:
+                    raise ValueError("Perfil sem permissão para encerrar pallet.")
+                encerrar_pallet(pallet_id, usuario=usuario, idempotency_key=chave,
+                                justificativa=justificativa)
+            elif acao == "reabrir":
+                if perfil not in {"admin", "gerencia"}:
+                    raise ValueError("Perfil sem permissão para reabrir pallet.")
+                reabrir_pallet(pallet_id, usuario=usuario, idempotency_key=chave,
+                               justificativa=justificativa)
+            elif acao == "cancelar":
+                if perfil not in {"admin", "gerencia"}:
+                    raise ValueError("Perfil sem permissão para cancelar pallet.")
+                cancelar_pallet(pallet_id, usuario=usuario, idempotency_key=chave,
+                                justificativa=justificativa)
+            else:
+                raise ValueError("Ação logística inválida.")
+            session.pop(f"pallet_{pallet_id}_ciclo_chave", None)
+            flash("Operação logística registrada com sucesso.")
+        except (TypeError, ValueError) as erro:
+            flash(str(erro))
+        return redirect(url_for("detalhe_pallet_expedicao", pallet_id=pallet_id,
+                                aba="movimentacoes"))
 
     @app.get("/expedicao/pallets/<int:pallet_id>/adicionar")
     @perfil_permitido("pcp")
@@ -483,7 +559,7 @@ def register_expedicao_routes(app, integracoes=None):
                     sorted(ids) != session.get(f"pallet_{pallet_id}_transferencia_ids")):
                 raise ValueError("Solicitacao de transferencia invalida. Reabra a selecao.")
             destino_id = int(request.form.get("pallet_destino_id") or 0)
-            destino = transferir_caixas(
+            destino = desagrupar_pallet(
                 pallet_id, destino_id, ids,
                 usuario=session.get("nome") or "Usuario nao identificado",
                 idempotency_key=chave,

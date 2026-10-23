@@ -1075,6 +1075,38 @@ def buscar_historico_estoque(limite=300):
         conn.close()
 
 
+def movimentar_posicoes_cursor(
+        cursor, caixa_ids, local_origem_id, local_destino_id, *, usuario,
+        observacao=None, idempotency_prefix="MOVIMENTACAO-PALLET"):
+    """Serviço canônico, transacional, para alterar localização física de posições."""
+    ids = sorted({int(item) for item in caixa_ids})
+    for caixa_id in ids:
+        bloqueio = " FOR UPDATE" if DATABASE_URL else ""
+        cursor.execute(q(f"SELECT * FROM pa_caixas WHERE id=?{bloqueio}"), (caixa_id,))
+        caixa = cursor.fetchone()
+        if not caixa:
+            raise ValueError(f"Posição {caixa_id} não encontrada.")
+        if int(caixa["local_estoque_id"] or 0) != int(local_origem_id or 0):
+            raise ValueError(
+                f"{caixa['codigo_caixa']}: localização diverge da origem do pallet.")
+        if int(caixa["estoque_operacional"] or 0) != 1 or caixa["status"] != "Em estoque":
+            raise ValueError(f"{caixa['codigo_caixa']}: posição não pode acompanhar o movimento.")
+        cursor.execute(q("""UPDATE pa_caixas SET local_estoque_id=?
+                              WHERE id=? AND local_estoque_id=?"""),
+                       (local_destino_id, caixa_id, local_origem_id))
+        if cursor.rowcount != 1:
+            raise ValueError(f"{caixa['codigo_caixa']}: localização alterada concorrentemente.")
+        _inserir_evento(
+            cursor, caixa_id=caixa_id, expedicao_id=None, acao="MOVIMENTACAO_LOCAL",
+            situacao_anterior=caixa["disponibilidade"], situacao_nova=caixa["disponibilidade"],
+            condicao_anterior=caixa["condicao"], condicao_nova=caixa["condicao"],
+            quantidade=0, peso=caixa["peso_liquido"], justificativa=observacao,
+            observacao=json.dumps({"local_origem_id": local_origem_id,
+                                   "local_destino_id": local_destino_id}, sort_keys=True),
+            idempotency_key=f"{idempotency_prefix}:{caixa_id}",
+        )
+
+
 def reservar_itens(
         expedicao_id, caixa_ids, quantidades_pacotes=None, op_id_esperada=None,
         *, pallet_origem_id=None, usuario=None, idempotency_key=None):
@@ -1839,6 +1871,7 @@ def concluir_romaneio(expedicao_id):
                              "tipo_saida": romaneio["tipo_saida"], "cliente_id": romaneio["cliente_id"]},
             idempotency_key=f"CONCLUSAO-ROMANEIO-{expedicao_id}",
         )
+        _registrar_ciclo_pallet_romaneio_cursor(cursor, expedicao_id, "CARREGAR")
 
 
 def cancelar_romaneio(expedicao_id, justificativa):
@@ -1963,6 +1996,8 @@ def cancelar_romaneio(expedicao_id, justificativa):
             justificativa=justificativa.strip(),
             idempotency_key=f"CANCELAMENTO-ROMANEIO-{expedicao_id}",
         )
+        _registrar_ciclo_pallet_romaneio_cursor(
+            cursor, expedicao_id, "CANCELAR_RESERVA", justificativa=justificativa.strip())
 
 
 def _inativar_itens_romaneio_cursor(cursor, expedicao_id, *, motivo):
@@ -2082,6 +2117,63 @@ def estornar_romaneio(expedicao_id, justificativa):
             justificativa=justificativa.strip(),
             idempotency_key=f"ESTORNO-ROMANEIO-{expedicao_id}",
         )
+        _registrar_ciclo_pallet_romaneio_cursor(
+            cursor, expedicao_id, "ESTORNAR_CARREGAMENTO", justificativa=justificativa.strip())
+
+
+def _registrar_ciclo_pallet_romaneio_cursor(
+        cursor, expedicao_id, acao, *, justificativa=None):
+    """Eventos derivados; não substituem reserva, baixa ou compensação individual."""
+    cursor.execute(q("""SELECT pallet_origem_id,pallet_origem_codigo,caixa_id,
+                                quantidade_kg,unidade_estoque,quantidade_pacotes
+                         FROM expedicao_itens
+                         WHERE expedicao_id=? AND pallet_origem_id IS NOT NULL"""),
+                   (expedicao_id,))
+    grupos = {}
+    for item in cursor.fetchall():
+        grupos.setdefault(int(item["pallet_origem_id"]), []).append(item)
+    if not grupos:
+        return
+    from .palletizacao import _registrar_evento
+    for pallet_id, itens in grupos.items():
+        cursor.execute(q("SELECT COUNT(*) AS total FROM pallet_caixas_atuais WHERE pallet_id=?"),
+                       (pallet_id,)); total = int(cursor.fetchone()["total"] or 0)
+        if acao == "CARREGAR":
+            tipo = "PALLET_CARREGADO" if len({i["caixa_id"] for i in itens}) >= total else "CARREGAMENTO_PARCIAL"
+            origem_id = None
+            status = "CARREGADO" if tipo == "PALLET_CARREGADO" else "PARCIALMENTE_CARREGADO"
+        else:
+            origem_tipo = "PALLET_RESERVADO" if acao == "CANCELAR_RESERVA" else None
+            if acao == "ESTORNAR_CARREGAMENTO":
+                origem_tipo = "PALLET_CARREGADO"
+                cursor.execute(q("""SELECT id FROM pallet_caixa_eventos
+                    WHERE pallet_id=? AND expedicao_id=? AND tipo_evento IN
+                    ('PALLET_CARREGADO','CARREGAMENTO_PARCIAL') ORDER BY id DESC LIMIT 1"""),
+                               (pallet_id, expedicao_id))
+            else:
+                cursor.execute(q("""SELECT id FROM pallet_caixa_eventos
+                    WHERE pallet_id=? AND expedicao_id=? AND tipo_evento=?
+                    ORDER BY id DESC LIMIT 1"""), (pallet_id, expedicao_id, origem_tipo))
+            origem = cursor.fetchone(); origem_id = origem["id"] if origem else None
+            if not origem_id:
+                continue
+            tipo = ("RESERVA_PALLET_CANCELADA" if acao == "CANCELAR_RESERVA"
+                    else "CARREGAMENTO_PALLET_ESTORNADO")
+            status = "DISPONIVEL"
+        chave = f"{tipo}-ROMANEIO-{expedicao_id}-PALLET-{pallet_id}"
+        cursor.execute(q("SELECT 1 FROM pallet_caixa_eventos WHERE idempotency_key=?"), (chave,))
+        if cursor.fetchone():
+            continue
+        _registrar_evento(
+            cursor, pallet_id=pallet_id, tipo_evento=tipo, expedicao_id=expedicao_id,
+            evento_origem_id=origem_id, usuario=_usuario(), idempotency_key=chave,
+            justificativa=justificativa,
+            dados={"quantidade_posicoes": len({i["caixa_id"] for i in itens}),
+                   "peso": sum(float(i["quantidade_kg"] or 0) for i in itens)},
+        )
+        cursor.execute(q("""UPDATE pallets SET status=?,versao=versao+1
+                              WHERE id=? AND status NOT IN ('ENCERRADO','CANCELADO')"""),
+                       (status, pallet_id))
 
 
 def reconciliar_itens_romaneio_terminal(expedicao_id, justificativa):

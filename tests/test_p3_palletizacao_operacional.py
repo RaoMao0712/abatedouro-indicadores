@@ -59,6 +59,11 @@ def banco(tmp_path, monkeypatch):
             ALTER TABLE expedicoes ADD COLUMN status TEXT DEFAULT 'Aberto';
             ALTER TABLE ordens_producao ADD COLUMN status TEXT DEFAULT 'Aberta';
             CREATE TABLE expedicao_itens(id INTEGER PRIMARY KEY,expedicao_id INTEGER,caixa_id INTEGER,ativo INTEGER DEFAULT 1);
+            CREATE TABLE estoque_eventos(id INTEGER PRIMARY KEY AUTOINCREMENT,caixa_id INTEGER,
+              expedicao_id INTEGER,acao TEXT,situacao_anterior TEXT,situacao_nova TEXT,
+              condicao_anterior TEXT,condicao_nova TEXT,quantidade REAL,peso REAL,
+              justificativa TEXT,observacao TEXT,usuario TEXT,perfil TEXT,criado_em TEXT,
+              idempotency_key TEXT UNIQUE,evento_origem_id INTEGER);
         """)
         conn.executescript(MIGRACAO)
 
@@ -249,3 +254,54 @@ def test_p5_estoque_agregado_filtros_reservas_pnc_pacote_e_sem_mutacao(banco):
     assert visao["indicadores"]["posicoes_palletizadas"] == 4
     assert visao["indicadores"]["posicoes_sem_pallet"] == 2
     assert snapshot(banco, [1, 2, 3, 4, 5, 6, 7]) == antes
+
+
+def test_p7_movimento_integral_vazio_com_conteudo_e_rollback(banco):
+    with banco() as conn:
+        conn.execute("INSERT INTO locais_estoque VALUES(2,'Câmara B','interno','Sim')")
+        conn.commit()
+    vazio = criar("P7-MOV-VAZIO")
+    palletizacao.mover_pallet(vazio["id"], 2, posicao_destino="B-01", usuario="EXP",
+                              idempotency_key="P7-MOV-0")
+    assert palletizacao.consultar_pallet(vazio["id"])["localizacao_atual_id"] == 2
+    cheio = criar("P7-MOV-CHEIO")
+    palletizacao.adicionar_caixas(cheio["id"], [1, 2], usuario="PCP", idempotency_key="P7-MOV-ADD")
+    palletizacao.mover_pallet(cheio["id"], 2, usuario="EXP", idempotency_key="P7-MOV-2")
+    with banco() as conn:
+        assert {r[0] for r in conn.execute("SELECT local_estoque_id FROM pa_caixas WHERE id IN (1,2)")} == {2}
+    bloqueado = criar("P7-MOV-BLOQ")
+    palletizacao.adicionar_caixa(bloqueado["id"], 3, usuario="PCP", idempotency_key="P7-MOV-BADD")
+    with banco() as conn:
+        conn.execute("UPDATE pa_caixas SET estoque_operacional=0 WHERE id=3"); conn.commit()
+    with pytest.raises(ValueError, match="não pode acompanhar"):
+        palletizacao.mover_pallet(bloqueado["id"], 2, usuario="EXP", idempotency_key="P7-MOV-RB")
+    assert palletizacao.consultar_pallet(bloqueado["id"])["localizacao_atual_id"] == 1
+
+
+def test_p7_estados_cancelamento_reabertura_e_idempotencia(banco):
+    pallet = criar("P7-ESTADO")
+    palletizacao.encerrar_pallet(pallet["id"], usuario="PCP", idempotency_key="P7-ENC")
+    with pytest.raises(ValueError, match="encerrado"):
+        palletizacao.adicionar_caixa(pallet["id"], 1, usuario="PCP", idempotency_key="P7-ADD-ENC")
+    palletizacao.reabrir_pallet(pallet["id"], usuario="ADM", idempotency_key="P7-REAB",
+                               justificativa="Correção operacional aprovada")
+    assert palletizacao.consultar_pallet(pallet["id"])["status"] == "DISPONIVEL"
+    palletizacao.cancelar_pallet(pallet["id"], usuario="ADM", idempotency_key="P7-CANC",
+                                justificativa="Pallet vazio sem uso")
+    palletizacao.cancelar_pallet(pallet["id"], usuario="ADM", idempotency_key="P7-CANC",
+                                justificativa="Pallet vazio sem uso")
+    assert palletizacao.consultar_pallet(pallet["id"])["status"] == "CANCELADO"
+
+
+def test_p7_agrupar_desagrupar_sem_duplicar_posicoes(banco):
+    a, b, destino = criar("P7-G-A"), criar("P7-G-B"), criar("P7-G-D")
+    palletizacao.adicionar_caixa(a["id"], 1, usuario="PCP", idempotency_key="P7-G-A1")
+    palletizacao.adicionar_caixa(b["id"], 2, usuario="PCP", idempotency_key="P7-G-B1")
+    agrupado = palletizacao.agrupar_pallets(destino["id"], [a["id"], b["id"]],
+                                            usuario="PCP", idempotency_key="P7-G")
+    assert agrupado["totais"]["caixas"] == 2
+    novo = criar("P7-D-D")
+    palletizacao.desagrupar_pallet(destino["id"], novo["id"], [1], usuario="PCP",
+                                   idempotency_key="P7-D")
+    with banco() as conn:
+        assert tuple(conn.execute("SELECT COUNT(*),COUNT(DISTINCT caixa_id) FROM pallet_caixas_atuais").fetchone()) == (2, 2)

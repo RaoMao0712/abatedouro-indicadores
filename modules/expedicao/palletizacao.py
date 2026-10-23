@@ -8,6 +8,10 @@ from .elegibilidade import avaliar_elegibilidade_expedicao
 
 
 STATUS_BLOQUEADOS = {"ENCERRADO", "CANCELADO"}
+STATUS_CICLO = {
+    "ABERTO", "EM_FORMACAO", "DISPONIVEL", "RESERVADO",
+    "PARCIALMENTE_CARREGADO", "CARREGADO", "ENCERRADO", "CANCELADO",
+}
 
 
 def criar_estrutura_palletizacao():
@@ -24,6 +28,16 @@ def criar_estrutura_palletizacao():
         cursor = conn.cursor()
         if DATABASE_URL:
             cursor.execute(sql)
+            cursor.execute("""ALTER TABLE pallet_caixa_eventos
+                DROP CONSTRAINT IF EXISTS pallet_caixa_eventos_tipo_evento_check""")
+            cursor.execute("""ALTER TABLE pallet_caixa_eventos ADD CONSTRAINT
+                pallet_caixa_eventos_tipo_evento_check CHECK (tipo_evento IN (
+                'PALLET_CRIADO','CAIXA_ADICIONADA','CAIXA_REMOVIDA','CAIXA_TRANSFERIDA',
+                'PALLET_MOVIMENTADO','PALLET_AGRUPADO','PALLET_DESAGRUPADO',
+                'PALLET_RESERVADO','RESERVA_PALLET_CANCELADA','PALLET_CARREGADO',
+                'CARREGAMENTO_PARCIAL','CARREGAMENTO_PALLET_ESTORNADO',
+                'PALLET_DEVOLVIDO_ESTOQUE','PALLET_ENCERRADO','PALLET_REABERTO',
+                'PALLET_CANCELADO'))""")
         else:
             conn.executescript(sql)
         conn.commit()
@@ -569,13 +583,14 @@ def listar_eventos_pallet(pallet_id):
     conn = conectar()
     try:
         cursor = conn.cursor()
-        cursor.execute(q("""SELECT e.*, cx.codigo_caixa,
+        cursor.execute(q("""SELECT e.*, cx.codigo_caixa, ex.numero_romaneio,
                                     po.codigo AS pallet_origem_codigo,
                                     pd.codigo AS pallet_destino_codigo
                              FROM pallet_caixa_eventos e
                              LEFT JOIN pa_caixas cx ON cx.id=e.caixa_id
                              LEFT JOIN pallets po ON po.id=e.pallet_origem_id
                              LEFT JOIN pallets pd ON pd.id=e.pallet_destino_id
+                             LEFT JOIN expedicoes ex ON ex.id=e.expedicao_id
                              WHERE e.pallet_id=? OR e.pallet_origem_id=?
                              ORDER BY e.criado_em DESC,e.id DESC"""),
                        (pallet_id, pallet_id))
@@ -844,6 +859,11 @@ def adicionar_caixas(
             vinculo = cursor.fetchone()
             if vinculo:
                 raise ValueError(f"{caixa.get('codigo_caixa')}: caixa/posicao ja vinculada a um pallet.")
+            if (destino.get("localizacao_atual_id") is not None
+                    and int(caixa.get("local_estoque_id") or 0)
+                    != int(destino["localizacao_atual_id"])):
+                raise ValueError(
+                    f"{caixa.get('codigo_caixa')}: localização física diverge do pallet.")
             caixas.append(caixa)
         _validar_compatibilidade(destino, _caixas_do_pallet_cursor(cursor, pallet_id), caixas)
         for caixa, chave_item in zip(caixas, chaves):
@@ -959,6 +979,13 @@ def transferir_caixas(
             caixas.append(caixa)
             vinculos.append(dict(vinculo))
         destino = pallets[int(pallet_destino_id)]
+        if destino.get("localizacao_atual_id") is not None:
+            divergente = next((item for item in caixas
+                               if int(item.get("local_estoque_id") or 0)
+                               != int(destino["localizacao_atual_id"])), None)
+            if divergente:
+                raise ValueError(
+                    f"{divergente.get('codigo_caixa')}: localização física diverge do pallet destino.")
         _validar_compatibilidade(destino, _caixas_do_pallet_cursor(cursor, pallet_destino_id), caixas)
         for caixa, vinculo, chave_item in zip(caixas, vinculos, chaves):
             evento_id = _registrar_evento(
@@ -974,3 +1001,171 @@ def transferir_caixas(
                                 WHERE id=?"""),
                            (pallet_destino_id, usuario, evento_id, vinculo["id"]))
         return consultar_pallet_cursor(cursor, pallet_destino_id)
+
+
+def mover_pallet(
+        pallet_id, local_destino_id, *, posicao_destino=None, usuario,
+        idempotency_key, motivo=None, evento_tipo="PALLET_MOVIMENTADO",
+        evento_origem_id=None, versao_esperada=None):
+    """Move pallet e todas as posições físicas na mesma transação."""
+    chave = _validar_chave(idempotency_key)
+    with transaction() as conn:
+        cursor = conn.cursor()
+        _bloquear_idempotencia(cursor, chave)
+        existente = _evento_por_chave(cursor, chave)
+        if existente:
+            if existente["tipo_evento"] != evento_tipo or int(existente["pallet_id"]) != int(pallet_id):
+                raise ValueError("idempotency_key ja usada por outra operacao.")
+            return consultar_pallet_cursor(cursor, pallet_id)
+        pallet = dict(_obter_pallet(cursor, pallet_id, bloquear=True, operacional=True))
+        if versao_esperada is not None and int(pallet["versao"]) != int(versao_esperada):
+            raise ValueError("Pallet alterado por outro usuário. Recarregue a página.")
+        cursor.execute(q("SELECT * FROM locais_estoque WHERE id=?"), (local_destino_id,))
+        destino = cursor.fetchone()
+        if not destino:
+            raise ValueError("Local de destino não encontrado.")
+        origem_id = pallet.get("localizacao_atual_id")
+        caixas = _caixas_do_pallet_cursor(cursor, pallet_id)
+        if caixas:
+            if origem_id is None:
+                locais = {int(item.get("local_estoque_id") or 0) for item in caixas}
+                if len(locais) != 1:
+                    raise ValueError("Conteúdo do pallet possui localizações divergentes.")
+                origem_id = locais.pop()
+            from .estoque_service import movimentar_posicoes_cursor
+            movimentar_posicoes_cursor(
+                cursor, [item["id"] for item in caixas], origem_id, local_destino_id,
+                usuario=usuario, observacao=motivo, idempotency_prefix=chave,
+            )
+        if evento_tipo in {"PALLET_DEVOLVIDO_ESTOQUE", "CARREGAMENTO_PALLET_ESTORNADO"} and not evento_origem_id:
+            raise ValueError("Evento de origem é obrigatório para a compensação.")
+        evento_id = _registrar_evento(
+            cursor, pallet_id=pallet_id, tipo_evento=evento_tipo, usuario=usuario,
+            idempotency_key=chave, evento_origem_id=evento_origem_id,
+            justificativa=motivo,
+            dados={"local_origem_id": origem_id, "posicao_origem": pallet.get("posicao_atual"),
+                   "local_destino_id": int(local_destino_id),
+                   "posicao_destino": posicao_destino, "quantidade_posicoes": len(caixas)},
+        )
+        cursor.execute(q("""UPDATE pallets SET localizacao_atual_id=?,posicao_atual=?,
+                              versao=versao+1 WHERE id=?"""),
+                       (local_destino_id, posicao_destino, pallet_id))
+        return consultar_pallet_cursor(cursor, pallet_id)
+
+
+def encerrar_pallet(pallet_id, *, usuario, idempotency_key, justificativa=None):
+    return _alterar_estado_formal(
+        pallet_id, "ENCERRADO", "PALLET_ENCERRADO", usuario=usuario,
+        idempotency_key=idempotency_key, justificativa=justificativa,
+        permitidos={"ABERTO", "EM_FORMACAO", "DISPONIVEL", "CARREGADO"},
+    )
+
+
+def reabrir_pallet(pallet_id, *, usuario, idempotency_key, justificativa):
+    if not str(justificativa or "").strip():
+        raise ValueError("Justificativa é obrigatória para reabrir o pallet.")
+    return _alterar_estado_formal(
+        pallet_id, "DISPONIVEL", "PALLET_REABERTO", usuario=usuario,
+        idempotency_key=idempotency_key, justificativa=justificativa,
+        permitidos={"ENCERRADO"},
+    )
+
+
+def cancelar_pallet(pallet_id, *, usuario, idempotency_key, justificativa):
+    if not str(justificativa or "").strip():
+        raise ValueError("Justificativa é obrigatória para cancelar o pallet.")
+    return _alterar_estado_formal(
+        pallet_id, "CANCELADO", "PALLET_CANCELADO", usuario=usuario,
+        idempotency_key=idempotency_key, justificativa=justificativa,
+        permitidos={"ABERTO", "EM_FORMACAO", "DISPONIVEL"}, vazio=True,
+    )
+
+
+def _alterar_estado_formal(
+        pallet_id, novo, evento, *, usuario, idempotency_key, justificativa,
+        permitidos, vazio=False):
+    chave = _validar_chave(idempotency_key)
+    with transaction() as conn:
+        cursor = conn.cursor(); _bloquear_idempotencia(cursor, chave)
+        existente = _evento_por_chave(cursor, chave)
+        if existente:
+            if existente["tipo_evento"] != evento or int(existente["pallet_id"]) != int(pallet_id):
+                raise ValueError("idempotency_key ja usada por outra operacao.")
+            return consultar_pallet_cursor(cursor, pallet_id)
+        pallet = dict(_obter_pallet(cursor, pallet_id, bloquear=True))
+        if pallet["status"] not in permitidos:
+            raise ValueError(f"Transição {pallet['status']} → {novo} não permitida.")
+        caixas = _caixas_do_pallet_cursor(cursor, pallet_id)
+        if vazio and caixas:
+            raise ValueError("Pallet com conteúdo deve ser esvaziado formalmente antes do cancelamento.")
+        if novo == "ENCERRADO" and any(
+                int(item.get("local_estoque_id") or 0) != int(pallet.get("localizacao_atual_id") or 0)
+                for item in caixas):
+            raise ValueError("Pallet e conteúdo possuem localização física inconsistente.")
+        _registrar_evento(cursor, pallet_id=pallet_id, tipo_evento=evento,
+                          usuario=usuario, idempotency_key=chave, justificativa=justificativa)
+        cursor.execute(q("""UPDATE pallets SET status=?,versao=versao+1,
+                              encerrado_em=CASE WHEN ?='ENCERRADO' THEN CURRENT_TIMESTAMP ELSE encerrado_em END,
+                              encerrado_por=CASE WHEN ?='ENCERRADO' THEN ? ELSE encerrado_por END
+                              WHERE id=?"""), (novo, novo, novo, usuario, pallet_id))
+        return consultar_pallet_cursor(cursor, pallet_id)
+
+
+def agrupar_pallets(
+        pallet_destino_id, pallet_origem_ids, *, usuario, idempotency_key,
+        justificativa=None, encerrar_origens=True):
+    origens = sorted({int(item) for item in pallet_origem_ids})
+    if not origens or int(pallet_destino_id) in origens:
+        raise ValueError("Selecione pallets de origem distintos do destino.")
+    chave = _validar_chave(idempotency_key)
+    with transaction() as conn:
+        cursor = conn.cursor(); _bloquear_idempotencia(cursor, chave)
+        existente = _evento_por_chave(cursor, chave)
+        if existente:
+            return consultar_pallet_cursor(cursor, pallet_destino_id)
+        pallets = {}
+        for pid in sorted(origens + [int(pallet_destino_id)]):
+            pallets[pid] = dict(_obter_pallet(cursor, pid, bloquear=True, operacional=True))
+        novas = []
+        for pid in origens:
+            novas.extend(_caixas_do_pallet_cursor(cursor, pid))
+        _validar_compatibilidade(pallets[int(pallet_destino_id)],
+                                _caixas_do_pallet_cursor(cursor, pallet_destino_id), novas)
+        for caixa in novas:
+            cursor.execute(q("SELECT * FROM pallet_caixas_atuais WHERE caixa_id=?" + _bloqueio()),
+                           (caixa["id"],)); vinculo = cursor.fetchone()
+            evento_id = _registrar_evento(
+                cursor, pallet_id=pallet_destino_id, caixa_id=caixa["id"],
+                tipo_evento="CAIXA_TRANSFERIDA", pallet_origem_id=vinculo["pallet_id"],
+                pallet_destino_id=pallet_destino_id, evento_origem_id=vinculo["evento_origem_id"],
+                usuario=usuario, idempotency_key=f"{chave}:caixa:{caixa['id']}",
+                justificativa=justificativa, dados={"origem": "AGRUPAMENTO"})
+            cursor.execute(q("UPDATE pallet_caixas_atuais SET pallet_id=?,evento_origem_id=?,versao=versao+1 WHERE id=?"),
+                           (pallet_destino_id, evento_id, vinculo["id"]))
+        _registrar_evento(cursor, pallet_id=pallet_destino_id, tipo_evento="PALLET_AGRUPADO",
+                          usuario=usuario, idempotency_key=chave, justificativa=justificativa,
+                          dados={"pallet_origem_ids": origens, "quantidade_posicoes": len(novas)})
+        if encerrar_origens:
+            for pid in origens:
+                cursor.execute(q("UPDATE pallets SET status='ENCERRADO',encerrado_em=CURRENT_TIMESTAMP,encerrado_por=?,versao=versao+1 WHERE id=?"), (usuario, pid))
+        return consultar_pallet_cursor(cursor, pallet_destino_id)
+
+
+def desagrupar_pallet(
+        pallet_origem_id, pallet_destino_id, caixa_ids, *, usuario,
+        idempotency_key, justificativa=None):
+    resultado = transferir_caixas(
+        pallet_origem_id, pallet_destino_id, caixa_ids, usuario=usuario,
+        idempotency_key=idempotency_key, justificativa=justificativa,
+        dados={"origem": "DESAGRUPAMENTO"})
+    chave = f"{idempotency_key}:desagrupado"
+    with transaction() as conn:
+        cursor = conn.cursor(); _bloquear_idempotencia(cursor, chave)
+        if not _evento_por_chave(cursor, chave):
+            _registrar_evento(cursor, pallet_id=pallet_destino_id,
+                              tipo_evento="PALLET_DESAGRUPADO", usuario=usuario,
+                              idempotency_key=chave, justificativa=justificativa,
+                              pallet_origem_id=pallet_origem_id,
+                              pallet_destino_id=pallet_destino_id,
+                              dados={"quantidade_posicoes": len(set(caixa_ids))})
+    return resultado
