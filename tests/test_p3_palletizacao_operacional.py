@@ -136,6 +136,78 @@ def test_p10_quantidade_total_nao_cria_filha_e_validacoes(banco):
         assert conn.execute("SELECT caixa_id FROM pallet_caixas_atuais").fetchone()[0] == 4
 
 
+def test_p10_v2_1844_aceita_330_e_preserva_total_rastreabilidade(banco):
+    with banco() as conn:
+        conn.execute("UPDATE pa_caixas SET quantidade_galinhas=1844,quantidade_pacotes=922 WHERE id=4")
+    pallet = criar("P10-V2-330-PALLET")
+    palletizacao.palletizar_quantidade_pacote(
+        pallet["id"], 4, 330, usuario="PCP", idempotency_key="P10-V2-330",
+    )
+    with banco() as conn:
+        origem = conn.execute(
+            "SELECT quantidade_galinhas,quantidade_pacotes,status,disponibilidade,estoque_operacional FROM pa_caixas WHERE id=4"
+        ).fetchone()
+        filha = conn.execute(
+            "SELECT quantidade_galinhas,quantidade_pacotes,posicao_origem_id FROM pa_caixas WHERE posicao_origem_id=4"
+        ).fetchone()
+        assert tuple(origem) == (1514, 757, "Em estoque", "DISPONIVEL", 1)
+        assert tuple(filha) == (330, 165, 4)
+    auditoria = palletizacao.auditar_fracionamento_posicao(4)
+    assert auditoria["quantidade_original"] == auditoria["soma_atual"] == 1844
+    assert auditoria["status"] == "OK"
+
+
+@pytest.mark.parametrize("quantidade", [329, 331, 1845])
+def test_p10_v2_rejeita_impar_ou_acima_do_saldo_sem_mutacao(banco, quantidade):
+    with banco() as conn:
+        conn.execute("UPDATE pa_caixas SET quantidade_galinhas=1844,quantidade_pacotes=922 WHERE id=4")
+    pallet = criar(f"P10-V2-INVALIDA-{quantidade}-PALLET")
+    with pytest.raises(ValueError, match="múltipla de 2 aves para V2|superior ao saldo"):
+        palletizacao.palletizar_quantidade_pacote(
+            pallet["id"], 4, quantidade, usuario="PCP",
+            idempotency_key=f"P10-V2-INVALIDA-{quantidade}",
+        )
+    with banco() as conn:
+        assert tuple(conn.execute(
+            "SELECT quantidade_galinhas,quantidade_pacotes FROM pa_caixas WHERE id=4"
+        ).fetchone()) == (1844, 922)
+        assert conn.execute("SELECT COUNT(*) FROM pallet_caixas_atuais").fetchone()[0] == 0
+
+
+def test_p10_v2_aceita_saldo_total_1844(banco):
+    with banco() as conn:
+        conn.execute("UPDATE pa_caixas SET quantidade_galinhas=1844,quantidade_pacotes=922 WHERE id=4")
+    pallet = criar("P10-V2-TOTAL-1844-PALLET")
+    palletizacao.palletizar_quantidade_pacote(
+        pallet["id"], 4, 1844, usuario="PCP", idempotency_key="P10-V2-TOTAL-1844",
+    )
+    with banco() as conn:
+        assert conn.execute("SELECT caixa_id FROM pallet_caixas_atuais").fetchone()[0] == 4
+        assert conn.execute("SELECT COUNT(*) FROM pa_caixas WHERE posicao_origem_id=4").fetchone()[0] == 0
+
+
+@pytest.mark.parametrize("quantidade", [329, 330, 331])
+def test_p10_v1_aceita_qualquer_inteiro_positivo_no_saldo(banco, quantidade):
+    with banco() as conn:
+        conn.execute("UPDATE pa_caixas SET quantidade_galinhas=1844,quantidade_pacotes=1844,galinhas_por_pacote=1 WHERE id=4")
+    pallet = criar(f"P10-V1-{quantidade}-PALLET")
+    palletizacao.palletizar_quantidade_pacote(
+        pallet["id"], 4, quantidade, usuario="PCP", idempotency_key=f"P10-V1-{quantidade}",
+    )
+    with banco() as conn:
+        filha = conn.execute(
+            "SELECT quantidade_galinhas,quantidade_pacotes FROM pa_caixas WHERE posicao_origem_id=4"
+        ).fetchone()
+        assert tuple(filha) == (quantidade, quantidade)
+
+
+def test_p10_input_html_usa_fator_como_step_e_base():
+    template = (ROOT / "templates" / "pallet_adicionar_caixas.html").read_text(encoding="utf-8")
+    assert 'min="{{ fator }}"' in template
+    assert 'step="{{ fator }}"' in template
+    assert 'min="1"' not in template
+
+
 @pytest.mark.parametrize("quantidade", [0, -1, 1925, "1.5", 331])
 def test_p10_rejeita_quantidade_invalida_sem_mutacao(banco, quantidade):
     pallet = criar(f"P10-INV-PALLET-{quantidade}")

@@ -1054,7 +1054,11 @@ def _inserir_fracao(cursor, origem, quantidade, chave):
     total = int(origem.get("quantidade_galinhas") or 0)
     fator = int(origem.get("galinhas_por_pacote") or 0)
     if fator <= 0 or quantidade % fator:
-        raise ValueError("Quantidade incompativel com o fator de aves por pacote da posicao.")
+        raise ValueError(
+            f"A quantidade deve ser múltipla de {fator} aves para V{fator}."
+            if fator > 0 else
+            "Quantidade incompatível com o fator de aves por pacote da posição."
+        )
     proporcao = quantidade / total
     cursor.execute("SELECT * FROM pa_caixas WHERE 1=0")
     colunas_existentes = {item[0] for item in cursor.description}
