@@ -254,6 +254,7 @@ NAVEGACAO = [
             {"titulo": "Plano de Contas", "endpoint": "plano_contas_gerencial", "perfis": ADMIN_PCP},
             {"titulo": "Equipamentos", "endpoint": "cadastro_equipamentos_manutencao", "perfis": ("admin", "pcp", "producao"), "active_endpoints": ("cadastro_equipamentos_manutencao", "editar_equipamento_manutencao")},
             {"titulo": "Veículos", "endpoint": "cadastro_veiculos_manutencao", "perfis": ADMIN_PCP},
+            {"titulo": "Locais de estoque", "endpoint": "locais_estoque_cadastro", "perfis": ("admin", "pcp", "gerencia")},
         ],
     },
     {

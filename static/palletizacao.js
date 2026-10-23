@@ -22,6 +22,10 @@
     });
   }
   boxes.forEach(box => box.addEventListener('change', sync));
+  const selectAll = root.querySelector('[data-select-all]');
+  const clearAll = root.querySelector('[data-clear-all]');
+  if (selectAll) selectAll.addEventListener('click', () => { boxes.forEach(box => { box.checked = true; }); sync(); });
+  if (clearAll) clearAll.addEventListener('click', () => { boxes.forEach(box => { box.checked = false; }); sync(); });
   quantities.forEach(input => input.addEventListener('input', function () {
     const output = input.parentElement.querySelector('[data-p10-saldo]');
     if (output) output.textContent = Math.max(0, Number(input.dataset.disponivel) - Number(input.value || 0));

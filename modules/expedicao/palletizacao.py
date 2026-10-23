@@ -43,6 +43,7 @@ def criar_estrutura_palletizacao():
         else:
             conn.executescript(sql)
         _garantir_schema_fracionamento(cursor)
+        _garantir_schema_locais(cursor)
         conn.commit()
     except Exception:
         conn.rollback()
@@ -383,6 +384,63 @@ def listar_locais_pallet():
         return [dict(item) for item in cursor.fetchall()]
     finally:
         conn.close()
+
+
+def listar_locais_estoque_admin():
+    conn = conectar()
+    try:
+        cursor = conn.cursor()
+        _garantir_schema_locais(cursor)
+        cursor.execute("SELECT id,nome,descricao,tipo,ativo FROM locais_estoque ORDER BY nome")
+        resultado = [dict(item) for item in cursor.fetchall()]
+        conn.commit()
+        return resultado
+    finally:
+        conn.close()
+
+
+def _garantir_schema_locais(cursor):
+    if DATABASE_URL:
+        cursor.execute("ALTER TABLE locais_estoque ADD COLUMN IF NOT EXISTS descricao TEXT")
+    else:
+        cursor.execute("PRAGMA table_info(locais_estoque)")
+        if "descricao" not in {item[1] for item in cursor.fetchall()}:
+            cursor.execute("ALTER TABLE locais_estoque ADD COLUMN descricao TEXT")
+
+
+def salvar_local_estoque(*, local_id=None, nome, descricao=None, tipo="interno", ativo="Sim"):
+    nome = str(nome or "").strip()
+    if not nome:
+        raise ValueError("Nome do local e obrigatorio.")
+    ativo = "Sim" if str(ativo).lower() in {"sim", "1", "true", "ativo"} else "Nao"
+    with transaction() as conn:
+        cursor = conn.cursor(); _garantir_schema_locais(cursor)
+        cursor.execute(q("SELECT id FROM locais_estoque WHERE LOWER(nome)=LOWER(?) AND id<>?"),
+                       (nome, int(local_id or 0)))
+        if cursor.fetchone():
+            raise ValueError("Ja existe local de estoque com este nome.")
+        if local_id:
+            cursor.execute(q("UPDATE locais_estoque SET nome=?,descricao=?,tipo=?,ativo=? WHERE id=?"),
+                           (nome, str(descricao or "").strip() or None,
+                            str(tipo or "interno").strip(), ativo, int(local_id)))
+            if cursor.rowcount != 1:
+                raise ValueError("Local de estoque nao encontrado.")
+            return int(local_id)
+        return _id_inserido(cursor, "INSERT INTO locais_estoque(nome,descricao,tipo,ativo) VALUES(?,?,?,?)",
+                            (nome, str(descricao or "").strip() or None,
+                             str(tipo or "interno").strip(), ativo))
+
+
+def alternar_local_estoque(local_id):
+    with transaction() as conn:
+        cursor = conn.cursor(); _garantir_schema_locais(cursor)
+        cursor.execute(q("SELECT ativo FROM locais_estoque WHERE id=?"), (local_id,))
+        local = cursor.fetchone()
+        if not local:
+            raise ValueError("Local de estoque nao encontrado.")
+        novo = "Nao" if local["ativo"] == "Sim" else "Sim"
+        cursor.execute(q("UPDATE locais_estoque SET ativo=? WHERE id=?"), (novo, local_id))
+        return novo
 
 
 def _pallet_atende_filtros(pallet, filtros):

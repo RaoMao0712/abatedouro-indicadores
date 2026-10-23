@@ -106,6 +106,9 @@ from .palletizacao import (
     listar_eventos_pallet,
     listar_historico_logistico,
     listar_locais_pallet,
+    listar_locais_estoque_admin,
+    salvar_local_estoque,
+    alternar_local_estoque,
     listar_pallets,
     listar_pallets_destino,
     remover_caixas,
@@ -273,6 +276,29 @@ def alinhar_resumo_ao_consolidado(resumo, consolidado, saldos_legados):
 def register_expedicao_routes(app, integracoes=None):
     integracoes = integracoes or {}
     configurar_integracoes(criar_banco=integracoes.get("criar_banco"))
+
+    @app.route("/cadastros/locais-estoque", methods=["GET", "POST"])
+    @perfil_permitido("admin", "pcp", "gerencia")
+    def locais_estoque_cadastro():
+        try:
+            if request.method == "POST":
+                salvar_local_estoque(local_id=request.form.get("local_id") or None,
+                    nome=request.form.get("nome"), descricao=request.form.get("descricao"),
+                    tipo=request.form.get("tipo") or "interno", ativo=request.form.get("ativo") or "Nao")
+                flash("Local de estoque salvo com sucesso.")
+                return redirect(url_for("locais_estoque_cadastro"))
+            return render_template("locais_estoque.html", locais=listar_locais_estoque_admin())
+        except (TypeError, ValueError) as erro:
+            flash(str(erro)); return redirect(url_for("locais_estoque_cadastro"))
+
+    @app.post("/cadastros/locais-estoque/<int:local_id>/status")
+    @perfil_permitido("admin", "pcp", "gerencia")
+    def alternar_local_estoque_cadastro(local_id):
+        try:
+            alternar_local_estoque(local_id); flash("Status do local atualizado.")
+        except ValueError as erro:
+            flash(str(erro))
+        return redirect(url_for("locais_estoque_cadastro"))
 
     @app.route("/op/<int:op_id>/pallets/organizar", methods=["GET", "POST"])
     @perfil_permitido("pcp", "producao")
