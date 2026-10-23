@@ -683,6 +683,64 @@ def listar_eventos_pallet(pallet_id):
         conn.close()
 
 
+def listar_historico_logistico(filtros=None, limite=300, eventos_estoque=None):
+    """Linha do tempo de pallets e romaneios, derivada de eventos append-only."""
+    filtros = filtros or {}
+    conn = conectar()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(q("""SELECT e.*, p.codigo AS pallet_codigo,
+                                    po.codigo AS pallet_origem_codigo,
+                                    pd.codigo AS pallet_destino_codigo,
+                                    cx.codigo_caixa, ex.numero_romaneio
+                             FROM pallet_caixa_eventos e
+                             JOIN pallets p ON p.id=e.pallet_id
+                             LEFT JOIN pallets po ON po.id=e.pallet_origem_id
+                             LEFT JOIN pallets pd ON pd.id=e.pallet_destino_id
+                             LEFT JOIN pa_caixas cx ON cx.id=e.caixa_id
+                             LEFT JOIN expedicoes ex ON ex.id=e.expedicao_id
+                             ORDER BY e.criado_em DESC,e.id DESC LIMIT ?"""), (limite,))
+        eventos = []
+        for linha in cursor.fetchall():
+            item = dict(linha)
+            dados = _dados_evento(item)
+            eventos.append({
+                "criado_em": item.get("criado_em"), "evento": item["tipo_evento"],
+                "objeto": item.get("codigo_caixa") or item.get("pallet_codigo"),
+                "pallet": item.get("pallet_codigo"), "romaneio": item.get("numero_romaneio"),
+                "op": dados.get("op_id"), "origem": item.get("pallet_origem_codigo"),
+                "destino": item.get("pallet_destino_codigo"), "usuario": item.get("usuario"),
+                "referencia": item.get("justificativa") or dados.get("origem") or "-",
+            })
+    finally:
+        conn.close()
+
+    for linha in eventos_estoque or []:
+        item = dict(linha)
+        eventos.append({
+            "criado_em": item.get("criado_em"), "evento": item.get("acao"),
+            "objeto": item.get("codigo_caixa") or "Estoque",
+            "pallet": None, "romaneio": item.get("numero_romaneio"), "op": None,
+            "origem": item.get("situacao_anterior"), "destino": item.get("situacao_nova"),
+            "usuario": item.get("usuario"),
+            "referencia": item.get("justificativa") or item.get("observacao") or "-",
+        })
+    eventos.sort(key=lambda item: (str(item.get("criado_em") or ""), str(item.get("evento") or "")), reverse=True)
+
+    def contem(campo, valor):
+        esperado = str(filtros.get(campo) or "").strip().casefold()
+        return not esperado or esperado in str(valor or "").casefold()
+
+    inicio, fim = str(filtros.get("data_inicio") or ""), str(filtros.get("data_fim") or "")
+    return [item for item in eventos if (
+        contem("pallet", item["pallet"]) and contem("romaneio", item["romaneio"])
+        and contem("op", item["op"]) and contem("tipo_evento", item["evento"])
+        and contem("usuario", item["usuario"])
+        and (not inicio or str(item["criado_em"])[:10] >= inicio)
+        and (not fim or str(item["criado_em"])[:10] <= fim)
+    )][:limite]
+
+
 def _normalizar_lista_ids(caixa_ids):
     try:
         ids = sorted({int(item) for item in caixa_ids})

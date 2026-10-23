@@ -178,6 +178,24 @@ def test_p8_etiqueta_visual_caixa_pacote_mistos_qr_e_cancelado(banco):
     assert excecao["excecao_cancelado"] is True
 
 
+def test_p9_historico_logistico_filtros_sem_mutacao(banco):
+    pallet = criar("P9-HIST")
+    palletizacao.adicionar_caixa(
+        pallet["id"], 1, usuario="PCP", idempotency_key="P9-HIST-ADD",
+        dados={"op_id": 121},
+    )
+    antes = snapshot(banco, [1])
+    eventos = palletizacao.listar_historico_logistico({
+        "pallet": pallet["codigo"], "op": "121", "tipo_evento": "ADICIONADA",
+        "usuario": "pcp",
+    })
+    assert len(eventos) == 1
+    assert eventos[0]["evento"] == "CAIXA_ADICIONADA"
+    assert eventos[0]["objeto"] == "CX-1"
+    assert eventos[0]["op"] == 121
+    assert snapshot(banco, [1]) == antes
+
+
 def test_p4_resumo_retomada_excecao_e_zero_mutacao(banco):
     pallet = criar("P4-RESUMO")
     antes = snapshot(banco, [1, 2])

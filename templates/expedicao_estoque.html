@@ -1,10 +1,7 @@
 {% extends "base.html" %}
 {% block conteudo %}
 <div class="expedicao-page">
-    <section class="card expedicao-cabecalho-compacto">
-        <div><span class="eyebrow">Expedição</span><h2>Estoque da Câmara</h2><small>Visão física e disponibilidade operacional posterior ao marco zero</small></div>
-        <button class="romaneio-btn romaneio-btn-primary no-print" type="button" data-abrir-relatorio-estoque>Gerar relatório consolidado</button>
-    </section>
+    <header class="expedicao-module-header"><div><span class="eyebrow">Expedição</span><h2>Estoque</h2><p>O que temos, em qual condição e onde está.</p></div><button class="romaneio-btn romaneio-btn-primary no-print" data-primary-action type="button" data-abrir-relatorio-estoque>Gerar relatório consolidado</button></header>
     {% set expedicao_tab='estoque' %}{% include '_expedicao_tabs.html' %}
     <section class="expedicao-kpis">
         <div class="card expedicao-kpi verde"><span>Legado agregado dispon&iacute;vel</span><strong>{{ resumo.peso_legado_disponivel|br_numero(3) }} kg</strong><small>Origem preservada, sem OP ou lote fict&iacute;cio</small></div>

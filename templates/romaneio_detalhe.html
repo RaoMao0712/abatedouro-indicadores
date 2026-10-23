@@ -17,10 +17,13 @@
             <p>{{ tipo_descricao }}</p>
         </div>
         <nav class="romaneio-header-actions no-print">
-            <a class="romaneio-btn romaneio-btn-secondary" href="{{ url_for('expedicao') }}">← Voltar</a>
-            <a class="romaneio-btn romaneio-btn-print" href="{{ url_for('imprimir_romaneio_expedicao', expedicao_id=expedicao.id) }}">⎙ Pré-visualizar</a>
+            {% if documento_aberto and not is_mz %}<a class="romaneio-btn romaneio-btn-primary" data-primary-action href="{{ url_for('adicionar_pallet_romaneio', expedicao_id=expedicao.id) }}">Adicionar por pallet</a>{% endif %}
+            <a class="romaneio-btn romaneio-btn-secondary" href="{{ url_for('imprimir_romaneio_expedicao', expedicao_id=expedicao.id) }}">Pré-visualizar</a>
+            <a class="romaneio-btn romaneio-btn-neutral" href="{{ url_for('expedicao') }}">Voltar</a>
         </nav>
     </header>
+    {% set expedicao_tab='romaneios' %}{% include '_expedicao_tabs.html' %}
+    <nav class="romaneio-detail-nav no-print" aria-label="Seções do romaneio"><a href="#resumo-romaneio">Resumo</a><a href="#itens-romaneio">Itens</a><a href="#selecao-ops">Pallets e origens</a><a href="#historico-romaneio">Histórico e conclusão</a></nav>
 
     {% if is_mz %}
     <ol class="romaneio-etapas" aria-label="Etapas do documento">
@@ -31,7 +34,7 @@
     </ol>
     {% endif %}
 
-    <section class="card romaneio-resumo-grid">
+    <section id="resumo-romaneio" class="card romaneio-resumo-grid">
         <div><small>Data</small><strong>{{ expedicao.data[8:10] }}/{{ expedicao.data[5:7] }}/{{ expedicao.data[0:4] }}</strong></div>
         <div><small>Origem</small><strong>{{ expedicao.origem or "Abatedouro" }}</strong></div>
         <div><small>Destino</small><strong>{{ expedicao.destino }}</strong></div>
@@ -169,7 +172,6 @@
             <div class="romaneio-secao-titulo">
                 <div><h3>Itens elegíveis para reserva</h3><small>Carregue uma OP e selecione caixas ou informe a quantidade de aves, conforme o controle do produto.</small></div>
             </div>
-            <p><a class="romaneio-btn romaneio-btn-secondary" href="{{ url_for('adicionar_pallet_romaneio', expedicao_id=expedicao.id) }}">Adicionar por pallet</a></p>
             <form id="form-adicionar-op" class="romaneio-op-adicionar">
                 <label for="numero-op-romaneio">OP</label>
                 <input id="numero-op-romaneio" type="number" min="1" step="1" inputmode="numeric" required>
@@ -256,7 +258,7 @@
             {% endfor %}
         </section>
         {% endif %}
-        <section class="card romaneio-secao">
+        <section id="itens-romaneio" class="card romaneio-secao">
             <h3>Itens do romaneio</h3>
             <div class="tabela-responsiva tabela-executiva expedicao-tabela">
                 <table>
@@ -278,7 +280,7 @@
         </section>
     {% endif %}
 
-    <section class="card no-print romaneio-finalizacao">
+    <section id="historico-romaneio" class="card no-print romaneio-finalizacao">
         <div class="romaneio-secao-titulo"><div><span class="romaneio-passo">Etapa 4</span><h3>Conclusão</h3></div></div>
         {% if documento_aberto %}
         <form method="POST" id="form-concluir" data-server-allowed="{{ '1' if pode_concluir else '0' }}" onsubmit="return confirm('Confirma a conclusão deste romaneio após a conferência dos valores salvos?')">
@@ -295,8 +297,8 @@
             <button id="botao-concluir" type="submit" class="romaneio-btn romaneio-btn-success" disabled>Concluir romaneio</button>
         </form>
 
-        <details class="romaneio-cancelamento">
-            <summary>Cancelar romaneio</summary>
+        <details class="romaneio-cancelamento exp-more-actions">
+            <summary>Mais ações</summary>
             <form method="POST" id="form-cancelar" onsubmit="return confirm('Esta ação cancelará o romaneio e ficará registrada na auditoria. Deseja continuar?')">
                 <input type="hidden" name="acao" value="cancelar">
                 <label>Justificativa obrigatória<textarea id="justificativa-cancelamento" name="justificativa" minlength="5" required></textarea></label>
@@ -305,7 +307,7 @@
             </form>
         </details>
         {% elif expedicao.status == "Concluído" and not is_mz %}
-        <form method="POST" class="form-inline"><input type="hidden" name="acao" value="estornar"><input name="justificativa" required placeholder="Justificativa do estorno"><button type="submit" class="romaneio-btn romaneio-btn-secondary">Estornar movimentação</button></form>
+        <details class="romaneio-cancelamento exp-more-actions"><summary>Mais ações</summary><form method="POST" class="form-inline" onsubmit="return confirm('Confirma o estorno desta movimentação?')"><input type="hidden" name="acao" value="estornar"><input name="justificativa" required placeholder="Justificativa do estorno"><button type="submit" class="romaneio-btn romaneio-btn-destructive">Estornar movimentação</button></form></details>
         {% else %}
         <p>Documento em modo de consulta. Edição e alteração de totais estão bloqueadas.</p>
         {% endif %}

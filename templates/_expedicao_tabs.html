@@ -1,7 +1,7 @@
 <nav class="romaneio-tabs no-print" aria-label="Navegação da Expedição">
-  <a{% if expedicao_tab == 'pallets' %} class="ativo"{% endif %} href="{{ url_for('pallets_expedicao') }}">Pallets</a>
-  <a{% if expedicao_tab == 'romaneios' %} class="ativo"{% endif %} href="{{ url_for('expedicao') }}">Romaneios</a>
-  <a{% if expedicao_tab == 'estoque' %} class="ativo"{% endif %} href="{{ url_for('estoque_camara_expedicao') }}">Estoque</a>
-  <a{% if expedicao_tab == 'nao-conformes' %} class="ativo"{% endif %} href="{{ url_for('nao_conformes_expedicao') }}">Não conformes</a>
-  <a{% if expedicao_tab == 'historico' %} class="ativo"{% endif %} href="{{ url_for('historico_estoque_expedicao') }}">Histórico</a>
+  <a{% if expedicao_tab == 'pallets' %} class="ativo" aria-current="page"{% endif %} href="{{ url_for('pallets_expedicao') }}">Pallets</a>
+  <a{% if expedicao_tab == 'romaneios' %} class="ativo" aria-current="page"{% endif %} href="{{ url_for('expedicao') }}">Romaneios</a>
+  <a{% if expedicao_tab == 'estoque' %} class="ativo" aria-current="page"{% endif %} href="{{ url_for('estoque_camara_expedicao') }}">Estoque</a>
+  <a{% if expedicao_tab == 'nao-conformes' %} class="ativo" aria-current="page"{% endif %} href="{{ url_for('nao_conformes_expedicao') }}">Não conformes</a>
+  <a{% if expedicao_tab == 'historico' %} class="ativo" aria-current="page"{% endif %} href="{{ url_for('historico_estoque_expedicao') }}">Histórico</a>
 </nav>

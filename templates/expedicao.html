@@ -5,9 +5,9 @@
         <div>
             <span class="eyebrow">Expedição</span>
             <h2>Romaneios</h2>
-            <p>Marco zero ativo desde <strong>{{ marco.ativado_em if marco else "-" }}</strong></p>
+        <p>Planejamento, reserva e conclusão das saídas.</p>
         </div>
-        <a href="{{ url_for('novo_romaneio_expedicao') }}" class="romaneio-btn romaneio-btn-primary no-print">+ Novo romaneio</a>
+        <a href="{{ url_for('novo_romaneio_expedicao') }}" class="romaneio-btn romaneio-btn-primary no-print" data-primary-action>Novo romaneio</a>
     </header>
 
     {% set expedicao_tab='romaneios' %}{% include '_expedicao_tabs.html' %}
@@ -42,7 +42,7 @@
             </select>
         </label>
         <button type="submit" class="romaneio-btn romaneio-btn-filter">Aplicar filtros</button>
-        <button type="submit" class="romaneio-btn romaneio-btn-primary" formaction="{{ url_for('relatorio_entregas_expedicao') }}" formtarget="_blank">Gerar relat&oacute;rio</button>
+        <button type="submit" class="romaneio-btn romaneio-btn-secondary" formaction="{{ url_for('relatorio_entregas_expedicao') }}" formtarget="_blank">Gerar relat&oacute;rio</button>
         <label>Itens por página<select name="por_pagina"><option value="10" {% if paginacao.por_pagina == 10 %}selected{% endif %}>10</option><option value="25" {% if paginacao.por_pagina == 25 %}selected{% endif %}>25</option><option value="50" {% if paginacao.por_pagina == 50 %}selected{% endif %}>50</option><option value="100" {% if paginacao.por_pagina == 100 %}selected{% endif %}>100</option></select></label>
     </form>
 

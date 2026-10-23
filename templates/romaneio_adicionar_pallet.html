@@ -1,42 +1,36 @@
 {% extends "base.html" %}
 {% block title %}Adicionar pallet ao romaneio{% endblock %}
 {% block conteudo %}
-<section class="card">
-  <h2>Adicionar por pallet</h2>
-  <p>Romaneio {{ expedicao.numero_romaneio }}. O pallet acelera a seleção; cada item será revalidado ao confirmar.</p>
-  <form method="GET">
-    <label>Código do pallet <input name="codigo" value="{{ codigo }}" required autofocus></label>
-    <button class="btn" type="submit">Pesquisar</button>
-    <a class="btn-secondary" href="{{ url_for('detalhe_romaneio_expedicao', expedicao_id=expedicao.id) }}">Voltar</a>
-  </form>
-</section>
+<div class="expedicao-page romaneio-pallet-page">
+<header class="romaneios-header expedicao-module-header"><div><span class="eyebrow">Romaneio {{ expedicao.numero_romaneio }}</span><h2>Adicionar por pallet</h2><p>Localize o pallet, revise elegíveis e confirme a reserva.</p></div><a class="romaneio-btn romaneio-btn-neutral" href="{{ url_for('detalhe_romaneio_expedicao', expedicao_id=expedicao.id) }}">Voltar</a></header>
+{% set expedicao_tab='romaneios' %}{% include '_expedicao_tabs.html' %}
+<section class="card romaneio-pallet-search"><form method="GET"><label for="codigo-pallet">Código do pallet</label><div><input id="codigo-pallet" name="codigo" value="{{ codigo }}" placeholder="PALT-000001" required autofocus><button class="romaneio-btn romaneio-btn-primary" data-primary-action type="submit">Buscar pallet</button></div></form></section>
 {% if resumo %}
-<section class="card" id="selecao-pallet">
-  <h3>{{ resumo.pallet.codigo }}</h3>
-  <p><strong>{{ resumo.elegiveis }}</strong> elegível(is) · <strong>{{ resumo.inelegiveis }}</strong> inelegível(is)</p>
+<section class="card romaneio-pallet-selection" id="selecao-pallet">
+  <header><div><span class="eyebrow">Pallet localizado</span><h3>{{ resumo.pallet.codigo }}</h3></div><div class="romaneio-pallet-counts"><span class="exp-status status-disponivel">{{ resumo.elegiveis }} elegível(is)</span><span class="exp-status status-com_restricoes">{{ resumo.inelegiveis }} inelegível(is)</span></div></header>
   {% if resumo.itens %}
   <form method="POST" id="form-pallet">
     <input type="hidden" name="codigo" value="{{ resumo.pallet.codigo }}">
     <input type="hidden" name="pallet_id" value="{{ resumo.pallet.id }}">
     <input type="hidden" name="idempotency_key" value="{{ idempotency_key }}">
-    <p><button type="button" id="selecionar-todos">Selecionar todos</button> <button type="button" id="limpar-todos">Desmarcar todos</button> <strong id="contador"></strong></p>
+    <div class="pallet-batch-toolbar"><div><button class="romaneio-btn romaneio-btn-secondary" type="button" id="selecionar-todos" aria-label="Selecionar todos os elegíveis">Selecionar todas</button><button class="romaneio-btn romaneio-btn-neutral" type="button" id="limpar-todos">Desmarcar todos</button></div><strong id="contador" aria-live="polite"></strong></div>
     <div class="tabela-responsiva"><table><thead><tr><th><input type="checkbox" id="mestre" aria-label="Selecionar todos"></th><th>Posição</th><th>OP</th><th>Produto</th><th>Unidade</th><th>Quantidade</th><th>Situação</th></tr></thead><tbody>
     {% for item in resumo.itens %}<tr>
-      <td><input class="item-pallet" type="checkbox" name="caixa_ids" value="{{ item.id }}" {% if item.elegivel %}checked{% else %}disabled{% endif %}></td>
+      <td><input class="item-pallet" type="checkbox" name="caixa_ids" value="{{ item.id }}" data-peso="{{ item.peso_liquido or 0 }}" aria-label="Selecionar posição {{ item.codigo_caixa }}" {% if item.elegivel %}checked{% else %}disabled{% endif %}></td>
       <td><strong>{{ item.codigo_caixa }}</strong></td><td>{{ item.op_id or 'Sem OP' }}</td><td>{{ item.sku }}</td><td>{{ item.unidade_estoque }}</td>
       <td>{% if item.unidade_estoque == 'PACOTE' and item.elegivel %}<input class="quantidade-pallet" type="number" min="1" max="{{ item.saldo_elegivel }}" step="1" name="quantidade_pacotes_{{ item.id }}" value="{{ item.quantidade_padrao }}"> pacotes{% else %}{{ item.quantidade_bandejas or 1 }}{% endif %}</td>
-      <td>{% if item.elegivel %}Elegível{% else %}{{ item.motivo_bloqueio }}{% endif %}</td>
+      <td>{% if item.elegivel %}<span class="exp-status status-disponivel">Elegível</span>{% else %}<span class="exp-status status-com_restricoes">{{ item.motivo_bloqueio }}</span>{% endif %}</td>
     </tr>{% endfor %}
     </tbody></table></div>
-    <p><strong>Totais selecionados:</strong> <span id="totais"></span></p>
-    <button class="btn" id="confirmar" type="submit">Adicionar selecionados ao romaneio</button>
+    <footer class="romaneio-pallet-footer"><p><strong>Totais selecionados:</strong> <span id="totais"></span></p><button class="romaneio-btn romaneio-btn-primary" id="confirmar" type="submit">Adicionar selecionados ao romaneio</button></footer>
   </form>
   {% else %}<p>Este pallet está vazio.</p>{% endif %}
 </section>
 <script>
 (() => { const itens=[...document.querySelectorAll('.item-pallet:not(:disabled)')], mestre=document.querySelector('#mestre'), contador=document.querySelector('#contador'), totais=document.querySelector('#totais'), confirmar=document.querySelector('#confirmar');
-function atualizar(){const marcados=itens.filter(i=>i.checked); mestre.checked=itens.length>0&&marcados.length===itens.length;mestre.indeterminate=marcados.length>0&&marcados.length<itens.length;contador.textContent=`${marcados.length} de ${itens.length} selecionados`;let pacotes=0,caixas=0;marcados.forEach(i=>{const q=document.querySelector(`[name="quantidade_pacotes_${i.value}"]`);if(q)pacotes+=Number(q.value||0);else caixas++;});totais.textContent=`${caixas} caixa(s) · ${pacotes} pacote(s)`;confirmar.disabled=!marcados.length;}
+function atualizar(){const marcados=itens.filter(i=>i.checked); mestre.checked=itens.length>0&&marcados.length===itens.length;mestre.indeterminate=marcados.length>0&&marcados.length<itens.length;contador.textContent=`${marcados.length} de ${itens.length} selecionados`;let pacotes=0,caixas=0,peso=0;marcados.forEach(i=>{const q=document.querySelector(`[name="quantidade_pacotes_${i.value}"]`);if(q)pacotes+=Number(q.value||0);else caixas++;peso+=Number(i.dataset.peso||0);});totais.textContent=`${caixas} caixa(s) · ${pacotes} pacote(s) · ${peso.toLocaleString('pt-BR',{minimumFractionDigits:3,maximumFractionDigits:3})} kg`;confirmar.disabled=!marcados.length;}
 mestre.addEventListener('change',()=>{itens.forEach(i=>i.checked=mestre.checked);atualizar();});document.querySelector('#selecionar-todos').onclick=()=>{itens.forEach(i=>i.checked=true);atualizar();};document.querySelector('#limpar-todos').onclick=()=>{itens.forEach(i=>i.checked=false);atualizar();};itens.forEach(i=>i.addEventListener('change',atualizar));document.querySelectorAll('.quantidade-pallet').forEach(i=>i.addEventListener('input',atualizar));atualizar(); })();
 </script>
 {% endif %}
+</div>
 {% endblock %}

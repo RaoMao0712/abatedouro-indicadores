@@ -473,3 +473,22 @@ def test_p8_versoes_concorrentes_idempotencia_auditoria_e_zero_mutacao_postgresq
         assert [dict(item) for item in cursor.fetchall()] == ops_antes
         cursor.execute("SELECT * FROM pallets WHERE id=%s", (pallet["id"],))
         assert dict(cursor.fetchone()) == pallet_antes
+
+
+def test_p9_historico_logistico_postgresql_read_only_e_filtrado():
+    pallet = criar("P9-PG-HIST")
+    palletizacao.adicionar_caixa(
+        pallet["id"], 2, usuario="PCP", idempotency_key="P9-PG-HIST-ADD",
+        dados={"op_id": 122},
+    )
+    with conectar() as conn, conn.cursor() as cursor:
+        cursor.execute("SELECT * FROM pa_caixas WHERE id=2")
+        antes = dict(cursor.fetchone())
+    eventos = palletizacao.listar_historico_logistico({
+        "pallet": pallet["codigo"], "op": "122", "tipo_evento": "ADICIONADA",
+    })
+    assert len(eventos) == 1
+    assert eventos[0]["objeto"] == "CX-2"
+    with conectar() as conn, conn.cursor() as cursor:
+        cursor.execute("SELECT * FROM pa_caixas WHERE id=2")
+        assert dict(cursor.fetchone()) == antes

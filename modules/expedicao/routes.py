@@ -103,6 +103,7 @@ from .palletizacao import (
     criar_pallet,
     listar_caixas_disponiveis_palletizacao,
     listar_eventos_pallet,
+    listar_historico_logistico,
     listar_locais_pallet,
     listar_pallets,
     listar_pallets_destino,
@@ -1638,11 +1639,17 @@ def register_expedicao_routes(app, integracoes=None):
         return redirect(url_for("nao_conformes_expedicao"))
 
     @app.route("/expedicao/historico")
-    @perfil_permitido("pcp", "qualidade")
+    @perfil_permitido("pcp", "qualidade", "gerencia", "expedicao")
     def historico_estoque_expedicao():
+        filtros = {nome: request.args.get(nome, "") for nome in (
+            "pallet", "romaneio", "op", "tipo_evento", "usuario",
+            "data_inicio", "data_fim",
+        )}
         return render_template(
             "expedicao_historico.html",
-            eventos=buscar_historico_estoque(),
+            eventos=listar_historico_logistico(
+                filtros, eventos_estoque=buscar_historico_estoque(),
+            ), filtros=filtros,
         )
 
     @app.route("/expedicao/<int:expedicao_id>/imprimir")

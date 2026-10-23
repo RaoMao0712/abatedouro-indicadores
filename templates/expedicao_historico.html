@@ -1,13 +1,12 @@
 {% extends "base.html" %}
 {% block conteudo %}
 <div class="expedicao-page">
-    <section class="card expedicao-cabecalho-compacto"><div><span class="eyebrow">Expedição</span><h2>Histórico e Rastreabilidade</h2></div></section>
-    {% set expedicao_tab='historico' %}{% include '_expedicao_tabs.html' %}
-    <section class="card"><div class="tabela-responsiva tabela-executiva expedicao-tabela"><table>
-        <thead><tr><th>Data e hora</th><th>Identificação</th><th>SKU</th><th>Romaneio</th><th>Ação</th><th>Situação</th><th>Condição</th><th>Quantidade</th><th>Peso</th><th>Usuário/perfil</th><th>Justificativa</th></tr></thead>
-        <tbody>{% for evento in eventos %}<tr>
-            <td>{{ evento.criado_em }}</td><td>{{ evento.codigo_caixa or "-" }}</td><td>{{ evento.sku or "-" }}</td><td class="numero-romaneio">{{ evento.numero_romaneio or "-" }}</td><td>{{ evento.acao|replace('_',' ') }}</td><td>{{ evento.situacao_anterior or "-" }} → {{ evento.situacao_nova or "-" }}</td><td>{{ evento.condicao_anterior or "-" }} → {{ evento.condicao_nova or "-" }}</td><td>{{ evento.quantidade|br_numero }}</td><td>{{ evento.peso|br_numero(3) }} kg</td><td>{{ evento.usuario }} / {{ evento.perfil }}</td><td>{{ evento.justificativa or evento.observacao or "-" }}</td>
-        </tr>{% else %}<tr><td colspan="11">Nenhum evento operacional registrado.</td></tr>{% endfor %}</tbody>
-    </table></div></section>
+  <header class="expedicao-module-header"><div><span class="eyebrow">Expedição</span><h2>Histórico</h2><p>Linha do tempo dos eventos logísticos de pallets e romaneios.</p></div></header>
+  {% set expedicao_tab='historico' %}{% include '_expedicao_tabs.html' %}
+  <form method="get" class="card expedicao-history-filters">
+    <label>Pallet<input name="pallet" value="{{ filtros.pallet }}" placeholder="PALT-000001"></label><label>Romaneio<input name="romaneio" value="{{ filtros.romaneio }}"></label><label>OP<input name="op" value="{{ filtros.op }}" inputmode="numeric"></label><label>Tipo de evento<input name="tipo_evento" value="{{ filtros.tipo_evento }}"></label><label>Usuário<input name="usuario" value="{{ filtros.usuario }}"></label><label>Data inicial<input type="date" name="data_inicio" value="{{ filtros.data_inicio }}"></label><label>Data final<input type="date" name="data_fim" value="{{ filtros.data_fim }}"></label>
+    <div class="pallet-filter-actions"><button class="romaneio-btn romaneio-btn-secondary">Filtrar</button><a class="romaneio-btn romaneio-btn-neutral" href="{{ url_for('historico_estoque_expedicao') }}">Limpar</a></div>
+  </form>
+  <ol class="exp-timeline" aria-label="Eventos logísticos">{% for evento in eventos %}<li class="card"><time>{{ evento.criado_em|br_data_hora }}</time><div><span class="exp-status">{{ evento.evento|replace('_',' ')|title }}</span><h3>{{ evento.objeto or 'Evento logístico' }}</h3><p>{% if evento.pallet %}Pallet {{ evento.pallet }}{% endif %}{% if evento.op %} · OP {{ evento.op }}{% endif %}{% if evento.romaneio %} · Romaneio {{ evento.romaneio }}{% endif %}</p><small>Origem: {{ evento.origem or '-' }} · Destino: {{ evento.destino or '-' }} · {{ evento.usuario }} · {{ evento.referencia }}</small></div></li>{% else %}<li class="card pallet-empty">Nenhum evento logístico corresponde aos filtros.</li>{% endfor %}</ol>
 </div>
 {% endblock %}

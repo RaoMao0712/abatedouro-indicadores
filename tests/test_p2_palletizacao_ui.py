@@ -191,7 +191,7 @@ def test_p5_visao_estoque_hierarquia_filtros_indicadores_e_sem_acoes(ambiente, m
     resposta = cliente.get("/expedicao/pallets?op=121&disponibilidade=DISPONIVEL")
     assert resposta.status_code == 200
     for texto in (b"Estoque por pallet", b"Pallets ativos", b"Limpar filtros", b"Estoque sem pallet",
-                  b"OP #121", b"CX-10", b"MISTO POR OP"):
+                  b">OP</small>", b">#121</b>", b"CX-10", b"MISTO POR OP"):
         assert texto in resposta.data
     assert b"Remover do pallet" not in resposta.data
 
