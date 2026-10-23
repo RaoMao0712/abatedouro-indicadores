@@ -35,6 +35,27 @@ def qr_data_url(payload):
 def montar_etiqueta(pallet, detalhe_url, versao):
     caixas = pallet.get("caixas", [])
     unidades = sorted({str(item.get("unidade_estoque") or "CAIXA") for item in caixas})
+    produtos = []
+    fatores_inteira = set()
+    for item in caixas:
+        produto = str(item.get("sku") or "-").strip()
+        fator = int(item.get("galinhas_por_pacote") or 0)
+        if produto.casefold() == "galinha inteira" and fator in {1, 2}:
+            produto = f"{produto} V{fator}"
+            fatores_inteira.add(fator)
+        if produto not in produtos:
+            produtos.append(produto)
+    aves_inteiras = sum(
+        int(item.get("quantidade_galinhas") or 0)
+        for item in caixas
+        if str(item.get("sku") or "").strip().casefold() == "galinha inteira"
+    )
+    caixas_equivalentes = aves_inteiras / 8 if aves_inteiras else None
+    padrao_caixas = None
+    if fatores_inteira == {2}:
+        padrao_caixas = "Padrão: 8 aves por caixa (4 pacotes V2)"
+    elif fatores_inteira:
+        padrao_caixas = "Padrão: 8 aves por caixa"
     mistos = []
     if len(pallet.get("ops", [])) > 1:
         mistos.append("MISTO POR OP")
@@ -50,6 +71,9 @@ def montar_etiqueta(pallet, detalhe_url, versao):
         "qr_data_url": qr_data_url(detalhe_url),
         "barcode_data_url": codigo_barras_data_url(pallet["codigo"]),
         "unidades_texto": " / ".join(unidades) or "-",
+        "produtos_texto": " / ".join(produtos) or pallet.get("produtos_texto") or "-",
+        "caixas_equivalentes": caixas_equivalentes,
+        "padrao_caixas": padrao_caixas,
         "peso_bruto": peso_bruto,
         "mistos": mistos,
     }

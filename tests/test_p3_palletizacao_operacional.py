@@ -376,6 +376,48 @@ def test_p8_etiqueta_visual_caixa_pacote_mistos_qr_e_cancelado(banco):
     assert excecao["excecao_cancelado"] is True
 
 
+@pytest.mark.parametrize(
+    ("fator", "aves", "pacotes", "produto", "equivalentes", "padrao"),
+    [
+        (2, 330, 165, "Galinha Inteira V2", 41.25,
+         "Padrão: 8 aves por caixa (4 pacotes V2)"),
+        (1, 331, 331, "Galinha Inteira V1", 41.375,
+         "Padrão: 8 aves por caixa"),
+    ],
+)
+def test_hotfix_etiqueta_v1_v2_e_caixas_equivalentes(
+    fator, aves, pacotes, produto, equivalentes, padrao,
+):
+    pallet = {
+        "codigo": "PALT-000121", "caixas": [{
+            "sku": "Galinha Inteira", "unidade_estoque": "PACOTE",
+            "galinhas_por_pacote": fator, "quantidade_galinhas": aves,
+            "quantidade_pacotes": pacotes, "peso_liquido": 20,
+        }],
+        "ops": [{"op_id": 121}], "produtos": ["Galinha Inteira"],
+        "condicoes": ["CONFORME"],
+    }
+    etiqueta = montar_etiqueta(pallet, "https://exemplo/expedicao/pallets/121", 1)
+    assert etiqueta["produtos_texto"] == produto
+    assert etiqueta["caixas_equivalentes"] == equivalentes
+    assert etiqueta["padrao_caixas"] == padrao
+    assert etiqueta["barcode_data_url"].startswith("data:image/svg+xml;base64,")
+    assert etiqueta["qr_data_url"].startswith("data:image/svg+xml;base64,")
+
+
+def test_hotfix_etiqueta_a4_quantidades_separadas_e_sem_escala():
+    template = (ROOT / "templates" / "pallet_etiqueta.html").read_text(encoding="utf-8")
+    assert "@page{size:A4 portrait;margin:0}" in template
+    assert "width:190mm;height:138mm" in template
+    assert "margin:9mm auto 0" in template
+    assert "break-inside:avoid" in template
+    assert "page-break-inside:avoid" in template
+    assert "transform:scale" not in template.replace(" ", "")
+    for rotulo in ("Caixas equivalentes", "Posições", "Bandejas", "Pacotes", "Aves", "Unidade"):
+        assert f"<span>{rotulo}</span>" in template
+    assert "Bandejas · pacotes · aves" not in template
+
+
 def test_p9_historico_logistico_filtros_sem_mutacao(banco):
     pallet = criar("P9-HIST")
     palletizacao.adicionar_caixa(
