@@ -7,6 +7,7 @@ import sqlite3
 import pytest
 
 from modules.expedicao import palletizacao
+from modules.expedicao.etiqueta_pallet import montar_etiqueta
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -98,6 +99,83 @@ def snapshot(conectar, ids):
             f"SELECT id,status,disponibilidade,estoque_operacional FROM pa_caixas WHERE id IN ({marcadores}) ORDER BY id",
             ids,
         )]
+
+
+def test_p8_primeira_impressao_reimpressao_desatualizacao_e_zero_mutacao(banco):
+    pallet = criar("P8-CRIAR")
+    palletizacao.adicionar_caixas(
+        pallet["id"], [1, 2], usuario="PCP", idempotency_key="P8-ADD",
+    )
+    antes = snapshot(banco, [1, 2])
+    primeira = palletizacao.registrar_impressao_etiqueta(
+        pallet["id"], usuario="Expedicao", idempotency_key="P8-PRINT-1",
+    )
+    retry = palletizacao.registrar_impressao_etiqueta(
+        pallet["id"], usuario="Expedicao", idempotency_key="P8-PRINT-1",
+    )
+    assert primeira == retry
+    assert primeira["versao"] == 1 and primeira["tipo"] == "PRIMEIRA_IMPRESSAO"
+    assert palletizacao.estado_etiqueta_pallet(pallet["id"])["desatualizada"] is False
+    with pytest.raises(ValueError, match="Motivo obrigatorio"):
+        palletizacao.registrar_impressao_etiqueta(
+            pallet["id"], usuario="Expedicao", idempotency_key="P8-PRINT-2",
+        )
+    segunda = palletizacao.registrar_impressao_etiqueta(
+        pallet["id"], usuario="Expedicao", idempotency_key="P8-PRINT-2B",
+        justificativa="Etiqueta danificada no manuseio",
+    )
+    assert segunda["versao"] == 2 and segunda["tipo"] == "REIMPRESSAO"
+    assert snapshot(banco, [1, 2]) == antes
+    palletizacao.mover_pallet(
+        pallet["id"], 1, usuario="PCP", idempotency_key="P8-MOVE",
+        posicao_destino="RUA-02",
+    )
+    assert palletizacao.estado_etiqueta_pallet(pallet["id"])["desatualizada"] is True
+    with banco() as conn:
+        impressoes = conn.execute("""SELECT justificativa,dados_json FROM pallet_caixa_eventos
+                                     WHERE tipo_evento='ETIQUETA_PALLET_IMPRESSA'
+                                     ORDER BY id""").fetchall()
+        assert len(impressoes) == 2
+        assert impressoes[1]["justificativa"] == "Etiqueta danificada no manuseio"
+
+
+def test_p8_etiqueta_visual_caixa_pacote_mistos_qr_e_cancelado(banco):
+    pallet = criar("P8-VISUAL")
+    # A camada visual aceita fotografia mista legada e explicita unidade/alertas.
+    fotografia = palletizacao.consultar_pallet(pallet["id"])
+    fotografia["caixas"] = [
+        {"unidade_estoque": "CAIXA", "peso_bruto": 23, "peso_liquido": 22},
+        {"unidade_estoque": "PACOTE", "peso_bruto": 102, "peso_liquido": 100},
+    ]
+    fotografia["ops"] = [{"op_id": 121}, {"op_id": 123}]
+    fotografia["produtos"] = ["Galinha Cortada", "Galinha Inteira"]
+    fotografia["condicoes"] = ["CONFORME", "NAO_CONFORME"]
+    etiqueta = montar_etiqueta(
+        fotografia, "https://exemplo/expedicao/pallets/1", 3,
+    )
+    assert etiqueta["versao"] == 3
+    assert etiqueta["qr_payload"].endswith("/expedicao/pallets/1")
+    assert etiqueta["qr_data_url"].startswith("data:image/svg+xml;base64,")
+    assert etiqueta["barcode_data_url"].startswith("data:image/svg+xml;base64,")
+    assert etiqueta["unidades_texto"] == "CAIXA / PACOTE"
+    assert etiqueta["peso_bruto"] == 125
+    assert set(etiqueta["mistos"]) == {
+        "MISTO POR OP", "MISTO POR PRODUTO", "MISTO POR CONDIÇÃO",
+    }
+    cancelado = criar("P8-CANCEL")
+    palletizacao.cancelar_pallet(
+        cancelado["id"], usuario="Gerencia", idempotency_key="P8-CANCELAR",
+        justificativa="Cadastro duplicado",
+    )
+    with pytest.raises(ValueError, match="cancelado"):
+        palletizacao.registrar_impressao_etiqueta(
+            cancelado["id"], usuario="Expedicao", idempotency_key="P8-CANCEL-PRINT",
+        )
+    excecao = palletizacao.registrar_impressao_etiqueta(
+        cancelado["id"], usuario="Gerencia", idempotency_key="P8-CANCEL-ADMIN",
+        justificativa="Auditoria física solicitada", permitir_cancelado=True,
+    )
+    assert excecao["excecao_cancelado"] is True
 
 
 def test_p4_resumo_retomada_excecao_e_zero_mutacao(banco):

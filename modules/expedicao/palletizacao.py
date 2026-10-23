@@ -37,7 +37,7 @@ def criar_estrutura_palletizacao():
                 'PALLET_RESERVADO','RESERVA_PALLET_CANCELADA','PALLET_CARREGADO',
                 'CARREGAMENTO_PARCIAL','CARREGAMENTO_PALLET_ESTORNADO',
                 'PALLET_DEVOLVIDO_ESTOQUE','PALLET_ENCERRADO','PALLET_REABERTO',
-                'PALLET_CANCELADO'))""")
+                'PALLET_CANCELADO','ETIQUETA_PALLET_IMPRESSA'))""")
         else:
             conn.executescript(sql)
         conn.commit()
@@ -196,7 +196,7 @@ def consultar_pallet_cursor(cursor, pallet_id):
         raise ValueError("Pallet nao encontrado.")
     resultado = dict(pallet)
     cursor.execute(q("""SELECT ca.*, cx.codigo_caixa, cx.sku,
-                              cx.quantidade_bandejas, cx.peso_liquido,
+                              cx.quantidade_bandejas, cx.peso_liquido, cx.peso_bruto,
                               cx.quantidade_pacotes, cx.quantidade_galinhas,
                               cx.unidade_estoque, cx.apresentacao, cx.status,
                               cx.disponibilidade, cx.condicao,
@@ -230,6 +230,90 @@ def consultar_pallet(pallet_id):
         return consultar_pallet_cursor(conn.cursor(), pallet_id)
     finally:
         conn.close()
+
+
+EVENTOS_RELEVANTES_ETIQUETA = {
+    "CAIXA_ADICIONADA", "CAIXA_REMOVIDA", "CAIXA_TRANSFERIDA",
+    "PALLET_MOVIMENTADO", "PALLET_AGRUPADO", "PALLET_DESAGRUPADO",
+    "PALLET_RESERVADO", "RESERVA_PALLET_CANCELADA", "PALLET_CARREGADO",
+    "CARREGAMENTO_PARCIAL", "CARREGAMENTO_PALLET_ESTORNADO",
+    "PALLET_DEVOLVIDO_ESTOQUE", "PALLET_ENCERRADO", "PALLET_REABERTO",
+    "PALLET_CANCELADO",
+}
+
+
+def _dados_evento(evento):
+    try:
+        return json.loads(evento.get("dados_json") or "{}")
+    except (AttributeError, TypeError, ValueError):
+        return {}
+
+
+def estado_etiqueta_pallet(pallet_id):
+    """Retorna a última versão impressa e se o conteúdo logístico mudou depois dela."""
+    conn = conectar()
+    try:
+        cursor = conn.cursor()
+        _obter_pallet(cursor, pallet_id)
+        cursor.execute(q("""SELECT * FROM pallet_caixa_eventos
+                             WHERE pallet_id=? AND tipo_evento='ETIQUETA_PALLET_IMPRESSA'
+                             ORDER BY id DESC LIMIT 1"""), (pallet_id,))
+        ultima = cursor.fetchone()
+        if not ultima:
+            return {"ultima_versao": 0, "ultima_impressao": None,
+                    "desatualizada": False, "proxima_versao": 1}
+        dados = _dados_evento(dict(ultima))
+        marcadores = ",".join("?" for _ in EVENTOS_RELEVANTES_ETIQUETA)
+        cursor.execute(q(f"""SELECT 1 FROM pallet_caixa_eventos
+                              WHERE pallet_id=? AND id>? AND tipo_evento IN ({marcadores})
+                              LIMIT 1"""), (pallet_id, ultima["id"], *sorted(EVENTOS_RELEVANTES_ETIQUETA)))
+        versao = int(dados.get("versao") or 0)
+        return {"ultima_versao": versao, "ultima_impressao": dict(ultima),
+                "desatualizada": bool(cursor.fetchone()), "proxima_versao": versao + 1}
+    finally:
+        conn.close()
+
+
+def registrar_impressao_etiqueta(
+    pallet_id, *, usuario, idempotency_key, justificativa=None,
+    permitir_cancelado=False,
+):
+    """Aloca uma versão única e audita a impressão sem alterar o domínio físico."""
+    chave = _validar_chave(idempotency_key)
+    with transaction() as conn:
+        cursor = conn.cursor()
+        _bloquear_idempotencia(cursor, chave)
+        existente = _evento_por_chave(cursor, chave)
+        if existente:
+            if existente["tipo_evento"] != "ETIQUETA_PALLET_IMPRESSA":
+                raise ValueError("idempotency_key ja usada por outra operacao.")
+            return _dados_evento(dict(existente))
+        pallet = _obter_pallet(cursor, pallet_id, bloquear=True)
+        if pallet["status"] == "CANCELADO" and not permitir_cancelado:
+            raise ValueError("Pallet cancelado nao permite impressao normal de etiqueta.")
+        cursor.execute(q("""SELECT * FROM pallet_caixa_eventos
+                             WHERE pallet_id=? AND tipo_evento='ETIQUETA_PALLET_IMPRESSA'
+                             ORDER BY id DESC LIMIT 1"""), (pallet_id,))
+        ultima = cursor.fetchone()
+        versao = int(_dados_evento(dict(ultima)).get("versao") or 0) + 1 if ultima else 1
+        motivo = str(justificativa or "").strip() or None
+        if (versao > 1 or pallet["status"] == "CANCELADO") and not motivo:
+            raise ValueError("Motivo obrigatorio para reimpressao ou excecao administrativa.")
+        fotografia = consultar_pallet_cursor(cursor, pallet_id)
+        dados = {
+            "versao": versao,
+            "tipo": "PRIMEIRA_IMPRESSAO" if versao == 1 else "REIMPRESSAO",
+            "codigo": fotografia["codigo"],
+            "versao_pallet": int(fotografia.get("versao") or 0),
+            "quantidade_posicoes": fotografia["totais"]["caixas"],
+            "status": fotografia["status"],
+            "excecao_cancelado": bool(pallet["status"] == "CANCELADO"),
+        }
+        _registrar_evento(
+            cursor, pallet_id=pallet_id, tipo_evento="ETIQUETA_PALLET_IMPRESSA",
+            usuario=usuario, idempotency_key=chave, justificativa=motivo, dados=dados,
+        )
+        return dados
 
 
 def _enriquecer_pallet(pallet):

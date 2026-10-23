@@ -49,6 +49,10 @@ def ambiente(monkeypatch):
         "codigo_caixa": None, "pallet_origem_codigo": None,
         "pallet_destino_codigo": None, "usuario": "PCP", "justificativa": None,
     }])
+    monkeypatch.setattr(routes, "estado_etiqueta_pallet", lambda pallet_id: {
+        "ultima_versao": 0, "ultima_impressao": None,
+        "desatualizada": False, "proxima_versao": 1,
+    })
     def visao(filtros=None, filtros_sem_pallet=None):
         for pallet in armazenados:
             pallet.setdefault("disponibilidade_agregada", "VAZIO")
@@ -96,6 +100,33 @@ def test_m_permissao_consulta_sem_criacao_e_post_rejeitado(ambiente):
     assert lista.status_code == 200 and b"Novo pallet" not in lista.data
     assert cliente.post("/expedicao/pallets/novo", data={}).status_code == 302
     assert armazenados == []
+
+
+def test_p8_rota_protegida_get_sem_mutacao_post_audita_e_exige_motivo(ambiente, monkeypatch):
+    cliente, armazenados = ambiente
+    pallet = pallet_vazio()
+    pallet["totais"]["peso_bruto"] = 0
+    armazenados.append(pallet)
+    chamadas = []
+
+    def registrar(pallet_id, **dados):
+        chamadas.append((pallet_id, dados))
+        return {"versao": 1, "tipo": "PRIMEIRA_IMPRESSAO"}
+
+    monkeypatch.setattr(routes, "registrar_impressao_etiqueta", registrar)
+    resposta = cliente.get("/expedicao/pallets/1/etiqueta")
+    assert resposta.status_code == 200
+    assert b"Etiqueta log\xc3\xadstica" in resposta.data
+    assert b"data:image/svg+xml;base64," in resposta.data
+    assert chamadas == []  # GET é estritamente leitura
+    with cliente.session_transaction() as sessao:
+        chave = sessao["pallet_1_etiqueta_chave"]
+    resposta = cliente.post("/expedicao/pallets/1/etiqueta", data={"idempotency_key": chave})
+    assert resposta.status_code == 302 and "versao=1" in resposta.location
+    assert chamadas[0][0] == 1 and chamadas[0][1]["idempotency_key"] == chave
+    with cliente.session_transaction() as sessao:
+        sessao["perfil"] = "qualidade"
+    assert cliente.get("/expedicao/pallets/1/etiqueta").status_code == 302
 
 
 def test_p3_contrato_visual_selecao_em_massa_e_permissao(ambiente, monkeypatch):

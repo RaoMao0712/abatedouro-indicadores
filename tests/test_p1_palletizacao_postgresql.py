@@ -421,3 +421,55 @@ def test_p4_organizacao_op_excecao_retry_e_zero_mutacao_postgresql():
         cursor.execute("SELECT id,sku,status FROM ordens_producao WHERE id=122")
         op_depois = dict(cursor.fetchone())
     assert antes == depois and op_antes == op_depois
+
+
+def test_p8_versoes_concorrentes_idempotencia_auditoria_e_zero_mutacao_postgresql():
+    pallet = criar("P8-PG-PALLET")
+    palletizacao.adicionar_caixas(
+        pallet["id"], [2, 3], usuario="PCP", idempotency_key="P8-PG-ADD",
+    )
+    palletizacao.registrar_impressao_etiqueta(
+        pallet["id"], usuario="Expedicao", idempotency_key="P8-PG-V1",
+    )
+    with conectar() as conn, conn.cursor() as cursor:
+        cursor.execute("""SELECT id,status,disponibilidade,estoque_operacional,
+                                  quantidade_pacotes_reservados,reservado_expedicao_id
+                           FROM pa_caixas ORDER BY id""")
+        caixas_antes = [dict(item) for item in cursor.fetchall()]
+        cursor.execute("SELECT id,sku,status FROM ordens_producao ORDER BY id")
+        ops_antes = [dict(item) for item in cursor.fetchall()]
+        cursor.execute("SELECT * FROM pallets WHERE id=%s", (pallet["id"],))
+        pallet_antes = dict(cursor.fetchone())
+    resultados, erros = [], []
+
+    def imprimir(indice):
+        try:
+            resultados.append(palletizacao.registrar_impressao_etiqueta(
+                pallet["id"], usuario=f"Expedicao {indice}",
+                idempotency_key=f"P8-PG-V{indice}", justificativa=f"Teste concorrente {indice}",
+            ))
+        except Exception as erro:  # pragma: no cover - diagnóstico do gate
+            erros.append(erro)
+
+    threads = [threading.Thread(target=imprimir, args=(2,)), threading.Thread(target=imprimir, args=(3,))]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=20)
+    assert not erros
+    assert sorted(item["versao"] for item in resultados) == [2, 3]
+    retry = palletizacao.registrar_impressao_etiqueta(
+        pallet["id"], usuario="Expedicao 2", idempotency_key="P8-PG-V2",
+        justificativa="Teste concorrente 2",
+    )
+    assert retry["versao"] in {2, 3}
+    assert contagem("pallet_caixa_eventos", "tipo_evento='ETIQUETA_PALLET_IMPRESSA'") == 3
+    with conectar() as conn, conn.cursor() as cursor:
+        cursor.execute("""SELECT id,status,disponibilidade,estoque_operacional,
+                                  quantidade_pacotes_reservados,reservado_expedicao_id
+                           FROM pa_caixas ORDER BY id""")
+        assert [dict(item) for item in cursor.fetchall()] == caixas_antes
+        cursor.execute("SELECT id,sku,status FROM ordens_producao ORDER BY id")
+        assert [dict(item) for item in cursor.fetchall()] == ops_antes
+        cursor.execute("SELECT * FROM pallets WHERE id=%s", (pallet["id"],))
+        assert dict(cursor.fetchone()) == pallet_antes

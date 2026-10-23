@@ -120,7 +120,10 @@ from .palletizacao import (
     desagrupar_pallet,
     validar_organizacao_para_encerramento,
     visao_estoque_por_pallet,
+    estado_etiqueta_pallet,
+    registrar_impressao_etiqueta,
 )
+from .etiqueta_pallet import montar_etiqueta
 
 
 def listar_clientes(*, somente_ativos=True):
@@ -394,6 +397,7 @@ def register_expedicao_routes(app, integracoes=None):
             aba = "visao-geral"
         chave_remocao = session.get(f"pallet_{pallet_id}_remocao_chave") or str(uuid.uuid4())
         session[f"pallet_{pallet_id}_remocao_chave"] = chave_remocao
+        etiqueta = estado_etiqueta_pallet(pallet_id)
         return render_template(
             "pallet_detalhe.html", pallet=pallet, aba=aba,
             eventos=listar_eventos_pallet(pallet_id),
@@ -403,7 +407,54 @@ def register_expedicao_routes(app, integracoes=None):
             pode_operar=session.get("perfil") in {"admin", "pcp", "expedicao"},
             pode_risco=session.get("perfil") in {"admin", "gerencia"},
             outros_pallets=listar_pallets_destino(pallet_id),
+            etiqueta=etiqueta,
         )
+
+    @app.route("/expedicao/pallets/<int:pallet_id>/etiqueta", methods=["GET", "POST"])
+    @perfil_permitido("expedicao", "pcp", "admin", "gerencia")
+    def etiqueta_pallet_expedicao(pallet_id):
+        try:
+            pallet = consultar_pallet(pallet_id)
+            estado = estado_etiqueta_pallet(pallet_id)
+            chave_sessao = f"pallet_{pallet_id}_etiqueta_chave"
+            if request.method == "POST":
+                chave = request.form.get("idempotency_key") or ""
+                if not chave or chave != session.get(chave_sessao):
+                    raise ValueError("Solicitacao de impressao expirada. Reabra a etiqueta.")
+                excecao = request.form.get("excecao_cancelado") == "1"
+                if excecao and session.get("perfil") not in {"admin", "gerencia"}:
+                    raise ValueError("Somente administracao pode autorizar etiqueta de pallet cancelado.")
+                impresso = registrar_impressao_etiqueta(
+                    pallet_id,
+                    usuario=session.get("nome") or "Usuario nao identificado",
+                    idempotency_key=chave,
+                    justificativa=(request.form.get("justificativa") or "").strip() or None,
+                    permitir_cancelado=excecao,
+                )
+                session.pop(chave_sessao, None)
+                return redirect(url_for(
+                    "etiqueta_pallet_expedicao", pallet_id=pallet_id,
+                    versao=impresso["versao"], imprimir=1,
+                ))
+            chave = session.get(chave_sessao) or str(uuid.uuid4())
+            session[chave_sessao] = chave
+            versao_solicitada = request.args.get("versao", type=int)
+            versao = (
+                versao_solicitada if versao_solicitada == estado["ultima_versao"]
+                else estado["proxima_versao"]
+            )
+            detalhe_url = url_for(
+                "detalhe_pallet_expedicao", pallet_id=pallet_id, _external=True,
+            )
+            etiqueta = montar_etiqueta(pallet, detalhe_url, versao)
+            return render_template(
+                "pallet_etiqueta.html", etiqueta=etiqueta, estado=estado,
+                chave=chave, auto_imprimir=request.args.get("imprimir") == "1",
+                pode_excecao=session.get("perfil") in {"admin", "gerencia"},
+            )
+        except (TypeError, ValueError) as erro:
+            flash(str(erro))
+            return redirect(url_for("detalhe_pallet_expedicao", pallet_id=pallet_id))
 
     @app.post("/expedicao/pallets/<int:pallet_id>/agrupar")
     @perfil_permitido("pcp", "admin")
