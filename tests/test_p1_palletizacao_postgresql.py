@@ -93,6 +93,7 @@ def estado_limpo(monkeypatch):
             cursor.execute("DELETE FROM pa_caixas WHERE posicao_origem_id IS NOT NULL")
             cursor.execute("""UPDATE pa_caixas SET quantidade_galinhas=1924,quantidade_pacotes=962,
                 peso_liquido=100,peso_bruto=NULL,quantidade_original_galinhas=NULL WHERE id=1""")
+            cursor.execute("UPDATE pa_caixas SET local_estoque_id=1 WHERE id IN (1,2,3)")
 
     @contextmanager
     def transacao_real():
@@ -252,6 +253,48 @@ def test_g_h_transferencia_atomica_e_rastreavel():
     assert int(evento["pallet_origem_id"]) == origem["id"]
     assert int(evento["pallet_destino_id"]) == destino["id"]
     assert evento["evento_origem_id"] is not None
+
+
+def test_hotfix_localizacao_concorrente_pallet_vazio_consolida_um_unico_local():
+    pallet = criar("LOCAL-PG-PALLET")
+    with conectar() as conn, conn.cursor() as cursor:
+        cursor.execute("UPDATE pa_caixas SET local_estoque_id=1 WHERE id=2")
+        cursor.execute("UPDATE pa_caixas SET local_estoque_id=2 WHERE id=3")
+    resultados, erros = [], []
+
+    def adicionar(caixa_id, chave):
+        try:
+            resultados.append(palletizacao.adicionar_caixas(
+                pallet["id"], [caixa_id], usuario="PCP", idempotency_key=chave,
+            ))
+        except Exception as erro:
+            erros.append(erro)
+
+    threads = [
+        threading.Thread(target=adicionar, args=(2, "LOCAL-PG-CAMARA")),
+        threading.Thread(target=adicionar, args=(3, "LOCAL-PG-ABATEDOURO")),
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=20)
+
+    assert len(resultados) == 1
+    assert len(erros) == 1
+    assert "Mova a mercadoria" in str(erros[0])
+    with conectar() as conn, conn.cursor() as cursor:
+        cursor.execute("""SELECT p.localizacao_atual_id,cx.local_estoque_id,
+                                  cx.status,cx.disponibilidade,cx.estoque_operacional
+                             FROM pallets p
+                             JOIN pallet_caixas_atuais ca ON ca.pallet_id=p.id
+                             JOIN pa_caixas cx ON cx.id=ca.caixa_id
+                            WHERE p.id=%s""", (pallet["id"],))
+        linhas = cursor.fetchall()
+        assert len(linhas) == 1
+        assert linhas[0]["localizacao_atual_id"] == linhas[0]["local_estoque_id"]
+        assert linhas[0]["status"] == "Em estoque"
+        assert linhas[0]["disponibilidade"] == "DISPONIVEL"
+        assert linhas[0]["estoque_operacional"] == 1
 
 
 def test_i_retries_nao_duplicam_vinculo_nem_evento():

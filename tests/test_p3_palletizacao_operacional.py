@@ -42,6 +42,7 @@ def banco(tmp_path, monkeypatch):
               id INTEGER PRIMARY KEY,caixa_id INTEGER,op_id INTEGER,quantidade_bandejas REAL DEFAULT 0
             );
             INSERT INTO locais_estoque VALUES(1,'Câmara A','interno','Sim');
+            INSERT INTO locais_estoque VALUES(99,'Abatedouro','interno','Sim');
             INSERT INTO ordens_producao VALUES
               (121,'Galinha Cortada'),(122,'Galinha Cortada'),(123,'Galinha Inteira');
             INSERT INTO pa_caixas VALUES
@@ -206,6 +207,84 @@ def test_p10_input_html_usa_fator_como_step_e_base():
     assert 'min="{{ fator }}"' in template
     assert 'step="{{ fator }}"' in template
     assert 'min="1"' not in template
+
+
+def test_pallet_vazio_herda_localizacao_da_primeira_posicao(banco):
+    with banco() as conn:
+        conn.execute("UPDATE pa_caixas SET local_estoque_id=99 WHERE id=1")
+    pallet = criar("LOCAL-HERDA-PALLET")
+    palletizacao.adicionar_caixas(
+        pallet["id"], [1], usuario="PCP", idempotency_key="LOCAL-HERDA-ADD",
+    )
+    with banco() as conn:
+        atual = conn.execute(
+            "SELECT localizacao_atual_id,posicao_atual FROM pallets WHERE id=?", (pallet["id"],)
+        ).fetchone()
+        assert tuple(atual) == (99, None)
+
+
+def test_pallet_ocupado_rejeita_local_divergente_sem_mutacao(banco):
+    pallet = criar("LOCAL-OCUPADO-PALLET")
+    palletizacao.adicionar_caixas(
+        pallet["id"], [1], usuario="PCP", idempotency_key="LOCAL-OCUPADO-PRIMEIRA",
+    )
+    with banco() as conn:
+        conn.execute("UPDATE pa_caixas SET local_estoque_id=99 WHERE id=2")
+    antes = snapshot(banco, [1, 2])
+    with pytest.raises(ValueError, match='Abatedouro.*Câmara A'):
+        palletizacao.adicionar_caixas(
+            pallet["id"], [2], usuario="PCP", idempotency_key="LOCAL-OCUPADO-DIVERGENTE",
+        )
+    assert snapshot(banco, [1, 2]) == antes
+    with banco() as conn:
+        assert conn.execute(
+            "SELECT localizacao_atual_id FROM pallets WHERE id=?", (pallet["id"],)
+        ).fetchone()[0] == 1
+        assert conn.execute("SELECT COUNT(*) FROM pallet_caixas_atuais").fetchone()[0] == 1
+
+
+def test_transferencia_para_pallet_vazio_herda_localizacao(banco):
+    origem = criar("LOCAL-TRANSFER-ORIGEM")
+    destino = criar("LOCAL-TRANSFER-DESTINO")
+    with banco() as conn:
+        conn.execute("UPDATE pa_caixas SET local_estoque_id=99 WHERE id=1")
+    palletizacao.adicionar_caixas(
+        origem["id"], [1], usuario="PCP", idempotency_key="LOCAL-TRANSFER-ADD",
+    )
+    palletizacao.transferir_caixas(
+        origem["id"], destino["id"], [1], usuario="PCP",
+        idempotency_key="LOCAL-TRANSFER-MOVE",
+    )
+    with banco() as conn:
+        assert conn.execute(
+            "SELECT localizacao_atual_id FROM pallets WHERE id=?", (destino["id"],)
+        ).fetchone()[0] == 99
+
+
+def test_p10_parcial_pallet_vazio_herda_local_e_preserva_invariantes(banco):
+    pallet = criar("LOCAL-P10-PALLET")
+    with banco() as conn:
+        conn.execute("UPDATE pa_caixas SET local_estoque_id=99 WHERE id=4")
+    antes = snapshot(banco, [4])
+    palletizacao.palletizar_quantidade_pacote(
+        pallet["id"], 4, 330, usuario="PCP", idempotency_key="LOCAL-P10-330",
+    )
+    with banco() as conn:
+        assert conn.execute(
+            "SELECT localizacao_atual_id FROM pallets WHERE id=?", (pallet["id"],)
+        ).fetchone()[0] == 99
+        filha = conn.execute(
+            "SELECT local_estoque_id,quantidade_galinhas,quantidade_pacotes,status,disponibilidade,estoque_operacional "
+            "FROM pa_caixas WHERE posicao_origem_id=4"
+        ).fetchone()
+        assert tuple(filha) == (99, 330, 165, antes[0][1], antes[0][2], antes[0][3])
+    assert palletizacao.auditar_fracionamento_posicao(4)["status"] == "OK"
+
+
+def test_tela_adicionar_mantem_divergente_visivel_com_motivo():
+    template = (ROOT / "templates" / "pallet_adicionar_caixas.html").read_text(encoding="utf-8")
+    assert "Localização diferente do pallet" in template
+    assert "caixa.motivo_divergencia" in template
 
 
 @pytest.mark.parametrize("quantidade", [0, -1, 1925, "1.5", 331])

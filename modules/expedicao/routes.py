@@ -563,9 +563,25 @@ def register_expedicao_routes(app, integracoes=None):
         )}
         chave = session.get(f"pallet_{pallet_id}_adicao_chave") or str(uuid.uuid4())
         session[f"pallet_{pallet_id}_adicao_chave"] = chave
+        caixas = listar_caixas_disponiveis_palletizacao(filtros)
+        pallet_ocupado = bool(pallet.get("caixas"))
+        for caixa in caixas:
+            divergente = (
+                pallet_ocupado
+                and caixa.get("local_estoque_id") != pallet.get("localizacao_atual_id")
+            )
+            caixa["localizacao_divergente"] = divergente
+            if divergente:
+                local_mercadoria = caixa.get("localizacao_nome") or "Sem localização definida"
+                local_pallet = pallet.get("localizacao_nome") or "Sem localização definida"
+                caixa["motivo_divergencia"] = (
+                    f'Esta posição está em "{local_mercadoria}", mas o pallet está '
+                    f'em "{local_pallet}". Mova a mercadoria ou utilize um pallet vazio '
+                    f'localizado em {local_mercadoria}.'
+                )
         return render_template(
             "pallet_adicionar_caixas.html", pallet=pallet, filtros=filtros,
-            caixas=listar_caixas_disponiveis_palletizacao(filtros),
+            caixas=caixas,
             locais=listar_locais_pallet(), chave=chave,
         )
 

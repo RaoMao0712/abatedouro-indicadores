@@ -887,6 +887,46 @@ def _validar_compatibilidade(destino, existentes, novas):
         )
 
 
+def _nome_localizacao(cursor, local_id):
+    if local_id is None:
+        return "sem localização definida"
+    cursor.execute(q("SELECT nome FROM locais_estoque WHERE id=?"), (local_id,))
+    local = cursor.fetchone()
+    return str(local["nome"] if local else f"local #{local_id}")
+
+
+def _consolidar_localizacao_destino(cursor, destino, existentes, novas):
+    """Pallet vazio herda o local da primeira mercadoria; pallet ocupado bloqueia divergência."""
+    if not novas:
+        return destino
+    local_referencia = novas[0].get("local_estoque_id")
+    divergente_lote = next(
+        (item for item in novas if item.get("local_estoque_id") != local_referencia), None
+    )
+    if divergente_lote:
+        raise ValueError(
+            "As posições selecionadas estão em locais físicos diferentes; "
+            "vincule apenas mercadorias do mesmo local."
+        )
+    if not existentes:
+        cursor.execute(
+            q("UPDATE pallets SET localizacao_atual_id=?,posicao_atual=NULL,versao=versao+1 WHERE id=?"),
+            (local_referencia, destino["id"]),
+        )
+        destino["localizacao_atual_id"] = local_referencia
+        destino["posicao_atual"] = None
+        return destino
+    if destino.get("localizacao_atual_id") != local_referencia:
+        local_mercadoria = _nome_localizacao(cursor, local_referencia)
+        local_pallet = _nome_localizacao(cursor, destino.get("localizacao_atual_id"))
+        raise ValueError(
+            f'Esta posição está em "{local_mercadoria}", mas o pallet está em '
+            f'"{local_pallet}". Mova a mercadoria ou utilize um pallet vazio localizado '
+            f'em {local_mercadoria}.'
+        )
+    return destino
+
+
 def listar_caixas_disponiveis_palletizacao(filtros=None):
     """Lista posições vinculáveis sem reutilizar ou alterar elegibilidade de expedição."""
     filtros = filtros or {}
@@ -1136,9 +1176,9 @@ def palletizar_quantidade_pacote(
             raise ValueError("Posicao com reserva nao pode ser fracionada para palletizacao.")
         if quantidade > disponivel:
             raise ValueError("Quantidade para o pallet superior ao saldo disponivel.")
-        if pallet.get("localizacao_atual_id") is not None and int(origem.get("local_estoque_id") or 0) != int(pallet["localizacao_atual_id"]):
-            raise ValueError("Localizacao fisica diverge do pallet.")
-        _validar_compatibilidade(pallet, _caixas_do_pallet_cursor(cursor, pallet_id), [origem])
+        existentes = _caixas_do_pallet_cursor(cursor, pallet_id)
+        pallet = _consolidar_localizacao_destino(cursor, pallet, existentes, [origem])
+        _validar_compatibilidade(pallet, existentes, [origem])
         caixa_destino_id = int(posicao_id)
         tipo = "CAIXA_ADICIONADA"
         if quantidade < disponivel:
@@ -1223,6 +1263,7 @@ def adicionar_caixas(
                 raise ValueError("idempotency_key ja usada por outra operacao.")
             return consultar_pallet_cursor(cursor, pallet_id)
         destino = dict(_obter_pallet(cursor, pallet_id, bloquear=True, operacional=True))
+        existentes_destino = _caixas_do_pallet_cursor(cursor, pallet_id)
         caixas = []
         for caixa_id in ids:
             caixa = dict(_obter_caixa(cursor, caixa_id, bloquear=True))
@@ -1231,13 +1272,11 @@ def adicionar_caixas(
             vinculo = cursor.fetchone()
             if vinculo:
                 raise ValueError(f"{caixa.get('codigo_caixa')}: caixa/posicao ja vinculada a um pallet.")
-            if (destino.get("localizacao_atual_id") is not None
-                    and int(caixa.get("local_estoque_id") or 0)
-                    != int(destino["localizacao_atual_id"])):
-                raise ValueError(
-                    f"{caixa.get('codigo_caixa')}: localização física diverge do pallet.")
             caixas.append(caixa)
-        _validar_compatibilidade(destino, _caixas_do_pallet_cursor(cursor, pallet_id), caixas)
+        destino = _consolidar_localizacao_destino(
+            cursor, destino, existentes_destino, caixas
+        )
+        _validar_compatibilidade(destino, existentes_destino, caixas)
         for caixa, chave_item in zip(caixas, chaves):
             evento_id = _registrar_evento(
                 cursor, pallet_id=pallet_id, caixa_id=caixa["id"],
@@ -1351,14 +1390,11 @@ def transferir_caixas(
             caixas.append(caixa)
             vinculos.append(dict(vinculo))
         destino = pallets[int(pallet_destino_id)]
-        if destino.get("localizacao_atual_id") is not None:
-            divergente = next((item for item in caixas
-                               if int(item.get("local_estoque_id") or 0)
-                               != int(destino["localizacao_atual_id"])), None)
-            if divergente:
-                raise ValueError(
-                    f"{divergente.get('codigo_caixa')}: localização física diverge do pallet destino.")
-        _validar_compatibilidade(destino, _caixas_do_pallet_cursor(cursor, pallet_destino_id), caixas)
+        existentes_destino = _caixas_do_pallet_cursor(cursor, pallet_destino_id)
+        destino = _consolidar_localizacao_destino(
+            cursor, destino, existentes_destino, caixas
+        )
+        _validar_compatibilidade(destino, existentes_destino, caixas)
         for caixa, vinculo, chave_item in zip(caixas, vinculos, chaves):
             evento_id = _registrar_evento(
                 cursor, pallet_id=pallet_destino_id, caixa_id=caixa["id"],
