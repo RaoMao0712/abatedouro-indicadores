@@ -1,18 +1,28 @@
 {% extends "base.html" %}
 
 {% block conteudo %}
-<div class="card login-card">
-    <h2>Acessar sistema</h2>
-
-    <form method="POST">
-        <label>E-mail</label>
-        <input type="email" name="email" required>
-
-        <label>Senha</label>
-        <input type="password" name="senha" required>
-
-        <button type="submit">Entrar</button>
-    </form>
-
+<div class="fd-login-shell">
+    <header class="fd-login-header" aria-label="Identidade FrigoDatta">
+        <div class="fd-login-brand">
+            <img src="{{ url_for('static', filename='imagens/logo.png') }}" alt="São Pedro Abatedouro">
+            <span>FRIGO<strong>DATTA</strong></span>
+        </div>
+        <div class="fd-login-industry" aria-hidden="true"></div>
+    </header>
+    <section class="fd-login-stage">
+        <img class="fd-login-watermark" src="{{ url_for('static', filename='imagens/logo.png') }}" alt="" aria-hidden="true">
+        <div class="card login-card">
+            <span class="fd-login-eyebrow">FRIGODATTA</span>
+            <h2>Acessar sistema</h2>
+            <p>Entre com suas credenciais para continuar.</p>
+            <form method="POST">
+                <label for="login-email">E-mail</label>
+                <input id="login-email" type="email" name="email" autocomplete="username" required>
+                <label for="login-senha">Senha</label>
+                <input id="login-senha" type="password" name="senha" autocomplete="current-password" required>
+                <button type="submit">Entrar</button>
+            </form>
+        </div>
+    </section>
 </div>
 {% endblock %}

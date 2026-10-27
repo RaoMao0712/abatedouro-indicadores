@@ -36,10 +36,15 @@ def register_navegacao_routes(app):
                     titulo = dominio["titulo"]
                     subtitulo = dominio.get("descricao", subtitulo)
                     break
+        dominio_ativo = next(
+            (dominio for dominio in navegacao if dominio.get("ativo") and dominio.get("itens")),
+            None,
+        )
         return {
             "perfil_nome": nome_perfil(session.get("perfil", "")),
             "hero_titulo": titulo,
             "hero_subtitulo": subtitulo,
+            "dominio_ativo": dominio_ativo,
         }
 
     @app.route("/inicio")

@@ -255,17 +255,7 @@ NAVEGACAO = [
             {"titulo": "Equipamentos", "endpoint": "cadastro_equipamentos_manutencao", "perfis": ("admin", "pcp", "producao"), "active_endpoints": ("cadastro_equipamentos_manutencao", "editar_equipamento_manutencao")},
             {"titulo": "Veículos", "endpoint": "cadastro_veiculos_manutencao", "perfis": ADMIN_PCP},
             {"titulo": "Locais de estoque", "endpoint": "locais_estoque_cadastro", "perfis": ("admin", "pcp", "gerencia")},
-        ],
-    },
-    {
-        "id": "administracao",
-        "titulo": "Administração",
-        "descricao": "Administração de acessos.",
-        "icone": "settings",
-        "perfis": ("admin",),
-        "card": False,
-        "itens": [
-            {"titulo": "Usuários", "endpoint": "cadastrar_usuario", "perfis": ("admin",), "principal": True},
+            {"titulo": "Usuários", "endpoint": "cadastrar_usuario", "perfis": ("admin",)},
         ],
     },
 ]

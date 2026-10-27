@@ -184,6 +184,46 @@ def test_tela_interna_exibe_hero_global_com_inicio_e_voltar():
     assert 'data-safe-back' in html
 
 
+def test_tela_interna_exibe_navegacao_local_com_todos_os_itens_autorizados():
+    client = app.test_client()
+    sessao(client, "admin")
+    html = client.get("/cadastros/parceiros").get_data(as_text=True)
+    assert 'class="fd-domain-nav"' in html
+    assert '>Parceiros</a>' in html
+    assert '>Veículos</a>' in html
+    assert '>Locais de estoque</a>' in html
+    assert '>Usuários</a>' in html
+    assert '<aside class="fd-sidebar"' not in html
+
+
+def test_compras_expoe_somente_rotas_reais_sem_inventar_pedido_ou_recebimento():
+    client = app.test_client()
+    sessao(client, "admin")
+    html = client.get("/compras/requisicoes").get_data(as_text=True)
+    assert 'class="fd-domain-nav"' in html
+    assert '>Requisições de Compra</a>' in html
+    assert '>Pedidos de Compra</a>' not in html
+    assert '>Recebimentos</a>' not in html
+
+
+def test_navegacao_local_respeita_perfil_e_item_ativo():
+    client = app.test_client()
+    sessao(client, "producao")
+    html = client.get("/dashboard").get_data(as_text=True)
+    assert 'class="fd-domain-link is-active" aria-current="page">Painel da Produção</a>' in html
+    assert '>Nova OP</a>' not in html
+    assert '>Mão de Obra</a>' in html
+
+
+def test_login_institucional_preserva_contrato_de_autenticacao():
+    html = app.test_client().get("/").get_data(as_text=True)
+    assert 'class="fd-login-shell"' in html
+    assert 'class="fd-login-watermark"' in html
+    assert 'name="email"' in html
+    assert 'name="senha"' in html
+    assert 'action=' not in html
+
+
 def test_dominios_sem_item_autorizado_nao_renderizam():
     html = html_inicio("gerencia")
     assert ">Financeiro<" not in html
