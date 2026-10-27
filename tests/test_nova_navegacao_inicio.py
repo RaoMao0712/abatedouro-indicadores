@@ -171,6 +171,8 @@ def test_usuario_perfil_e_sair_ficam_integrados_ao_hero():
     assert '<header class="fd-topbar">' not in html
     assert 'class="fd-hero-user"' in html
     assert 'class="fd-logout"' in html
+    assert '<span>Sair</span>' in html
+    assert 'M10 5H5v14h5' in html
     assert '<aside class="fd-sidebar"' not in html
 
 

@@ -5,7 +5,7 @@
     <title>FRIGODATTA | Gestão Industrial para Frigoríficos</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='almox-requisicao-detalhe-20260921') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='navigation.css', v='hotfix-navegacao-login-20261027') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='navigation.css', v='hero-compacto-20261027') }}">
 </head>
 
 <body>
@@ -44,7 +44,7 @@
             <div class="fd-hero-user" aria-label="Usuário e perfil">
                 <span class="fd-user-avatar" aria-hidden="true">{{ session.get("nome", "U")[:1]|upper }}</span>
                 <span class="fd-user-copy"><strong>{{ session.get("nome", "Usuário") }}</strong><small>{{ perfil_nome }}</small></span>
-                <a href="{{ url_for('sair') }}" class="fd-logout">Sair</a>
+                <a href="{{ url_for('sair') }}" class="fd-logout">{{ nav_icon('logout') }}<span>Sair</span></a>
             </div>
         </section>
         {% if dominio_ativo %}
