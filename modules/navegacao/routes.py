@@ -17,9 +17,29 @@ def register_navegacao_routes(app):
             request.endpoint or "",
             request.view_args or {},
         )
+        titulo = "Início"
+        subtitulo = "Visão geral e acessos autorizados do FrigoDatta."
+        if request.endpoint == "inicio":
+            primeiro_nome = (session.get("nome") or "Usuário").strip().split()[0]
+            subtitulo = f"Olá, {primeiro_nome}. Escolha uma área para começar."
+        else:
+            for dominio in navegacao:
+                item_ativo = next(
+                    (item for item in dominio.get("itens", []) if item.get("ativo")),
+                    None,
+                )
+                if item_ativo:
+                    titulo = item_ativo["titulo"]
+                    subtitulo = dominio.get("descricao", subtitulo)
+                    break
+                if dominio.get("ativo") and dominio.get("endpoint"):
+                    titulo = dominio["titulo"]
+                    subtitulo = dominio.get("descricao", subtitulo)
+                    break
         return {
-            "navegacao_sidebar": navegacao,
             "perfil_nome": nome_perfil(session.get("perfil", "")),
+            "hero_titulo": titulo,
+            "hero_subtitulo": subtitulo,
         }
 
     @app.route("/inicio")

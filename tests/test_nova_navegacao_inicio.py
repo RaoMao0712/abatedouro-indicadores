@@ -65,7 +65,7 @@ def test_todos_os_perfis_conhecidos_chegam_ao_inicio_apos_login():
         assert urlsplit(resposta.location).path == "/inicio"
 
 
-def test_sidebar_e_cards_derivam_da_mesma_definicao_de_navegacao():
+def test_cards_derivam_da_definicao_central_de_navegacao():
     assert NAVEGACAO
     with app.test_request_context("/inicio"):
         navegacao = montar_navegacao("producao", "inicio")
@@ -74,7 +74,7 @@ def test_sidebar_e_cards_derivam_da_mesma_definicao_de_navegacao():
     html = html_inicio("producao")
     for dominio in cards:
         assert f'data-domain="{dominio["id"]}"' in html
-        assert f"<span>{dominio['titulo']}</span>" in html
+        assert dominio["titulo"] in html
 
 
 def test_cards_e_dominios_respeitam_perfis():
@@ -166,24 +166,22 @@ def test_editar_op_nao_aparece_para_perfis_sem_permissao():
     assert 'session.get("perfil") == "pcp"' in condicao
 
 
-def test_sair_fica_no_rodape_e_fora_de_administracao():
+def test_usuario_perfil_e_sair_ficam_no_header_superior():
     html = html_inicio("admin")
-    assert '<footer class="fd-sidebar-footer">' in html
-    rodape = html.split('<footer class="fd-sidebar-footer">', 1)[1]
-    assert 'class="fd-logout"' in rodape
-    administracao = html.split('Administração', 1)[1].split("</details>", 1)[0]
-    assert ">Sair<" not in administracao
+    assert '<header class="fd-topbar">' in html
+    assert 'class="fd-user-menu"' in html
+    assert 'class="fd-logout"' in html
+    assert '<aside class="fd-sidebar"' not in html
 
 
-def test_estado_ativo_abre_dominio_e_destaca_item():
+def test_tela_interna_exibe_hero_global_com_inicio_e_voltar():
     client = app.test_client()
     sessao(client, "producao")
     html = client.get("/dashboard").get_data(as_text=True)
-    dominio = re.search(r'<details class="fd-nav-domain is-current" open>.*?</details>', html, re.S)
-    assert dominio
-    assert "Painel da Produção" in dominio.group(0)
-    assert 'class="fd-nav-item is-active"' in dominio.group(0)
-    assert 'aria-current="page"' in dominio.group(0)
+    assert '<section class="fd-hero"' in html
+    assert '<h1 id="fd-page-title">Painel da Produção</h1>' in html
+    assert '>Início</a>' in html
+    assert 'data-safe-back' in html
 
 
 def test_dominios_sem_item_autorizado_nao_renderizam():
@@ -209,12 +207,12 @@ def test_links_da_navegacao_renderizada_possuem_rotas_validas():
             assert endpoint
 
 
-def test_logo_oficial_e_preservada_no_menu():
+def test_logo_oficial_e_preservada_no_header():
     logo = ROOT / "static" / "imagens" / "logo.png"
     assert hashlib.sha256(logo.read_bytes()).hexdigest() == HASH_LOGO_OFICIAL
     html = html_inicio("admin")
     assert 'src="/static/imagens/logo.png' in html
-    assert 'class="fd-sidebar-logo"' in html
+    assert 'class="fd-brand-logo"' in html
 
 
 def test_pizza_e_mapa_de_origem_permanecem_no_template():
@@ -224,9 +222,10 @@ def test_pizza_e_mapa_de_origem_permanecem_no_template():
     assert "Mapa de origem" in template
 
 
-def test_drawer_possui_controles_de_teclado_overlay_e_foco():
+def test_voltar_so_aceita_referencia_interna_e_tem_fallback_inicio():
     javascript = (ROOT / "static" / "navigation.js").read_text(encoding="utf-8")
-    assert 'event.key === "Escape"' in javascript
-    assert 'event.key !== "Tab"' in javascript
-    assert 'overlay.addEventListener("click"' in javascript
-    assert "focusBeforeOpen" in javascript
+    assert "document.referrer" in javascript
+    assert "window.location.origin" in javascript
+    assert 'previous.pathname !== "/"' in javascript
+    html = html_inicio("admin")
+    assert 'aria-disabled="true"' in html

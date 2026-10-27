@@ -327,16 +327,21 @@ def cards_das_areas(navegacao):
 
 
 def acessos_principais(navegacao):
+    """Expõe na Home todos os destinos antes alcançáveis pela navegação global.
+
+    A lista recebida já está filtrada pela mesma matriz de perfis e feature flags;
+    assim, remover o sidebar não elimina acessos nem amplia permissões.
+    """
     acessos = []
     for dominio in navegacao:
         for item in dominio.get("itens", []):
-            if item.get("principal"):
-                acessos.append({
-                    "titulo": item["titulo"],
-                    "dominio": dominio["titulo"],
-                    "icone": dominio["icone"],
-                    "url": item["url"],
-                })
+            acessos.append({
+                "titulo": item["titulo"],
+                "dominio": dominio["titulo"],
+                "icone": dominio["icone"],
+                "url": item["url"],
+                "principal": bool(item.get("principal")),
+            })
     return acessos
 
 

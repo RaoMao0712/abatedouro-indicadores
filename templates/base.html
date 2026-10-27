@@ -5,101 +5,30 @@
     <title>FRIGODATTA | Gestão Industrial para Frigoríficos</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='almox-requisicao-detalhe-20260921') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='navigation.css', v='engenharia-produtos-20260727') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='navigation.css', v='redesign-global-20261027d') }}">
 </head>
 
 <body>
-{% from "_navigation_icons.html" import nav_icon %}
-
 <div class="app-shell{% if session.get('usuario_id') %} fd-app-shell{% endif %}">
     {% if session.get("usuario_id") %}
-    <button
-        type="button"
-        class="fd-nav-toggle"
-        aria-controls="fd-sidebar"
-        aria-expanded="false"
-        aria-label="Abrir menu de navegação"
-        data-nav-open
-    >
-        <span></span><span></span><span></span>
-    </button>
-
-    <div class="fd-nav-overlay" data-nav-overlay hidden></div>
-
-    <aside class="fd-sidebar" id="fd-sidebar" aria-label="Navegação principal" data-nav-drawer>
-        <div class="fd-sidebar-brand">
-            <a href="{{ url_for('inicio') }}" aria-label="FrigoDatta — Início">
-                <img
-                    src="{{ url_for('static', filename='imagens/logo.png') }}"
-                    class="fd-sidebar-logo"
-                    alt="São Pedro"
-                >
-                <span>FRIGO<strong>DATTA</strong></span>
-            </a>
-            <button type="button" class="fd-nav-close" aria-label="Fechar menu" data-nav-close>×</button>
+    <header class="fd-topbar">
+        <a class="fd-brand" href="{{ url_for('inicio') }}" aria-label="FrigoDatta — Início">
+            <img src="{{ url_for('static', filename='imagens/logo.png') }}" class="fd-brand-logo" alt="São Pedro">
+            <span>FRIGO<strong>DATTA</strong></span>
+        </a>
+        <div class="fd-user-menu" aria-label="Usuário e sessão">
+            <span class="fd-user-avatar" aria-hidden="true">{{ session.get("nome", "U")[:1]|upper }}</span>
+            <span class="fd-user-copy"><strong>{{ session.get("nome", "Usuário") }}</strong><small>{{ perfil_nome }}</small></span>
+            <span class="fd-profile-label">Perfil: <strong>{{ perfil_nome }}</strong></span>
+            <a href="{{ url_for('sair') }}" class="fd-logout">Sair</a>
         </div>
-
-        <nav class="fd-nav-tree">
-            {% for dominio in navegacao_sidebar %}
-                {% if dominio.endpoint is defined %}
-                <a
-                    href="{{ dominio.url }}"
-                    class="fd-nav-home{% if dominio.ativo %} is-active{% endif %}"
-                    {% if dominio.ativo %}aria-current="page"{% endif %}
-                >
-                    {{ nav_icon(dominio.icone) }}
-                    <span>{{ dominio.titulo }}</span>
-                </a>
-                {% else %}
-                <details class="fd-nav-domain{% if dominio.ativo %} is-current{% endif %}"{% if dominio.ativo %} open{% endif %}>
-                    <summary>
-                        <span class="fd-nav-domain-label">
-                            {{ nav_icon(dominio.icone) }}
-                            <span>{{ dominio.titulo }}</span>
-                        </span>
-                        <span class="fd-nav-chevron" aria-hidden="true">⌄</span>
-                    </summary>
-                    <div class="fd-nav-submenu">
-                        {% set grupo = namespace(atual="") %}
-                        {% for item in dominio.itens %}
-                            {% if item.grupo is defined and item.grupo != grupo.atual %}
-                                {% set grupo.atual = item.grupo %}
-                                <span class="fd-nav-group">{{ item.grupo }}</span>
-                            {% endif %}
-                            <a
-                                href="{{ item.url }}"
-                                class="fd-nav-item{% if item.ativo %} is-active{% endif %}"
-                                {% if item.ativo %}aria-current="page"{% endif %}
-                            >{{ item.titulo }}</a>
-                        {% endfor %}
-                    </div>
-                </details>
-                {% endif %}
-            {% endfor %}
-        </nav>
-
-        <footer class="fd-sidebar-footer">
-            <div class="fd-user-summary">
-                <span class="fd-user-avatar" aria-hidden="true">{{ session.get("nome", "U")[:1]|upper }}</span>
-                <span>
-                    <strong>{{ session.get("nome", "Usuário") }}</strong>
-                    <small>{{ perfil_nome }}</small>
-                </span>
-            </div>
-            <a href="{{ url_for('sair') }}" class="fd-logout">
-                <span aria-hidden="true">↪</span>
-                <span>Sair</span>
-            </a>
-        </footer>
-    </aside>
+    </header>
     {% endif %}
 
     <main class="container{% if session.get('usuario_id') %} container-com-sidebar fd-main{% endif %}" id="conteudo-principal">
         {% with mensagens = get_flashed_messages() %}
             {% if mensagens %}
-                {% for msg in mensagens %}
-                    <div class="alerta">{{ msg }}</div>
-                {% endfor %}
+                {% for msg in mensagens %}<div class="alerta">{{ msg }}</div>{% endfor %}
             {% endif %}
         {% endwith %}
 
@@ -110,12 +39,28 @@
             </section>
         {% endif %}
 
+        {% if session.get("usuario_id") %}
+        <section class="fd-hero" aria-labelledby="fd-page-title">
+            <div class="fd-hero-brand"><span>FRIGODATTA</span></div>
+            <div class="fd-hero-copy">
+                <h1 id="fd-page-title">{{ hero_titulo }}</h1>
+                <p>{{ hero_subtitulo }}</p>
+            </div>
+            <nav class="fd-hero-actions" aria-label="Navegação da página">
+                <a class="fd-button fd-button-neutral" href="{{ url_for('inicio') }}">Início</a>
+                <a class="fd-button fd-button-secondary{% if request.endpoint == 'inicio' %} is-disabled{% endif %}"
+                   href="{{ url_for('inicio') }}" data-safe-back
+                   {% if request.endpoint == 'inicio' %}aria-disabled="true" tabindex="-1"{% endif %}>Voltar</a>
+            </nav>
+        </section>
+        {% endif %}
+
         {% block conteudo %}{% endblock %}
     </main>
 </div>
 
 {% if session.get("usuario_id") %}
-<script src="{{ url_for('static', filename='navigation.js', v='navegacao-inicio-20260725b') }}" defer></script>
+<script src="{{ url_for('static', filename='navigation.js', v='redesign-global-20261027') }}" defer></script>
 {% endif %}
 </body>
 </html>
