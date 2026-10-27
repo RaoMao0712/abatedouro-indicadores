@@ -38,7 +38,10 @@ def criar_tabelas_requisicoes_compra():
         if "quantidade_aprovada" not in colunas:
             cur.execute("ALTER TABLE requisicao_compra_itens ADD COLUMN quantidade_aprovada REAL")
     cur.execute(f"""CREATE TABLE IF NOT EXISTS requisicao_compra_eventos (id {pk},requisicao_compra_id INTEGER NOT NULL,item_id INTEGER,evento TEXT NOT NULL,status_anterior TEXT,status_novo TEXT,dados_anteriores TEXT,dados_novos TEXT,justificativa TEXT,usuario_id INTEGER,usuario_nome TEXT NOT NULL,perfil TEXT NOT NULL,criado_em {ts} NOT NULL,idempotency_key TEXT NOT NULL UNIQUE)""")
-    for sql in ("CREATE INDEX IF NOT EXISTS idx_rc_origem ON requisicoes_compra(tipo_origem,origem_id,status)","CREATE INDEX IF NOT EXISTS idx_rc_status_data ON requisicoes_compra(status,criado_em)","CREATE INDEX IF NOT EXISTS idx_rc_solicitante ON requisicoes_compra(solicitante_id)","CREATE INDEX IF NOT EXISTS idx_rc_item_material ON requisicao_compra_itens(material_id,requisicao_compra_id)"):
+    cur.execute(f"""CREATE TABLE IF NOT EXISTS documentos_compra (id {pk},requisicao_compra_id INTEGER NOT NULL,tipo TEXT NOT NULL,numero TEXT NOT NULL,serie TEXT,data_emissao TEXT NOT NULL,fornecedor_id INTEGER NOT NULL,fornecedor_nome_snapshot TEXT NOT NULL,valor_total REAL NOT NULL,observacao TEXT,status TEXT NOT NULL DEFAULT 'ATIVO',criado_por INTEGER,criado_por_nome TEXT NOT NULL,criado_em {ts} NOT NULL,estornado_por INTEGER,estornado_por_nome TEXT,estornado_em {ts},motivo_estorno TEXT,chave_criacao TEXT NOT NULL UNIQUE)""")
+    cur.execute(f"""CREATE TABLE IF NOT EXISTS rc_atendimentos (id {pk},requisicao_compra_id INTEGER NOT NULL,documento_id INTEGER NOT NULL,data_atendimento TEXT NOT NULL,observacao TEXT,status TEXT NOT NULL DEFAULT 'ATIVO',usuario_id INTEGER,usuario_nome TEXT NOT NULL,criado_em {ts} NOT NULL,estornado_por INTEGER,estornado_por_nome TEXT,estornado_em {ts},motivo_estorno TEXT,chave_criacao TEXT NOT NULL UNIQUE)""")
+    cur.execute(f"""CREATE TABLE IF NOT EXISTS rc_atendimento_itens (id {pk},atendimento_id INTEGER NOT NULL,requisicao_compra_item_id INTEGER NOT NULL,quantidade REAL NOT NULL,preco_unitario_real REAL NOT NULL,valor_real REAL NOT NULL)""")
+    for sql in ("CREATE INDEX IF NOT EXISTS idx_rc_origem ON requisicoes_compra(tipo_origem,origem_id,status)","CREATE INDEX IF NOT EXISTS idx_rc_status_data ON requisicoes_compra(status,criado_em)","CREATE INDEX IF NOT EXISTS idx_rc_solicitante ON requisicoes_compra(solicitante_id)","CREATE INDEX IF NOT EXISTS idx_rc_item_material ON requisicao_compra_itens(material_id,requisicao_compra_id)","CREATE INDEX IF NOT EXISTS idx_doc_compra_rc ON documentos_compra(requisicao_compra_id,status)","CREATE INDEX IF NOT EXISTS idx_rc_atendimento_rc ON rc_atendimentos(requisicao_compra_id,status)","CREATE INDEX IF NOT EXISTS idx_rc_atendimento_item ON rc_atendimento_itens(requisicao_compra_item_id,atendimento_id)"):
         cur.execute(sql)
     conn.commit(); conn.close()
 
@@ -325,12 +328,22 @@ def buscar_rc(rid):
         rc["itens_sem_nu"]=sum(1 for item in rc["itens"] if not item.get("nu"))
         _totais(rc)
         cur.execute(q("SELECT * FROM requisicao_compra_eventos WHERE requisicao_compra_id=? ORDER BY id"),(rid,)); rc["eventos"]=[dict(x) for x in cur.fetchall()]
+        from .atendimentos import enriquecer_rc
+        enriquecer_rc(cur,rc)
         return rc
     finally: conn.close()
 
 def listar(filtros=None,origem=None):
     f=filtros or {}; cond=["1=1"]; p=[]
     if origem: cond += ["r.tipo_origem=?","r.origem_id=?"]; p += list(origem)
+    visao=str(f.get("visao") or "").strip()
+    if visao in {"AGUARDANDO_COMPRA", "TODAS_APROVADAS"}: cond.append("r.status IN ('APROVADA','APROVADA_COM_AJUSTES')")
+    elif visao=="APROVADAS": cond.append("r.status='APROVADA'")
+    elif visao=="APROVADAS_AJUSTES": cond.append("r.status='APROVADA_COM_AJUSTES'")
+    elif visao=="PARCIALMENTE_ATENDIDAS": cond.append("r.status='PARCIALMENTE_ATENDIDA'")
+    elif visao=="ATENDIDAS": cond.append("r.status='ATENDIDA'")
+    elif visao=="RECUSADAS": cond.append("r.status='REJEITADA'")
+    elif visao=="TODAS": pass
     for k,col in (("status","r.status"),("tipo_origem","r.tipo_origem"),("setor","r.setor"),("prioridade","r.prioridade")):
         v=str(f.get(k) or "").strip()
         if v and v!="Todos": cond.append(f"{col}=?"); p.append(v)

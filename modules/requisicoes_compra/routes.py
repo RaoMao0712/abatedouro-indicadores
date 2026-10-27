@@ -5,6 +5,7 @@ from modules.auth.decorators import perfil_permitido
 from modules.almoxarifado.services import buscar_insumos_almoxarifado
 from .origens import TIPOS, listar_opcoes_origem
 from .services import PRIORIDADES, STATUS, UNIDADES, ConflitoRC, alertas_duplicidade, aplicar_nu, aprovar, buscar_rc, cancelar, criar_rascunho, editar_rascunho, enviar, listar, normalizar_itens, rejeitar, vincular_material
+from .atendimentos import estornar_atendimento, gerar_excel, listar_fornecedores, registrar_atendimento, relatorio_atendidas, relatorio_recusadas, resumo_portal
 
 ACESSO=("pcp","producao","qualidade","manutencao","gerencia")
 def _u(): return {"id":session.get("usuario_id"),"nome":session.get("nome","Sistema"),"perfil":session.get("perfil","")}
@@ -13,8 +14,8 @@ def register_requisicoes_compra_routes(app):
     @app.route("/compras/requisicoes")
     @perfil_permitido(*ACESSO)
     def requisicoes_compra():
-        filtros={k:request.args.get(k,"") for k in ("status","tipo_origem","setor","prioridade","data_inicio","data_fim","termo")}
-        return render_template("requisicoes_compra.html",requisicoes=listar(filtros),filtros=filtros,status_opcoes=STATUS,tipos_origem=TIPOS,prioridades=PRIORIDADES)
+        filtros={k:request.args.get(k,"") for k in ("visao","status","tipo_origem","setor","prioridade","data_inicio","data_fim","termo")}; filtros["visao"]=filtros["visao"] or "AGUARDANDO_COMPRA"
+        return render_template("requisicoes_compra.html",requisicoes=listar(filtros),filtros=filtros,status_opcoes=STATUS,tipos_origem=TIPOS,prioridades=PRIORIDADES,resumo=resumo_portal())
 
     @app.route("/compras/requisicoes/nova",methods=["GET","POST"])
     @perfil_permitido(*ACESSO)
@@ -42,7 +43,42 @@ def register_requisicoes_compra_routes(app):
     def detalhe_requisicao_compra(rc_id):
         rc=buscar_rc(rc_id)
         if not rc: abort(404)
-        return render_template("requisicao_compra_detalhe.html",rc=rc,insumos=buscar_insumos_almoxarifado("Todas","Sim",""),chave=str(uuid4()))
+        return render_template("requisicao_compra_detalhe.html",rc=rc,insumos=buscar_insumos_almoxarifado("Todas","Sim",""),fornecedores=listar_fornecedores(),chave=str(uuid4()))
+
+    @app.route("/compras/requisicoes/<int:rc_id>/atendimentos",methods=["POST"])
+    @perfil_permitido("pcp","gerencia")
+    def registrar_atendimento_requisicao_compra(rc_id):
+        try:
+            ids=request.form.getlist("item_id"); quantidades=request.form.getlist("quantidade_comprada"); precos=request.form.getlist("preco_unitario_real")
+            itens=[{"item_id":ids[i],"quantidade":quantidades[i] if i<len(quantidades) else "","preco_unitario_real":precos[i] if i<len(precos) else ""} for i in range(len(ids))]
+            registrar_atendimento(rc_id,request.form,itens,ator=_u(),idempotency_key=request.form.get("idempotency_key")); flash("Atendimento documental registrado sem movimentar estoque ou Financeiro.")
+        except (ValueError,PermissionError,ConflitoRC) as e: flash(str(e))
+        return redirect(url_for("detalhe_requisicao_compra",rc_id=rc_id))
+
+    @app.route("/compras/requisicoes/<int:rc_id>/atendimentos/<int:atendimento_id>/estornar",methods=["POST"])
+    @perfil_permitido("gerencia")
+    def estornar_atendimento_requisicao_compra(rc_id,atendimento_id):
+        try: estornar_atendimento(rc_id,atendimento_id,request.form.get("motivo"),ator=_u(),idempotency_key=request.form.get("idempotency_key")); flash("Atendimento estornado com trilha de auditoria.")
+        except (ValueError,PermissionError) as e: flash(str(e))
+        return redirect(url_for("detalhe_requisicao_compra",rc_id=rc_id))
+
+    def _filtros_relatorio(): return {k:request.args.get(k,"") for k in ("data_inicio","data_fim","setor","solicitante","fornecedor_id","status","item","motivo")}
+
+    @app.route("/compras/relatorios/atendidas")
+    @perfil_permitido("pcp","gerencia")
+    def relatorio_requisicoes_atendidas():
+        filtros=_filtros_relatorio(); return render_template("relatorio_requisicoes_atendidas.html",dados=relatorio_atendidas(filtros),filtros=filtros,fornecedores=listar_fornecedores())
+
+    @app.route("/compras/relatorios/recusadas")
+    @perfil_permitido("pcp","gerencia")
+    def relatorio_requisicoes_recusadas():
+        filtros=_filtros_relatorio(); return render_template("relatorio_requisicoes_recusadas.html",dados=relatorio_recusadas(filtros),filtros=filtros)
+
+    @app.route("/compras/relatorios/<tipo>.xlsx")
+    @perfil_permitido("pcp","gerencia")
+    def exportar_relatorio_requisicoes(tipo):
+        if tipo not in {"atendidas","recusadas"}: abort(404)
+        return send_file(BytesIO(gerar_excel(tipo,_filtros_relatorio())),as_attachment=True,download_name=f"rcs_{tipo}.xlsx",mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
     @app.route("/compras/requisicoes/<int:rc_id>/<acao>",methods=["POST"])
     @perfil_permitido(*ACESSO)

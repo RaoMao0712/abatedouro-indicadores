@@ -159,6 +159,8 @@ NAVEGACAO = [
         "card": True,
         "itens": [
             {"titulo": "Requisições de Compra", "endpoint": "requisicoes_compra", "perfis": TODOS_PERFIS, "principal": True, "active_endpoints": ("requisicoes_compra", "nova_requisicao_compra", "detalhe_requisicao_compra", "imprimir_requisicao_compra")},
+            {"titulo": "RCs Atendidas", "endpoint": "relatorio_requisicoes_atendidas", "perfis": ("admin", "pcp", "gerencia")},
+            {"titulo": "RCs Recusadas", "endpoint": "relatorio_requisicoes_recusadas", "perfis": ("admin", "pcp", "gerencia")},
         ],
     },
     {

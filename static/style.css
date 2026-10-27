@@ -120,6 +120,8 @@ body {
     padding-left: 0;
 }
 
+.rc-portal-kpis,.rc-atendimento-resumo{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;margin:0 0 14px}.rc-portal-kpis>div,.rc-atendimento-resumo>div{padding:13px;border:1px solid #d7e0e8;border-radius:8px;background:#fff}.rc-portal-kpis small,.rc-atendimento-resumo small{display:block;color:#64748b;font-size:11px}.rc-portal-kpis strong,.rc-atendimento-resumo strong{display:block;margin-top:5px;color:#172033;font-size:18px}.rc-atendimento-form{margin:16px 0;padding:14px;border:1px solid #ccd4dd;border-radius:8px;background:#f7f9fb}.rc-atendimento-form summary{cursor:pointer;color:#1267b2;font-weight:800}@media(max-width:1000px){.rc-portal-kpis,.rc-atendimento-resumo{grid-template-columns:repeat(3,minmax(0,1fr))}}@media(max-width:600px){.rc-portal-kpis,.rc-atendimento-resumo{grid-template-columns:1fr}}
+
 .manutencao-update-form {
     min-width: 520px;
     margin-top: 12px;
