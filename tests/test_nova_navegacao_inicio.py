@@ -117,7 +117,7 @@ def test_custos_e_vendas_ocultos_mas_rotas_preservadas():
 def test_embalagens_aparecem_para_producao():
     html = html_inicio("producao")
     assert 'href="/embalagem-primaria"' in html
-    assert 'href="/embalagem-secundaria"' in html
+    assert 'href="/embalagem-secundaria"' not in html
 
 
 def test_tempos_dos_setores_fica_fora_da_navegacao_visivel():
@@ -166,10 +166,10 @@ def test_editar_op_nao_aparece_para_perfis_sem_permissao():
     assert 'session.get("perfil") == "pcp"' in condicao
 
 
-def test_usuario_perfil_e_sair_ficam_no_header_superior():
+def test_usuario_perfil_e_sair_ficam_integrados_ao_hero():
     html = html_inicio("admin")
-    assert '<header class="fd-topbar">' in html
-    assert 'class="fd-user-menu"' in html
+    assert '<header class="fd-topbar">' not in html
+    assert 'class="fd-hero-user"' in html
     assert 'class="fd-logout"' in html
     assert '<aside class="fd-sidebar"' not in html
 
@@ -180,7 +180,7 @@ def test_tela_interna_exibe_hero_global_com_inicio_e_voltar():
     html = client.get("/dashboard").get_data(as_text=True)
     assert '<section class="fd-hero"' in html
     assert '<h1 id="fd-page-title">Painel da Produção</h1>' in html
-    assert '>Início</a>' in html
+    assert '<span>Início</span>' in html
     assert 'data-safe-back' in html
 
 
@@ -188,7 +188,7 @@ def test_dominios_sem_item_autorizado_nao_renderizam():
     html = html_inicio("gerencia")
     assert ">Financeiro<" not in html
     assert ">Cadastros<" in html
-    assert "Engenharia de Produtos" in html
+    assert "Central de Cadastros" in html
     assert "Fornecedores" not in html
     assert ">Administração<" not in html
 
@@ -207,12 +207,12 @@ def test_links_da_navegacao_renderizada_possuem_rotas_validas():
             assert endpoint
 
 
-def test_logo_oficial_e_preservada_no_header():
+def test_logo_oficial_e_preservada_no_hero():
     logo = ROOT / "static" / "imagens" / "logo.png"
     assert hashlib.sha256(logo.read_bytes()).hexdigest() == HASH_LOGO_OFICIAL
     html = html_inicio("admin")
     assert 'src="/static/imagens/logo.png' in html
-    assert 'class="fd-brand-logo"' in html
+    assert 'class="fd-hero-brand"' in html
 
 
 def test_pizza_e_mapa_de_origem_permanecem_no_template():

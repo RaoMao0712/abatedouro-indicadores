@@ -327,22 +327,41 @@ def cards_das_areas(navegacao):
 
 
 def acessos_principais(navegacao):
-    """Expõe na Home todos os destinos antes alcançáveis pela navegação global.
-
-    A lista recebida já está filtrada pela mesma matriz de perfis e feature flags;
-    assim, remover o sidebar não elimina acessos nem amplia permissões.
-    """
+    preferidos = {
+        "relatorio_gerencial_oficial": "Dashboard Executivo",
+        "biblioteca_relatorios": "Biblioteca de Relatórios",
+        "dashboard": "Painel da Produção",
+        "consultar_op": "Consultar OP",
+        "embalagem_primaria": "Embalagem Primária",
+        "estoque_produtos": "Estoque PI/PA",
+        "sgi_qualidade": "Central de Verificações",
+        "produtos_nao_conformes": "Produtos Não Conformes",
+        "apontamento_descartes": "Descartes e Condenações",
+        "manutencao": "Painel de Ordens de Serviço",
+        "requisicoes_compra": "Requisições de Compra",
+        "movimentacoes_almoxarifado": "Movimentação de Estoque",
+        "expedicao": "Romaneios de Expedição",
+        "movimentacoes_entradas": "Contas a Pagar",
+        "parceiros": "Central de Cadastros",
+    }
     acessos = []
+    vistos = set()
     for dominio in navegacao:
         for item in dominio.get("itens", []):
+            endpoint = item["endpoint"]
+            if endpoint not in preferidos or endpoint in vistos:
+                continue
+            if endpoint == "relatorio_gerencial_oficial" and item.get("route_args", {}).get("slug") != "dashboard-executivo":
+                continue
+            vistos.add(endpoint)
             acessos.append({
-                "titulo": item["titulo"],
+                "titulo": preferidos[endpoint],
                 "dominio": dominio["titulo"],
                 "icone": dominio["icone"],
                 "url": item["url"],
-                "principal": bool(item.get("principal")),
             })
-    return acessos
+    ordem = {titulo: indice for indice, titulo in enumerate(preferidos.values())}
+    return sorted(acessos, key=lambda acesso: ordem[acesso["titulo"]])
 
 
 def nome_perfil(perfil):

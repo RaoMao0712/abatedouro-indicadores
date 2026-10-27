@@ -5,26 +5,12 @@
     <title>FRIGODATTA | Gestão Industrial para Frigoríficos</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='almox-requisicao-detalhe-20260921') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='navigation.css', v='redesign-global-20261027d') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='navigation.css', v='redesign-corretivo-20261027') }}">
 </head>
 
 <body>
+{% from "_navigation_icons.html" import nav_icon %}
 <div class="app-shell{% if session.get('usuario_id') %} fd-app-shell{% endif %}">
-    {% if session.get("usuario_id") %}
-    <header class="fd-topbar">
-        <a class="fd-brand" href="{{ url_for('inicio') }}" aria-label="FrigoDatta — Início">
-            <img src="{{ url_for('static', filename='imagens/logo.png') }}" class="fd-brand-logo" alt="São Pedro">
-            <span>FRIGO<strong>DATTA</strong></span>
-        </a>
-        <div class="fd-user-menu" aria-label="Usuário e sessão">
-            <span class="fd-user-avatar" aria-hidden="true">{{ session.get("nome", "U")[:1]|upper }}</span>
-            <span class="fd-user-copy"><strong>{{ session.get("nome", "Usuário") }}</strong><small>{{ perfil_nome }}</small></span>
-            <span class="fd-profile-label">Perfil: <strong>{{ perfil_nome }}</strong></span>
-            <a href="{{ url_for('sair') }}" class="fd-logout">Sair</a>
-        </div>
-    </header>
-    {% endif %}
-
     <main class="container{% if session.get('usuario_id') %} container-com-sidebar fd-main{% endif %}" id="conteudo-principal">
         {% with mensagens = get_flashed_messages() %}
             {% if mensagens %}
@@ -41,17 +27,25 @@
 
         {% if session.get("usuario_id") %}
         <section class="fd-hero" aria-labelledby="fd-page-title">
-            <div class="fd-hero-brand"><span>FRIGODATTA</span></div>
+            <a class="fd-hero-brand" href="{{ url_for('inicio') }}" aria-label="FrigoDatta — Início">
+                <img src="{{ url_for('static', filename='imagens/logo.png') }}" alt="São Pedro Abatedouro">
+                <span>FRIGO<strong>DATTA</strong></span>
+            </a>
             <div class="fd-hero-copy">
                 <h1 id="fd-page-title">{{ hero_titulo }}</h1>
                 <p>{{ hero_subtitulo }}</p>
+                <nav class="fd-hero-actions" aria-label="Navegação da página">
+                    <a class="fd-button fd-button-primary" href="{{ url_for('inicio') }}">{{ nav_icon('home') }}<span>Início</span></a>
+                    <a class="fd-button fd-button-secondary{% if request.endpoint == 'inicio' %} is-disabled{% endif %}"
+                       href="{{ url_for('inicio') }}" data-safe-back
+                       {% if request.endpoint == 'inicio' %}aria-disabled="true" tabindex="-1"{% endif %}><span aria-hidden="true">←</span><span>Voltar</span></a>
+                </nav>
             </div>
-            <nav class="fd-hero-actions" aria-label="Navegação da página">
-                <a class="fd-button fd-button-neutral" href="{{ url_for('inicio') }}">Início</a>
-                <a class="fd-button fd-button-secondary{% if request.endpoint == 'inicio' %} is-disabled{% endif %}"
-                   href="{{ url_for('inicio') }}" data-safe-back
-                   {% if request.endpoint == 'inicio' %}aria-disabled="true" tabindex="-1"{% endif %}>Voltar</a>
-            </nav>
+            <div class="fd-hero-user" aria-label="Usuário e perfil">
+                <span class="fd-user-avatar" aria-hidden="true">{{ session.get("nome", "U")[:1]|upper }}</span>
+                <span class="fd-user-copy"><strong>{{ session.get("nome", "Usuário") }}</strong><small>{{ perfil_nome }}</small></span>
+                <a href="{{ url_for('sair') }}" class="fd-logout">Sair</a>
+            </div>
         </section>
         {% endif %}
 
