@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+
+<div class="relatorio-expedicao-page">
+    <section class="hero-dashboard relatorio-expedicao-hero">
+        <div>
+            <span class="eyebrow">Diagnostico</span>
+            <h2>Integridade Operacional</h2>
+            <p>Relatorio consultivo e somente leitura: compara estoque, reservas, romaneios, descartes e CMV ja gravados, sem corrigir nem recalcular nada.</p>
+            <div class="financeiro-pill-info"><strong>Resultado</strong> {% if consistente %}Nenhuma inconsistencia encontrada{% else %}{{ total_achados }} inconsistencia(s) encontrada(s){% endif %}</div>
+        </div>
+        <form method="GET" action="{{ url_for('diagnostico_integridade_operacional') }}" class="relatorio-expedicao-filtros">
+            <div>
+                <label>Categoria</label>
+                <select name="categoria">
+                    <option value="Todas">Todas</option>
+                    {% for chave, rotulo in categorias.items() %}
+                    <option value="{{ chave }}" {% if filtros.categoria == chave %}selected{% endif %}>{{ rotulo }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <button type="submit">Filtrar</button>
+        </form>
+    </section>
+
+    <div class="relatorio-expedicao-acoes">
+        <a href="{{ url_for('biblioteca_relatorios') }}" class="botao-dre-imprimir">Biblioteca</a>
+    </div>
+
+    <section class="relatorio-expedicao-kpis">
+        {% for item in resumo %}
+        <div class="card relatorio-expedicao-kpi">
+            <span>{{ item.rotulo }}</span>
+            <strong>{{ item.total }}</strong>
+            <small>ocorrencias</small>
+        </div>
+        {% endfor %}
+        <div class="card relatorio-expedicao-kpi">
+            <span>Nao avaliaveis</span>
+            <strong>{{ total_nao_avaliaveis }}</strong>
+            <small>fora dos achados</small>
+        </div>
+    </section>
+
+    <section class="card relatorio-expedicao-card relatorio-expedicao-notas">
+        {% for item in limitacoes %}<span>{{ item }}</span>{% endfor %}
+        {% if nao_avaliadas %}<span><strong>Fontes nao avaliadas:</strong> {{ nao_avaliadas|join("; ") }}.</span>{% endif %}
+    </section>
+
+    <section class="card relatorio-expedicao-card">
+        <div class="section-title-row">
+            <div>
+                <span class="eyebrow">Detalhamento</span>
+                <h2>Inconsistencias</h2>
+            </div>
+        </div>
+        {% if achados %}
+        <div class="tabela-responsiva tabela-executiva relatorio-expedicao-tabela">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Categoria</th>
+                        <th>Origem</th>
+                        <th>Registro</th>
+                        <th>Referencia</th>
+                        <th>Valores comparados</th>
+                        <th>Divergencia</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for a in achados %}
+                    <tr>
+                        <td>{{ a.categoria_rotulo }}</td>
+                        <td>{{ a.origem }}</td>
+                        <td>#{{ a.registro_id }}</td>
+                        <td>{{ a.referencia }}</td>
+                        <td>{% for nome, valor in a.comparados %}<div>{{ nome }}: <strong>{{ "-" if valor is none else valor }}</strong></div>{% endfor %}</td>
+                        <td><strong>{{ a.regra }}.</strong> {{ a.descricao }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="relatorio-expedicao-vazio">Nenhuma inconsistencia encontrada para o filtro selecionado.</div>
+        {% endif %}
+    </section>
+    {% if nao_avaliaveis %}
+    <section class="card relatorio-expedicao-card">
+        <div class="section-title-row">
+            <div>
+                <span class="eyebrow">Sem vinculo rastreavel</span>
+                <h2>Nao avaliaveis ({{ total_nao_avaliaveis }})</h2>
+            </div>
+        </div>
+        <div class="tabela-responsiva tabela-executiva relatorio-expedicao-tabela">
+            <table>
+                <thead><tr><th>Origem</th><th>Registro</th><th>Referencia</th><th>Data</th><th>Justificativa</th></tr></thead>
+                <tbody>
+                    {% for n in nao_avaliaveis %}
+                    <tr><td>{{ n.origem }}</td><td>#{{ n.registro_id }}</td><td>{{ n.referencia }}</td><td>{{ n.data or "-" }}</td><td>{{ n.justificativa }}</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+    {% endif %}
+</div>
+
+{% endblock %}

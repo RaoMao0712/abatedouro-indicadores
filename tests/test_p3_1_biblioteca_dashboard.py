@@ -148,12 +148,12 @@ def test_22_carregamento_dashboard(monkeypatch):
 
 
 def test_23_biblioteca_com_catalogo_completo():
-    assert len(listar_relatorios_oficiais("admin")) == 41
+    assert len(listar_relatorios_oficiais("admin")) == 42
 
 
 def test_24_biblioteca_sem_n_mais_um():
     contexto = filtrar_relatorios_oficiais({}, "admin")
-    assert contexto["total_catalogo"] == 41 and contexto["total_filtrado"] == 41
+    assert contexto["total_catalogo"] == 42 and contexto["total_filtrado"] == 42
 
 
 def test_25_breadcrumb():

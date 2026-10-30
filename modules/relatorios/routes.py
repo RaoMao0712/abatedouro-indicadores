@@ -36,6 +36,7 @@ from .gerencial import (
     montar_contexto_dashboard_executivo,
     montar_contexto_relatorio_gerencial,
 )
+from .integridade import montar_diagnostico_integridade
 from modules.producao.oee import montar_contexto_oee, gerar_excel_oee
 
 
@@ -199,6 +200,14 @@ def register_relatorios_routes(app):
             as_attachment=True,
             download_name=nome,
             mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
+    @app.route("/relatorios/diagnostico/integridade-operacional")
+    @perfil_permitido("pcp", "gerencia")
+    def diagnostico_integridade_operacional():
+        return render_template(
+            "diagnostico_integridade_operacional.html",
+            **montar_diagnostico_integridade(request.args),
         )
 
     @app.route("/relatorio-custos")

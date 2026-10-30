@@ -582,4 +582,17 @@ RELATORIOS_OFICIAIS = [
         "formatos": ["Tela", "Impressao"],
         "permissao": "pcp",
     },
+    {
+        "id": "gerencial-integridade-operacional",
+        "nome": "Integridade Operacional",
+        "dominio": "Gerencial",
+        "objetivo": "Diagnostico consultivo de saldos negativos, expedicoes duplicadas, divergencias de quantidades e vendas sem CMV.",
+        "endpoint": "diagnostico_integridade_operacional",
+        "prioridade": "Media",
+        "onda": "FD-C01",
+        "status": STATUS_DISPONIVEL,
+        "dependencias": ["Estoque PA", "Romaneios", "Descarte PNC", "CMV FIFO"],
+        "formatos": ["Tela"],
+        "permissao": "pcp",
+    },
 ]

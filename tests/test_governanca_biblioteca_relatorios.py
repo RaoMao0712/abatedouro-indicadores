@@ -70,6 +70,9 @@ RELATORIOS_LEGADOS_PERMITIDOS = {
     "relatorio_viabilidade",  # ferramenta operacional da Qualidade fora dos 38
     "imprimir_relatorio_ordens_manutencao",  # impressao operacional da OS, fora do catalogo gerencial
     "relatorio_romaneios_descarte_pnc",  # documento operacional do ciclo PNC, fora do catalogo gerencial
+    "relatorio_requisicoes_atendidas",  # tela de RCs Atendidas do portal de Compras, fora do catalogo gerencial
+    "relatorio_requisicoes_recusadas",  # tela de RCs Recusadas do portal de Compras, fora do catalogo gerencial
+    "exportar_relatorio_requisicoes",  # exportacao Excel dos relatorios de RC do portal de Compras, fora do catalogo gerencial
 }
 
 ROTAS_LEGADAS_CLASSIFICADAS = {
@@ -111,10 +114,25 @@ def cliente_autenticado():
     return client
 
 
-def test_catalogo_tem_41_ids_unicos_e_campos_governados():
+IDS_CATALOGO_BASE = ['financeiro-fluxo-caixa', 'financeiro-entradas-caixa', 'financeiro-saidas-caixa', 'financeiro-contas-pagar', 'financeiro-contas-receber', 'financeiro-dre-gerencial', 'financeiro-despesas-categoria', 'financeiro-despesas-subcategoria', 'financeiro-receitas', 'financeiro-aportes', 'financeiro-evolucao-financeira', 'financeiro-competencia-realizacao', 'producao-op', 'producao-sku', 'producao-fornecedor', 'producao-periodo', 'producao-rendimento', 'producao-condenacoes', 'producao-perdas', 'producao-eficiencia', 'producao-disponibilidade', 'producao-performance', 'producao-oee', 'almoxarifado-entradas', 'almoxarifado-consumo', 'almoxarifado-giro', 'almoxarifado-estoque-atual', 'almoxarifado-estoque-local', 'almoxarifado-estoque-produto', 'almoxarifado-fifo', 'almoxarifado-cmv', 'expedicao-transferencias', 'expedicao-entregas-cliente', 'expedicao-vendas', 'expedicao-estoque-camara-fria', 'expedicao-historico-caixa', 'expedicao-rastreabilidade', 'gerencial-indicadores', 'gerencial-comparativos', 'gerencial-tendencias', 'gerencial-dashboard-executivo']
+ID_INTEGRIDADE = "gerencial-integridade-operacional"
+
+
+def test_catalogo_preserva_41_originais_e_inclui_integridade_uma_vez():
     ids = [item["id"] for item in RELATORIOS_OFICIAIS]
 
-    assert len(RELATORIOS_OFICIAIS) == 41
+    assert set(IDS_CATALOGO_BASE) <= set(ids)
+    assert ids.count(ID_INTEGRIDADE) == 1
+    assert set(ids) == set(IDS_CATALOGO_BASE) | {ID_INTEGRIDADE}
+    item = next(i for i in RELATORIOS_OFICIAIS if i["id"] == ID_INTEGRIDADE)
+    assert item["endpoint"] == "diagnostico_integridade_operacional"
+    assert item["permissao"] == "pcp" and item["status"] == STATUS_DISPONIVEL
+
+
+def test_catalogo_tem_42_ids_unicos_e_campos_governados():
+    ids = [item["id"] for item in RELATORIOS_OFICIAIS]
+
+    assert len(RELATORIOS_OFICIAIS) == 42
     assert len(ids) == len(set(ids))
 
     for item in RELATORIOS_OFICIAIS:
