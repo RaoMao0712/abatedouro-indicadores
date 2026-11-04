@@ -39,7 +39,7 @@
                 <nav class="fd-hero-actions" aria-label="Navegação da página">
                     <a class="fd-button fd-button-primary" href="{{ url_for('inicio') }}">{{ nav_icon('home') }}<span>Início</span></a>
                     <a class="fd-button fd-button-secondary{% if request.endpoint == 'inicio' %} is-disabled{% endif %}"
-                       href="{{ url_for('inicio') }}" data-safe-back
+                       href="{{ fd_back_url or url_for('inicio') }}" data-safe-back
                        {% if request.endpoint == 'inicio' %}aria-disabled="true" tabindex="-1"{% endif %}><span aria-hidden="true">←</span><span>Voltar</span></a>
                 </nav>
             </div>
@@ -66,7 +66,7 @@
 </div>
 
 {% if session.get("usuario_id") %}
-<script src="{{ url_for('static', filename='navigation.js', v='redesign-global-20261027') }}" defer></script>
+<script src="{{ url_for('static', filename='navigation.js', v='back-contextual-20261104') }}" defer></script>
 {% endif %}
 </body>
 </html>

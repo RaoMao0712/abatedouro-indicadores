@@ -25,6 +25,7 @@ from modules.navegacao.services import (  # noqa: E402
     cards_das_areas,
     montar_navegacao,
 )
+from modules.navegacao.routes import _internal_path  # noqa: E402
 
 
 HASH_LOGO_OFICIAL = "c580b0d1cf6606732bab33d2ac07f409f46482b961bfc4d78586fe893e6f1973"
@@ -278,8 +279,90 @@ def test_pizza_e_mapa_de_origem_permanecem_no_template():
 
 def test_voltar_so_aceita_referencia_interna_e_tem_fallback_inicio():
     javascript = (ROOT / "static" / "navigation.js").read_text(encoding="utf-8")
-    assert "document.referrer" in javascript
     assert "window.location.origin" in javascript
-    assert 'previous.pathname !== "/"' in javascript
+    assert 'target.pathname !== "/"' in javascript
     html = html_inicio("admin")
     assert 'aria-disabled="true"' in html
+
+
+def test_voltar_preserva_filtros_paginacao_e_ordem_da_query_string():
+    client = app.test_client()
+    sessao(client, "admin")
+    origem = "/cadastros/parceiros?status=Ativo&tipo_pessoa=Juridica&page=3"
+    resposta = client.get(
+        "/dashboard",
+        headers={"Referer": f"http://localhost{origem}"},
+    )
+    html = resposta.get_data(as_text=True)
+    assert 'href="/cadastros/parceiros?status=Ativo&amp;tipo_pessoa=Juridica&amp;page=3" data-safe-back' in html
+
+
+def test_voltar_preserva_origem_apos_refresh_ou_redirect_no_mesmo_path():
+    client = app.test_client()
+    sessao(client, "admin")
+    origem = "/compras/requisicoes?visao=aguardando&status=APROVADA&setor=Manutencao"
+    client.get("/dashboard", headers={"Referer": f"http://localhost{origem}"})
+    resposta = client.get("/dashboard", headers={"Referer": "http://localhost/dashboard"})
+    html = resposta.get_data(as_text=True)
+    assert 'href="/compras/requisicoes?visao=aguardando&amp;status=APROVADA&amp;setor=Manutencao" data-safe-back' in html
+
+
+def test_post_redirect_transfere_origem_filtrada_para_o_destino():
+    client = app.test_client()
+    sessao(client, "admin")
+    origem = "/cadastros/parceiros?status=Ativo&tipo_pessoa=Juridica&page=2"
+    rota_post = "/cadastros/parceiros/999999/status"
+    with client.session_transaction() as user_session:
+        user_session["fd_back_urls"] = {rota_post: origem}
+
+    resposta = client.post(rota_post, data={"status": "Ativo"})
+    assert resposta.status_code == 302
+    destino = urlsplit(resposta.location).path
+    html = client.get(
+        destino,
+        headers={"Referer": f"http://localhost{rota_post}"},
+    ).get_data(as_text=True)
+    assert 'href="/cadastros/parceiros?status=Ativo&amp;tipo_pessoa=Juridica&amp;page=2" data-safe-back' in html
+
+
+def test_voltar_direto_login_externo_e_return_to_invalido_caem_na_home():
+    casos = (
+        {},
+        {"Referer": "https://externo.example/lista?segredo=1"},
+        {"Referer": "http://localhost/"},
+    )
+    for headers in casos:
+        client = app.test_client()
+        sessao(client, "admin")
+        html = client.get("/dashboard", headers=headers).get_data(as_text=True)
+        assert 'href="/inicio" data-safe-back' in html
+
+    client = app.test_client()
+    sessao(client, "admin")
+    html = client.get("/dashboard?return_to=https://externo.example/roubo").get_data(as_text=True)
+    assert 'href="/inicio" data-safe-back' in html
+
+
+def test_validador_de_retorno_rejeita_esquemas_host_externo_e_path_protocol_relative():
+    with app.test_request_context("/dashboard", base_url="http://localhost"):
+        assert _internal_path("javascript:alert(1)") is None
+        assert _internal_path("https://externo.example/lista") is None
+        assert _internal_path("//externo.example/lista") is None
+        assert _internal_path("/") is None
+        assert _internal_path("/inicio") is None
+        assert _internal_path("/expedicao/pallets?status=ABERTO&produto=GI") == "/expedicao/pallets?status=ABERTO&produto=GI"
+
+
+def test_voltar_contextual_renderiza_nos_dominios_criticos():
+    casos = (
+        ("/cadastros/parceiros/novo", "/cadastros/parceiros?status=Ativo"),
+        ("/compras/requisicoes/nova", "/compras/requisicoes?status=APROVADA"),
+        ("/dashboard", "/consultar-op?status=Encerrada"),
+        ("/expedicao/pallets/novo", "/expedicao/pallets?status=ABERTO&produto=GI"),
+    )
+    for destino, origem in casos:
+        client = app.test_client()
+        sessao(client, "admin")
+        resposta = client.get(destino, headers={"Referer": f"http://localhost{origem}"})
+        assert resposta.status_code == 200
+        assert f'href="{origem.replace("&", "&amp;")}" data-safe-back' in resposta.get_data(as_text=True)
