@@ -186,6 +186,16 @@ def test_tela_interna_exibe_hero_global_com_inicio_e_voltar():
     assert 'data-safe-back' in html
 
 
+def test_design_system_global_e_aplicado_apenas_na_area_autenticada():
+    html = html_inicio("admin")
+    assert 'design-system.css?v=global-20261104-1' in html
+    assert '<body class="fd-authenticated">' in html
+
+    login = app.test_client().get("/").get_data(as_text=True)
+    assert "design-system.css" not in login
+    assert '<body class="fd-login-page">' in login
+
+
 def test_tela_interna_exibe_navegacao_local_com_todos_os_itens_autorizados():
     client = app.test_client()
     sessao(client, "admin")

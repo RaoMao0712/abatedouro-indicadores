@@ -6,10 +6,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='portal-compras-20261027') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='navigation.css', v='inicio-reto-20261030') }}">
+    {% if session.get('usuario_id') %}<link rel="stylesheet" href="{{ url_for('static', filename='design-system.css', v='global-20261104-1') }}">{% endif %}
     {% if request.endpoint == 'login' %}<link rel="stylesheet" href="{{ url_for('static', filename='login.css', v='hotfix-20261104-3') }}">{% endif %}
 </head>
 
-<body{% if request.endpoint == 'login' %} class="fd-login-page"{% endif %}>
+<body class="{% if session.get('usuario_id') %}fd-authenticated{% elif request.endpoint == 'login' %}fd-login-page{% endif %}">
 {% from "_navigation_icons.html" import nav_icon %}
 <div class="app-shell{% if session.get('usuario_id') %} fd-app-shell{% endif %}">
     <main class="container{% if session.get('usuario_id') %} container-com-sidebar fd-main{% elif request.endpoint == 'login' %} fd-login-container{% endif %}" id="conteudo-principal">
