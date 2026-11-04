@@ -8,10 +8,10 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='navigation.css', v='inicio-reto-20261030') }}">
 </head>
 
-<body>
+<body{% if request.endpoint == 'login' %} class="fd-login-page"{% endif %}>
 {% from "_navigation_icons.html" import nav_icon %}
 <div class="app-shell{% if session.get('usuario_id') %} fd-app-shell{% endif %}">
-    <main class="container{% if session.get('usuario_id') %} container-com-sidebar fd-main{% endif %}" id="conteudo-principal">
+    <main class="container{% if session.get('usuario_id') %} container-com-sidebar fd-main{% elif request.endpoint == 'login' %} fd-login-container{% endif %}" id="conteudo-principal">
         {% with mensagens = get_flashed_messages() %}
             {% if mensagens %}
                 {% for msg in mensagens %}<div class="alerta">{{ msg }}</div>{% endfor %}
