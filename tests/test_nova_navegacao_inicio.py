@@ -220,7 +220,9 @@ def test_navegacao_local_respeita_perfil_e_item_ativo():
 def test_login_institucional_preserva_contrato_de_autenticacao():
     html = app.test_client().get("/").get_data(as_text=True)
     assert 'class="fd-login-shell"' in html
-    assert 'class="fd-login-watermark"' in html
+    assert 'class="fd-login-form"' in html
+    assert 'class="fd-login-art"' in html
+    assert "login.css?v=hotfix-20261104-2" in html
     assert 'name="email"' in html
     assert 'name="senha"' in html
     assert 'action=' not in html

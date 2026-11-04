@@ -1,0 +1,411 @@
+/*
+ * Login FrigoDatta — folha autocontida e carregada após os estilos globais.
+ * O prefixo da página impede interferência nos demais módulos do sistema.
+ */
+.fd-login-page {
+    min-width: 320px;
+    margin: 0;
+    overflow: hidden;
+    background: #f8fbfd;
+    color: #18384e;
+}
+
+.fd-login-page .app-shell,
+.fd-login-page .fd-login-container {
+    width: 100%;
+    min-height: 100vh;
+    margin: 0;
+    padding: 0;
+    max-width: none;
+}
+
+.fd-login-page .fd-login-container > .alerta {
+    position: fixed;
+    z-index: 20;
+    top: 112px;
+    right: clamp(24px, 4vw, 72px);
+    max-width: 420px;
+    margin: 0;
+    box-shadow: 0 12px 30px rgba(25, 52, 71, .16);
+}
+
+.fd-login-page .fd-login-shell {
+    position: relative;
+    display: grid;
+    grid-template-rows: 122px minmax(0, 1fr) 42px;
+    width: 100%;
+    height: 100vh;
+    min-height: 620px;
+    overflow: hidden;
+    background:
+        radial-gradient(circle at 78% 47%, rgba(218, 234, 243, .7), transparent 34%),
+        linear-gradient(135deg, #fff 0%, #f7fafc 58%, #edf5f9 100%);
+}
+
+.fd-login-page .fd-login-topbar {
+    position: relative;
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: clamp(24px, 3vw, 54px);
+    min-width: 0;
+    padding: 18px clamp(28px, 5vw, 92px) 12px;
+}
+
+.fd-login-page .fd-login-brand {
+    position: relative;
+    z-index: 1;
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 0;
+    color: #173f5b;
+    text-decoration: none;
+}
+
+.fd-login-page .fd-login-brand img {
+    display: block;
+    width: 112px;
+    height: 58px;
+    max-width: 112px;
+    max-height: 58px;
+    object-fit: contain;
+}
+
+.fd-login-page .fd-login-brand .fd-login-brand-divider {
+    display: block;
+    flex: 0 0 1px;
+    width: 1px;
+    height: 42px;
+    margin: 0 19px;
+    padding: 0;
+    border: 0;
+    background: #b8c8d2;
+    font-size: 0;
+}
+
+.fd-login-page .fd-login-brand .fd-login-wordmark {
+    display: inline;
+    padding: 0;
+    border: 0;
+    color: #173f5b;
+    font-size: 27px;
+    font-weight: 900;
+    letter-spacing: .06em;
+}
+
+.fd-login-page .fd-login-brand .fd-login-wordmark strong {
+    color: #ed761c;
+}
+
+.fd-login-page .fd-login-form {
+    display: flex;
+    flex: 0 1 660px;
+    flex-flow: row nowrap;
+    align-items: flex-end;
+    justify-content: flex-end;
+    gap: 14px;
+    width: 660px;
+    max-width: 660px;
+    min-width: 0;
+    margin: 0;
+}
+
+.fd-login-page .fd-login-field {
+    min-width: 0;
+    margin: 0;
+}
+
+.fd-login-page .fd-login-field:first-child {
+    flex: 0 1 280px;
+    width: 280px;
+}
+
+.fd-login-page .fd-login-field:nth-child(2) {
+    flex: 0 1 240px;
+    width: 240px;
+}
+
+.fd-login-page .fd-login-field label {
+    display: block;
+    margin: 0 0 7px 2px;
+    color: #23465d;
+    font-size: 13px;
+    font-weight: 800;
+}
+
+.fd-login-page .fd-login-input-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+    width: 100%;
+    min-width: 0;
+}
+
+.fd-login-page .fd-login-input-wrap > svg,
+.fd-login-page .fd-password-toggle svg {
+    display: block;
+    flex: 0 0 auto;
+    width: 19px;
+    height: 19px;
+    max-width: 19px;
+    max-height: 19px;
+    min-width: 19px;
+    min-height: 19px;
+}
+
+.fd-login-page .fd-login-input-wrap > svg {
+    position: absolute;
+    z-index: 1;
+    left: 14px;
+    fill: #59778b;
+    pointer-events: none;
+}
+
+.fd-login-page .fd-login-input-wrap input {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    height: 46px;
+    min-height: 46px;
+    padding: 0 42px;
+    border: 1px solid #b9cfdd !important;
+    border-radius: 8px;
+    outline: 0;
+    background: rgba(255, 255, 255, .94) !important;
+    color: #173f5b !important;
+    font: inherit;
+    box-shadow: 0 3px 12px rgba(31, 73, 99, .06);
+    transition: border-color .2s, box-shadow .2s;
+}
+
+.fd-login-page .fd-login-input-wrap input:focus {
+    border-color: #1973aa !important;
+    outline: 0 !important;
+    box-shadow: 0 0 0 3px rgba(25, 115, 170, .16) !important;
+}
+
+.fd-login-page .fd-password-toggle {
+    position: absolute;
+    z-index: 2;
+    right: 7px;
+    display: grid;
+    flex: 0 0 34px;
+    width: 34px;
+    min-width: 34px;
+    max-width: 34px;
+    height: 34px;
+    min-height: 34px;
+    max-height: 34px;
+    place-items: center;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: #315c76;
+    box-shadow: none;
+    cursor: pointer;
+}
+
+.fd-login-page .fd-password-toggle:hover,
+.fd-login-page .fd-password-toggle:focus-visible {
+    background: #eaf2f7;
+    outline: 2px solid #1973aa;
+    outline-offset: 1px;
+}
+
+.fd-login-page .fd-password-toggle svg {
+    width: 20px;
+    height: 20px;
+    max-width: 20px;
+    max-height: 20px;
+    min-width: 20px;
+    min-height: 20px;
+    fill: currentColor;
+}
+
+.fd-login-page .fd-login-submit {
+    display: block;
+    flex: 0 0 112px;
+    width: 112px;
+    min-width: 112px;
+    max-width: 112px;
+    height: 46px;
+    min-height: 46px;
+    margin: 0;
+    padding: 0 24px;
+    border: 1px solid #12689d;
+    border-radius: 8px;
+    background: #176fa7;
+    color: #fff;
+    font: inherit;
+    font-weight: 800;
+    box-shadow: 0 7px 18px rgba(23, 111, 167, .22);
+    cursor: pointer;
+}
+
+.fd-login-page .fd-login-submit:hover { background: #125c8c; }
+
+.fd-login-page .fd-login-submit:focus-visible {
+    outline: 3px solid rgba(237, 118, 28, .45);
+    outline-offset: 3px;
+}
+
+.fd-login-page .fd-login-hero {
+    position: relative;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+    isolation: isolate;
+}
+
+.fd-login-page .fd-login-copy {
+    position: relative;
+    z-index: 3;
+    width: min(55vw, 980px);
+    padding: clamp(52px, 8vh, 108px) 0 70px clamp(34px, 7vw, 132px);
+}
+
+.fd-login-page .fd-login-copy h1 {
+    margin: 0;
+    color: #173f5b;
+    font-size: clamp(45px, 4.6vw, 78px);
+    line-height: 1.03;
+    letter-spacing: -.045em;
+}
+
+.fd-login-page .fd-login-copy h1 span,
+.fd-login-page .fd-login-copy h1 strong { display: block; white-space: nowrap; }
+.fd-login-page .fd-login-copy h1 span { color: #173f5b; font-weight: 780; }
+.fd-login-page .fd-login-copy h1 strong { color: #ed761c; font-weight: 900; }
+
+.fd-login-page .fd-login-accent {
+    display: block;
+    width: 70px;
+    height: 5px;
+    margin: 26px 0 22px;
+    padding: 0;
+    border: 0;
+    border-radius: 999px;
+    background: #ed761c;
+}
+
+.fd-login-page .fd-login-copy p {
+    margin: 0;
+    color: #4b6576;
+    font-size: clamp(17px, 1.3vw, 21px);
+    line-height: 1.55;
+}
+
+.fd-login-page .fd-login-art {
+    position: absolute;
+    z-index: 1;
+    right: -2vw;
+    bottom: -2px;
+    display: block;
+    width: min(65vw, 1240px);
+    max-width: 65vw;
+    height: auto;
+    max-height: 88%;
+    object-fit: contain;
+    object-position: right bottom;
+    pointer-events: none;
+}
+
+.fd-login-page .fd-login-curves {
+    position: absolute;
+    z-index: 2;
+    right: -4vw;
+    bottom: 3%;
+    width: 72vw;
+    height: 180px;
+    overflow: hidden;
+    pointer-events: none;
+}
+
+.fd-login-page .fd-login-curves span {
+    position: absolute;
+    display: block;
+    width: 120%;
+    height: 210px;
+    padding: 0;
+    border: 4px solid transparent;
+    border-top-color: #ed761c;
+    border-radius: 50%;
+    transform: rotate(-4deg);
+    opacity: .92;
+}
+
+.fd-login-page .fd-login-curves span:last-child {
+    top: 20px;
+    left: 4%;
+    border-top-color: #176fa7;
+    opacity: .72;
+}
+
+.fd-login-page .fd-login-footer {
+    position: relative;
+    z-index: 6;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 42px;
+    padding: 0 24px;
+    background: #173f5b;
+    color: #fff;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: .02em;
+}
+
+.fd-login-page .fd-login-footer span {
+    margin: 0 8px;
+    padding: 0;
+    border: 0;
+    color: #f5a565;
+    font-size: inherit;
+}
+
+@media (max-width: 1120px) {
+    .fd-login-page { overflow: auto; }
+    .fd-login-page .fd-login-shell { height: auto; min-height: 100vh; grid-template-rows: auto minmax(470px, 1fr) 42px; }
+    .fd-login-page .fd-login-topbar { align-items: flex-start; }
+    .fd-login-page .fd-login-form { flex-wrap: wrap; width: min(100%, 620px); max-width: 620px; }
+    .fd-login-page .fd-login-field:first-child,
+    .fd-login-page .fd-login-field:nth-child(2) { flex: 1 1 calc(50% - 7px); width: auto; }
+    .fd-login-page .fd-login-submit { margin-left: auto; }
+    .fd-login-page .fd-login-copy { width: 55vw; padding-top: 55px; }
+    .fd-login-page .fd-login-art { width: 72vw; max-width: 72vw; opacity: .92; }
+}
+
+@media (max-width: 800px) {
+    .fd-login-page .fd-login-topbar { display: block; padding: 18px 22px; }
+    .fd-login-page .fd-login-brand img { width: 94px; max-width: 94px; height: 49px; max-height: 49px; }
+    .fd-login-page .fd-login-brand .fd-login-brand-divider { height: 34px; margin: 0 13px; }
+    .fd-login-page .fd-login-brand .fd-login-wordmark { font-size: 22px; }
+    .fd-login-page .fd-login-form { display: flex; width: 100%; max-width: none; margin-top: 20px; }
+    .fd-login-page .fd-login-field:first-child,
+    .fd-login-page .fd-login-field:nth-child(2) { flex: 1 1 100%; width: 100%; }
+    .fd-login-page .fd-login-submit { flex: 1 1 100%; width: 100%; max-width: none; margin: 0; }
+    .fd-login-page .fd-login-container > .alerta { position: static; max-width: none; margin: 0 22px 16px; }
+    .fd-login-page .fd-login-hero { min-height: 470px; }
+    .fd-login-page .fd-login-copy { width: 100%; padding: 45px 24px 220px; }
+    .fd-login-page .fd-login-copy h1 { font-size: clamp(39px, 11vw, 58px); }
+    .fd-login-page .fd-login-copy h1 span,
+    .fd-login-page .fd-login-copy h1 strong { white-space: normal; }
+    .fd-login-page .fd-login-copy p br { display: none; }
+    .fd-login-page .fd-login-art { right: -24%; width: 105%; max-width: 105%; max-height: 55%; opacity: .7; }
+    .fd-login-page .fd-login-curves { right: -15%; width: 115%; height: 110px; }
+}
+
+@media (max-height: 760px) and (min-width: 1121px) {
+    .fd-login-page .fd-login-shell { grid-template-rows: 106px minmax(0, 1fr) 42px; min-height: 620px; }
+    .fd-login-page .fd-login-topbar { padding-top: 12px; }
+    .fd-login-page .fd-login-brand img { height: 48px; max-height: 48px; }
+    .fd-login-page .fd-login-copy { padding-top: 36px; }
+    .fd-login-page .fd-login-copy h1 { font-size: clamp(42px, 4.25vw, 66px); }
+    .fd-login-page .fd-login-accent { margin: 18px 0 15px; }
+}
