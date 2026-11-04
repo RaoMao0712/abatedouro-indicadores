@@ -222,7 +222,7 @@ def test_login_institucional_preserva_contrato_de_autenticacao():
     assert 'class="fd-login-shell"' in html
     assert 'class="fd-login-form"' in html
     assert 'class="fd-login-art"' in html
-    assert "login.css?v=hotfix-20261104-2" in html
+    assert "login.css?v=hotfix-20261104-3" in html
     assert 'name="email"' in html
     assert 'name="senha"' in html
     assert 'action=' not in html
