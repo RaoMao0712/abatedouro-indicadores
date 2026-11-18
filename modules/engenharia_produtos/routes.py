@@ -11,6 +11,7 @@ from . import fundacao
 from . import representacao_legada
 from . import reconciliacao
 from . import prontidao
+from .bom_routes import registrar_bom
 
 
 PERFIS_LEITURA = ("pcp", "gerencia", "producao", "qualidade")
@@ -29,6 +30,8 @@ def _pode_editar():
 
 
 def register_engenharia_produtos_routes(app):
+    registrar_bom(app, PERFIS_LEITURA, PERFIS_ESCRITA, _pode_editar)
+
     @app.get("/engenharia-produtos/prontidao")
     @perfil_permitido(*PERFIS_LEITURA)
     def prontidao_skus():

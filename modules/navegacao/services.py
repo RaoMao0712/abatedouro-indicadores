@@ -251,6 +251,7 @@ NAVEGACAO = [
                     "engenharia_produtos", "receitas_sku", "novo_produto", "detalhe_produto",
                     "editar_produto", "processos_produtivos", "novo_item_estrutura",
                     "editar_item_estrutura",
+                    "bom_lista", "bom_nova", "bom_detalhe", "bom_editor",
                 ),
             },
             {"titulo": "Plano de Contas", "endpoint": "plano_contas_gerencial", "perfis": ADMIN_PCP},

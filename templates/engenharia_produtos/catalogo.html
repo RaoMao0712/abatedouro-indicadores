@@ -7,14 +7,15 @@
             <h1>Engenharia de Produtos</h1>
             <p>Catálogo de produtos e suas estruturas de consumo.</p>
         </div>
-        {% if pode_editar %}
         <div class="ep-actions">
-            <a class="ep-btn ep-btn-secondary" href="{{ url_for('reconciliacoes_sombra') }}">Reconciliações</a>
-            <a class="ep-btn ep-btn-secondary" href="{{ url_for('prontidao_skus') }}">Prontidão por SKU</a>
-            <a class="ep-btn ep-btn-secondary" href="{{ url_for('processos_produtivos') }}">Processos</a>
-            <a class="ep-btn ep-btn-primary" href="{{ url_for('novo_produto') }}">Novo Produto</a>
+            <a class="ep-btn ep-btn-secondary" href="{{ url_for('bom_lista') }}">BOMs</a>
+            {% if pode_editar %}
+                <a class="ep-btn ep-btn-secondary" href="{{ url_for('reconciliacoes_sombra') }}">Reconciliações</a>
+                <a class="ep-btn ep-btn-secondary" href="{{ url_for('prontidao_skus') }}">Prontidão por SKU</a>
+                <a class="ep-btn ep-btn-secondary" href="{{ url_for('processos_produtivos') }}">Processos</a>
+                <a class="ep-btn ep-btn-primary" href="{{ url_for('novo_produto') }}">Novo Produto</a>
+            {% endif %}
         </div>
-        {% endif %}
     </header>
 
     <section class="ep-kpis" aria-label="Indicadores do catálogo">

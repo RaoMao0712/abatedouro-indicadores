@@ -6,6 +6,7 @@ from modules.almoxarifado.services import buscar_insumos_almoxarifado
 
 from . import repositories as repo
 from . import fundacao
+from .bom_calculo import UNIDADES
 
 
 TIPOS_PRODUTO = {
@@ -24,7 +25,6 @@ TIPOS_CONSUMO = {
     "PERDA_ESPERADA": "Perda esperada",
     "OPCIONAL": "Opcional",
 }
-UNIDADES = ("Kg", "Un", "Cx", "L", "Ml", "G", "Pct")
 STATUS_PRODUTO = {"Sim": "Ativo", "Não": "Inativo"}
 
 

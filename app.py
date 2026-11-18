@@ -20,6 +20,7 @@ from modules.parceiros import criar_tabelas_parceiros, register_parceiros_routes
 from modules.parceiros.services import migrar_clientes_fornecedores_legados
 from modules.cadastros.services import criar_tabela_vendas, criar_tabelas_receitas_sku, criar_tabela_fornecedores
 from modules.engenharia_produtos import criar_tabelas_engenharia_produtos, register_engenharia_produtos_routes
+from modules.engenharia_produtos.bom import migrar as migrar_bom
 from modules.engenharia_produtos.reconciliacao import criar_estrutura as criar_tabelas_reconciliacao_sombra
 from modules.engenharia_produtos.prontidao import criar_estrutura as criar_tabelas_prontidao_sku
 from modules.importacao_oficial import register_importacao_routes
@@ -639,6 +640,7 @@ def inicializar_schema_aplicacao():
         criar_tabelas_estoque_almoxarifado,
         criar_tabelas_receitas_sku,
         criar_tabelas_engenharia_produtos,
+        migrar_bom,
         criar_tabelas_reconciliacao_sombra,
         criar_tabelas_prontidao_sku,
         criar_tabela_plano_contas_mestre,

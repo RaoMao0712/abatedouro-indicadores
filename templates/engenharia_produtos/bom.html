@@ -1,0 +1,220 @@
+{% extends "base.html" %}
+{% macro opcoes_unidade(atual, vazio=false) %}
+    {% if vazio %}<option value="">Selecione</option>{% endif %}
+    {% for unidade in opcoes.unidades %}
+    <option value="{{ unidade }}" {% if atual == unidade %}selected{% endif %}>{{ unidade }}</option>
+    {% endfor %}
+{% endmacro %}
+{% macro cabecalho(dados) %}
+    <label>Descrição<input name="descricao" required value="{{ dados.descricao or '' }}"></label>
+    <label>Início da vigência<input type="date" name="data_inicio_vigencia" required value="{{ dados.data_inicio_vigencia or '' }}"></label>
+    <label>Fim da vigência<input type="date" name="data_fim_vigencia" value="{{ dados.data_fim_vigencia or '' }}"></label>
+    <label>Entrada esperada<input name="rendimento_entrada" type="number" step="0.000001" min="0.000001" value="{{ dados.rendimento_entrada or '' }}"></label>
+    <label>Unidade da entrada<select name="rendimento_unidade_entrada">{{ opcoes_unidade(dados.rendimento_unidade_entrada, true) }}</select></label>
+    <label>Saída esperada<input name="rendimento_saida" type="number" step="0.000001" min="0.000001" value="{{ dados.rendimento_saida or '' }}"></label>
+    <label>Unidade da saída<select name="rendimento_unidade_saida">{{ opcoes_unidade(dados.rendimento_unidade_saida, true) }}</select></label>
+    <label>Observações<textarea name="observacoes">{{ dados.observacoes or '' }}</textarea></label>
+{% endmacro %}
+{% macro componentes(versao, editor=false) %}
+<section class="card ep-panel">
+    <h2>Componentes</h2>
+    <div class="table-responsive ep-table-wrap">
+        <table class="ep-table">
+            <thead><tr><th>Seq.</th><th>Componente</th><th>Classificação</th><th>Quantidade</th><th>Regra</th><th>Fator</th><th>Perda</th><th>Etapa</th><th>Status</th>{% if editor %}<th>Ações</th>{% endif %}</tr></thead>
+            <tbody>
+                {% for linha in versao.itens %}
+                <tr>
+                    <td>{{ linha.sequencia }}</td>
+                    <td>{{ linha.componente }}{% if linha.observacoes %}<br><small>{{ linha.observacoes }}</small>{% endif %}</td>
+                    <td>{{ linha.classificacao|replace('_', ' ') }}</td>
+                    <td>{{ linha.quantidade_base }} {{ linha.unidade }}</td>
+                    <td>{{ linha.regra_calculo|replace('_', ' ') }}</td>
+                    <td>{{ linha.fator }}</td>
+                    <td>{{ linha.perda_prevista_percentual }}%</td>
+                    <td>{{ linha.etapa or '—' }}</td>
+                    <td>{{ 'Ativo' if linha.ativo else 'Inativo' }}</td>
+                    {% if editor %}
+                    <td><a class="ep-link" href="{{ url_for('bom_editor', bom_id=versao.id, item=linha.id) }}#componente">Editar</a>
+                        <form method="post" action="{{ url_for('bom_editor', bom_id=versao.id) }}">
+                            <input type="hidden" name="item_id" value="{{ linha.id }}">
+                            <button class="ep-btn ep-btn-secondary" name="acao" value="remover">Remover</button>
+                        </form>
+                    </td>
+                    {% endif %}
+                </tr>
+                {% else %}
+                <tr><td colspan="{{ 10 if editor else 9 }}" class="ep-empty">Nenhum componente cadastrado.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endmacro %}
+{% block conteudo %}
+<div class="ep-page">
+    <header class="ep-header">
+        <div>
+            <span class="eyebrow">Engenharia de Produtos</span>
+            {% if modo == "lista" %}<h1>Estruturas de fabricação</h1>
+            {% elif modo == "nova" %}<h1>{{ 'Nova versão' if origem else 'Nova BOM' }}</h1>
+                {% if origem %}<p>{{ origem.produto }} · origem v{{ origem.numero_versao }}</p>{% endif %}
+            {% else %}<h1>{{ 'Editar BOM' if modo == 'editor' else 'Estrutura de fabricação' }}</h1>
+                <p>{{ versao.produto }} · v{{ versao.numero_versao }} · {{ versao.status|capitalize }}</p>
+            {% endif %}
+        </div>
+        <div class="ep-actions">
+            {% if modo == "lista" %}
+                <a class="ep-btn ep-btn-secondary" href="{{ url_for('engenharia_produtos') }}">Catálogo</a>
+                {% if pode_editar %}<a class="ep-btn ep-btn-primary" href="{{ url_for('bom_nova') }}">Nova BOM</a>{% endif %}
+            {% else %}
+                <a class="ep-btn ep-btn-secondary" href="{{ url_for('bom_lista') }}">Lista de BOMs</a>
+                {% if modo == "detalhe" and pode_editar %}
+                    {% if versao.status == "RASCUNHO" %}<a class="ep-btn ep-btn-secondary" href="{{ url_for('bom_editor', bom_id=versao.id) }}">Editar BOM</a>{% endif %}
+                    <a class="ep-btn ep-btn-primary" href="{{ url_for('bom_nova', origem_id=versao.id) }}">Nova versão</a>
+                {% elif modo == "editor" %}
+                    <a class="ep-btn ep-btn-secondary" href="{{ url_for('bom_detalhe', bom_id=versao.id) }}">Ver detalhe</a>
+                    <a class="ep-btn ep-btn-primary" href="#componente">Adicionar componente</a>
+                {% endif %}
+            {% endif %}
+        </div>
+    </header>
+    {% if modo == "lista" %}
+    <section class="card ep-panel">
+        <div class="table-responsive ep-table-wrap">
+            <table class="ep-table">
+                <thead><tr><th>Produto</th><th>Versão</th><th>Vigência</th><th>Status</th><th>Componentes ativos</th><th>Ativa</th><th>Ações</th></tr></thead>
+                <tbody>
+                    {% for linha in versoes %}
+                    <tr>
+                        <td>{{ linha.produto }}</td><td>v{{ linha.numero_versao }}</td>
+                        <td>{{ linha.data_inicio_vigencia }} a {{ linha.data_fim_vigencia or 'indeterminada' }}</td>
+                        <td>{{ linha.status|capitalize }}</td><td>{{ linha.quantidade_itens }}</td>
+                        <td>{{ 'Sim' if linha.ativa else 'Não' }}</td>
+                        <td><a class="ep-link" href="{{ url_for('bom_detalhe', bom_id=linha.id) }}">Detalhes</a></td>
+                    </tr>
+                    {% else %}<tr><td colspan="7" class="ep-empty">Nenhuma BOM cadastrada.</td></tr>{% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+    {% elif modo == "nova" %}
+        <form method="post" class="card ep-form">
+            <div class="ep-form-grid">
+                {% if origem %}
+                <label>Estrutura inicial<select name="modelo"><option value="clonar" {% if dados.modelo == 'clonar' %}selected{% endif %}>Clonar componentes</option><option value="vazia" {% if dados.modelo == 'vazia' %}selected{% endif %}>Começar vazia</option></select></label>
+                {% else %}
+                <label>Produto fabricável<select name="produto_id" required>
+                    <option value="">Selecione</option>
+                    {% for produto in opcoes.produtos if produto.fabricavel %}
+                    <option value="{{ produto.id }}" {% if dados.produto_id|string == produto.id|string %}selected{% endif %}>{{ produto.nome }}</option>
+                    {% endfor %}
+                </select></label>
+                {% endif %}
+                {{ cabecalho(dados) }}
+            </div>
+            <div class="ep-form-actions"><button class="ep-btn ep-btn-primary">Criar rascunho</button></div>
+        </form>
+        {% if not origem %}
+        <form method="post" class="card ep-form" action="{{ url_for('bom_aquisicao') }}">
+            <h2>Forma de aquisição</h2>
+            <div class="ep-form-grid">
+                <label>Produto<select required name="produto_id" id="bom-aquisicao-produto">
+                    <option value="">Selecione</option>
+                    {% for produto in opcoes.produtos %}
+                    <option value="{{ produto.id }}" data-fabricavel="{{ 1 if produto.fabricavel else 0 }}" data-compravel="{{ 1 if produto.compravel else 0 }}">{{ produto.nome }}</option>
+                    {% endfor %}
+                </select></label>
+                <label><input type="checkbox" name="fabricavel" value="1"> Fabricável</label>
+                <label><input type="checkbox" name="compravel" value="1" checked> Comprável</label>
+            </div>
+            <div class="ep-form-actions"><button class="ep-btn ep-btn-secondary">Salvar aquisição</button></div>
+        </form>
+        <script>
+        document.getElementById('bom-aquisicao-produto').addEventListener('change', (event) => {
+            const option = event.target.selectedOptions[0];
+            const form = event.target.form;
+            form.elements.fabricavel.checked = option.dataset.fabricavel === '1';
+            form.elements.compravel.checked = option.dataset.compravel === '1';
+        });
+        </script>
+        {% endif %}
+    {% elif modo == "editor" %}
+        {{ componentes(versao, true) }}
+        <form method="post" class="card ep-form" id="componente">
+            <h2>{{ 'Editar componente' if item_id else 'Adicionar componente' }}</h2>
+            <div class="ep-form-grid">
+                <label>Componente<select required name="componente">
+                    <option value="">Selecione</option>
+                    <optgroup label="Produtos">{% for produto in opcoes.produtos if produto.id != versao.produto_id %}
+                        {% set valor = 'produto:' ~ produto.id %}
+                        <option value="{{ valor }}" {% if item.componente == valor %}selected{% endif %}>{{ produto.nome }}</option>
+                    {% endfor %}</optgroup>
+                    <optgroup label="Insumos">{% for insumo in opcoes.insumos %}
+                        {% set valor = 'insumo:' ~ insumo.id %}
+                        <option value="{{ valor }}" {% if item.componente == valor %}selected{% endif %}>{{ insumo.descricao }}</option>
+                    {% endfor %}</optgroup>
+                </select></label>
+                <label>Sequência<input required name="sequencia" type="number" min="1" value="{{ item.sequencia or ((versao.itens|last).sequencia + 1 if versao.itens else 1) }}"></label>
+                <label>Classificação<input required name="classificacao" list="bom-classificacoes" value="{{ item.classificacao or '' }}"></label>
+                <datalist id="bom-classificacoes">{% for valor in opcoes.classificacoes %}<option value="{{ valor }}">{% endfor %}</datalist>
+                <label>Quantidade base<input required name="quantidade_base" type="number" min="0.000001" step="0.000001" value="{{ item.quantidade_base or '' }}"></label>
+                <label>Unidade<select name="unidade" required>{{ opcoes_unidade(item.unidade, true) }}</select></label>
+                <label>Regra<select name="regra_calculo" required>
+                    {% for regra in opcoes.regras %}<option value="{{ regra }}" {% if regra == item.regra_calculo %}selected{% endif %}>{{ regra|replace('_', ' ') }}</option>{% endfor %}
+                </select></label>
+                <label>Fator<input required name="fator" type="number" min="0.000001" step="0.000001" value="{{ item.fator|default(1) }}"></label>
+                <label>Perda prevista (%)<input required name="perda_prevista_percentual" type="number" min="0" step="0.000001" value="{{ item.perda_prevista_percentual|default(0) }}"></label>
+                <label>Etapa<select name="etapa_id"><option value="">Sem etapa</option>
+                    {% for etapa in opcoes.etapas %}<option value="{{ etapa.id }}" {% if item.etapa_id|string == etapa.id|string %}selected{% endif %}>{{ etapa.nome }}</option>{% endfor %}
+                </select></label>
+                <label>Observações<textarea name="observacoes">{{ item.observacoes or '' }}</textarea></label>
+                <label>Status<select name="ativo"><option value="1">Ativo</option><option value="0" {% if item.ativo in (false, '0') %}selected{% endif %}>Inativo</option></select></label>
+            </div>
+            <p>Na regra proporcional e no agrupamento, use o fator como divisor. No percentual, informe a taxa na quantidade base e use o fator para ajustar a base de incidência.</p>
+            <div class="ep-form-actions">
+                {% if item_id %}<a class="ep-btn ep-btn-secondary" href="{{ url_for('bom_editor', bom_id=versao.id) }}">Cancelar edição</a>{% endif %}
+                <button class="ep-btn ep-btn-primary" name="acao" value="item">Salvar componente</button>
+            </div>
+        </form>
+        <form method="post" class="card ep-form">
+            <h2>Dados da versão</h2>
+            <div class="ep-form-grid">{{ cabecalho(dados) }}</div>
+            <div class="ep-form-actions"><button class="ep-btn ep-btn-secondary" name="acao" value="cabecalho">Salvar dados da versão</button></div>
+        </form>
+    {% else %}
+        <section class="card ep-panel">
+            <h2>{{ versao.descricao }}</h2>
+            <p>Vigência de {{ versao.data_inicio_vigencia }} a {{ versao.data_fim_vigencia or 'data indeterminada' }}</p>
+            {% if versao.observacoes %}<p>{{ versao.observacoes }}</p>{% endif %}
+            {% if versao.rendimento_entrada %}<p>Rendimento esperado de {{ versao.rendimento_entrada }} {{ versao.rendimento_unidade_entrada }} de entrada para {{ versao.rendimento_saida }} {{ versao.rendimento_unidade_saida }} de saída</p>{% endif %}
+            {% if pode_editar and versao.status != 'INATIVA' %}
+            <form method="post" class="ep-actions" action="{{ url_for('bom_status', bom_id=versao.id) }}">
+                {% if versao.status == 'RASCUNHO' %}
+                <button class="ep-btn ep-btn-primary" name="acao" value="publicar">Ativar versão</button>
+                {% else %}
+                <label>Último dia de vigência <input type="date" name="ultimo_dia" required min="{{ versao.data_inicio_vigencia }}" {% if versao.data_fim_vigencia %}max="{{ versao.data_fim_vigencia }}"{% endif %}></label>
+                <button class="ep-btn ep-btn-secondary" name="acao" value="inativar">Inativar versão</button>
+                {% endif %}
+            </form>
+            {% endif %}
+        </section>
+        {{ componentes(versao) }}
+        <form class="card ep-form" method="post">
+            <h2>Necessidade teórica</h2>
+            <div class="ep-form-grid"><label>Quantidade planejada<input name="quantidade_planejada" type="number" required min="0.000001" step="0.000001" value="{{ request.form.get('quantidade_planejada', '') }}"></label></div>
+            <div class="ep-form-actions"><button class="ep-btn ep-btn-primary">Calcular</button></div>
+        </form>
+        {% if calculo is not none %}
+        <section class="card ep-panel" aria-live="polite">
+            <h2>Materiais planejados</h2>
+            {% if calculo %}
+            <div class="table-responsive ep-table-wrap"><table class="ep-table">
+                <thead><tr><th>Componente</th><th>Necessidade calculada</th></tr></thead>
+                <tbody>{% for linha in calculo %}<tr><td>{{ linha.componente }}</td><td>{{ linha.necessidade_calculada }} {{ linha.unidade }}</td></tr>{% endfor %}</tbody>
+            </table></div>
+            {% else %}<p>A versão está sem componentes ativos.</p>{% endif %}
+        </section>
+        {% endif %}
+    {% endif %}
+</div>
+{% endblock %}
