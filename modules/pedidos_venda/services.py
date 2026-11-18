@@ -221,7 +221,7 @@ def criar_tabelas_pedidos_venda():
     try:
         cursor.execute(f"""CREATE TABLE IF NOT EXISTS pedidos_venda (
             id {pk}, numero TEXT UNIQUE NOT NULL, cliente_id INTEGER,
-            cliente_parceiro_id INTEGER,
+            cliente_parceiro_id INTEGER REFERENCES parceiros(id),
             cliente_snapshot TEXT NOT NULL, destino TEXT NOT NULL, data_pedido TEXT NOT NULL,
             previsao_entrega TEXT, responsavel TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'RASCUNHO',
             subtotal_centavos BIGINT NOT NULL DEFAULT 0, desconto_centavos BIGINT NOT NULL DEFAULT 0,
@@ -285,7 +285,7 @@ def criar_tabelas_pedidos_venda():
         )""")
         _alterar(cursor, "ALTER TABLE expedicoes ADD COLUMN IF NOT EXISTS pedido_venda_id INTEGER",
                  "ALTER TABLE expedicoes ADD COLUMN pedido_venda_id INTEGER")
-        _alterar(cursor, "ALTER TABLE pedidos_venda ADD COLUMN IF NOT EXISTS cliente_parceiro_id INTEGER",
+        _alterar(cursor, "ALTER TABLE pedidos_venda ADD COLUMN IF NOT EXISTS cliente_parceiro_id INTEGER REFERENCES parceiros(id)",
                  "ALTER TABLE pedidos_venda ADD COLUMN cliente_parceiro_id INTEGER")
         if DATABASE_URL:
             cursor.execute("ALTER TABLE pedidos_venda ALTER COLUMN cliente_id DROP NOT NULL")

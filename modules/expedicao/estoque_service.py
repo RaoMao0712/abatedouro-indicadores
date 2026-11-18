@@ -12,6 +12,7 @@ import re
 from zoneinfo import ZoneInfo
 
 from database import DATABASE_URL, conectar, q, transaction
+from database.migrations import colunas_postgresql
 from modules.auth.services import nome_usuario_atual, perfil_atual
 from modules.expedicao.elegibilidade import (
     avaliar_elegibilidade_expedicao,
@@ -457,31 +458,21 @@ def criar_tabelas_estoque_confiavel():
         )
         """)
 
-        if not DATABASE_URL:
-            _alterar_coluna(
-                cursor,
-                "ALTER TABLE estoque_eventos ADD COLUMN IF NOT EXISTS evento_origem_id INTEGER",
-                "ALTER TABLE estoque_eventos ADD COLUMN evento_origem_id INTEGER",
-            )
-
-        if not DATABASE_URL:
-            # No PostgreSQL de producao essas colunas ja sao provisionadas pela
-            # migration versionada database/20260724_marco_zero_estoque.sql.
-            # Repetir o ALTER TABLE a cada boot de worker exige lock
-            # ACCESS EXCLUSIVE em ordens_producao e pode enfileirar leituras
-            # concorrentes (ex.: /op/<id>/editar) atras dele. Mantido apenas
-            # para SQLite, cujo bootstrap de schema em runtime nao tem
-            # aplicador de migrations proprio.
-            _alterar_coluna(
-                cursor,
-                "ALTER TABLE ordens_producao ADD COLUMN IF NOT EXISTS estoque_classificacao TEXT DEFAULT 'POS_MARCO'",
-                "ALTER TABLE ordens_producao ADD COLUMN estoque_classificacao TEXT DEFAULT 'POS_MARCO'",
-            )
-            _alterar_coluna(
-                cursor,
-                "ALTER TABLE ordens_producao ADD COLUMN IF NOT EXISTS estoque_marco_id INTEGER",
-                "ALTER TABLE ordens_producao ADD COLUMN estoque_marco_id INTEGER",
-            )
+        for tabela, colunas in (
+            ("estoque_eventos", ("evento_origem_id INTEGER",)),
+            ("ordens_producao", (
+                "estoque_classificacao TEXT DEFAULT 'POS_MARCO'",
+                "estoque_marco_id INTEGER",
+            )),
+        ):
+            existentes = colunas_postgresql(cursor, tabela) if DATABASE_URL else set()
+            for coluna in colunas:
+                if coluna.split()[0] not in existentes:
+                    _alterar_coluna(
+                        cursor,
+                        f"ALTER TABLE {tabela} ADD COLUMN IF NOT EXISTS {coluna}",
+                        f"ALTER TABLE {tabela} ADD COLUMN {coluna}",
+                    )
 
         colunas_pa = [
             ("estoque_operacional INTEGER DEFAULT 0", "estoque_operacional INTEGER DEFAULT 0"),
@@ -587,6 +578,8 @@ def criar_tabelas_estoque_confiavel():
             WHERE tipo_saida IS NULL AND tipo_movimentacao='TRANSFERENCIA'""")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_expedicoes_tipo_saida ON expedicoes(tipo_saida,status,data)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_expedicoes_cliente ON expedicoes(cliente_id,data)")
+        cursor.execute("""CREATE INDEX IF NOT EXISTS idx_expedicao_itens_ativos
+            ON expedicao_itens (expedicao_id, ativo, id)""")
 
         cursor.execute("SELECT * FROM estoque_marcos WHERE tipo = 'MARCO_ZERO' LIMIT 1")
         marco = cursor.fetchone()

@@ -1,3 +1,5 @@
+BEGIN;
+
 ALTER TABLE skus ADD COLUMN fabricavel BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE skus ADD COLUMN compravel BOOLEAN NOT NULL DEFAULT TRUE;
 
@@ -59,10 +61,10 @@ CREATE INDEX ix_bom_vigencia ON bom (produto_id, ativa, data_inicio_vigencia);
 CREATE INDEX ix_bom_item_produto ON bom_item (componente_produto_id);
 CREATE INDEX ix_bom_item_insumo ON bom_item (componente_insumo_id);
 
-
--- Somente PostgreSQL
 ALTER TABLE bom ADD CONSTRAINT ex_bom_vigencia
 EXCLUDE USING gist (
     int8range(produto_id::bigint, produto_id::bigint, '[]') WITH =,
     daterange(data_inicio_vigencia, data_fim_vigencia, '[]') WITH &&
 ) WHERE (status <> 'RASCUNHO');
+
+COMMIT;

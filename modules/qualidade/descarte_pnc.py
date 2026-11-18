@@ -3,6 +3,7 @@
 from datetime import datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import json
+from pathlib import Path
 import re
 
 from flask import has_request_context, request, session
@@ -65,6 +66,12 @@ def criar_tabelas_descarte_pnc():
     ident = "SERIAL PRIMARY KEY" if DATABASE_URL else "INTEGER PRIMARY KEY AUTOINCREMENT"
     ts = "TIMESTAMP" if DATABASE_URL else "TEXT"
     try:
+        if DATABASE_URL:
+            cursor.execute("SELECT to_regclass('pnc_romaneios_descarte') AS tabela")
+            if cursor.fetchone()["tabela"] is None:
+                arquivo = Path(__file__).resolve().parents[2] / "database/20260821_romaneio_descarte_pnc.sql"
+                sql = arquivo.read_text(encoding="utf-8").strip()
+                cursor.execute(sql.removeprefix("BEGIN;").removesuffix("COMMIT;"))
         cursor.execute(f"""CREATE TABLE IF NOT EXISTS pnc_romaneios_descarte (
             id {ident}, numero TEXT NOT NULL UNIQUE, pa_nao_conforme_id INTEGER NOT NULL,
             status TEXT NOT NULL, idempotency_key TEXT NOT NULL UNIQUE,

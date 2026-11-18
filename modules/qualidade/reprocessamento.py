@@ -60,7 +60,7 @@ def garantir_schema():
     try:
         cursor.execute(f"""
             CREATE TABLE IF NOT EXISTS pnc_reprocessamentos (
-                id {id_pk}, pa_nao_conforme_id INTEGER NOT NULL,
+                id {id_pk}, pa_nao_conforme_id INTEGER NOT NULL REFERENCES pa_nao_conformes(id),
                 status TEXT NOT NULL, idempotency_key TEXT NOT NULL UNIQUE,
                 modalidade TEXT NOT NULL, peso_g INTEGER NOT NULL DEFAULT 0,
                 caixas INTEGER NOT NULL DEFAULT 0, bandejas INTEGER NOT NULL DEFAULT 0,

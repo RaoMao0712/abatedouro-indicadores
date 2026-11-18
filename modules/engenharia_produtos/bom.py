@@ -62,16 +62,11 @@ def migrar(*, reverter=False):
         existe = registro is not None and registro["nome"] is not None
         if existe != reverter:
             return
-        arquivo = "20261118_bom_down.sql" if reverter else "20261118_bom.sql"
-        sql = (MIGRACOES / arquivo).read_text(encoding="utf-8")
-        if not DATABASE_URL:
-            sql = sql.split("-- Somente PostgreSQL", 1)[0]
-            sql = sql.replace("SERIAL PRIMARY KEY", "INTEGER PRIMARY KEY")
-            sql = sql.replace("NUMERIC(18,6)", "TEXT")
-            for campo in ("quantidade_base", "fator", "perda_prevista_percentual",
-                          "rendimento_entrada", "rendimento_saida"):
-                sql = sql.replace(f"{campo} >", f"CAST({campo} AS NUMERIC) >")
-        for comando in sql.split(";"):
+        motor = "" if DATABASE_URL else "_sqlite"
+        operacao = "_rollback" if reverter else ""
+        sql = (MIGRACOES / f"20261118_bom{motor}{operacao}.sql").read_text(encoding="utf-8")
+        # A conexão mantém o lock e a transação do bootstrap.
+        for comando in sql.removeprefix("BEGIN;").removesuffix("COMMIT;\n").split(";"):
             if comando.strip():
                 cursor.execute(comando)
 

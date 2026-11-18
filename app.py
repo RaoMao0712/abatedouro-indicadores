@@ -9,7 +9,6 @@ from database import (
     DATABASE_URL, DB_NAME, conectar, habilitar_pool_postgres,
     inicializar_schema_uma_vez, q,
 )
-from database.migrations import executar_alteracao_segura
 from database.data_migrations import remover_residuos_validacao_codex_manutencao
 from modules.auth import register_auth_routes
 from modules.usuarios import register_usuarios_routes
@@ -17,7 +16,7 @@ from modules.manutencao import register_manutencao_routes
 from modules.cadastros import register_cadastros_routes
 from modules.clientes import criar_tabelas_clientes, register_clientes_routes
 from modules.parceiros import criar_tabelas_parceiros, register_parceiros_routes
-from modules.parceiros.services import migrar_clientes_fornecedores_legados
+from modules.parceiros.services import garantir_fk_cliente_parceiro, migrar_clientes_fornecedores_legados
 from modules.cadastros.services import criar_tabela_vendas, criar_tabelas_receitas_sku, criar_tabela_fornecedores
 from modules.engenharia_produtos import criar_tabelas_engenharia_produtos, register_engenharia_produtos_routes
 from modules.engenharia_produtos.bom import migrar as migrar_bom
@@ -44,6 +43,8 @@ from modules.producao.oee import criar_tabelas_oee
 from modules.producao.operacoes_op import criar_tabelas_operacoes_op
 from modules.qualidade.routes import register_qualidade_routes
 from modules.qualidade.services import criar_tabelas_sgi
+from modules.expedicao.relatorio_nc_service import criar_tabelas_relatorios_nc
+from modules.qualidade.descarte_pnc import criar_tabelas_descarte_pnc
 from modules.qualidade.produtos_nao_conformes import criar_tabelas_pa_nao_conforme
 from modules.qualidade.reprocessamento import garantir_schema as criar_tabelas_reprocessamento_pnc
 from modules.almoxarifado.routes import register_almoxarifado_routes
@@ -66,6 +67,7 @@ from modules.expedicao.estoque_service import (
     formatar_data_brasileira,
     formatar_data_hora_brasileira,
 )
+from modules.movimentacoes.origens import criar_tabelas_governanca_financeira
 from modules.movimentacoes.services import criar_tabela_movimentacoes_financeiras
 from modules.financeiro.services import criar_tabela_plano_contas_mestre
 from modules.almoxarifado.services import (
@@ -166,10 +168,6 @@ def executar_rotina_estrutural_uma_vez(func):
     return wrapper
 
 
-
-
-def tentar_alter_table(cursor, conn, comando):
-    executar_alteracao_segura(cursor, conn, comando)
 
 
 @executar_rotina_estrutural_uma_vez
@@ -304,36 +302,16 @@ def criar_banco():
         )
         """)
 
-        tentar_alter_table(cursor, conn, "ALTER TABLE usuarios ADD COLUMN perfil TEXT DEFAULT 'admin'")
-        conn = conectar()
-        cursor = conn.cursor()
-        tentar_alter_table(cursor, conn, "ALTER TABLE ordens_producao ADD COLUMN status TEXT DEFAULT 'Aberta'")
-        conn = conectar()
-        cursor = conn.cursor()
-        tentar_alter_table(cursor, conn, "ALTER TABLE ordens_producao ADD COLUMN sku TEXT")
-        conn = conectar()
-        cursor = conn.cursor()
-        tentar_alter_table(cursor, conn, "ALTER TABLE apontamentos_paradas ADD COLUMN evento_id TEXT")
-        conn = conectar()
-        cursor = conn.cursor()
-        tentar_alter_table(cursor, conn, "ALTER TABLE apontamentos_paradas ADD COLUMN manutencao_ordem_id INTEGER")
-        conn = conectar()
-        cursor = conn.cursor()
-        tentar_alter_table(cursor, conn, "ALTER TABLE apontamentos_paradas ADD COLUMN manutencao_aberta TEXT DEFAULT 'Nao'")
-        conn = conectar()
-        cursor = conn.cursor()
-        tentar_alter_table(cursor, conn, "ALTER TABLE apontamentos_paradas ADD COLUMN encerrada_por_manutencao TEXT DEFAULT 'Nao'")
-        conn = conectar()
-        cursor = conn.cursor()
-        tentar_alter_table(cursor, conn, "ALTER TABLE apontamentos_paradas ADD COLUMN data_fim TEXT")
-        conn = conectar()
-        cursor = conn.cursor()
-        tentar_alter_table(cursor, conn, "ALTER TABLE apontamentos_paradas ADD COLUMN equipamento TEXT")
-        conn = conectar()
-        cursor = conn.cursor()
-        tentar_alter_table(cursor, conn, "ALTER TABLE apontamentos_paradas ADD COLUMN equipamento_id INTEGER")
-        conn = conectar()
-        cursor = conn.cursor()
+        cursor.execute("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS perfil TEXT DEFAULT 'admin'")
+        cursor.execute("ALTER TABLE ordens_producao ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'Aberta'")
+        cursor.execute("ALTER TABLE ordens_producao ADD COLUMN IF NOT EXISTS sku TEXT")
+        cursor.execute("ALTER TABLE apontamentos_paradas ADD COLUMN IF NOT EXISTS evento_id TEXT")
+        cursor.execute("ALTER TABLE apontamentos_paradas ADD COLUMN IF NOT EXISTS manutencao_ordem_id INTEGER")
+        cursor.execute("ALTER TABLE apontamentos_paradas ADD COLUMN IF NOT EXISTS manutencao_aberta TEXT DEFAULT 'Nao'")
+        cursor.execute("ALTER TABLE apontamentos_paradas ADD COLUMN IF NOT EXISTS encerrada_por_manutencao TEXT DEFAULT 'Nao'")
+        cursor.execute("ALTER TABLE apontamentos_paradas ADD COLUMN IF NOT EXISTS data_fim TEXT")
+        cursor.execute("ALTER TABLE apontamentos_paradas ADD COLUMN IF NOT EXISTS equipamento TEXT")
+        cursor.execute("ALTER TABLE apontamentos_paradas ADD COLUMN IF NOT EXISTS equipamento_id INTEGER")
 
     else:
         cursor.execute("""
@@ -645,14 +623,18 @@ def inicializar_schema_aplicacao():
         criar_tabelas_prontidao_sku,
         criar_tabela_plano_contas_mestre,
         criar_tabela_movimentacoes_financeiras,
+        *([criar_tabelas_governanca_financeira] if DATABASE_URL else []),
         criar_tabela_fornecedores,
         manutencao_service.criar_tabelas_manutencao,
         remover_residuos_validacao_codex_manutencao,
         criar_tabelas_sgi,
         criar_tabelas_pa_nao_conforme,
+        criar_tabelas_descarte_pnc,
+        criar_tabelas_relatorios_nc,
         criar_tabelas_reprocessamento_pnc,
         criar_tabelas_clientes,
         criar_tabelas_parceiros,
+        garantir_fk_cliente_parceiro,
         criar_tabelas_requisicoes_almoxarifado,
         criar_tabelas_requisicoes_compra,
         criar_tabelas_pedidos_venda,

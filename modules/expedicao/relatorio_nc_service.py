@@ -59,7 +59,8 @@ def criar_tabelas_relatorios_nc():
             integridade_hash TEXT NOT NULL, resultado TEXT NOT NULL
         )""")
         cursor.execute(f"""CREATE TABLE IF NOT EXISTS relatorios_nc_verificacao_eventos (
-            id {id_type}, relatorio_id INTEGER NOT NULL, acao TEXT NOT NULL,
+            id {id_type}, relatorio_id INTEGER NOT NULL REFERENCES relatorios_nc_verificacao(id),
+            acao TEXT NOT NULL,
             usuario TEXT NOT NULL, perfil TEXT NOT NULL, detalhes_json TEXT NOT NULL,
             criado_em {timestamp_type} NOT NULL
         )""")

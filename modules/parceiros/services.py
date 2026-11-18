@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 from flask import has_request_context, session
 
 from database import DATABASE_URL, conectar, q, transaction
+from database.migrations import colunas_postgresql
 
 
 FUSO_MANAUS = ZoneInfo("America/Manaus")
@@ -73,7 +74,7 @@ def criar_tabelas_parceiros():
         """)
         cursor.execute(f"""
             CREATE TABLE IF NOT EXISTS parceiro_papeis (
-                id {pk}, parceiro_id INTEGER NOT NULL, papel TEXT NOT NULL,
+                id {pk}, parceiro_id INTEGER NOT NULL REFERENCES parceiros(id), papel TEXT NOT NULL,
                 ativo INTEGER NOT NULL DEFAULT 1, adicionado_por TEXT NOT NULL,
                 adicionado_em {timestamp} NOT NULL, removido_por TEXT,
                 removido_em {timestamp}, UNIQUE(parceiro_id, papel)
@@ -81,7 +82,7 @@ def criar_tabelas_parceiros():
         """)
         cursor.execute(f"""
             CREATE TABLE IF NOT EXISTS parceiro_eventos (
-                id {pk}, parceiro_id INTEGER NOT NULL, acao TEXT NOT NULL,
+                id {pk}, parceiro_id INTEGER NOT NULL REFERENCES parceiros(id), acao TEXT NOT NULL,
                 papel TEXT, estado_anterior TEXT, estado_posterior TEXT,
                 usuario TEXT NOT NULL, perfil TEXT NOT NULL,
                 criado_em {timestamp} NOT NULL
@@ -92,11 +93,11 @@ def criar_tabelas_parceiros():
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_parceiro_papeis_elegibilidade ON parceiro_papeis(papel,ativo,parceiro_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_parceiro_eventos_historico ON parceiro_eventos(parceiro_id,criado_em)")
 
-        _adicionar_coluna(cursor, "ALTER TABLE apontamentos_mao_obra ADD COLUMN IF NOT EXISTS parceiro_id INTEGER", "ALTER TABLE apontamentos_mao_obra ADD COLUMN parceiro_id INTEGER")
+        _adicionar_coluna(cursor, "ALTER TABLE apontamentos_mao_obra ADD COLUMN IF NOT EXISTS parceiro_id INTEGER REFERENCES parceiros(id)", "ALTER TABLE apontamentos_mao_obra ADD COLUMN parceiro_id INTEGER")
         _adicionar_coluna(cursor, "ALTER TABLE apontamentos_mao_obra ADD COLUMN IF NOT EXISTS parceiro_nome_snapshot TEXT", "ALTER TABLE apontamentos_mao_obra ADD COLUMN parceiro_nome_snapshot TEXT")
         _adicionar_coluna(cursor, "ALTER TABLE apontamentos_mao_obra ADD COLUMN IF NOT EXISTS natureza_vinculo TEXT", "ALTER TABLE apontamentos_mao_obra ADD COLUMN natureza_vinculo TEXT")
-        _adicionar_coluna(cursor, "ALTER TABLE clientes ADD COLUMN IF NOT EXISTS parceiro_id INTEGER", "ALTER TABLE clientes ADD COLUMN parceiro_id INTEGER")
-        _adicionar_coluna(cursor, "ALTER TABLE fornecedores ADD COLUMN IF NOT EXISTS parceiro_id INTEGER", "ALTER TABLE fornecedores ADD COLUMN parceiro_id INTEGER")
+        _adicionar_coluna(cursor, "ALTER TABLE clientes ADD COLUMN IF NOT EXISTS parceiro_id INTEGER REFERENCES parceiros(id)", "ALTER TABLE clientes ADD COLUMN parceiro_id INTEGER")
+        _adicionar_coluna(cursor, "ALTER TABLE fornecedores ADD COLUMN IF NOT EXISTS parceiro_id INTEGER REFERENCES parceiros(id)", "ALTER TABLE fornecedores ADD COLUMN parceiro_id INTEGER")
         for coluna in (
             "documento TEXT", "status TEXT DEFAULT 'Ativo'", "tipo_pessoa TEXT DEFAULT 'PJ'",
             "telefone TEXT", "email TEXT", "endereco TEXT", "complemento TEXT",
@@ -104,20 +105,21 @@ def criar_tabelas_parceiros():
         ):
             _adicionar_coluna(cursor, f"ALTER TABLE fornecedores ADD COLUMN IF NOT EXISTS {coluna}",
                               f"ALTER TABLE fornecedores ADD COLUMN {coluna}")
-        _adicionar_coluna(cursor, "ALTER TABLE expedicoes ADD COLUMN IF NOT EXISTS cliente_parceiro_id INTEGER", "ALTER TABLE expedicoes ADD COLUMN cliente_parceiro_id INTEGER")
-        if not DATABASE_URL:
-            # Em producao a coluna ja e provisionada pela migration versionada
-            # database/20260909_p3_4_migracao_clientes_fornecedores_parceiros.sql.
-            # criar_tabelas_parceiros() nao tem guarda de processo e e chamada
-            # a cada requisicao (ex.: listar_parceiros_elegiveis/
-            # obter_parceiro_por_papel, usadas por /op/<id>/editar), entao
-            # repetir este ALTER TABLE a cada request exigiria lock
-            # ACCESS EXCLUSIVE em ordens_producao e poderia enfileirar
-            # leituras concorrentes atras dele. Mantido apenas para SQLite.
-            _adicionar_coluna(cursor, "ALTER TABLE ordens_producao ADD COLUMN IF NOT EXISTS fornecedor_parceiro_id INTEGER", "ALTER TABLE ordens_producao ADD COLUMN fornecedor_parceiro_id INTEGER")
+        _adicionar_coluna(cursor, "ALTER TABLE expedicoes ADD COLUMN IF NOT EXISTS cliente_parceiro_id INTEGER REFERENCES parceiros(id)", "ALTER TABLE expedicoes ADD COLUMN cliente_parceiro_id INTEGER")
+        # O índice depende da coluna canônica da P3.4. Evite ALTER TABLE
+        # nos bancos atualizados, pois a rotina também roda em requisições.
+        if not DATABASE_URL or "fornecedor_parceiro_id" not in colunas_postgresql(
+            cursor, "ordens_producao"
+        ):
+            _adicionar_coluna(
+                cursor,
+                "ALTER TABLE ordens_producao ADD COLUMN IF NOT EXISTS "
+                "fornecedor_parceiro_id INTEGER REFERENCES parceiros(id)",
+                "ALTER TABLE ordens_producao ADD COLUMN fornecedor_parceiro_id INTEGER",
+            )
         cursor.execute(f"""CREATE TABLE IF NOT EXISTS parceiro_migracoes_legado (
             id {pk}, tipo_legado TEXT NOT NULL, id_legado INTEGER NOT NULL,
-            parceiro_id INTEGER, parceiro_criado INTEGER NOT NULL DEFAULT 0,
+            parceiro_id INTEGER REFERENCES parceiros(id), parceiro_criado INTEGER NOT NULL DEFAULT 0,
             papel_adicionado INTEGER NOT NULL DEFAULT 0, resultado TEXT NOT NULL,
             detalhes TEXT, executor TEXT NOT NULL, executado_em {timestamp} NOT NULL,
             UNIQUE(tipo_legado,id_legado)
@@ -138,6 +140,49 @@ def criar_tabelas_parceiros():
         raise
     finally:
         conn.close()
+
+
+def garantir_fk_cliente_parceiro():
+    """Completa o vínculo P3.4 após os dois cadastros existirem."""
+    if not DATABASE_URL:
+        return
+
+    with transaction() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT 1
+            FROM pg_constraint AS fk
+            JOIN pg_attribute AS coluna
+              ON coluna.attrelid = fk.conrelid AND coluna.attname = 'parceiro_id'
+            WHERE fk.conrelid = 'clientes'::regclass
+              AND fk.confrelid = 'parceiros'::regclass
+              AND fk.contype = 'f' AND fk.conkey = ARRAY[coluna.attnum]
+        """)
+        if cursor.fetchone() is not None:
+            return
+
+        cursor.execute("LOCK TABLE clientes IN ACCESS EXCLUSIVE MODE")
+        cursor.execute("LOCK TABLE parceiros IN SHARE ROW EXCLUSIVE MODE")
+        cursor.execute("""
+            SELECT 1 FROM pg_constraint
+            WHERE conrelid = 'clientes'::regclass AND conname = 'clientes_parceiro_id_fkey'
+        """)
+        if cursor.fetchone() is not None:
+            return
+
+        # A FK passa a proteger novos vínculos mesmo se houver órfãos legados.
+        cursor.execute("""
+            ALTER TABLE clientes ADD CONSTRAINT clientes_parceiro_id_fkey
+            FOREIGN KEY (parceiro_id) REFERENCES parceiros(id) NOT VALID
+        """)
+        cursor.execute("""
+            SELECT 1 FROM clientes c
+            WHERE c.parceiro_id IS NOT NULL
+              AND NOT EXISTS (SELECT 1 FROM parceiros p WHERE p.id = c.parceiro_id)
+            LIMIT 1
+        """)
+        if cursor.fetchone() is None:
+            cursor.execute("ALTER TABLE clientes VALIDATE CONSTRAINT clientes_parceiro_id_fkey")
 
 
 def normalizar_documento(valor):

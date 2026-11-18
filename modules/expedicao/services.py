@@ -454,6 +454,10 @@ def criar_tabelas_estoque_pi_pa():
         ON embalagem_primaria_apontamentos (op_id, vigente, id)
         """)
         cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_pi_apontamento_origem
+        ON estoque_produto_intermediario (apontamento_origem_id, tipo)
+        """)
+        cursor.execute("""
         CREATE INDEX IF NOT EXISTS idx_estoque_pi_caixa_tipo
         ON estoque_produto_intermediario (caixa_id, tipo)
         """)

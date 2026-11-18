@@ -4,7 +4,7 @@ from datetime import datetime
 import math
 
 from database import DATABASE_URL, conectar, q
-from database.migrations import executar_alteracao_segura
+from database.migrations import colunas_postgresql, executar_alteracao_segura
 
 
 PERFIS_AUTORIZADOS = {"admin", "gerencia"}
@@ -39,12 +39,11 @@ def criar_tabelas_correcoes_administrativas_op():
     cursor = conn.cursor()
 
     if DATABASE_URL:
-        # Em producao a coluna ja e provisionada pela migration versionada
-        # database/20260729_correcao_administrativa_op.sql. Repetir o ALTER
-        # TABLE a cada boot de worker exige lock ACCESS EXCLUSIVE em
-        # ordens_producao e pode enfileirar leituras concorrentes (ex.:
-        # /op/<id>/editar) atras dele, entao nao e mais executado em runtime
-        # no PostgreSQL.
+        if "bloqueada_administrativamente" not in colunas_postgresql(cursor, "ordens_producao"):
+            cursor.execute("""
+                ALTER TABLE ordens_producao ADD COLUMN IF NOT EXISTS
+                bloqueada_administrativamente BOOLEAN NOT NULL DEFAULT FALSE
+            """)
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS correcoes_administrativas_op (
             id SERIAL PRIMARY KEY,

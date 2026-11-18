@@ -15,6 +15,7 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, Tabl
 
 from config import IDENTIFICACAO_TECNOLOGIA
 from database import DATABASE_URL, conectar, q
+from database.migrations import colunas_postgresql
 from modules.parceiros.services import obter_parceiro_elegivel
 
 
@@ -152,14 +153,15 @@ def criar_tabelas_requisicoes_almoxarifado():
         atualizado_em {timestamp_sql} NOT NULL
     )
     """)
-    if not DATABASE_URL:
-        # Em producao a coluna e provisionada pela migration versionada
-        # database/20260914_p3_6_os_requisicao_almoxarifado.sql. Repetir o
-        # ALTER TABLE a cada boot de worker exige lock ACCESS EXCLUSIVE em
-        # almoxarifado_requisicoes (mesma licao do hotfix do 502 em
-        # ordens_producao). Mantido apenas para SQLite.
+    if DATABASE_URL:
+        if "ordem_servico_id" not in colunas_postgresql(cursor, "almoxarifado_requisicoes"):
+            cursor.execute("""
+                ALTER TABLE almoxarifado_requisicoes
+                ADD COLUMN IF NOT EXISTS ordem_servico_id INTEGER
+            """)
+    else:
         _alterar_coluna(cursor, conn, "almoxarifado_requisicoes", "ordem_servico_id", "INTEGER")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_almox_req_ordem_servico ON almoxarifado_requisicoes(ordem_servico_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_almox_req_ordem_servico ON almoxarifado_requisicoes(ordem_servico_id)")
     cursor.execute(f"""
     CREATE TABLE IF NOT EXISTS almoxarifado_requisicao_itens (
         id {id_sql},
