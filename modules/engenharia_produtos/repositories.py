@@ -444,8 +444,15 @@ def inserir_processo(dados):
 
 
 def registrar_historico(entidade, entidade_id, acao, usuario_id, usuario_nome, anterior, novo):
-    conn = conectar()
-    cursor = conn.cursor()
+    from database import transaction
+
+    with transaction() as conn:
+        registrar_historico_cursor(
+            conn.cursor(), entidade, entidade_id, acao, usuario_id, usuario_nome, anterior, novo
+        )
+
+
+def registrar_historico_cursor(cursor, entidade, entidade_id, acao, usuario_id, usuario_nome, anterior, novo):
     cursor.execute(q("""
         INSERT INTO engenharia_produtos_historico (
             entidade, entidade_id, acao, usuario_id, usuario_nome,
@@ -460,8 +467,6 @@ def registrar_historico(entidade, entidade_id, acao, usuario_id, usuario_nome, a
         json.dumps(_linha_dict(anterior), ensure_ascii=False, default=str) if anterior else None,
         json.dumps(novo, ensure_ascii=False, default=str) if novo else None,
     ))
-    conn.commit()
-    conn.close()
 
 
 def listar_historico_produto(produto_id):

@@ -50,6 +50,30 @@
     </div>
 </section>
 {% endmacro %}
+{% set estados = {'LEGADO': 'Legado', 'EM_CONFIGURACAO': 'Em configuração', 'BOM_ATIVA': 'BOM ativa'} %}
+{% macro resultado(titulo, linhas, rastrear=false) %}
+<section class="card ep-panel">
+    <h2>{{ titulo }}</h2>
+    <div class="table-responsive ep-table-wrap">
+        <table class="ep-table">
+            <thead><tr>
+                {% if rastrear %}<th>Nível</th><th>Caminho e versões</th>{% else %}<th>Componente</th>{% endif %}
+                <th>Quantidade necessária</th><th>Perda</th><th>Regra</th>
+            </tr></thead>
+            <tbody>
+            {% for linha in linhas %}
+                <tr>
+                    {% if rastrear %}<td>{{ linha.nivel }}</td><td>{{ linha.caminho }}</td>{% else %}<td>{{ linha.componente }}</td>{% endif %}
+                    <td>{{ linha.necessidade_calculada }} {{ linha.unidade }}</td>
+                    <td>{{ linha.perda_prevista_percentual }}%</td>
+                    <td>{{ linha.regra_calculo|replace('_', ' ') }}</td>
+                </tr>
+            {% else %}<tr><td colspan="{{ 5 if rastrear else 4 }}">Nenhum componente ativo.</td></tr>{% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endmacro %}
 {% block conteudo %}
 <div class="ep-page">
     <header class="ep-header">
@@ -82,17 +106,18 @@
     <section class="card ep-panel">
         <div class="table-responsive ep-table-wrap">
             <table class="ep-table">
-                <thead><tr><th>Produto</th><th>Versão</th><th>Vigência</th><th>Status</th><th>Componentes ativos</th><th>Ativa</th><th>Ações</th></tr></thead>
+                <thead><tr><th>Produto</th><th>Versão</th><th>Vigência</th><th>Status</th><th>Componentes ativos</th><th>Estado produtivo</th><th>Produção</th><th>Ações</th></tr></thead>
                 <tbody>
                     {% for linha in versoes %}
                     <tr>
                         <td>{{ linha.produto }}</td><td>v{{ linha.numero_versao }}</td>
                         <td>{{ linha.data_inicio_vigencia }} a {{ linha.data_fim_vigencia or 'indeterminada' }}</td>
                         <td>{{ linha.status|capitalize }}</td><td>{{ linha.quantidade_itens }}</td>
-                        <td>{{ 'Sim' if linha.ativa else 'Não' }}</td>
+                        <td>{{ estados[linha.estado_produtivo] }}</td>
+                        <td>{% if linha.status == 'ATIVA' %}<strong>ATIVA EM PRODUÇÃO</strong>{% else %}—{% endif %}</td>
                         <td><a class="ep-link" href="{{ url_for('bom_detalhe', bom_id=linha.id) }}">Detalhes</a></td>
                     </tr>
-                    {% else %}<tr><td colspan="7" class="ep-empty">Nenhuma BOM cadastrada.</td></tr>{% endfor %}
+                    {% else %}<tr><td colspan="8" class="ep-empty">Nenhuma BOM cadastrada.</td></tr>{% endfor %}
                 </tbody>
             </table>
         </div>
@@ -121,7 +146,7 @@
                 <label>Produto<select required name="produto_id" id="bom-aquisicao-produto">
                     <option value="">Selecione</option>
                     {% for produto in opcoes.produtos %}
-                    <option value="{{ produto.id }}" data-fabricavel="{{ 1 if produto.fabricavel else 0 }}" data-compravel="{{ 1 if produto.compravel else 0 }}">{{ produto.nome }}</option>
+                    <option value="{{ produto.id }}" data-fabricavel="{{ 1 if produto.fabricavel else 0 }}" data-compravel="{{ 1 if produto.compravel else 0 }}">{{ produto.nome }} · {{ estados[produto.estado_produtivo] }}</option>
                     {% endfor %}
                 </select></label>
                 <label><input type="checkbox" name="fabricavel" value="1"> Fabricável</label>
@@ -187,34 +212,70 @@
             <p>Vigência de {{ versao.data_inicio_vigencia }} a {{ versao.data_fim_vigencia or 'data indeterminada' }}</p>
             {% if versao.observacoes %}<p>{{ versao.observacoes }}</p>{% endif %}
             {% if versao.rendimento_entrada %}<p>Rendimento esperado de {{ versao.rendimento_entrada }} {{ versao.rendimento_unidade_entrada }} de entrada para {{ versao.rendimento_saida }} {{ versao.rendimento_unidade_saida }} de saída</p>{% endif %}
+            <p>Estado produtivo do produto <strong>{{ estados[versao.estado_produtivo] }}</strong></p>
+            {% if versao.status == 'ATIVA' %}<p><strong>VERSÃO ATIVA EM PRODUÇÃO</strong></p>{% endif %}
             {% if pode_editar and versao.status != 'INATIVA' %}
             <form method="post" class="ep-actions" action="{{ url_for('bom_status', bom_id=versao.id) }}">
                 {% if versao.status == 'RASCUNHO' %}
-                <button class="ep-btn ep-btn-primary" name="acao" value="publicar">Ativar versão</button>
+                <button class="ep-btn ep-btn-primary" name="acao" value="publicar">Publicar versão</button>
                 {% else %}
-                <label>Último dia de vigência <input type="date" name="ultimo_dia" required min="{{ versao.data_inicio_vigencia }}" {% if versao.data_fim_vigencia %}max="{{ versao.data_fim_vigencia }}"{% endif %}></label>
+                <label>Motivo ou observação <input name="motivo"></label>
+                {% if versao.status == 'PUBLICADA' %}
+                    {% if versao.ativa_producao %}
+                    <p>Substitui a <a class="ep-link" href="{{ url_for('bom_detalhe', bom_id=versao.ativa_producao.id) }}">versão v{{ versao.ativa_producao.numero_versao }}</a>.</p>
+                    {% endif %}
+                    <input type="hidden" name="ativa_esperada" value="{{ versao.ativa_producao.id if versao.ativa_producao else '' }}">
+                    {% if versao.pode_ativar %}
+                    <button class="ep-btn ep-btn-primary" name="acao" value="ativar">Ativar para produção</button>
+                    {% else %}<p>Ativação disponível durante a vigência.</p>{% endif %}
+                {% endif %}
                 <button class="ep-btn ep-btn-secondary" name="acao" value="inativar">Inativar versão</button>
                 {% endif %}
             </form>
             {% endif %}
         </section>
         {{ componentes(versao) }}
+        {% if versao.status != 'INATIVA' %}
         <form class="card ep-form" method="post">
-            <h2>Necessidade teórica</h2>
-            <div class="ep-form-grid"><label>Quantidade planejada<input name="quantidade_planejada" type="number" required min="0.000001" step="0.000001" value="{{ request.form.get('quantidade_planejada', '') }}"></label></div>
-            <div class="ep-form-actions"><button class="ep-btn ep-btn-primary">Calcular</button></div>
+            <h2>Simulação multinível</h2>
+            <div class="ep-form-grid"><label>Quantidade planejada ({{ versao.unidade_producao }})<input name="quantidade_planejada" type="number" required min="0.000001" step="0.000001" value="{{ request.form.get('quantidade_planejada', '') }}"></label></div>
+            <div class="ep-form-actions"><button class="ep-btn ep-btn-primary">Simular</button></div>
         </form>
-        {% if calculo is not none %}
-        <section class="card ep-panel" aria-live="polite">
-            <h2>Materiais planejados</h2>
-            {% if calculo %}
-            <div class="table-responsive ep-table-wrap"><table class="ep-table">
-                <thead><tr><th>Componente</th><th>Necessidade calculada</th></tr></thead>
-                <tbody>{% for linha in calculo %}<tr><td>{{ linha.componente }}</td><td>{{ linha.necessidade_calculada }} {{ linha.unidade }}</td></tr>{% endfor %}</tbody>
-            </table></div>
-            {% else %}<p>A versão está sem componentes ativos.</p>{% endif %}
-        </section>
         {% endif %}
+        {% if calculo is not none %}
+        <div aria-live="polite">
+            {{ resultado('Componentes diretos', calculo.diretos) }}
+            {% if calculo.erro %}
+                <p class="alerta" role="alert">{{ calculo.erro }}</p>
+            {% else %}
+                <section class="card ep-panel">
+                    <h2>Necessidades consolidadas</h2>
+                    <div class="table-responsive ep-table-wrap"><table class="ep-table">
+                        <thead><tr><th>Componente terminal</th><th>Total necessário</th><th>Origens</th></tr></thead>
+                        <tbody>{% for grupo in calculo.consolidados %}
+                            <tr><td>{{ grupo.componente }}</td><td>{{ grupo.quantidade_total }} {{ grupo.unidade }}</td><td>{{ grupo.origens|length }}</td></tr>
+                        {% endfor %}</tbody>
+                    </table></div>
+                </section>
+                {{ resultado('Estrutura multinível e caminhos de origem', calculo.estrutura, true) }}
+            {% endif %}
+        </div>
+        {% endif %}
+        <section class="card ep-panel">
+            <h2>Histórico de ativação</h2>
+            <div class="table-responsive ep-table-wrap"><table class="ep-table">
+                <thead><tr><th>Data e hora</th><th>Ação</th><th>Versão anterior</th><th>Versão ativada</th><th>Usuário</th><th>Origem</th><th>Observação</th></tr></thead>
+                <tbody>{% for evento in versao.historico %}
+                    <tr>
+                        <td>{{ evento.criado_em }}</td><td>{{ 'Ativação' if evento.acao == 'ativar' else 'Inativação' }}</td>
+                        <td>{% if evento.antes.versao %}<a class="ep-link" href="{{ url_for('bom_detalhe', bom_id=evento.antes.versao.id) }}">v{{ evento.antes.versao.numero }}</a>{% else %}—{% endif %}</td>
+                        <td>{% if evento.acao == 'ativar' %}<a class="ep-link" href="{{ url_for('bom_detalhe', bom_id=evento.depois.versao.id) }}">v{{ evento.depois.versao.numero }}</a>{% else %}—{% endif %}</td>
+                        <td>{{ evento.usuario_nome or evento.usuario_id or '—' }}</td>
+                        <td>{{ evento.depois.origem }}</td><td>{{ evento.depois.motivo or '—' }}</td>
+                    </tr>
+                {% else %}<tr><td colspan="7">Nenhuma ativação ou inativação registrada.</td></tr>{% endfor %}</tbody>
+            </table></div>
+        </section>
     {% endif %}
 </div>
 {% endblock %}

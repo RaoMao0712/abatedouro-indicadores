@@ -67,9 +67,7 @@ def registrar_bom(app, leitura, escrita, pode_editar):
         calculo = None
         if request.method == "POST":
             try:
-                calculo = bom.calcular_necessidades(
-                    versao["produto_id"], versao, request.form.get("quantidade_planejada")
-                )
+                calculo = bom.simular(bom_id, request.form.get("quantidade_planejada"))
             except ValueError as erro:
                 flash(str(erro))
         return tela("detalhe", versao=versao, calculo=calculo)
@@ -118,10 +116,25 @@ def registrar_bom(app, leitura, escrita, pode_editar):
     @perfil_permitido(*escrita)
     def bom_status(bom_id):
         try:
-            if request.form.get("acao") == "publicar":
-                bom.publicar(bom_id, session.get("usuario_id"))
-            elif request.form.get("acao") == "inativar":
-                bom.inativar(bom_id, request.form.get("ultimo_dia"), session.get("usuario_id"))
+            acao = request.form.get("acao")
+            usuario = session.get("usuario_id")
+            dados_auditoria = {
+                "usuario_nome": session.get("nome"),
+                "origem": "ENGENHARIA_WEB",
+                "motivo": request.form.get("motivo"),
+            }
+            if acao == "publicar":
+                bom.publicar(bom_id, usuario)
+                flash("BOM publicada para homologação.")
+            elif acao == "ativar":
+                esperada = request.form.get("ativa_esperada", "")
+                bom.ativar(
+                    bom_id, usuario, ativa_esperada=int(esperada) if esperada else None, **dados_auditoria
+                )
+                flash("BOM ativada para produção.")
+            elif acao == "inativar":
+                bom.inativar(bom_id, usuario, **dados_auditoria)
+                flash("Versão inativada.")
             else:
                 abort(400)
         except ValueError as erro:

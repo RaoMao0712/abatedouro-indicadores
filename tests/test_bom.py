@@ -1,6 +1,7 @@
 """Contratos da BOM, com PostgreSQL descartável para migração e concorrência."""
 
 from concurrent.futures import ThreadPoolExecutor
+from datetime import timedelta
 from decimal import Decimal
 import os
 from threading import Barrier
@@ -92,10 +93,15 @@ def test_calculo_vazio_versao_unidade_e_multiplos_itens():
 
 
 def exercitar_versoes():
+    assert bom.estado_produtivo(1) == "LEGADO"
     with pytest.raises(ValueError, match="fabricável"):
         bom.criar_versao(1, CABECALHO, 9)
     bom.definir_aquisicao(1, True, True)
     v1 = bom.criar_versao(1, CABECALHO, 9)
+    assert bom.estado_produtivo(1) == "EM_CONFIGURACAO"
+    assert bom.estado_produtivo(4) == "LEGADO"
+    with pytest.raises(ValueError, match="publicada"):
+        bom.ativar(v1, 9, ativa_esperada=None)
     bom.salvar_item(v1, item(), 9)
     bom.salvar_item(v1, item("produto:3", sequencia="2", quantidade_base="0.5"), 9)
     bom.salvar_item(v1, item("insumo:1", sequencia="3", regra_calculo=bom.REGRAS[4],
@@ -104,6 +110,11 @@ def exercitar_versoes():
         bom.salvar_item(v1, item(), 9)
     bom.publicar(v1, 9)
     anterior = bom.detalhar(v1)
+    assert anterior["status"] == "PUBLICADA"
+    assert bom.estado_produtivo(1) == "EM_CONFIGURACAO"
+    bom.ativar(v1, 9, ativa_esperada=None)
+    assert bom.estado_produtivo(1) == "BOM_ATIVA"
+    assert bom.detalhar(v1)["status"] == "ATIVA"
     assert anterior["numero_versao"] == 1
     assert Decimal(anterior["rendimento_saida"]) == 92
     with pytest.raises(ValueError, match="nova versão"):
@@ -115,13 +126,23 @@ def exercitar_versoes():
     assert clone["numero_versao"] == 2
     assert clone["itens"][0]["id"] != anterior["itens"][0]["id"]
     bom.salvar_item(v2, item(quantidade_base="8"), 9, clone["itens"][0]["id"])
-    assert bom.detalhar(v1) == anterior
-    with pytest.raises(ValueError, match="sobrepõe"):
-        bom.publicar(v2, 9)
-    bom.inativar(v1, "2026-01-31", 9)
     bom.publicar(v2, 9)
-    assert bom.detalhar(v1)["itens"] == anterior["itens"]
-    assert bom.detalhar(v2)["ativa"]
+    with pytest.raises(ValueError, match="nova versão"):
+        bom.atualizar_cabecalho(v2, CABECALHO | {"descricao": "Alterada"}, 9)
+    bom.ativar(v2, 9, ativa_esperada=v1, usuario_nome="PCP", motivo="Estrutura homologada")
+    historica = bom.detalhar(v1)
+    assert historica["status"] == "INATIVA"
+    assert historica["data_fim_vigencia"] == anterior["data_fim_vigencia"]
+    assert historica["itens"] == anterior["itens"]
+    ativa = bom.detalhar(v2)
+    assert ativa["status"] == "ATIVA"
+    assert ativa["produto_id"] == historica["produto_id"] == 1
+    ultimo = ativa["historico"][0]
+    assert ultimo["antes"]["versao"] == {"id": v1, "numero": 1}
+    assert ultimo["depois"]["versao"] == {"id": v2, "numero": 2}
+    assert ultimo["depois"]["motivo"] == "Estrutura homologada"
+    with pytest.raises(ValueError, match="publicada"):
+        bom.ativar(v1, 9, ativa_esperada=v2)
     vazia = bom.criar_versao(1, CABECALHO, 9, v2)
     assert bom.detalhar(vazia)["itens"] == []
     assert len(bom.listar()) == 3
@@ -184,7 +205,10 @@ def test_fluxo_e_permissoes_http(ambiente):
     assert "Nova versão" in client.get(nova).text
     assert client.post(nova, data=CABECALHO | {"modelo": "clonar"}).status_code == 302
     assert len(bom.detalhar(2)["itens"]) == 1
-    client.post(f"{detalhe}/status", data={"acao": "inativar", "ultimo_dia": "2026-01-31"})
+    client.post(f"{detalhe}/status", data={"acao": "ativar"})
+    assert "VERSÃO ATIVA EM PRODUÇÃO" in client.get(detalhe).text
+    assert "Necessidades consolidadas" in client.post(detalhe, data={"quantidade_planejada": 1}).text
+    client.post(f"{detalhe}/status", data={"acao": "inativar"})
     assert "Inativa" in client.get(detalhe).text
     with client.session_transaction() as sessao:
         sessao["perfil"] = "qualidade"
@@ -248,7 +272,7 @@ def test_postgresql_migration_integridade_e_concorrencia(postgres):
         cursor.execute("SELECT to_regclass('bom') AS bom, count(*) AS produtos FROM skus")
         assert dict(cursor.fetchone()) == {"bom": None, "produtos": 4}
     bom.migrar()
-    resultado = exercitar_versoes()
+    exercitar_versoes()
     with database.transaction() as conn:
         cursor = conn.cursor()
         cursor.execute("""
@@ -260,6 +284,8 @@ def test_postgresql_migration_integridade_e_concorrencia(postgres):
         assert {"ix_bom_item_produto", "ix_bom_item_insumo"} <= {
             linha["indexname"] for linha in cursor.fetchall()
         }
+
+    resultado = bom.criar_versao(1, CABECALHO, 9)
 
     def inserir_invalido(componente):
         with database.transaction() as conn:
@@ -275,10 +301,14 @@ def test_postgresql_migration_integridade_e_concorrencia(postgres):
     versoes = concorrer(lambda: bom.criar_versao(4, CABECALHO, 9),
                         lambda: bom.criar_versao(4, CABECALHO, 9))
     assert {bom.detalhar(versao)["numero_versao"] for versao in versoes} == {1, 2}
-    resultados = concorrer(*(lambda v=v: bom.publicar(v, 9) for v in versoes))
+    for versao in versoes:
+        bom.salvar_item(versao, item("produto:3"), 9)
+        bom.publicar(versao, 9)
+    resultados = concorrer(*(lambda v=v: bom.ativar(v, 9, ativa_esperada=None) for v in versoes))
     assert sum(erro is None for erro in resultados) == 1
-    assert any(isinstance(erro, ValueError) and "sobrepõe" in str(erro) for erro in resultados)
-    a, b = versoes
+    assert any(isinstance(erro, ValueError) and "versão ativa mudou" in str(erro) for erro in resultados)
+    publicada = next(v for v in versoes if bom.detalhar(v)["status"] == "PUBLICADA")
+
     def inserir_mesma_versao():
         with database.transaction() as conn:
             conn.cursor().execute("""
@@ -289,15 +319,124 @@ def test_postgresql_migration_integridade_e_concorrencia(postgres):
     duplicadas = concorrer(inserir_mesma_versao, inserir_mesma_versao)
     assert sum(erro is None for erro in duplicadas) == 1
     assert any(isinstance(erro, psycopg2.errors.UniqueViolation) for erro in duplicadas)
-    with pytest.raises(psycopg2.errors.ExclusionViolation):
+    with pytest.raises(psycopg2.errors.UniqueViolation):
         with database.transaction() as conn:
-            conn.cursor().execute("UPDATE bom SET status = 'PUBLICADA', ativa = TRUE WHERE id IN (%s, %s)", (a, b))
-    bom.definir_aquisicao(2, True, True)
-    v2 = bom.criar_versao(2, CABECALHO, 9)
-    rascunho = next(versao for versao in versoes if bom.detalhar(versao)["status"] == "RASCUNHO")
-    resultados = concorrer(
-        lambda: bom.salvar_item(v2, item("produto:4"), 9),
-        lambda: bom.salvar_item(rascunho, item("produto:2"), 9),
-    )
-    assert sum(erro is None for erro in resultados) == 1
-    assert any(isinstance(erro, ValueError) and "ciclo" in str(erro) for erro in resultados)
+            conn.cursor().execute("UPDATE bom SET status = 'ATIVA' WHERE id = %s", (publicada,))
+    with pytest.raises(psycopg2.errors.CheckViolation):
+        with database.transaction() as conn:
+            conn.cursor().execute("UPDATE bom SET descricao = 'reescrita' WHERE id = %s", (publicada,))
+    with pytest.raises(psycopg2.errors.CheckViolation):
+        with database.transaction() as conn:
+            conn.cursor().execute("DELETE FROM bom_item WHERE bom_id = %s", (publicada,))
+    with database.transaction() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) AS total FROM bom WHERE produto_id = 4 AND status = 'ATIVA'")
+        assert cursor.fetchone()["total"] == 1
+
+
+def test_explosao_multinivel_perdas_conversao_e_consolidacao(ambiente):
+    with database.transaction() as conn:
+        cur = conn.cursor()
+        cur.execute("UPDATE skus SET unidade_venda = 'Un'")
+        cur.execute("INSERT INTO skus (nome,codigo,unidade_venda) VALUES ('Ramo E','E','Un')")
+    for produto in (1, 2, 4, 5):
+        bom.definir_aquisicao(produto, True, True)
+    a, b, d, e = (bom.criar_versao(produto, CABECALHO, 9) for produto in (1, 2, 4, 5))
+    bom.salvar_item(a, item("produto:2", quantidade_base="2", perda_prevista_percentual="10"), 9)
+    bom.salvar_item(a, item("produto:5", sequencia="2", quantidade_base="1"), 9)
+    bom.salvar_item(b, item("produto:4", quantidade_base="3"), 9)
+    bom.salvar_item(d, item("produto:3", quantidade_base="0.5", unidade="Kg",
+                            perda_prevista_percentual="20"), 9)
+    bom.salvar_item(e, item("produto:3", quantidade_base="1040", unidade="G"), 9)
+    for versao in (a, b, d, e):
+        bom.publicar(versao, 9)
+    assert "incompleta" in bom.simular(a, 1)["erro"]
+    with pytest.raises(ValueError, match="incompleta"):
+        bom.ativar(a, 9, ativa_esperada=None)
+    for versao in (d, b, e):
+        bom.ativar(versao, 9, ativa_esperada=None)
+    dois_niveis = bom.simular(b, 2)
+    assert dois_niveis["consolidados"][0]["quantidade_total"] == Decimal("3.600000")
+    resultado = bom.simular(a, 1)
+    consolidado, = resultado["consolidados"]
+    # 2 × 1,10 × 3 × 0,5 × 1,20 + 1040 g = 5 kg.
+    assert consolidado["quantidade_total"] == Decimal("5.000000")
+    assert consolidado["unidade"] == "Kg"
+    itens = resultado["detalhados"]
+    assert [v["nivel"] for v in itens] == [3, 2]
+    assert [v["bom_id"] for v in itens[0]["versoes"]] == [a, b, d]
+    assert len(consolidado["origens"]) == 2
+    bom.ativar(a, 9, ativa_esperada=None)
+    assert bom.estado_produtivo(1) == "BOM_ATIVA"
+
+
+def test_vigencia_e_publicacao_futura(ambiente):
+    bom.definir_aquisicao(1, True, True)
+    inicio = (bom._hoje() + timedelta(days=5)).isoformat()
+    futura = bom.criar_versao(1, CABECALHO | {"data_inicio_vigencia": inicio}, 9)
+    bom.salvar_item(futura, item(), 9)
+    bom.publicar(futura, 9)
+    with pytest.raises(ValueError, match="fora da vigência"):
+        bom.ativar(futura, 9, ativa_esperada=None)
+    assert bom.detalhar(futura)["status"] == "PUBLICADA"
+    bom.inativar(futura, 9)
+    assert bom.estado_produtivo(1) == "LEGADO"
+
+
+@pytest.mark.parametrize("motor", ["ambiente", "postgres"])
+def test_rollback_atomicidade_e_historico(motor, request, monkeypatch):
+    request.getfixturevalue(motor)
+    bom.migrar()
+    bom.definir_aquisicao(1, True, True)
+    primeira = bom.criar_versao(1, CABECALHO, 9)
+    bom.salvar_item(primeira, item(), 9)
+    bom.publicar(primeira, 9)
+    bom.ativar(primeira, 9, ativa_esperada=None)
+    segunda = bom.criar_versao(1, CABECALHO, 9, primeira, clonar=True)
+    bom.publicar(segunda, 9)
+
+    def falhar(*args, **kwargs):
+        raise RuntimeError("Auditoria indisponível")
+
+    monkeypatch.setattr(bom, "registrar_historico_cursor", falhar)
+    with pytest.raises(RuntimeError, match="Auditoria"):
+        bom.ativar(segunda, 9, ativa_esperada=primeira)
+    assert bom.detalhar(primeira)["status"] == "ATIVA"
+    assert bom.detalhar(segunda)["status"] == "PUBLICADA"
+    assert len(bom.detalhar(primeira)["historico"]) == 1
+
+
+def test_upgrade_de_base_anterior_preserva_status_e_itens(ambiente):
+    bom.migrar(reverter=True, somente_producao=True)
+    with database.transaction() as conn:
+        cur = conn.cursor()
+        cur.execute("INSERT INTO bom (produto_id, numero_versao, descricao, status, data_inicio_vigencia, ativa) "
+                    "VALUES (1, 1, 'Anterior', 'PUBLICADA', '2026-01-01', TRUE)")
+        cur.execute("INSERT INTO bom_item (bom_id, componente_produto_id, sequencia, classificacao, quantidade_base, unidade, regra_calculo) "
+                    "VALUES (1, 2, 1, 'INSUMO', 3, 'Un', 'POR_UNIDADE_PRODUZIDA')")
+    bom.migrar()
+    anterior = bom.detalhar(1)
+    assert anterior["status"] == "PUBLICADA"
+    assert len(anterior["itens"]) == 1
+    assert bom.estado_produtivo(1) == "EM_CONFIGURACAO"
+    assert bom.simular(1, 2)["consolidados"][0]["quantidade_total"] == 6
+
+
+def test_protecao_defensiva_da_explosao():
+    versao = {
+        "id": 1, "produto_id": 1, "produto": "Componente recursivo", "numero_versao": 1,
+        "unidade_producao": "Un",
+        "itens": [item() | {"componente": "O mesmo produto", "componente_produto_id": 1,
+                           "componente_insumo_id": None}],
+    }
+    with pytest.raises(ValueError, match="Ciclo detectado"):
+        bom.explodir(versao, 1, lambda linha: versao, lambda estrutura: None)
+
+
+def test_postgresql_rollback_preserva_estados_quando_periodos_incompativeis(postgres):
+    bom.migrar()
+    segunda = exercitar_versoes()
+    with pytest.raises(psycopg2.errors.ExclusionViolation):
+        bom.migrar(reverter=True, somente_producao=True)
+    assert bom.detalhar(segunda)["status"] == "ATIVA"
+    assert bom.detalhar(segunda)["historico"][0]["depois"]["versao"]["id"] == segunda

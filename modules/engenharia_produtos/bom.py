@@ -1,11 +1,25 @@
 """Persistência e regras de versionamento da estrutura de materiais."""
 
+import json
+import sqlite3
 from contextlib import contextmanager
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 from pathlib import Path
 
 from database import DATABASE_URL, conectar, q, transaction
-from .bom_calculo import REGRAS, UNIDADES, calcular_necessidades, numero
+from .bom_calculo import REGRAS, UNIDADES, calcular_necessidades, explodir, numero
+from .repositories import registrar_historico_cursor
+
+ESTADO_PRODUTIVO = """
+    CASE
+        WHEN EXISTS (SELECT 1 FROM bom a WHERE a.produto_id = s.id AND a.status = 'ATIVA')
+            THEN 'BOM_ATIVA'
+        WHEN EXISTS (SELECT 1 FROM bom a WHERE a.produto_id = s.id AND a.status IN ('RASCUNHO', 'PUBLICADA'))
+            THEN 'EM_CONFIGURACAO'
+        ELSE 'LEGADO'
+    END AS estado_produtivo
+"""
 
 CLASSIFICACOES = (
     "MATERIA_PRIMA", "EMBALAGEM", "INSUMO", "INTERMEDIARIO",
@@ -47,28 +61,55 @@ def _escrita():
         conn.close()
 
 
-def migrar(*, reverter=False):
+def _presente(cursor, nome):
+    if DATABASE_URL:
+        return _um(cursor, "SELECT to_regclass(?) AS objeto", (nome,))["objeto"] is not None
+    return _um(cursor, "SELECT name FROM sqlite_master WHERE name = ?", (nome,)) is not None
+
+
+def _script(cursor, prefixo, reverter):
+    motor = "" if DATABASE_URL else "_sqlite"
+    operacao = "_rollback" if reverter else ""
+    sql = (MIGRACOES / f"{prefixo}{motor}{operacao}.sql").read_text(encoding="utf-8").strip()
+    sql = sql.removeprefix("PRAGMA foreign_keys = OFF;").strip()
+    sql = sql.removeprefix("BEGIN;").removesuffix("COMMIT;").strip()
+    if DATABASE_URL:
+        cursor.execute(sql)
+    else:
+        comando = ""
+        for linha in sql.splitlines(keepends=True):
+            comando += linha
+            if sqlite3.complete_statement(comando):
+                cursor.execute(comando)
+                comando = ""
+        if comando.strip():
+            raise RuntimeError("Migration SQLite contém SQL incompleto.")
+
+
+def migrar(*, reverter=False, somente_producao=False):
     with transaction() as conn:
         cursor = conn.cursor()
-        if DATABASE_URL:
-            cursor.execute("LOCK TABLE skus IN ACCESS EXCLUSIVE MODE")
-        else:
+        if not DATABASE_URL:
+            cursor.execute("PRAGMA foreign_keys = OFF")
             cursor.execute("BEGIN IMMEDIATE")
-        if DATABASE_URL:
-            cursor.execute("SELECT to_regclass('bom') AS nome")
-        else:
-            cursor.execute("SELECT name AS nome FROM sqlite_master WHERE type = 'table' AND name = 'bom'")
-        registro = cursor.fetchone()
-        existe = registro is not None and registro["nome"] is not None
-        if existe != reverter:
-            return
-        motor = "" if DATABASE_URL else "_sqlite"
-        operacao = "_rollback" if reverter else ""
-        sql = (MIGRACOES / f"20261118_bom{motor}{operacao}.sql").read_text(encoding="utf-8")
-        # A conexão mantém o lock e a transação do bootstrap.
-        for comando in sql.removeprefix("BEGIN;").removesuffix("COMMIT;\n").split(";"):
-            if comando.strip():
-                cursor.execute(comando)
+        if not _presente(cursor, "bom"):
+            if reverter or somente_producao:
+                return
+            if DATABASE_URL:
+                cursor.execute("LOCK TABLE skus IN ACCESS EXCLUSIVE MODE")
+            if not _presente(cursor, "bom"):
+                _script(cursor, "20261118_bom", False)
+
+        tem_producao = _presente(cursor, "uq_bom_ativa_produto")
+        if tem_producao == reverter:
+            if DATABASE_URL:
+                cursor.execute("LOCK TABLE bom IN ACCESS EXCLUSIVE MODE")
+            if _presente(cursor, "uq_bom_ativa_produto") == reverter:
+                _script(cursor, "20261120_bom_producao", reverter)
+        if reverter and not somente_producao:
+            _script(cursor, "20261118_bom", True)
+        elif not DATABASE_URL and cursor.execute("PRAGMA foreign_key_check(bom_item)").fetchone():
+            raise RuntimeError("A migration da BOM encontrou itens sem versão correspondente.")
 
 
 def _inteiro(valor, nome):
@@ -96,8 +137,8 @@ def _unidade(valor):
     return unidade
 
 
-def _produto(cursor, produto_id, *, fabricavel=False):
-    bloqueio = " FOR SHARE" if DATABASE_URL else ""
+def _produto(cursor, produto_id, *, fabricavel=False, bloquear=True):
+    bloqueio = " FOR SHARE" if DATABASE_URL and bloquear else ""
     produto = _um(cursor, "SELECT * FROM skus WHERE id = ?" + bloqueio, (produto_id,))
     if not produto or produto["ativo"] != "Sim" or produto["excluido_em"]:
         raise ValueError("Selecione um produto ativo.")
@@ -112,16 +153,18 @@ def definir_aquisicao(produto_id, fabricavel, compravel):
     with _escrita() as cursor:
         _produto(cursor, produto_id)
         if not fabricavel and _um(
-            cursor, "SELECT id FROM bom WHERE produto_id = ? AND ativa LIMIT 1", (produto_id,)
+            cursor, "SELECT id FROM bom WHERE produto_id = ? AND status = 'ATIVA' LIMIT 1", (produto_id,)
         ):
-            raise ValueError("Inative as BOMs publicadas antes de retirar a opção fabricável.")
+            raise ValueError("Inative a BOM ativa antes de retirar a opção fabricável.")
         _executar(cursor, "UPDATE skus SET fabricavel = ?, compravel = ? WHERE id = ?",
                   (fabricavel, compravel, produto_id))
 
 
 def _versao(cursor, bom_id):
-    versao = _um(cursor, """
-        SELECT b.*, s.nome AS produto FROM bom b JOIN skus s ON s.id = b.produto_id
+    versao = _um(cursor, f"""
+        SELECT b.*, s.nome AS produto, s.unidade_venda AS unidade_producao,
+            {ESTADO_PRODUTIVO}
+        FROM bom b JOIN skus s ON s.id = b.produto_id
         WHERE b.id = ?
     """, (bom_id,))
     if not versao:
@@ -182,7 +225,6 @@ def criar_versao(produto_id, dados, usuario_id, origem_id=None, clonar=False):
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
         """, (produto_id, (ultima["numero"] or 0) + 1, *cabecalho, usuario_id, usuario_id))
         if clonar:
-            _validar_componentes(cursor, origem_id)
             campos = ", ".join(CAMPOS_ITEM)
             _executar(cursor, f"INSERT INTO bom_item (bom_id, {campos}) "
                       f"SELECT ?, {campos} FROM bom_item WHERE bom_id = ?", (nova["id"], origem_id))
@@ -223,10 +265,10 @@ def _validar_ciclos(cursor, bom_id):
             pendentes.extend(grafo.get(destino, ()))
 
 
-def _componente(cursor, produto_id, insumo_id):
+def _componente(cursor, produto_id, insumo_id, *, bloquear=True):
     if produto_id:
-        return _produto(cursor, produto_id)
-    bloqueio = " FOR SHARE" if DATABASE_URL else ""
+        return _produto(cursor, produto_id, bloquear=bloquear)
+    bloqueio = " FOR SHARE" if DATABASE_URL and bloquear else ""
     insumo = _um(cursor, "SELECT * FROM almoxarifado_insumos WHERE id = ?" + bloqueio, (insumo_id,))
     if not insumo or insumo["ativo"] != "Sim":
         raise ValueError("Selecione um insumo ativo.")
@@ -298,60 +340,175 @@ def _validar_componentes(cursor, bom_id):
         _componente(cursor, item["componente_produto_id"], item["componente_insumo_id"])
 
 
+def _hoje():
+    return datetime.now(ZoneInfo("America/Manaus")).date()
+
+
+def _vigente(versao, hoje):
+    return (
+        _data(versao["data_inicio_vigencia"]) <= hoje
+        and (not versao["data_fim_vigencia"] or hoje <= _data(versao["data_fim_vigencia"]))
+    )
+
+
+def _mudar_status(cursor, bom_id, status, usuario_id):
+    _executar(cursor, """
+        UPDATE bom SET status = ?, atualizado_em = CURRENT_TIMESTAMP, atualizado_por = ? WHERE id = ?
+    """, (status, usuario_id, bom_id))
+
+
 def publicar(bom_id, usuario_id):
     with _escrita() as cursor:
         versao = _rascunho(cursor, bom_id)
         _validar_componentes(cursor, bom_id)
         _validar_ciclos(cursor, bom_id)
-        inicio = versao["data_inicio_vigencia"]
-        fim = versao["data_fim_vigencia"]
-        if _um(cursor, """
-            SELECT id FROM bom WHERE produto_id = ? AND id <> ? AND status <> 'RASCUNHO'
-                AND (data_fim_vigencia IS NULL OR data_fim_vigencia >= ?)
-                AND data_inicio_vigencia <= ?
-            LIMIT 1
-        """, (versao["produto_id"], bom_id, inicio, fim or date.max.isoformat())):
-            raise ValueError("A vigência se sobrepõe à de outra versão. Ajuste as vigências.")
-        _executar(cursor, "UPDATE bom SET status = 'PUBLICADA', ativa = TRUE WHERE id = ?", (bom_id,))
-        _auditar(cursor, bom_id, usuario_id)
+        _cabecalho(versao)
+        calcular_necessidades(versao["produto_id"], _carregar_itens(cursor, versao), 1)
+        _mudar_status(cursor, bom_id, "PUBLICADA", usuario_id)
 
 
-def inativar(bom_id, ultimo_dia, usuario_id):
-    fim = _data(ultimo_dia)
+def _ativa(cursor, produto_id):
+    return _um(cursor, "SELECT * FROM bom WHERE produto_id = ? AND status = 'ATIVA'", (produto_id,))
+
+
+def _auditar_transicao(cursor, versao, anterior, acao, usuario_id, usuario_nome, origem, motivo):
+    def chave(dados):
+        return {"id": dados["id"], "numero": dados["numero_versao"]} if dados else None
+
+    registrar_historico_cursor(
+        cursor, "bom_producao", versao["produto_id"], acao, usuario_id, usuario_nome,
+        {"versao": chave(anterior)},
+        {"versao": chave(versao), "origem": origem, "motivo": (motivo or "").strip()},
+    )
+
+
+def ativar(bom_id, usuario_id, *, ativa_esperada, usuario_nome=None, origem="ENGENHARIA", motivo=None):
     with _escrita() as cursor:
         versao = _versao(cursor, bom_id)
-        if not versao["ativa"]:
-            raise ValueError("Selecione uma BOM publicada.")
-        inicio = _data(versao["data_inicio_vigencia"])
-        fim_atual = versao["data_fim_vigencia"]
-        if fim < inicio or (fim_atual and fim > _data(fim_atual)):
-            raise ValueError("A data final deve estar dentro da vigência original.")
-        _executar(cursor, "UPDATE bom SET status = 'INATIVA', ativa = FALSE, data_fim_vigencia = ? WHERE id = ?",
-                  (fim.isoformat(), bom_id))
-        _auditar(cursor, bom_id, usuario_id)
+        if versao["status"] != "PUBLICADA":
+            raise ValueError("Apenas uma BOM publicada pode ser ativada.")
+        produto_id = versao["produto_id"]
+        _produto(cursor, produto_id, fabricavel=True)
+        anterior = _ativa(cursor, produto_id)
+        if (anterior["id"] if anterior else None) != ativa_esperada:
+            raise ValueError("A versão ativa mudou. Atualize a página e revise a substituição.")
+        if not _vigente(versao, _hoje()):
+            raise ValueError("A versão está fora da vigência.")
+        _cabecalho(versao)
+        _validar_ciclos(cursor, bom_id)
+        _simular(cursor, _carregar_itens(cursor, versao), 1, validar=True)
+        if anterior:
+            _mudar_status(cursor, anterior["id"], "INATIVA", usuario_id)
+        _mudar_status(cursor, bom_id, "ATIVA", usuario_id)
+        _auditar_transicao(cursor, versao, anterior, "ativar", usuario_id, usuario_nome, origem, motivo)
+
+
+def inativar(bom_id, usuario_id, *, usuario_nome=None, origem="ENGENHARIA", motivo=None):
+    with _escrita() as cursor:
+        versao = _versao(cursor, bom_id)
+        if versao["status"] not in ("PUBLICADA", "ATIVA"):
+            raise ValueError("Selecione uma BOM publicada ou ativa.")
+        _mudar_status(cursor, bom_id, "INATIVA", usuario_id)
+        _auditar_transicao(cursor, versao, versao, "inativar", usuario_id, usuario_nome, origem, motivo)
+
+
+def estado_produtivo(produto_id):
+    with transaction() as conn:
+        registro = _um(conn.cursor(), f"SELECT {ESTADO_PRODUTIVO} FROM skus s WHERE s.id = ?", (produto_id,))
+        if not registro:
+            raise LookupError("Produto não encontrado.")
+        return registro["estado_produtivo"]
 
 
 def listar():
     with transaction() as conn:
-        return _todos(conn.cursor(), """
+        return _todos(conn.cursor(), f"""
             SELECT b.*, s.nome AS produto,
+                {ESTADO_PRODUTIVO},
                 (SELECT COUNT(*) FROM bom_item i WHERE i.bom_id = b.id AND i.ativo) AS quantidade_itens
             FROM bom b JOIN skus s ON s.id = b.produto_id
             ORDER BY s.nome, b.numero_versao DESC
         """)
 
 
+def _carregar_itens(cursor, versao):
+    return {**versao, "itens": _todos(cursor, """
+        SELECT i.*, COALESCE(s.nome, a.descricao) AS componente, p.nome AS etapa
+        FROM bom_item i LEFT JOIN skus s ON s.id = i.componente_produto_id
+        LEFT JOIN almoxarifado_insumos a ON a.id = i.componente_insumo_id
+        LEFT JOIN etapas_catalogo p ON p.id = i.etapa_id
+        WHERE i.bom_id = ? ORDER BY i.sequencia
+    """, (versao["id"],))}
+
+
+def _simular(cursor, versao, quantidade, *, validar=False):
+    hoje = _hoje()
+    resolvidas = {}
+
+    def verificar(atual):
+        if validar:
+            _produto(cursor, atual["produto_id"], fabricavel=True)
+            _cabecalho(atual)
+        if not any(item["ativo"] for item in atual["itens"]):
+            raise ValueError(f"A BOM de {atual['produto']} não possui componentes ativos.")
+
+    def resolver(item):
+        chave = (item["componente_produto_id"], item["componente_insumo_id"])
+        if chave not in resolvidas:
+            resolvidas[chave] = resolver_componente(*chave)
+        return resolvidas[chave]
+
+    def resolver_componente(produto_id, insumo_id):
+        componente = _componente(cursor, produto_id, insumo_id, bloquear=validar)
+        if produto_id is None:
+            return None
+        if not componente["fabricavel"]:
+            if not componente["compravel"]:
+                raise ValueError(f"{componente['nome']} não possui forma de aquisição válida.")
+            return None
+        ativa = _ativa(cursor, componente["id"])
+        if not ativa or not _vigente(ativa, hoje):
+            raise ValueError(f"Estrutura produtiva incompleta: {componente['nome']} não possui BOM ativa vigente.")
+        filha = _versao(cursor, ativa["id"])
+        filha["unidade_producao"] = _unidade(filha["unidade_producao"])
+        return _carregar_itens(cursor, filha)
+
+    return explodir(versao, quantidade, resolver, verificar)
+
+
+def simular(bom_id, quantidade):
+    with transaction() as conn:
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+        else:
+            cursor.execute("BEGIN")
+        versao = _versao(cursor, bom_id)
+        if versao["status"] == "INATIVA":
+            raise ValueError("Versões inativas são apenas históricas.")
+        versao = _carregar_itens(cursor, versao)
+        diretos = calcular_necessidades(versao["produto_id"], versao, quantidade)
+        try:
+            return {"diretos": diretos, **_simular(cursor, versao, quantidade)}
+        except ValueError as erro:
+            return {"diretos": diretos, "erro": str(erro)}
+
+
 def detalhar(bom_id):
     with transaction() as conn:
         cursor = conn.cursor()
-        versao = _versao(cursor, bom_id)
-        versao["itens"] = _todos(cursor, """
-            SELECT i.*, COALESCE(s.nome, a.descricao) AS componente, p.nome AS etapa
-            FROM bom_item i LEFT JOIN skus s ON s.id = i.componente_produto_id
-            LEFT JOIN almoxarifado_insumos a ON a.id = i.componente_insumo_id
-            LEFT JOIN etapas_catalogo p ON p.id = i.etapa_id
-            WHERE i.bom_id = ? ORDER BY i.sequencia
-        """, (bom_id,))
+        versao = _carregar_itens(cursor, _versao(cursor, bom_id))
+        ativa = _ativa(cursor, versao["produto_id"])
+        versao["ativa_producao"] = ativa
+        versao["pode_ativar"] = versao["status"] == "PUBLICADA" and _vigente(versao, _hoje())
+        versao["historico"] = _todos(cursor, """
+            SELECT * FROM engenharia_produtos_historico
+            WHERE entidade = 'bom_producao' AND entidade_id = ?
+            ORDER BY criado_em DESC, id DESC
+        """, (versao["produto_id"],))
+        for evento in versao["historico"]:
+            evento["antes"] = json.loads(evento["valores_anteriores"] or "{}")
+            evento["depois"] = json.loads(evento["valores_novos"] or "{}")
         return versao
 
 
@@ -359,8 +516,8 @@ def opcoes():
     with transaction() as conn:
         cursor = conn.cursor()
         return {
-            "produtos": _todos(cursor, """
-                SELECT id, nome, fabricavel, compravel FROM skus
+            "produtos": _todos(cursor, f"""
+                SELECT id, nome, fabricavel, compravel, {ESTADO_PRODUTIVO} FROM skus s
                 WHERE ativo = 'Sim' AND excluido_em IS NULL ORDER BY nome
             """),
             "insumos": _todos(cursor, """
