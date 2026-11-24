@@ -7,5 +7,8 @@
     <p>{{ mensagem }}</p>
     <p class="obs">Nenhuma alteração parcial foi mantida.</p>
     <a class="botao-principal" href="{{ retorno }}">Voltar e revisar</a>
+    {% if detalhe_op %}
+    <a href="{{ detalhe_op }}">Consultar a OP</a>
+    {% endif %}
 </div>
 {% endblock %}

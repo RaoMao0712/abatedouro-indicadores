@@ -700,6 +700,10 @@ def register_expedicao_routes(app, integracoes=None):
                     kg_produzidos=request.form.get("kg_produzidos"),
                     pacotes_1_ave=request.form.get("pacotes_1_ave"),
                     pacotes_2_aves=request.form.get("pacotes_2_aves"),
+                    organizacao_encerramento={
+                        "pallet_id": request.form.get("pallet_destino_id"),
+                        "justificativa": request.form.get("pallet_justificativa"),
+                    },
                     nao_conformes=_itens_nc_galinha_inteira(request.form),
                     usuario=session.get("nome") or "Usuário",
                     perfil=session.get("perfil") or "",
@@ -831,6 +835,7 @@ def register_expedicao_routes(app, integracoes=None):
             return render_template(
                 "erro_operacional.html", titulo=f"OP #{op_id} não encerrada",
                 mensagem=str(erro), retorno=url_for("embalagem_secundaria", op_id=op_id),
+                detalhe_op=url_for("consultar_op", op_id=op_id),
             ), 409
         except Exception as erro:
             app.logger.exception("Falha transacional ao encerrar a OP #%s", op_id)
@@ -944,6 +949,7 @@ def register_expedicao_routes(app, integracoes=None):
             return render_template(
                 "erro_operacional.html", titulo=f"OP #{op_id} não encerrada",
                 mensagem=str(erro), retorno=url_for("embalagem_secundaria", op_id=op_id),
+                detalhe_op=url_for("consultar_op", op_id=op_id),
             ), 409
         except Exception as erro:
             app.logger.exception("Falha após conferência da OP #%s", op_id)

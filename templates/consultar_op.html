@@ -55,6 +55,55 @@
 </div>
 
 {% if op %}
+{% if tentativa_divergente %}
+<section class="card" aria-labelledby="titulo-divergencia">
+    <h2 id="titulo-divergencia">Divergência no encerramento</h2>
+    <p>Tentativa registrada em {{ tentativa_divergente.tentativa_em }}.</p>
+    <ul>
+    {% for item in tentativa_divergente.snapshot.divergencias %}
+        <li><strong>{{ item.descricao }}</strong>
+            Esperado: {{ '%g'|format(item.esperado) }} {{ item.unidade }}.
+            Encontrado: {{ '%g'|format(item.encontrado) }} {{ item.unidade }}.
+            Diferença: {{ '%g'|format(item.diferenca) }} {{ item.unidade }}.
+        </li>
+    {% endfor %}
+    </ul>
+    <p>A aprovação libera as caixas registradas pelo fluxo oficial e preserva os valores apurados.</p>
+    {% if csrf_aprovacao and session.get('perfil') == 'admin' %}
+    <form method="post" action="{{ url_for('aprovar_encerramento_divergente_rota', op_id=op.id) }}"
+          onsubmit="if (!window.confirm('Esta OP possui divergências. Ao confirmar, o encerramento será realizado com os valores efetivamente registrados e a aprovação ficará gravada permanentemente no histórico.')) return false; this.elements.confirmacao.value = 'APROVAR';">
+        <input type="hidden" name="csrf_token" value="{{ csrf_aprovacao }}">
+        <input type="hidden" name="tentativa" value="{{ tentativa_divergente.referencia }}">
+        <input type="hidden" name="confirmacao" value="">
+        <label for="justificativa-encerramento">Justificativa para aprovação</label>
+        <textarea id="justificativa-encerramento" name="justificativa" rows="3" required></textarea>
+        <button type="submit">Aprovar Mesmo Assim</button>
+    </form>
+    {% endif %}
+</section>
+{% endif %}
+
+{% if aprovacoes_encerramento %}
+<section class="card" aria-labelledby="titulo-aprovacoes">
+    <h2 id="titulo-aprovacoes">Aprovação excepcional de encerramento</h2>
+    {% if op.status == 'Encerrada' and aprovacoes_encerramento[0].resultado.versao_posterior == op.versao_operacional %}
+    <p><strong>Encerramento aprovado com divergência</strong></p>
+    {% endif %}
+    {% for aprovacao in aprovacoes_encerramento %}
+    <p><strong>{{ aprovacao.usuario }}</strong> · {{ aprovacao.criado_em }}</p>
+    <p>{{ aprovacao.motivo }}</p>
+    <ul>
+        {% for item in aprovacao.resultado.divergencias %}
+        <li>{{ item.descricao }} Esperado: {{ '%g'|format(item.esperado) }}.
+            Encontrado: {{ '%g'|format(item.encontrado) }}.
+            Diferença: {{ '%g'|format(item.diferenca) }} {{ item.unidade }}.</li>
+        {% endfor %}
+    </ul>
+    <p>Resultado: {{ aprovacao.resultado.status_posterior }} ·
+        {{ aprovacao.resultado.caixas_liberadas }} caixa(s) liberada(s).</p>
+    {% endfor %}
+</section>
+{% endif %}
 
 <div class="card">
 

@@ -646,6 +646,18 @@ def validar_limite_apontamento_primaria_cursor(cursor, op, nova_quantidade):
     return {"maxima": maxima, "ja_apontado": ja_apontado, "perdas": perdas}
 
 
+class DivergenciaBalancoAves(ValueError):
+    def __init__(self, saldo, esperado, encontrado):
+        super().__init__(
+            f"Balanco de aves divergente em {saldo:g} aves. "
+            "Revise Embalagem Primaria, descartes, condenacoes ou mortes na gaiola."
+        )
+        self.dados = {
+            "tipo": "BALANCO_AVES", "descricao": str(self), "esperado": esperado,
+            "encontrado": encontrado, "diferenca": saldo, "unidade": "aves",
+        }
+
+
 def validar_balanco_aves_op(op, aves_produzidas, perdas):
     aves_vivas = float(op["quantidade_aves"] or 0)
     mortes_na_gaiola = float(op["mortes_antes_pendura"] or 0) + float(perdas["mortes_na_gaiola"] or 0)
@@ -653,10 +665,7 @@ def validar_balanco_aves_op(op, aves_produzidas, perdas):
     saldo_aves = aves_vivas - total_fechamento
 
     if abs(saldo_aves) > 0.0001:
-        raise ValueError(
-            f"Balanco de aves divergente em {saldo_aves:g} aves. "
-            "Revise Embalagem Primaria, descartes, condenacoes ou mortes na gaiola."
-        )
+        raise DivergenciaBalancoAves(saldo_aves, aves_vivas, total_fechamento)
 
     return saldo_aves
 
@@ -739,6 +748,8 @@ def registrar_apontamento_embalagem_primaria(
     versao_esperada=None,
     ip_origem=None,
     request_id=None,
+    organizacao_encerramento=None,
+    _aprovacao=None,
 ):
     criar_tabelas_estoque_pi_pa()
     from .estoque_service import (
@@ -775,6 +786,11 @@ def registrar_apontamento_embalagem_primaria(
             raise ValueError("Informe separadamente os pacotes V1 e V2 de Galinha Inteira.")
 
         observacao_final = observacoes or f"Pacotes 1 ave: {pacotes_1:g} | Pacotes 2 aves: {pacotes_2:g}"
+        dados_primaria = {
+            "pacotes_1_ave": pacotes_1, "pacotes_2_aves": pacotes_2,
+            "observacoes": observacao_final, "nao_conformes": nao_conformes,
+            "organizacao_encerramento": organizacao_encerramento,
+        }
 
         def preparar_galinha_inteira(cursor, op_bloqueada, _checkpoint_oficial):
             cursor.execute(q("""SELECT COUNT(*) total FROM pa_caixa_composicao
@@ -784,7 +800,15 @@ def registrar_apontamento_embalagem_primaria(
                     "Esta OP já possui posições PA vinculadas. Não é possível reapontar a Embalagem Primária."
                 )
             perdas = calcular_perdas_aves_op(cursor, op_bloqueada["id"])
-            validar_balanco_aves_op(op_bloqueada, aves_embaladas, perdas)
+            try:
+                validar_balanco_aves_op(op_bloqueada, aves_embaladas, perdas)
+            except DivergenciaBalancoAves as erro:
+                if not _aprovacao or erro.dados != _aprovacao["divergencia"]:
+                    erro.dados_primaria = dados_primaria
+                    raise
+            else:
+                if _aprovacao:
+                    raise ValueError("A divergência mudou. Faça uma nova tentativa de encerramento.")
             cursor.execute(q("DELETE FROM estoque_produto_intermediario WHERE op_id = ?"), (op_bloqueada["id"],))
             cursor.execute(q("DELETE FROM embalagem_primaria_apontamentos WHERE op_id = ?"), (op_bloqueada["id"],))
             sql_apontamento = """
@@ -858,6 +882,7 @@ def registrar_apontamento_embalagem_primaria(
             op["id"], checkpoint=checkpoint, preparador=preparar_galinha_inteira,
             usuario=usuario, perfil=perfil, idempotency_key=idempotency_key,
             versao_esperada=versao_esperada, ip_origem=ip_origem, request_id=request_id,
+            _aprovacao=_aprovacao,
         )
     with transaction() as conn:
         cursor = conn.cursor()

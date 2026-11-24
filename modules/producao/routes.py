@@ -3,13 +3,17 @@
 from datetime import datetime
 from decimal import Decimal
 import uuid
+import secrets
 from zoneinfo import ZoneInfo
 
-from flask import flash, redirect, render_template, request, session, url_for
+from flask import abort, flash, redirect, render_template, request, session, url_for
 
 from database import DATABASE_URL, conectar, q
 from modules.auth.decorators import login_obrigatorio, perfil_permitido
 from modules.auth.services import usuario_eh_admin
+from modules.expedicao.encerramento_op import (
+    aprovar_encerramento_divergente, contexto_aprovacao_encerramento,
+)
 from modules.parceiros.services import (
     PAPEL_FORNECEDOR, listar_parceiros_elegiveis, obter_parceiro_por_papel,
 )
@@ -1185,6 +1189,32 @@ def register_producao_routes(app, integracoes=None):
         return redirect(url_for("embalagem_secundaria", op_id=op_id))
 
 
+    @app.post("/op/<int:op_id>/aprovar-encerramento-divergente")
+    @login_obrigatorio
+    def aprovar_encerramento_divergente_rota(op_id):
+        if not usuario_eh_admin():
+            abort(403)
+        recebido = request.form.get("csrf_token", "")
+        esperado = session.get("csrf_aprovacao_encerramento", "")
+        if not recebido or not secrets.compare_digest(recebido.encode("utf-8"), esperado.encode("utf-8")):
+            abort(403)
+        if request.form.get("confirmacao") != "APROVAR":
+            abort(400)
+        try:
+            aprovar_encerramento_divergente(
+                op_id, referencia=request.form.get("tentativa"),
+                justificativa=request.form.get("justificativa"),
+                usuario_id=session.get("usuario_id"), usuario=session.get("nome"),
+                perfil=session.get("perfil"), ip_origem=request.remote_addr,
+            )
+            flash("OP encerrada com aprovação excepcional e estoque processado.")
+        except (ValueError, PermissionError) as erro:
+            flash(str(erro))
+        except RuntimeError as erro:
+            app.logger.exception("Falha ao aprovar encerramento excepcional da OP #%s", op_id)
+            flash(str(erro))
+        return redirect(url_for("consultar_op", op_id=op_id))
+
     @app.route("/op/<int:op_id>/reabrir", methods=["POST"])
     @perfil_permitido("admin", "pcp", "gerencia")
     def reabrir_op(op_id):
@@ -1294,6 +1324,9 @@ def register_producao_routes(app, integracoes=None):
         preflight_reversao_estorno = None
         historico_operacional_op = []
         chaves_operacao = {}
+        tentativa_divergente = None
+        aprovacoes_encerramento = []
+        csrf_aprovacao = None
 
         if op_id:
             conn = conectar()
@@ -1318,6 +1351,13 @@ def register_producao_routes(app, integracoes=None):
             tempos_setor = cursor.fetchall()
 
             if op:
+                tentativa_divergente, aprovacoes_encerramento = contexto_aprovacao_encerramento(
+                    cursor, op["id"], aberta=op["status"] == "Aberta",
+                )
+                if tentativa_divergente and usuario_eh_admin():
+                    csrf_aprovacao = session.setdefault(
+                        "csrf_aprovacao_encerramento", secrets.token_urlsafe(32),
+                    )
                 filtros_producao = normalizar_filtros({
                     "data_inicio": op["data"],
                     "data_fim": op["data"],
@@ -1381,6 +1421,9 @@ def register_producao_routes(app, integracoes=None):
             preflight_reversao_estorno=preflight_reversao_estorno,
             historico_operacional_op=historico_operacional_op,
             chaves_operacao=chaves_operacao,
+            tentativa_divergente=tentativa_divergente,
+            aprovacoes_encerramento=aprovacoes_encerramento,
+            csrf_aprovacao=csrf_aprovacao,
         )
 
     @app.route("/op/<int:op_id>/corrigir-peso-entrada", methods=["POST"])

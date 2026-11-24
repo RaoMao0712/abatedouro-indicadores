@@ -2,6 +2,7 @@
 
 import json
 import hashlib
+from contextlib import nullcontext
 from pathlib import Path
 
 from database import DATABASE_URL, conectar, q, transaction
@@ -983,9 +984,9 @@ def listar_caixas_disponiveis_palletizacao(filtros=None):
         conn.close()
 
 
-def resumo_organizacao_op(op_id):
+def resumo_organizacao_op(op_id, *, conn_existente=None):
     """Fotografia derivada das posições PA da OP e de seus vínculos logísticos."""
-    conn = conectar()
+    conn = conn_existente if conn_existente is not None else conectar()
     try:
         cursor = conn.cursor()
         cursor.execute(q("SELECT id,sku,status FROM ordens_producao WHERE id=?"), (op_id,))
@@ -1038,13 +1039,14 @@ def resumo_organizacao_op(op_id):
             "completa": not sem_pallet,
         }
     finally:
-        conn.close()
+        if conn_existente is None:
+            conn.close()
 
 
 def validar_organizacao_para_encerramento(op_id, *, justificativa=None, usuario=None,
-                                           idempotency_key=None):
+                                           idempotency_key=None, conn_existente=None):
     """Não interfere no preflight produtivo; apenas audita a exceção logística."""
-    resumo = resumo_organizacao_op(op_id)
+    resumo = resumo_organizacao_op(op_id, conn_existente=conn_existente)
     if resumo["completa"]:
         return resumo
     motivo = str(justificativa or "").strip()
@@ -1054,7 +1056,7 @@ def validar_organizacao_para_encerramento(op_id, *, justificativa=None, usuario=
             "Informe uma justificativa explicita para prosseguir."
         )
     chave = _validar_chave(idempotency_key)
-    with transaction() as conn:
+    with (nullcontext(conn_existente) if conn_existente is not None else transaction()) as conn:
         cursor = conn.cursor()
         _bloquear_idempotencia(cursor, chave)
         cursor.execute(q("SELECT * FROM op_palletizacao_excecoes WHERE idempotency_key=?"), (chave,))
@@ -1245,10 +1247,11 @@ def adicionar_caixa(
 
 def adicionar_caixas(
     pallet_id, caixa_ids, *, usuario, idempotency_key, justificativa=None, dados=None,
+    conn_existente=None,
 ):
     ids = _normalizar_lista_ids(caixa_ids)
     chave = _validar_chave(idempotency_key)
-    with transaction() as conn:
+    with (nullcontext(conn_existente) if conn_existente is not None else transaction()) as conn:
         cursor = conn.cursor()
         _bloquear_idempotencia(cursor, chave)
         chaves = [_chave_item(chave, caixa_id, len(ids)) for caixa_id in ids]

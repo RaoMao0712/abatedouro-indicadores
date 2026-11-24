@@ -8,6 +8,7 @@ import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
 import unittest
+from contextlib import closing
 from unittest import mock
 
 
@@ -41,6 +42,9 @@ from modules.expedicao.routes import register_expedicao_routes  # noqa: E402
 from modules.expedicao import estornos_embalagem as estornos_embalagem  # noqa: E402
 from modules.expedicao import encerramento_op  # noqa: E402
 from modules.expedicao.encerramento_op import (  # noqa: E402
+    TIPO_APROVACAO,
+    aprovar_encerramento_divergente,
+    contexto_aprovacao_encerramento,
     listar_ops_aguardando_encerramento,
     preflight_encerramento_op,
 )
@@ -65,6 +69,7 @@ from modules.producao.operacoes_op import (  # noqa: E402
 )
 from modules.producao import integridade_encerramento as integridade  # noqa: E402
 from modules.producao.commands import register_producao_commands  # noqa: E402
+from modules.producao.routes import register_producao_routes  # noqa: E402
 from modules.label_printing.services import criar_tabelas_impressao_etiquetas  # noqa: E402
 from modules.producao.integridade_encerramento import (  # noqa: E402
     ENCERRADA,
@@ -102,6 +107,139 @@ def consultar_um(sql, parametros=()):
 
 
 class ExpedicaoCorretivaTest(unittest.TestCase):
+    def tentativa_divergente(self, codigo):
+        op_id, caixa_id = self.preparar_cortada(codigo)
+        with self.assertRaisesRegex(ValueError, "divergente em 12 aves"):
+            finalizar_embalagem_secundaria_op(op_id)
+        with closing(conectar()) as conn:
+            tentativa, historico = contexto_aprovacao_encerramento(conn.cursor(), op_id, aberta=True)
+        self.assertFalse(historico)
+        self.assertEqual(tentativa["snapshot"]["divergencias"][0]["diferenca"], 12)
+        return op_id, caixa_id, tentativa["referencia"]
+
+    def aprovar_excecao(self, op_id, referencia, **extras):
+        return aprovar_encerramento_divergente(
+            op_id, referencia=referencia, **{
+                "justificativa": "Diferença física revisada", "usuario_id": 1,
+                "usuario": "Admin de teste", "perfil": "admin", **extras,
+            },
+        )
+
+    def test_aprovacao_excepcional_preserva_divergencia_e_ativa_pa_uma_vez(self):
+        self.contexto("admin")
+        op_id, caixa_id, referencia = self.tentativa_divergente("CX-APROVACAO")
+        with self.assertRaises(PermissionError):
+            self.aprovar_excecao(op_id, referencia, perfil="pcp")
+        with self.assertRaisesRegex(ValueError, "justificativa"):
+            self.aprovar_excecao(op_id, referencia, justificativa="   ")
+
+        resultado = self.aprovar_excecao(op_id, referencia)
+        self.assertEqual(resultado["caixas_liberadas"], 1)
+        self.assertEqual(resultado["bandejas_consumidas"], 12)
+        self.assertEqual(resultado["peso_liquido_total"], 10)
+        with self.assertRaisesRegex(ValueError, "A OP já foi encerrada"):
+            self.aprovar_excecao(op_id, referencia)
+        with closing(conectar()) as conn:
+            _, historico = contexto_aprovacao_encerramento(conn.cursor(), op_id, aberta=False)
+        self.assertEqual(len(historico), 1)
+        aprovacao = historico[0]
+        self.assertEqual(aprovacao["usuario"], "Admin de teste")
+        self.assertEqual(aprovacao["motivo"], "Diferença física revisada")
+        self.assertTrue(aprovacao["criado_em"])
+        self.assertEqual(aprovacao["resultado"]["usuario_id"], 1)
+        self.assertEqual(aprovacao["resultado"]["tentativa_id"], referencia)
+        self.assertEqual(aprovacao["resultado"]["status_posterior"], "Encerrada")
+        self.assertEqual(aprovacao["resultado"]["divergencias"][0]["diferenca"], 12)
+        self.assertEqual(consultar_um(
+            "SELECT COUNT(*) total FROM estoque_eventos WHERE caixa_id=? AND acao='FORMACAO_ESTOQUE'",
+            (caixa_id,),
+        )["total"], 1)
+
+    def test_aprovacao_excepcional_falha_apos_auditoria_reverte_tudo(self):
+        self.contexto("admin")
+        op_id, caixa_id, referencia = self.tentativa_divergente("CX-APROVACAO-ROLLBACK")
+
+        def falhar(etapa):
+            if etapa == "apos_auditoria":
+                raise RuntimeError("falha injetada")
+
+        with self.assertRaisesRegex(RuntimeError, "falha injetada"):
+            self.aprovar_excecao(op_id, referencia, checkpoint=falhar)
+        self.assertEqual(consultar_um("SELECT status FROM ordens_producao WHERE id=?", (op_id,))["status"], "Aberta")
+        self.assertEqual(consultar_um("SELECT estoque_operacional FROM pa_caixas WHERE id=?", (caixa_id,))["estoque_operacional"], 0)
+        self.assertFalse(consultar("SELECT id FROM op_operacoes_auditoria WHERE op_id=?", (op_id,)))
+        self.assertFalse(consultar("SELECT id FROM estoque_eventos WHERE caixa_id=?", (caixa_id,)))
+        self.assertFalse(consultar("SELECT id FROM apontamentos_producao WHERE op_id=?", (op_id,)))
+
+    def test_aprovacao_excepcional_concorrente_tem_um_vencedor(self):
+        self.contexto("admin")
+        op_id, caixa_id, referencia = self.tentativa_divergente("CX-APROVACAO-CONCORRENTE")
+
+        def aprovar(usuario_id):
+            with self.app.test_request_context("/"):
+                session.update(usuario_id=usuario_id, perfil="admin", nome=f"Admin {usuario_id}")
+                try:
+                    self.aprovar_excecao(op_id, referencia, usuario_id=usuario_id)
+                    return True
+                except ValueError as erro:
+                    self.assertIn("A OP já foi encerrada", str(erro))
+                    return False
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            self.assertEqual(sum(executor.map(aprovar, (101, 102))), 1)
+        self.assertEqual(len(consultar(
+            "SELECT id FROM op_operacoes_auditoria WHERE op_id=? AND tipo=?", (op_id, TIPO_APROVACAO),
+        )), 1)
+        self.assertEqual(len(consultar(
+            "SELECT id FROM estoque_eventos WHERE caixa_id=? AND acao='FORMACAO_ESTOQUE'", (caixa_id,),
+        )), 1)
+
+    def test_encerramento_normal_nao_registra_aprovacao_excepcional(self):
+        self.contexto("producao")
+        op_id, _ = self.preparar_cortada_integra("CX-APROVACAO-NORMAL")
+        self.assertTrue(finalizar_embalagem_secundaria_op(op_id)["sucesso"])
+        self.assertFalse(consultar(
+            "SELECT id FROM op_operacoes_auditoria WHERE op_id=? AND tipo=?", (op_id, TIPO_APROVACAO),
+        ))
+
+    def test_aprovacao_excepcional_galinha_inteira_reutiliza_os_pacotes_da_tentativa(self):
+        self.contexto("admin")
+        op_id = self.criar_op("Galinha Inteira", 8)
+        op = consultar_um("SELECT * FROM ordens_producao WHERE id=?", (op_id,))
+        with self.assertRaisesRegex(ValueError, "divergente em 2 aves"):
+            registrar_apontamento_embalagem_primaria(op, None, pacotes_1_ave=2, pacotes_2_aves=2)
+        with closing(conectar()) as conn:
+            tentativa, _ = contexto_aprovacao_encerramento(conn.cursor(), op_id, aberta=True)
+        self.assertFalse(consultar("SELECT id FROM pa_caixa_composicao WHERE op_id=?", (op_id,)))
+        resultado = self.aprovar_excecao(op_id, tentativa["referencia"])
+        self.assertEqual((resultado["aves_embaladas"], resultado["unidades_vendaveis"]), (6, 4))
+        self.assertEqual(resultado["caixas_liberadas"], 2)
+
+    def test_aprovacao_excepcional_post_exige_admin_csrf_e_confirmacao(self):
+        op_id, _, referencia = self.tentativa_divergente("CX-APROVACAO-HTTP")
+        app = Flask(__name__)
+        app.secret_key = "teste"
+        app.add_url_rule("/login", "login", lambda: "")
+        register_producao_routes(app)
+        cliente = app.test_client()
+        url = f"/op/{op_id}/aprovar-encerramento-divergente"
+        dados = {
+            "tentativa": referencia, "csrf_token": "token-teste",
+            "confirmacao": "APROVAR", "justificativa": "Conferência administrativa",
+        }
+        self.assertEqual(cliente.post(url, data=dados).location, "/login")
+        with cliente.session_transaction() as sessao:
+            sessao.update(usuario_id=1, perfil="producao", csrf_aprovacao_encerramento="token-teste")
+        self.assertEqual(cliente.post(url, data=dados).status_code, 403)
+        with cliente.session_transaction() as sessao:
+            sessao.update(perfil="admin", nome="Admin HTTP")
+        self.assertEqual(cliente.post(url, data={**dados, "csrf_token": "inválido"}).status_code, 403)
+        self.assertEqual(cliente.post(url, data={**dados, "confirmacao": ""}).status_code, 400)
+        self.assertEqual(cliente.post(url, data={**dados, "justificativa": "  "}).status_code, 302)
+        self.assertEqual(consultar_um("SELECT status FROM ordens_producao WHERE id=?", (op_id,))["status"], "Aberta")
+        self.assertEqual(cliente.post(url, data=dados).status_code, 302)
+        self.assertEqual(consultar_um("SELECT status FROM ordens_producao WHERE id=?", (op_id,))["status"], "Encerrada")
+
     @classmethod
     def setUpClass(cls):
         conn = conectar()

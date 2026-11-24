@@ -8,13 +8,17 @@ import time
 import uuid
 
 from database import DATABASE_URL, conectar, q, transaction
-from modules.expedicao.services import pi_primaria_liquido_cursor
+from modules.expedicao.services import (
+    DivergenciaBalancoAves, pi_primaria_liquido_cursor,
+    registrar_apontamento_embalagem_primaria,
+)
 from modules.expedicao.movimentacoes_canonicas import buscar_eventos_sucessores_cursor
 from modules.producao.services import gerar_producao_automatica_setores
 from modules.producao.skus_legados import SKU_GALINHA_INTEIRA, validar_sku_operacional
 
 
 TIPO_AUDITORIA = "ENCERRAMENTO_OP"
+TIPO_APROVACAO = "OP_ENCERRAMENTO_DIVERGENCIA_APROVADO"
 STATUS_INATIVOS = {"ESTORNADA", "ESTORNADO", "CANCELADA", "CANCELADO"}
 
 
@@ -168,17 +172,26 @@ def _calcular_fechamento_cursor(cursor, op):
     )
     saldo_pi = bandejas_primaria - bandejas_consumidas
     pendencias = []
+    divergencias = []
     if abs(saldo_aves) > 0.0001:
         pendencias.append(
             f"Balanço de aves divergente em {saldo_aves:g} aves. Revise Embalagem "
             "Primária, descartes, condenações ou mortes na gaiola."
         )
+        divergencias.append({
+            "tipo": "BALANCO_AVES", "descricao": pendencias[-1], "esperado": aves_vivas,
+            "encontrado": aves_vivas - saldo_aves, "diferenca": saldo_aves, "unidade": "aves",
+        })
     if abs(saldo_pi) > 0.0001:
         pendencias.append(
             (f"Existem {saldo_pi:g} bandejas sem pesagem. Lance uma caixa parcial antes de encerrar."
              if saldo_pi > 0 else
              f"A Embalagem Secundária consumiu {-saldo_pi:g} bandejas a mais que o PI produzido.")
         )
+        divergencias.append({
+            "tipo": "BALANCO_PI", "descricao": pendencias[-1], "esperado": bandejas_primaria,
+            "encontrado": bandejas_consumidas, "diferenca": saldo_pi, "unidade": "bandejas",
+        })
     sku = validar_sku_operacional(op["sku"])
     exige_peso = sku != SKU_GALINHA_INTEIRA
     if int(caixas["caixas"] or 0) == 0 or (exige_peso and peso_liquido_total <= 0):
@@ -200,6 +213,7 @@ def _calcular_fechamento_cursor(cursor, op):
         "peso_bruto_canonico": str(peso_bruto_canonico),
         "saldo_aves": saldo_aves, "saldo_pi": saldo_pi,
         "pendencias": pendencias,
+        "divergencias": divergencias,
         "pode_encerrar": not pendencias,
     }
 
@@ -211,6 +225,7 @@ def _preflight_cursor(cursor, op, bloquear=False):
     pi = _livro_pi(cursor, op_id, bloquear=bloquear)
     fechamento = _calcular_fechamento_cursor(cursor, op)
     bloqueios = list(fechamento["pendencias"])
+    divergencias = list(fechamento["divergencias"])
     saldo_pi = Decimal(str(pi["saldo"] or 0))
     possui_expedicao_itens = _tabela_existe(cursor, "expedicao_itens")
 
@@ -235,6 +250,10 @@ def _preflight_cursor(cursor, op, bloquear=False):
         bloqueios.append(
             f"Saldo real de PI divergente. Esperado 0, encontrado {saldo_pi.normalize()} bandeja(s)."
         )
+        divergencias.append({
+            "tipo": "SALDO_LIVRO_PI", "descricao": bloqueios[-1], "esperado": 0,
+            "encontrado": float(saldo_pi), "diferenca": float(-saldo_pi), "unidade": "bandejas",
+        })
     if not ativas:
         bloqueios.append("Nenhuma caixa ativa foi encontrada para a OP.")
 
@@ -296,6 +315,7 @@ def _preflight_cursor(cursor, op, bloquear=False):
         "permitido": pronta,
         "pronta_para_encerramento": pronta,
         "bloqueios": bloqueios,
+        "divergencias": divergencias,
         "pode_encerrar": pronta,
         "pendencias": bloqueios,
         "pi": {
@@ -453,14 +473,15 @@ def _resultado_encerramento_anterior(cursor, op_id):
     return json.loads(linha["resultado_json"]) if linha else None
 
 
-def _auditar(cursor, op_id, chave, usuario, perfil, preflight, resultado, ip_origem):
+def _auditar(cursor, op_id, chave, usuario, perfil, preflight, resultado, ip_origem,
+             *, tipo=TIPO_AUDITORIA, motivo="Encerramento industrial pelo serviço oficial"):
     cursor.execute(q("""INSERT INTO op_operacoes_auditoria(
         op_id,tipo,idempotency_key,usuario,perfil,motivo,etapa_destino,
         status_anterior,status_posterior,preflight_json,efeitos_json,
         resultado_json,ip_origem,criado_em
     ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)"""), (
-        op_id, TIPO_AUDITORIA, chave, usuario or "Sistema", perfil or "sistema",
-        "Encerramento industrial pelo serviço oficial", "ESTOQUE_PA",
+        op_id, tipo, chave, usuario or "Sistema", perfil or "sistema",
+        motivo, "ESTOQUE_PA",
         "Aberta", "Encerrada",
         json.dumps({k: v for k, v in preflight.items() if k not in {"fechamento", "op"}}, ensure_ascii=False, default=str),
         json.dumps({
@@ -471,6 +492,50 @@ def _auditar(cursor, op_id, chave, usuario, perfil, preflight, resultado, ip_ori
         }, ensure_ascii=False),
         json.dumps(resultado, ensure_ascii=False), ip_origem, _agora(),
     ))
+
+
+def _snapshot_aprovavel(preflight):
+    divergencias = preflight["divergencias"]
+    if (preflight["status"] != "Aberta" or not divergencias
+            or set(preflight["bloqueios"]) != {item["descricao"] for item in divergencias}):
+        return None
+    return {
+        "versao": preflight["versao_operacional"],
+        "caixas": preflight["caixas_dados_hash"],
+        "pi": preflight["pi"],
+        "divergencias": divergencias,
+    }
+
+
+def _tentativa_aprovavel(cursor, op_id, referencia=None):
+    if not _tabela_existe(cursor, "op_encerramento_tentativas"):
+        return None
+    cursor.execute(q("""SELECT correlation_id, criado_em, validacoes_json
+        FROM op_encerramento_tentativas WHERE op_id=? AND resultado='REJEITADA'
+        AND validacoes_json LIKE ? ORDER BY id DESC LIMIT 1"""),
+        (op_id, '%"excecao":%'))
+    linha = cursor.fetchone()
+    if linha and (not referencia or linha["correlation_id"] == referencia):
+        dados = json.loads(linha["validacoes_json"]).get("excecao")
+        if dados:
+            return {**dados, "referencia": linha["correlation_id"], "tentativa_em": linha["criado_em"]}
+    return None
+
+
+def contexto_aprovacao_encerramento(cursor, op_id, *, aberta):
+    tentativa = _tentativa_aprovavel(cursor, op_id) if aberta else None
+    if tentativa and not tentativa.get("primaria") and tentativa["snapshot"] != _snapshot_aprovavel(
+        _preflight_cursor(cursor, _carregar_op(cursor, op_id))
+    ):
+        tentativa = None
+    historico = []
+    if _tabela_existe(cursor, "op_operacoes_auditoria"):
+        cursor.execute(q("""SELECT usuario, motivo, criado_em, resultado_json
+            FROM op_operacoes_auditoria WHERE op_id=? AND tipo=? ORDER BY id DESC"""),
+            (op_id, TIPO_APROVACAO))
+        historico = [{**dict(linha), "resultado": json.loads(linha["resultado_json"])}
+                     for linha in cursor.fetchall()]
+    return tentativa, historico
 
 
 def _registrar_tentativa_inicio(*, correlation_id, request_id, op_id, chave, usuario,
@@ -532,15 +597,19 @@ def _concluir_tentativa_sucesso_cursor(cursor, correlation_id, telemetria, resul
         raise RuntimeError("A tentativa de encerramento não pôde ser concluída na auditoria.")
 
 
-def _validar_pos_condicoes(cursor, op_id, preflight, chave):
+def _validar_pos_condicoes(cursor, op_id, preflight, chave, *, aprovacao=False):
     """Valida o estado que será commitado; qualquer falha aborta toda a transação."""
     op_final = _carregar_op(cursor, op_id)
     erros = []
     if str(op_final["status"] or "") != "Encerrada":
         erros.append("a OP não permaneceu Encerrada")
     pi = _livro_pi(cursor, op_id)
-    if _decimal(pi["saldo"] if isinstance(pi, dict) else pi["saldo"]) != Decimal("0"):
-        erros.append(f"o saldo de PI permaneceu em {pi['saldo']}")
+    saldo_esperado = _decimal(preflight["saldo_pi"]) if aprovacao else Decimal("0")
+    if _decimal(pi["saldo"]) != saldo_esperado:
+        erros.append(
+            f"o saldo de PI ficou em {pi['saldo']}; esperado {saldo_esperado}" if aprovacao
+            else f"o saldo de PI permaneceu em {pi['saldo']}"
+        )
     caixas = _carregar_caixas(cursor, op_id)
     ativas = [c for c in caixas if str(c["status"] or "").upper() not in STATUS_INATIVOS]
     if len(ativas) != int(preflight["caixas_ativas"]):
@@ -590,7 +659,7 @@ def _validar_pos_condicoes(cursor, op_id, preflight, chave):
     if erros:
         raise RuntimeError("Pós-validação do encerramento falhou: " + "; ".join(erros) + ".")
     return {"op_encerrada": True, "caixas_pendentes": 0,
-            "caixas_operacionais": len(ativas), "saldo_pi": 0,
+            "caixas_operacionais": len(ativas), "saldo_pi": float(saldo_esperado),
             "peso_operacional": float(peso_operacional),
             "bandejas": float(preflight["bandejas_consumidas"]),
             "dados_fisicos_preservados": True}
@@ -603,7 +672,7 @@ def _decimal(valor):
 def _encerrar_op_transacional(
     op_id, *, checkpoint=None, nao_conformes=None, conferencia_hash=None,
     exigir_conferencia=False, usuario=None, perfil=None, idempotency_key=None,
-    versao_esperada=None, ip_origem=None, telemetria=None, preparador=None,
+    versao_esperada=None, ip_origem=None, telemetria=None, preparador=None, aprovacao=None,
 ):
     """Encerra a OP e libera seu PA na mesma transação lógica."""
     from .conferencia_embalagem import validar_conferencia_para_encerramento
@@ -616,7 +685,7 @@ def _encerrar_op_transacional(
             # SQLite não possui SELECT ... FOR UPDATE. O lock de escrita no
             # início reproduz a serialização da OP usada pelo PostgreSQL.
             cursor.execute("BEGIN IMMEDIATE")
-        existente = _resultado_idempotente(cursor, idempotency_key)
+        existente = None if aprovacao else _resultado_idempotente(cursor, idempotency_key)
         if existente:
             existente["ja_encerrada"] = True
             existente["correlation_id"] = telemetria["correlation_id"]
@@ -633,6 +702,8 @@ def _encerrar_op_transacional(
             telemetria["versao_encontrada"] = versao_atual
         chave = idempotency_key or f"ENCERRAMENTO-OP-{op_id}-V{versao_atual}"
         if str(op["status"] or "") == "Encerrada":
+            if aprovacao:
+                raise ValueError("A OP já foi encerrada.")
             anterior = _resultado_encerramento_anterior(cursor, op_id)
             if anterior:
                 anterior["ja_encerrada"] = True
@@ -652,18 +723,58 @@ def _encerrar_op_transacional(
         if exigir_conferencia:
             validar_conferencia_para_encerramento(cursor, op_id, conferencia_hash)
 
-        preparacao = preparador(cursor, op, checkpoint) if preparador else {}
+        tentativa = None
+        if aprovacao:
+            if perfil != "admin" or not aprovacao["usuario_id"]:
+                raise PermissionError("A aprovação exige um administrador autenticado.")
+            tentativa = _tentativa_aprovavel(cursor, op_id, aprovacao["referencia"])
+            if (not tentativa or tentativa["snapshot"]["versao"] != versao_atual
+                    or op["status"] != "Aberta" or bool(tentativa.get("primaria")) != bool(preparador)):
+                raise ValueError("A divergência mudou ou a tentativa não pode ser aprovada. Faça uma nova tentativa de encerramento.")
+        try:
+            preparacao = preparador(cursor, op, checkpoint) if preparador else {}
+        except DivergenciaBalancoAves as erro:
+            if not aprovacao and getattr(erro, "dados_primaria", None):
+                telemetria["validacoes"]["excecao"] = {
+                    "snapshot": {"versao": versao_atual, "divergencias": [erro.dados]},
+                    "primaria": erro.dados_primaria,
+                }
+            raise
         preparacao = preparacao or {}
         nao_conformes_efetivos = preparacao.get("nao_conformes", nao_conformes)
 
         preflight = _preflight_cursor(cursor, op, bloquear=True)
+        snapshot = _snapshot_aprovavel(preflight) if not preflight["permitido"] else None
         if telemetria is not None:
             telemetria["validacoes"] = {
                 "estado": "PRONTA_PARA_ENCERRAMENTO" if preflight["permitido"] else "BLOQUEADA_PARA_ENCERRAMENTO",
                 "permitido": preflight["permitido"], "bloqueios": preflight["bloqueios"],
                 "saldo_pi": preflight["saldo_pi"], "caixas": preflight["caixas_ativas"],
             }
-        if not preflight["permitido"]:
+        if aprovacao:
+            if preparador:
+                atuais = [{k: v for k, v in item.items() if k != "descricao"}
+                          for item in (snapshot or {}).get("divergencias", [])]
+                divergencia_primaria = {k: v for k, v in aprovacao["divergencia"].items()
+                                       if k != "descricao"}
+                valida = (
+                    aprovacao["divergencia"] == tentativa["snapshot"]["divergencias"][0]
+                    and atuais == [divergencia_primaria]
+                )
+            else:
+                valida = snapshot is not None and snapshot == tentativa["snapshot"]
+            if not valida:
+                raise ValueError("A divergência mudou ou a tentativa não pode ser aprovada. Faça uma nova conferência e tentativa de encerramento.")
+            if tentativa.get("conferencia_hash"):
+                validar_conferencia_para_encerramento(cursor, op_id, tentativa["conferencia_hash"])
+            if not preparador:
+                nao_conformes_efetivos = tentativa["nao_conformes"]
+        elif not preflight["permitido"]:
+            if snapshot and not preparador:
+                telemetria["validacoes"]["excecao"] = {
+                    "snapshot": snapshot, "conferencia_hash": conferencia_hash if exigir_conferencia else None,
+                    "nao_conformes": nao_conformes_efetivos,
+                }
             raise ValueError(
                 f"Não foi possível encerrar a OP #{op_id}: " + " ".join(preflight["bloqueios"])
             )
@@ -724,11 +835,35 @@ def _encerrar_op_transacional(
             "idempotency_key": chave,
         }
         resultado.update(preparacao.get("resultado_extra") or {})
+        if aprovacao and preparador and tentativa["primaria"].get("organizacao_encerramento") is not None:
+            from .palletizacao import adicionar_caixas, validar_organizacao_para_encerramento
+
+            organizacao = tentativa["primaria"]["organizacao_encerramento"]
+            if organizacao["pallet_id"]:
+                adicionar_caixas(
+                    int(organizacao["pallet_id"]), resultado["posicao_ids"],
+                    usuario=usuario, idempotency_key=f"{chave}-PALLET",
+                    dados={"op_id": op_id, "origem": "ENCERRAMENTO_PRIMARIA"},
+                    conn_existente=conn,
+                )
+            else:
+                validar_organizacao_para_encerramento(
+                    op_id, justificativa=organizacao["justificativa"], usuario=usuario,
+                    idempotency_key=f"{chave}-EXCECAO-PALLET", conn_existente=conn,
+                )
         if _tabela_existe(cursor, "op_operacoes_auditoria"):
             _auditar(cursor, op_id, chave, usuario, perfil, preflight, resultado, ip_origem)
+        if aprovacao:
+            _auditar(cursor, op_id, f"APROVACAO-{chave}", usuario, perfil, preflight, {
+                **resultado, "usuario_id": aprovacao["usuario_id"], "origem": "CONSULTAR_OP",
+                "tentativa_id": tentativa["referencia"], "tentativa_em": str(tentativa["tentativa_em"]),
+                "divergencias": tentativa["snapshot"]["divergencias"],
+            }, ip_origem, tipo=TIPO_APROVACAO, motivo=aprovacao["justificativa"])
         if checkpoint:
             checkpoint("apos_auditoria")
-        resultado["pos_condicoes"] = _validar_pos_condicoes(cursor, op_id, preflight, chave)
+        resultado["pos_condicoes"] = _validar_pos_condicoes(
+            cursor, op_id, preflight, chave, aprovacao=bool(aprovacao),
+        )
         resultado["correlation_id"] = telemetria["correlation_id"]
         resultado["request_id"] = telemetria["request_id"]
         _concluir_tentativa_sucesso_cursor(
@@ -741,7 +876,7 @@ def _encerrar_op_transacional(
 def encerrar_op_oficial(
     op_id, *, checkpoint=None, nao_conformes=None, conferencia_hash=None,
     exigir_conferencia=False, usuario=None, perfil=None, idempotency_key=None,
-    versao_esperada=None, ip_origem=None, request_id=None, preparador=None,
+    versao_esperada=None, ip_origem=None, request_id=None, preparador=None, _aprovacao=None,
 ):
     """Fachada observável: só devolve sucesso depois do commit da transação oficial."""
     op_id = int(op_id)
@@ -763,7 +898,7 @@ def encerrar_op_oficial(
             conferencia_hash=conferencia_hash, exigir_conferencia=exigir_conferencia,
             usuario=usuario, perfil=perfil, idempotency_key=idempotency_key,
             versao_esperada=versao_esperada, ip_origem=ip_origem, telemetria=telemetria,
-            preparador=preparador,
+            preparador=preparador, aprovacao=_aprovacao,
         )
         return resultado
     except Exception as erro:
@@ -778,3 +913,33 @@ def encerrar_op_oficial(
         if isinstance(erro, ValueError):
             raise ValueError(mensagem) from erro
         raise RuntimeError(mensagem) from erro
+
+
+def aprovar_encerramento_divergente(op_id, *, referencia, justificativa, usuario_id,
+                                   usuario, perfil, ip_origem=None, checkpoint=None):
+    if perfil != "admin" or not usuario_id:
+        raise PermissionError("A aprovação exige um administrador autenticado.")
+    justificativa = (justificativa or "").strip()
+    if not justificativa:
+        raise ValueError("Informe a justificativa para aprovação.")
+    if not referencia:
+        raise ValueError("Informe a tentativa de encerramento que foi revisada.")
+    aprovacao = {"referencia": referencia, "justificativa": justificativa, "usuario_id": usuario_id}
+    dados = {"usuario": usuario, "perfil": perfil, "ip_origem": ip_origem, "checkpoint": checkpoint}
+    conn = conectar()
+    try:
+        cursor = conn.cursor()
+        tentativa = _tentativa_aprovavel(cursor, op_id, referencia)
+        primaria = tentativa.get("primaria") if tentativa else None
+        if primaria:
+            op = _carregar_op(cursor, op_id)
+    finally:
+        conn.close()
+    if primaria:
+        if validar_sku_operacional(op["sku"]) != SKU_GALINHA_INTEIRA:
+            raise ValueError("O SKU mudou. Faça uma nova tentativa de encerramento.")
+        aprovacao["divergencia"] = tentativa["snapshot"]["divergencias"][0]
+        return registrar_apontamento_embalagem_primaria(
+            op, None, **primaria, **dados, _aprovacao=aprovacao,
+        )
+    return encerrar_op_oficial(op_id, **dados, _aprovacao=aprovacao)
