@@ -1,0 +1,76 @@
+{% extends "base.html" if not imprimir else "relatorio_ordens_producao_impressao.html" %}
+{% block conteudo %}
+<div class="relatorio-producao-page">
+    <section class="hero-dashboard relatorio-producao-hero">
+        {% if imprimir %}
+        <h1>Relatório de Ordens de Produção</h1>
+        <p>Gerado em {{ gerado_em.strftime('%d/%m/%Y %H:%M %z') }}</p>
+        <p>Situação {{ filtros.situacao or 'Todas' }} · Produto {{ filtros.produto or 'Todos' }} · OP {{ filtros.numero or 'Todas' }}</p>
+        <button type="button" class="acao-imprimir" onclick="window.print()">Salvar como PDF</button>
+        {% else %}
+        <form method="get" class="relatorio-producao-filtros">
+            <div>
+                <label for="situacao">Situação</label>
+                <select name="situacao" id="situacao">
+                    <option value="">Todas</option>
+                    <option value="ABERTA" {{ 'selected' if filtros.situacao == 'ABERTA' }}>Aberta</option>
+                    <option value="ENCERRADA" {{ 'selected' if filtros.situacao == 'ENCERRADA' }}>Encerrada</option>
+                </select>
+            </div>
+            <div>
+                <label for="produto">Produto</label>
+                <select name="produto" id="produto">
+                    <option value="">Todos</option>
+                    {% for produto in produtos %}
+                    <option value="{{ produto }}" {{ 'selected' if filtros.produto == produto }}>{{ produto }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label for="numero">Número da OP</label>
+                <input type="search" inputmode="numeric" name="numero" id="numero" value="{{ filtros.numero }}">
+            </div>
+            <button type="submit">Filtrar</button>
+        </form>
+        {% endif %}
+    </section>
+
+    <div class="relatorio-producao-acoes">
+        <p>{{ total }} {% if total == 1 %}Ordem de Produção encontrada{% else %}Ordens de Produção encontradas{% endif %}</p>
+        {% if not imprimir %}
+        <a class="botao-dre-imprimir" href="{{ url_for('relatorio_ordens_producao', imprimir=1, **filtros) }}">Imprimir / PDF</a>
+        {% endif %}
+    </div>
+
+    <div class="card relatorio-producao-tabela">
+        <table>
+            <thead>
+                <tr><th scope="col">OP</th><th scope="col">Situação</th><th scope="col">Produto</th><th scope="col">Quantidade</th></tr>
+            </thead>
+            <tbody>
+                {% for ordem in ordens %}
+                <tr>
+                    <td>{% if imprimir %}{{ ordem.id }}{% else %}<a href="{{ url_for('consultar_op', op_id=ordem.id) }}">{{ ordem.id }}</a>{% endif %}</td>
+                    <td>{{ ordem.situacao }}</td>
+                    <td>{{ ordem.sku or '—' }}</td>
+                    <td>{{ ordem.quantidade_aves if ordem.quantidade_aves is not none else '—' }}</td>
+                </tr>
+                {% else %}
+                <tr><td colspan="4">Nenhuma ordem encontrada para os filtros selecionados.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% if not imprimir and paginas > 1 %}
+    <nav class="relatorio-producao-acoes" aria-label="Paginação do relatório">
+        {% if pagina > 1 %}
+        <a class="botao-dre-imprimir" href="{{ url_for('relatorio_ordens_producao', pagina=pagina-1, **filtros) }}">Anterior</a>
+        {% endif %}
+        <span>Página {{ pagina }} de {{ paginas }}</span>
+        {% if pagina < paginas %}
+        <a class="botao-dre-imprimir" href="{{ url_for('relatorio_ordens_producao', pagina=pagina+1, **filtros) }}">Próxima</a>
+        {% endif %}
+    </nav>
+    {% endif %}
+</div>
+{% endblock %}

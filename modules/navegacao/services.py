@@ -63,6 +63,12 @@ NAVEGACAO = [
                 ),
             },
             {
+                "titulo": "Relatório de Ordens de Produção",
+                "grupo": "Ordens de Produção",
+                "endpoint": "relatorio_ordens_producao",
+                "perfis": TODOS_PERFIS,
+            },
+            {
                 "titulo": "Velocidades Ideais",
                 "grupo": "Linha de Abate",
                 "endpoint": "velocidades_ideais_linha",

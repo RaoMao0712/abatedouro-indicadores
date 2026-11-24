@@ -64,7 +64,8 @@ ROTAS_FUTURAS_BLOQUEADAS = {
     "/relatorios/producao/oee",
 }
 
-RELATORIOS_LEGADOS_PERMITIDOS = {
+RELATORIOS_FORA_CATALOGO_PERMITIDOS = {
+    "relatorio_ordens_producao",  # consulta operacional local do modulo de Producao
     "relatorio_rendimento",  # compatibilidade: redireciona para /relatorios/producao/rendimento
     "relatorio_custos",  # requisito gerencial legado fora dos 38, sem substituto 1:1
     "relatorio_viabilidade",  # ferramenta operacional da Qualidade fora dos 38
@@ -192,7 +193,7 @@ def test_rotas_futuras_continuam_ausentes():
 def test_endpoints_nomeados_como_relatorio_estao_no_catalogo_ou_allowlist():
     endpoints_catalogo = {item.get("endpoint") for item in RELATORIOS_OFICIAIS if item.get("endpoint")}
     endpoints_oficiais = endpoints_catalogo | set(EXPORT_ENDPOINTS.values()) | {"biblioteca_relatorios"}
-    permitidos = endpoints_oficiais | RELATORIOS_LEGADOS_PERMITIDOS
+    permitidos = endpoints_oficiais | RELATORIOS_FORA_CATALOGO_PERMITIDOS
 
     suspeitos = {
         rule.endpoint

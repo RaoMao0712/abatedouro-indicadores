@@ -3,6 +3,7 @@
 from datetime import datetime
 from decimal import Decimal
 import uuid
+from zoneinfo import ZoneInfo
 
 from flask import flash, redirect, render_template, request, session, url_for
 
@@ -80,6 +81,7 @@ from .operacoes_op import (
 )
 from .protecao_sku_op import auditar_tentativa_bloqueada, validar_alteracao_sku
 from .skus_legados import validar_sku_operacional
+from .repositories import consultar_relatorio_ordens
 
 _INTEGRACOES = {}
 
@@ -1247,6 +1249,26 @@ def register_producao_routes(app, integracoes=None):
             ), status
         return redirect(url_for("embalagem_secundaria", op_id=op_id))
 
+
+    @app.get("/producao/relatorio-ordens")
+    @perfil_permitido("pcp", "qualidade", "producao", "gerencia", "manutencao")
+    def relatorio_ordens_producao():
+        situacao = request.args.get("situacao", "").upper()
+        filtros = {
+            "situacao": situacao if situacao in {"ABERTA", "ENCERRADA"} else "",
+            "produto": request.args.get("produto", ""),
+            "numero": request.args.get("numero", "").strip(),
+        }
+        pagina = max(1, request.args.get("pagina", 1, type=int))
+        imprimir = request.args.get("imprimir") == "1"
+        ordens, produtos, total, pagina, paginas = consultar_relatorio_ordens(
+            **filtros, pagina=pagina, imprimir=imprimir,
+        )
+        return render_template(
+            "relatorio_ordens_producao.html", ordens=ordens, produtos=produtos,
+            total=total, pagina=pagina, paginas=paginas, filtros=filtros,
+            imprimir=imprimir, gerado_em=datetime.now(ZoneInfo("America/Manaus")) if imprimir else None,
+        )
 
     @app.route("/consultar-op")
     @perfil_permitido("pcp", "qualidade", "producao", "gerencia", "manutencao")
