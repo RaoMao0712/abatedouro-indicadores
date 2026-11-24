@@ -8,6 +8,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='navigation.css', v='inicio-reto-20261030') }}">
     {% if session.get('usuario_id') %}<link rel="stylesheet" href="{{ url_for('static', filename='design-system.css', v='global-20261104-1') }}">{% endif %}
     {% if request.endpoint == 'login' %}<link rel="stylesheet" href="{{ url_for('static', filename='login.css', v='hotfix-20261104-3') }}">{% endif %}
+    {% if request.endpoint == 'consultar_op' %}<link rel="stylesheet" href="{{ url_for('static', filename='consultar-op.css') }}">{% endif %}
 </head>
 
 <body class="{% if session.get('usuario_id') %}fd-authenticated{% elif request.endpoint == 'login' %}fd-login-page{% endif %}">

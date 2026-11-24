@@ -1,0 +1,162 @@
+.consultar-op-page .op-seletor {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px;
+}
+
+.consultar-op-page .op-seletor label,
+.consultar-op-page .op-seletor button {
+    margin: 0;
+}
+
+.consultar-op-page .op-seletor select {
+    margin: 0;
+    min-width: 0;
+}
+
+.consultar-op-page .op-resumo h2,
+.consultar-op-page .op-comandos h2,
+.consultar-op-page .op-divergencia h2 {
+    margin: 0 0 8px;
+}
+
+.op-resumo h2 span {
+    color: var(--fd-blue);
+}
+
+.op-resumo-grid,
+.op-comandos-grid {
+    display: grid;
+    gap: 8px;
+    margin: 0;
+}
+
+.op-resumo-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.op-resumo-grid > div {
+    min-width: 0;
+    padding: 7px 9px;
+    background: var(--fd-surface-soft);
+    border-radius: 6px;
+}
+
+.op-resumo-grid dt,
+.consultar-op-page .op-painel summary span {
+    color: var(--fd-text-muted);
+    font-size: .8rem;
+}
+
+.op-resumo-grid dd {
+    margin: 2px 0 0;
+    font-weight: 650;
+    overflow-wrap: anywhere;
+}
+
+.op-comandos-grid {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 140px), 1fr));
+}
+
+body.fd-authenticated .consultar-op-page .op-comando {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 38px;
+    margin: 0;
+    padding: 6px 10px;
+    text-align: center;
+    border: 1px solid var(--fd-blue-border) !important;
+    border-radius: 6px;
+    background: var(--fd-blue-soft) !important;
+    color: var(--fd-blue-hover) !important;
+    font: inherit;
+    font-weight: 650;
+    text-decoration: none;
+}
+
+body.fd-authenticated .consultar-op-page .op-comando-primario {
+    background: var(--fd-blue) !important;
+    border-color: var(--fd-blue) !important;
+    color: white !important;
+}
+
+body.fd-authenticated .consultar-op-page .op-comando-excecao {
+    background: #855300 !important;
+    border-color: #855300 !important;
+    color: white !important;
+}
+
+body.fd-authenticated .consultar-op-page .op-comando:disabled {
+    opacity: .65;
+    cursor: not-allowed;
+}
+
+body.fd-authenticated .consultar-op-page .op-comando:focus-visible {
+    outline: 2px solid var(--fd-blue-hover);
+    outline-offset: 2px;
+}
+
+.consultar-op-page .op-comando-nota {
+    grid-column: 1 / -1;
+    margin: 0;
+    color: var(--fd-text-muted);
+}
+
+body.fd-authenticated .consultar-op-page .op-divergencia {
+    border-left: 4px solid var(--fd-warning) !important;
+    background: var(--fd-warning-soft) !important;
+}
+
+.consultar-op-page .op-divergencia p,
+.consultar-op-page .op-divergencia ul {
+    margin: 6px 0 9px;
+}
+
+.consultar-op-page .op-divergencia textarea {
+    display: block;
+    width: 100%;
+    margin: 4px 0 8px;
+}
+
+body.fd-authenticated .consultar-op-page .op-painel {
+    padding: 0 !important;
+}
+
+.consultar-op-page .op-painel > summary {
+    cursor: pointer;
+    padding: 10px 12px;
+    font-weight: 650;
+}
+
+.consultar-op-page .op-painel > summary span {
+    margin-inline-start: 8px;
+    font-weight: 400;
+}
+
+.consultar-op-page .op-painel > summary h2 {
+    display: inline;
+    margin: 0;
+    font: inherit;
+}
+
+.consultar-op-page .op-painel-conteudo {
+    padding: 10px 12px;
+}
+
+@media (max-width: 680px) {
+    .consultar-op-page .op-seletor {
+        grid-template-columns: 1fr;
+        gap: 6px;
+    }
+
+    .op-resumo-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .consultar-op-page .op-painel > summary span {
+        display: block;
+        margin: 3px 0 0;
+    }
+}

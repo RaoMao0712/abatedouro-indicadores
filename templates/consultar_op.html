@@ -3,60 +3,73 @@
 {% block conteudo %}
 <div class="operational-page consultar-op-page">
 
-<section class="hero-dashboard operational-hero">
-    <div>
-        <span class="eyebrow">Rastreabilidade</span>
-        <h2>Consultar OP</h2>
-        <div class="hero-resumo-inline">
-            <span><strong>Consulta:</strong> dados da ordem, apontamentos e estoque vinculado</span>
-            <span><strong>Opera&ccedil;&atilde;o:</strong> produ&ccedil;&atilde;o, m&atilde;o de obra, paradas e descartes</span>
-        </div>
+<form method="get" class="card op-seletor">
+    <label for="consulta-op">Selecionar ordem</label>
+    <select id="consulta-op" name="op_id" required>
+        <option value="">Selecione</option>
+        {% for item in ordens %}
+        <option value="{{ item.id }}" {% if op and item.id == op.id %}selected{% endif %}>
+            OP {{ item.id }} · {{ item.fornecedor }} · {{ item.data }} · {{ item.status }}
+        </option>
+        {% endfor %}
+    </select>
+    <button type="submit">Consultar OP</button>
+</form>
+
+{% if op %}
+{% set perfil = session.get('perfil') %}
+{% set aberta = op.status == 'Aberta' %}
+{% set sku = (op.sku or '')|trim %}
+<section class="card op-resumo" aria-labelledby="resumo-op">
+    <h2 id="resumo-op">Resumo da OP <span>#{{ op.id }}</span></h2>
+    <dl class="op-resumo-grid">
+        <div><dt>Número</dt><dd>{{ op.id }}</dd></div>
+        <div><dt>Produto</dt><dd>{{ sku or '—' }}</dd></div>
+        <div><dt>Situação</dt><dd>{{ op.status }}</dd></div>
+        <div><dt>Data</dt><dd>{{ op.data }}</dd></div>
+        <div><dt>Aves recebidas</dt><dd>{{ op.quantidade_aves|br_numero(0) }}</dd></div>
+        <div><dt>Produção registrada</dt><dd>{{ resumo.kg_produzidos|br_numero if resumo else '—' }}{% if resumo %} kg{% endif %}</dd></div>
+        <div><dt>Descartes</dt><dd>{% if resumo %}{{ resumo.descartes_aves|br_numero(0) }} aves · {{ resumo.descartes_kg|br_numero }} kg{% else %}—{% endif %}</dd></div>
+        <div><dt>Estado operacional</dt><dd>{% if tentativa_divergente %}Encerramento bloqueado{% elif disponibilidade_linha %}Linha {{ disponibilidade_linha.situacao|replace('_', ' ')|lower }}{% else %}{{ op.status }}{% endif %}</dd></div>
+    </dl>
+</section>
+
+<section class="card op-comandos" aria-labelledby="acoes-op">
+    <h2 id="acoes-op">Ações da OP</h2>
+    <div class="op-comandos-grid">
+        {% if op.status != 'Encerrada' and (session.get("perfil") == "admin" or session.get("perfil") == "pcp") %}
+        <a class="op-comando" href="{{ url_for('editar_op', op_id=op.id) }}">Editar OP</a>
+        {% endif %}
+        {% if op.status != 'Encerrada' and perfil in ['admin', 'pcp', 'producao'] %}
+        <a class="op-comando" href="{{ url_for('embalagem_primaria', op_id=op.id) }}">Embalagem Primária</a>
+        {% endif %}
+        {% if op.status != 'Encerrada' and perfil in ['admin', 'pcp', 'producao', 'gerencia'] %}
+        <a class="op-comando" href="{{ url_for('embalagem_secundaria', op_id=op.id) }}">Embalagem Secundária</a>
+        {% endif %}
+        {% if op.status != 'Encerrada' and perfil in ['admin', 'pcp', 'producao'] %}
+        <a class="op-comando" href="{{ url_for('pesagem_op', op_id=op.id) }}">Pesagem</a>
+        {% endif %}
+        {% if op.status == 'Encerrada' and perfil in ['admin', 'gerencia'] and not op.bloqueada_administrativamente %}
+        <button type="button" class="op-comando" onclick="abrirModalCorrecaoOp()">Corrigir OP</button>
+        {% endif %}
+        {% if perfil in ['admin', 'pcp', 'qualidade', 'producao'] %}
+        <a class="op-comando" href="{{ url_for('imprimir_op', op_id=op.id) }}" target="_blank" rel="noopener">Imprimir OP</a>
+        {% endif %}
+        {% if aberta %}
+            {% if sku == 'Galinha Inteira' and perfil in ['admin', 'pcp', 'producao'] %}
+            <a class="op-comando op-comando-primario" href="{{ url_for('embalagem_primaria', op_id=op.id, retorno_consulta=1, _anchor='encerramento-primaria') }}">Encerrar OP</a>
+            {% elif sku == 'Galinha Cortada' and perfil in ['admin', 'pcp', 'producao', 'gerencia'] %}
+            <a class="op-comando op-comando-primario" href="{{ url_for('embalagem_secundaria', op_id=op.id, conferencia=1, retorno_consulta=1, _anchor='conferencia-encerramento') }}">Encerrar OP</a>
+            {% else %}
+            <button type="button" class="op-comando op-comando-primario" disabled>Encerrar OP</button>
+            <p class="op-comando-nota">{% if sku not in ['Galinha Inteira', 'Galinha Cortada'] %}SKU indisponível para encerramento.{% else %}O seu perfil tem acesso de consulta a este encerramento.{% endif %}</p>
+            {% endif %}
+        {% endif %}
     </div>
 </section>
 
-<div class="card">
-
-    <h2>Consultar Ordem de Produção</h2>
-
-    <form method="GET">
-
-        <div class="form-grid">
-
-            <div>
-                <label>Selecione a OP</label>
-
-                <select name="op_id" required>
-
-                    <option value="">Selecione</option>
-
-                    {% for item in ordens %}
-                    <option
-                        value="{{ item.id }}"
-                        {% if op and item.id == op.id %}selected{% endif %}
-                    >
-                        OP {{ item.id }}
-                        | {{ item.fornecedor }}
-                        | {{ item.data }}
-                        | {{ item.status }}
-                    </option>
-                    {% endfor %}
-
-                </select>
-            </div>
-
-        </div>
-
-        <button type="submit">
-            Consultar OP
-        </button>
-
-    </form>
-
-</div>
-
-{% if op %}
 {% if tentativa_divergente %}
-<section class="card" aria-labelledby="titulo-divergencia">
+<section class="card op-divergencia" aria-labelledby="titulo-divergencia">
     <h2 id="titulo-divergencia">Divergência no encerramento</h2>
     <p>Tentativa registrada em {{ tentativa_divergente.tentativa_em }}.</p>
     <ul>
@@ -77,12 +90,22 @@
         <input type="hidden" name="confirmacao" value="">
         <label for="justificativa-encerramento">Justificativa para aprovação</label>
         <textarea id="justificativa-encerramento" name="justificativa" rows="3" required></textarea>
-        <button type="submit">Aprovar Mesmo Assim</button>
+        <button type="submit" class="op-comando op-comando-excecao">Aprovar Mesmo Assim</button>
     </form>
     {% endif %}
 </section>
 {% endif %}
 
+{% if aprovacoes_encerramento or (historico_operacional_op and perfil in ['admin', 'pcp', 'gerencia']) %}
+<details class="card op-painel" id="historico-op">
+    <summary>Histórico operacional
+    {% if aprovacoes_encerramento and op.status == 'Encerrada' and aprovacoes_encerramento[0].resultado.versao_posterior == op.versao_operacional %}
+    <span>Encerramento aprovado com divergência</span>
+    {% elif historico_operacional_op and perfil in ['admin', 'pcp', 'gerencia'] %}
+    <span>Última movimentação · {{ historico_operacional_op[0].tipo|replace('_', ' ') }} · {{ historico_operacional_op[0].criado_em }}</span>
+    {% endif %}
+    </summary>
+    <div class="op-painel-conteudo">
 {% if aprovacoes_encerramento %}
 <section class="card" aria-labelledby="titulo-aprovacoes">
     <h2 id="titulo-aprovacoes">Aprovação excepcional de encerramento</h2>
@@ -105,88 +128,24 @@
 </section>
 {% endif %}
 
-<div class="card">
-
-    <div class="acoes-op-topo">
-
-        {% if op.status != "Encerrada" %}
-
-            {% if session.get("perfil") == "admin" or session.get("perfil") == "pcp" %}
-                <a
-                    href="{{ url_for('editar_op', op_id=op.id) }}"
-                    class="botao-editar"
-                >
-                    Editar OP
-                </a>
-            {% endif %}
-
-            {% if session.get("perfil") == "admin" or session.get("perfil") == "pcp" %}
-
-                <div class="form-encerramento-op">
-
-                    <div class="form-grid">
-                        <div class="form-span-2">
-                            <label>Fluxo atual da OP</label>
-                            <p class="obs">
-                                O apontamento de bandejas agora deve ser feito em <strong>Embalagem Primária</strong>.
-                                A OP só deve ser encerrada depois da Embalagem Secundária validar caixas e peso real.
-                            </p>
-                        </div>
-                    </div>
-
-                    <a
-                        href="{{ url_for('embalagem_primaria', op_id=op.id) }}"
-                        class="botao-impressao"
-                    >
-                        Apontar Embalagem Primária
-                    </a>
-
-                    <a
-                        href="{{ url_for('embalagem_secundaria') }}"
-                        class="botao-editar"
-                    >
-                        Ir para Embalagem Secundária
-                    </a>
-
-                    <a
-                        href="{{ url_for('pesagem_op', op_id=op.id) }}"
-                        class="botao-principal"
-                    >
-                        Pesagem
-                    </a>
-
-                </div>
-
-            {% endif %}
-
-        {% else %}
-
-            {% if session.get("perfil") in ["admin", "gerencia"] and not op.bloqueada_administrativamente %}
-                <button
-                    type="button"
-                    class="botao-editar"
-                    onclick="abrirModalCorrecaoOp()"
-                >
-                    Corrigir OP
-                </button>
-            {% endif %}
-
-        {% endif %}
-
-        <a
-            href="{{ url_for('imprimir_op', op_id=op.id) }}"
-            class="botao-impressao"
-            target="_blank"
-        >
-            Imprimir OP
-        </a>
-
+{% if perfil in ['admin', 'pcp', 'gerencia'] %}
+{% if historico_operacional_op %}
+<section class="card">
+    <span class="eyebrow">Auditoria imut&aacute;vel</span><h2>Hist&oacute;rico operacional da OP</h2>
+    <div class="table-wrapper"><table><thead><tr><th>Data</th><th>A&ccedil;&atilde;o</th><th>Estado</th><th>Respons&aacute;vel</th><th>Motivo</th></tr></thead><tbody>
+    {% for evento in historico_operacional_op %}<tr><td>{{ evento.criado_em }}</td><td>{{ evento.tipo|replace('_',' ') }}</td><td>{{ evento.status_anterior }} &rarr; {{ evento.status_posterior }}</td><td>{{ evento.usuario }} ({{ evento.perfil }})</td><td>{{ evento.motivo }}</td></tr>{% endfor %}
+    </tbody></table></div>
+</section>
+{% endif %}
+{% endif %}
     </div>
-
-</div>
+</details>
+{% endif %}
 
 {% if session.get("perfil") in ["admin", "pcp", "gerencia"] %}
-<section class="card">
+<details class="card op-painel">
+<summary>Ações administrativas</summary>
+<section class="op-painel-conteudo">
     <div class="section-title-row">
         <div><span class="eyebrow">P0.2 &middot; governan&ccedil;a</span><h2>Reabertura e estorno da OP</h2></div>
         <strong>Estado atual: {{ op.status }}</strong>
@@ -253,17 +212,17 @@
         {% endif %}
     </div>
 </section>
+</details>
 
-{% if historico_operacional_op %}
-<section class="card">
-    <span class="eyebrow">Auditoria imut&aacute;vel</span><h2>Hist&oacute;rico operacional da OP</h2>
-    <div class="table-wrapper"><table><thead><tr><th>Data</th><th>A&ccedil;&atilde;o</th><th>Estado</th><th>Respons&aacute;vel</th><th>Motivo</th></tr></thead><tbody>
-    {% for evento in historico_operacional_op %}<tr><td>{{ evento.criado_em }}</td><td>{{ evento.tipo|replace('_',' ') }}</td><td>{{ evento.status_anterior }} &rarr; {{ evento.status_posterior }}</td><td>{{ evento.usuario }} ({{ evento.perfil }})</td><td>{{ evento.motivo }}</td></tr>{% endfor %}
-    </tbody></table></div>
-</section>
-{% endif %}
 {% endif %}
 
+<details class="card op-painel">
+<summary>Indicadores da linha
+{% if performance_linha %}
+<span>Performance · {% if performance_linha.performance is not none %}{{ performance_linha.performance|br_numero }}%{% else %}Não calculável{% if performance_linha.snapshot_situacao %} · {{ performance_linha.snapshot_situacao|replace('_', ' ')|lower }}{% endif %}{% endif %}</span>
+{% endif %}
+</summary>
+<div class="op-painel-conteudo">
 {% if disponibilidade_linha %}
 <section class="card disponibilidade-linha-card situacao-{{ disponibilidade_linha.situacao|lower }}">
     <div class="section-title-row">
@@ -298,6 +257,9 @@
 {% endif %}
 
 {% include "_performance_linha.html" %}
+
+</div>
+</details>
 
 {% if op.status == "Encerrada" and session.get("perfil") in ["admin", "gerencia"] %}
 <dialog id="modal-correcao-op" class="modal-correcao-op">
@@ -376,9 +338,11 @@ function abrirModalCorrecaoOp() {
 </script>
 {% endif %}
 
-<div class="card">
+<details class="card op-painel">
+<summary>Dados da ordem</summary>
+<div class="op-painel-conteudo">
 
-    <h2>Dados da OP</h2>
+
 
     <div class="linha-info">
         <strong>OP:</strong>
@@ -440,9 +404,12 @@ function abrirModalCorrecaoOp() {
     </div>
 
 </div>
+</details>
 
-<div class="card">
-    <h2>Correções Administrativas</h2>
+<details class="card op-painel">
+<summary>Auditoria de correções</summary>
+<div class="op-painel-conteudo">
+
 
     {% if correcoes_administrativas %}
         <div class="table-responsive">
@@ -480,12 +447,15 @@ function abrirModalCorrecaoOp() {
         <p class="obs">Nenhuma correção administrativa registrada.</p>
     {% endif %}
 </div>
+</details>
 
 {% if resumo %}
 
-<div class="card">
+<details class="card op-painel">
+<summary>Indicadores de produção</summary>
+<div class="op-painel-conteudo">
 
-    <h2>Resumo Consolidado</h2>
+
 
     <div class="cards-resumo">
 
@@ -533,14 +503,17 @@ function abrirModalCorrecaoOp() {
     </div>
 
 </div>
+</details>
 
 {% endif %}
 
 <!-- PRODUÇÃO -->
 
-<div class="card">
+<details class="card op-painel">
+<summary>Produção detalhada</summary>
+<div class="op-painel-conteudo">
 
-    <h2>Produção</h2>
+
 
     {% if producoes %}
 
@@ -582,12 +555,15 @@ function abrirModalCorrecaoOp() {
     {% endif %}
 
 </div>
+</details>
 
 <!-- ESTOQUE DE PRODUTO ACABADO / INTERMEDIÁRIO -->
 
-<div class="card">
+<details class="card op-painel">
+<summary>Embalagem e estoque</summary>
+<div class="op-painel-conteudo">
 
-    <h2>Estoque de Produto da OP</h2>
+
 
     {% if movimentos_estoque_produto %}
 
@@ -639,12 +615,15 @@ function abrirModalCorrecaoOp() {
     {% endif %}
 
 </div>
+</details>
 
 <!-- MÃO DE OBRA -->
 
-<div class="card">
+<details class="card op-painel">
+<summary>Mão de obra</summary>
+<div class="op-painel-conteudo">
 
-    <h2>Mão de Obra</h2>
+
 
     {% if mao_obra %}
 
@@ -713,13 +692,16 @@ function abrirModalCorrecaoOp() {
     {% endif %}
 
 </div>
+</details>
 
 
 <!-- TEMPOS DOS SETORES -->
 
-<div class="card">
+<details class="card op-painel">
+<summary><h2>Tempos dos Setores</h2></summary>
+<div class="op-painel-conteudo">
 
-    <h2>Tempos dos Setores</h2>
+
 
     {% if tempos_setor %}
 
@@ -760,13 +742,16 @@ function abrirModalCorrecaoOp() {
     {% endif %}
 
 </div>
+</details>
 
 
 <!-- PARADAS -->
 
-<div class="card">
+<details class="card op-painel">
+<summary>Paradas operacionais</summary>
+<div class="op-painel-conteudo">
 
-    <h2>Paradas Operacionais</h2>
+
 
     {% if paradas %}
 
@@ -857,12 +842,15 @@ function abrirModalCorrecaoOp() {
     {% endif %}
 
 </div>
+</details>
 
 <!-- DESCARTES -->
 
-<div class="card">
+<details class="card op-painel">
+<summary>Descartes / Condenações{% if resumo %}<span>{{ resumo.descartes_aves|br_numero(0) }} aves · {{ resumo.descartes_kg|br_numero }} kg · Ver detalhes</span>{% endif %}</summary>
+<div class="op-painel-conteudo">
 
-    <h2>Descartes / Condenações</h2>
+
 
     {% if descartes %}
 
@@ -929,6 +917,7 @@ function abrirModalCorrecaoOp() {
     {% endif %}
 
 </div>
+</details>
 
 {% endif %}
 

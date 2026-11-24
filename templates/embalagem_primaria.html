@@ -53,7 +53,10 @@
         </div>
     </div>
 
-    <form method="post" class="form-grid" data-form-encerramento-primaria>
+    <form id="encerramento-primaria" method="post" class="form-grid" data-form-encerramento-primaria>
+        {% if request.args.get('retorno_consulta') == '1' %}
+        <input type="hidden" name="retorno_consulta" value="1">
+        {% endif %}
         <div>
             <label>OP</label>
             <select name="op_id" required>

@@ -738,6 +738,8 @@ def register_expedicao_routes(app, integracoes=None):
             except (ValueError, PermissionError, RuntimeError) as erro:
                 flash(str(erro))
 
+            if request.form.get("retorno_consulta") == "1":
+                return redirect(url_for("consultar_op", op_id=request.form.get("op_id")))
             return redirect(url_for("embalagem_primaria", op_id=request.form.get("op_id") or ""))
 
         op_id_selecionada = request.args.get("op_id", "")
@@ -832,6 +834,9 @@ def register_expedicao_routes(app, integracoes=None):
                 f"Bandejas: {fechamento['bandejas_consumidas']:.0f}."
             )
         except (ValueError, PermissionError) as erro:
+            if request.form.get("retorno_consulta") == "1":
+                flash(str(erro))
+                return redirect(url_for("consultar_op", op_id=op_id))
             return render_template(
                 "erro_operacional.html", titulo=f"OP #{op_id} não encerrada",
                 mensagem=str(erro), retorno=url_for("embalagem_secundaria", op_id=op_id),
@@ -849,6 +854,8 @@ def register_expedicao_routes(app, integracoes=None):
                 retorno=url_for("embalagem_secundaria", op_id=op_id),
             ), 500
 
+        if request.form.get("retorno_consulta") == "1":
+            return redirect(url_for("consultar_op", op_id=op_id))
         return redirect(url_for("embalagem_secundaria", op_id=op_id))
 
 
@@ -946,6 +953,9 @@ def register_expedicao_routes(app, integracoes=None):
                 f"Peso líquido: {resultado['peso_liquido_total']:.3f} kg."
             )
         except (ValueError, PermissionError) as erro:
+            if request.form.get("retorno_consulta") == "1":
+                flash(str(erro))
+                return redirect(url_for("consultar_op", op_id=op_id))
             return render_template(
                 "erro_operacional.html", titulo=f"OP #{op_id} não encerrada",
                 mensagem=str(erro), retorno=url_for("embalagem_secundaria", op_id=op_id),
@@ -962,6 +972,8 @@ def register_expedicao_routes(app, integracoes=None):
                 mensagem=mensagem_publica,
                 retorno=url_for("embalagem_secundaria", op_id=op_id),
             ), 500
+        if request.form.get("retorno_consulta") == "1":
+            return redirect(url_for("consultar_op", op_id=op_id))
         return redirect(url_for("embalagem_secundaria", op_id=op_id, conferencia="1"))
 
 
