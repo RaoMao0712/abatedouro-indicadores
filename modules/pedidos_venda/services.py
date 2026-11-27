@@ -1488,6 +1488,23 @@ def estornar_atendimento_cursor(cursor, expedicao_id, justificativa):
         WHERE id=? AND pedido_venda_id=?"""), (_agora(), expedicao_id, pedido_id))
 
 
+def estornar_atendimento_item_cursor(cursor, expedicao_id, expedicao_item_id, justificativa):
+    cursor.execute(q("""SELECT pedido_id FROM pedido_venda_atendimentos
+        WHERE expedicao_id=? AND expedicao_item_id=? AND status='ENTREGUE'
+    """ + (" FOR UPDATE" if DATABASE_URL else "")), (expedicao_id, expedicao_item_id))
+    atendimento = cursor.fetchone()
+    if not atendimento:
+        return None
+    pedido_id = atendimento["pedido_id"]
+    cursor.execute(q("""UPDATE pedido_venda_atendimentos SET status='ESTORNADO',atualizado_em=?
+        WHERE expedicao_id=? AND expedicao_item_id=? AND status='ENTREGUE'"""),
+        (_agora(), expedicao_id, expedicao_item_id))
+    if cursor.rowcount != 1:
+        raise ValueError(f"Atendimento do item #{expedicao_item_id} mudou durante o estorno.")
+    _recalcular_status_cursor(cursor, pedido_id, "ESTORNO_ATENDIMENTO", expedicao_id, justificativa)
+    return pedido_id
+
+
 def _recalcular_status_cursor(cursor,pedido_id,acao,expedicao_id,justificativa=None):
     cursor.execute(q("SELECT * FROM pedidos_venda WHERE id=?"),(pedido_id,)); pedido=cursor.fetchone()
     if not pedido or pedido["status"]=="CANCELADO": return

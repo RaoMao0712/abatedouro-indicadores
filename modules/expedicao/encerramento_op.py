@@ -7,6 +7,7 @@ import json
 import time
 import uuid
 
+from modules.producao.ciclos_op import fonte_ativa_cursor
 from database import DATABASE_URL, conectar, q, transaction
 from modules.expedicao.services import (
     DivergenciaBalancoAves, pi_primaria_liquido_cursor,
@@ -83,11 +84,15 @@ def _livro_pi(cursor, op_id, bloquear=False):
           COALESCE(SUM(CASE WHEN tipo='SAIDA_EMBALAGEM_SECUNDARIA'
                             THEN quantidade_bandejas ELSE 0 END),0)
             - COALESCE(SUM(CASE WHEN tipo='ENTRADA_ESTORNO_CAIXA'
+                                 OR (tipo='ENTRADA_REPROCESSAMENTO_PI' AND EXISTS (
+                                    SELECT 1 FROM estoque_produto_intermediario raiz
+                                    WHERE raiz.id=pi.movimento_origem_id
+                                      AND raiz.tipo='SAIDA_EMBALAGEM_SECUNDARIA'))
                                 THEN quantidade_bandejas ELSE 0 END),0) consumo_liquido,
           COALESCE(SUM(CASE WHEN tipo LIKE 'ENTRADA%%' THEN quantidade_bandejas
                             WHEN tipo LIKE 'SAIDA%%' THEN -quantidade_bandejas
                             ELSE quantidade_bandejas END),0) saldo
-        FROM estoque_produto_intermediario WHERE op_id=?
+        FROM estoque_produto_intermediario pi WHERE op_id=?
     """), (op_id,))
     return cursor.fetchone()
 
@@ -133,7 +138,8 @@ def _calcular_fechamento_cursor(cursor, op):
     """Calcula as invariantes sem executar bootstrap, DDL ou commit implícito."""
     op_id = int(op["id"])
     bandejas_primaria = float(pi_primaria_liquido_cursor(cursor, op_id))
-    cursor.execute(q("""
+    descartes_vigentes = fonte_ativa_cursor(cursor, "apontamentos_descartes")
+    cursor.execute(q(f"""
         SELECT
           COALESCE(SUM(CASE WHEN LOWER(COALESCE(categoria,'')) LIKE '%%conden%%'
                             THEN quantidade ELSE 0 END),0) condenacoes,
@@ -142,7 +148,7 @@ def _calcular_fechamento_cursor(cursor, op):
                             THEN quantidade ELSE 0 END),0) descartes,
           COALESCE(SUM(CASE WHEN LOWER(TRIM(COALESCE(motivo,'')))='morte na gaiola'
                             THEN quantidade ELSE 0 END),0) mortes_na_gaiola
-        FROM apontamentos_descartes WHERE op_id=?
+        FROM {descartes_vigentes} vigente WHERE op_id=?
           AND LOWER(unidade) IN ('aves','ave','unidade','unidades')
     """), (op_id,))
     perdas = cursor.fetchone()

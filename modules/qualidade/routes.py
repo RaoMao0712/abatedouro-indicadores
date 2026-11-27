@@ -11,6 +11,7 @@ import secrets
 from flask import Response, abort, current_app, flash, redirect, render_template, request, send_file, session, url_for
 from io import BytesIO
 
+from modules.producao.ciclos_op import fonte_ativa_cursor
 from database import conectar, q
 from modules.auth.decorators import perfil_permitido
 from modules.auth.services import usuario_eh_admin
@@ -694,9 +695,9 @@ def register_qualidade_routes(app, integracoes=None):
         """), (data_inicio, data_fim))
         fornecedores_periodo = [item["fornecedor"] for item in cursor.fetchall()]
 
-        cursor.execute(q("""
+        cursor.execute(q(f"""
         SELECT DISTINCT d.setor
-        FROM apontamentos_descartes d
+        FROM {fonte_ativa_cursor(cursor, 'apontamentos_descartes')} d
         JOIN ordens_producao o ON o.id = d.op_id
         WHERE o.data BETWEEN ? AND ?
           AND d.setor IS NOT NULL
@@ -716,7 +717,7 @@ def register_qualidade_routes(app, integracoes=None):
 
         cursor.execute(q(f"""
         SELECT DISTINCT d.motivo
-        FROM apontamentos_descartes d
+        FROM {fonte_ativa_cursor(cursor, 'apontamentos_descartes')} d
         JOIN ordens_producao o ON o.id = d.op_id
         WHERE {where_motivos}
           AND d.motivo IS NOT NULL
@@ -799,7 +800,7 @@ def register_qualidade_routes(app, integracoes=None):
             COALESCE(SUM(CASE
                 WHEN LOWER(TRIM(COALESCE(d.motivo, ''))) = 'morte na gaiola'
                 THEN d.quantidade ELSE 0 END), 0) AS mortes_na_gaiola
-        FROM apontamentos_descartes d
+        FROM {fonte_ativa_cursor(cursor, 'apontamentos_descartes')} d
         JOIN ordens_producao o ON o.id = d.op_id
         WHERE {where_perdas}
         """), tuple(parametros_perdas))
@@ -846,7 +847,7 @@ def register_qualidade_routes(app, integracoes=None):
             COALESCE(SUM(CASE
                 WHEN LOWER(TRIM(COALESCE(d.motivo, ''))) = 'morte na gaiola'
                 THEN d.quantidade ELSE 0 END), 0) AS mortes_na_gaiola
-        FROM apontamentos_descartes d
+        FROM {fonte_ativa_cursor(cursor, 'apontamentos_descartes')} d
         JOIN ordens_producao o ON o.id = d.op_id
         WHERE {where_perdas}
         GROUP BY o.data
@@ -917,7 +918,7 @@ def register_qualidade_routes(app, integracoes=None):
                   OR LOWER(TRIM(COALESCE(d.motivo, ''))) = 'morte na gaiola'
                 THEN 0 ELSE d.quantidade END), 0) AS descartes,
             COALESCE(SUM(d.quantidade), 0) AS total
-        FROM apontamentos_descartes d
+        FROM {fonte_ativa_cursor(cursor, 'apontamentos_descartes')} d
         JOIN ordens_producao o ON o.id = d.op_id
         WHERE {where_setor}
         GROUP BY COALESCE(NULLIF(d.setor, ''), 'Sem setor')
@@ -941,7 +942,7 @@ def register_qualidade_routes(app, integracoes=None):
             COALESCE(NULLIF(d.motivo, ''), 'Sem motivo') AS motivo,
             COALESCE(NULLIF(d.setor, ''), 'Sem setor') AS setor,
             COALESCE(SUM(d.quantidade), 0) AS total
-        FROM apontamentos_descartes d
+        FROM {fonte_ativa_cursor(cursor, 'apontamentos_descartes')} d
         JOIN ordens_producao o ON o.id = d.op_id
         WHERE {where_perdas}
         GROUP BY COALESCE(NULLIF(d.motivo, ''), 'Sem motivo'), COALESCE(NULLIF(d.setor, ''), 'Sem setor')
@@ -993,7 +994,7 @@ def register_qualidade_routes(app, integracoes=None):
             COALESCE(SUM(CASE
                 WHEN LOWER(TRIM(COALESCE(d.motivo, ''))) = 'morte na gaiola'
                 THEN d.quantidade ELSE 0 END), 0) AS mortes_na_gaiola
-        FROM apontamentos_descartes d
+        FROM {fonte_ativa_cursor(cursor, 'apontamentos_descartes')} d
         JOIN ordens_producao o ON o.id = d.op_id
         WHERE {where_perdas}
         GROUP BY o.fornecedor

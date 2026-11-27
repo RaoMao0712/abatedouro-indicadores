@@ -1308,10 +1308,11 @@ def remover_caixa(
 
 def remover_caixas(
     pallet_id, caixa_ids, *, usuario, idempotency_key, justificativa=None, dados=None,
+    conn_existente=None,
 ):
     ids = _normalizar_lista_ids(caixa_ids)
     chave = _validar_chave(idempotency_key)
-    with transaction() as conn:
+    with (nullcontext(conn_existente) if conn_existente is not None else transaction()) as conn:
         cursor = conn.cursor()
         _bloquear_idempotencia(cursor, chave)
         chaves = [_chave_item(chave, caixa_id, len(ids)) for caixa_id in ids]

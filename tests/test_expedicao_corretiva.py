@@ -107,6 +107,40 @@ def consultar_um(sql, parametros=()):
 
 
 class ExpedicaoCorretivaTest(unittest.TestCase):
+    def test_reprocessamento_da_caixa_pendente_nao_inventa_formacao(self):
+        from database import transaction
+        from modules.expedicao.palletizacao import criar_estrutura_palletizacao
+        from modules.producao.reversao_pa_op import reverter_caixa_cursor
+
+        self.contexto("admin")
+        criar_estrutura_palletizacao()
+        op_id, caixa_id = self.preparar_cortada_integra("CX-RESET-PENDENTE")
+        with transaction() as conn:
+            resultado = reverter_caixa_cursor(
+                conn.cursor(), op_id, caixa_id, operacao_id="caixa-pendente",
+                usuario="Admin", perfil="admin", motivo="Correção do ciclo", agora="2026-11-27 11:00:00",
+            )
+        assert resultado["formacao_origem_id"] is None
+        assert consultar_um("SELECT status FROM pa_caixas WHERE id=?", (caixa_id,))["status"] == "Estornada"
+        assert consultar_um("SELECT caixa_id FROM pa_caixa_composicao WHERE caixa_id=?", (caixa_id,))
+        assert not consultar("SELECT id FROM estoque_eventos WHERE caixa_id=?", (caixa_id,))
+
+    def test_galinha_inteira_nao_apaga_pi_historico_para_reapontar(self):
+        self.contexto("admin")
+        op_id = self.criar_op("Galinha Inteira", 8)
+        movimento_id = executar("""INSERT INTO estoque_produto_intermediario
+            (data_movimentacao,tipo,op_id,sku,quantidade_bandejas,origem)
+            VALUES ('2026-07-25','ENTRADA_EMBALAGEM_PRIMARIA',?,'Galinha Inteira',8,'Histórico')""", (op_id,))
+        with self.assertRaisesRegex(ValueError, "novo ciclo operacional"):
+            registrar_apontamento_embalagem_primaria(
+                consultar_um("SELECT * FROM ordens_producao WHERE id=?", (op_id,)),
+                None, pacotes_1_ave=4, pacotes_2_aves=2,
+            )
+        self.assertEqual(consultar_um(
+            "SELECT quantidade_bandejas FROM estoque_produto_intermediario WHERE id=?", (movimento_id,),
+        )["quantidade_bandejas"], 8)
+        self.assertFalse(consultar("SELECT id FROM pa_caixa_composicao WHERE op_id=?", (op_id,)))
+
     def tentativa_divergente(self, codigo):
         op_id, caixa_id = self.preparar_cortada(codigo)
         with self.assertRaisesRegex(ValueError, "divergente em 12 aves"):

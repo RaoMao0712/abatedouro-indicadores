@@ -4,6 +4,7 @@ import os
 import uuid
 from datetime import datetime, timedelta
 
+from modules.producao.ciclos_op import fonte_ativa_cursor
 from database import DATABASE_URL, conectar, q
 from modules.auth.services import nome_usuario_atual, usuario_eh_admin
 from modules.parceiros.services import listar_fornecedores_ativos, obter_parceiro_elegivel
@@ -698,9 +699,9 @@ def copiar_mao_obra_de_op(origem_op_id, destino_op_id, data_destino):
     conn = conectar()
     cursor = conn.cursor()
 
-    cursor.execute(q("""
+    cursor.execute(q(f"""
     SELECT *
-    FROM apontamentos_mao_obra
+    FROM {fonte_ativa_cursor(cursor, 'apontamentos_mao_obra')} vigente
     WHERE op_id = ?
     ORDER BY id ASC
     """), (origem_op_id,))
@@ -961,9 +962,9 @@ def gerar_producao_automatica_setores(
     )
     """), (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), responsavel_invalidacao, op["id"]))
 
-    cursor.execute(q("""
+    cursor.execute(q(f"""
     SELECT setor, COALESCE(SUM(quantidade), 0) as total
-    FROM apontamentos_descartes
+    FROM {fonte_ativa_cursor(cursor, 'apontamentos_descartes')} vigente
     WHERE op_id = ?
       AND LOWER(unidade) IN ('aves', 'ave', 'unidade', 'unidades')
       AND LOWER(TRIM(motivo)) <> 'morte na gaiola'
@@ -976,9 +977,9 @@ def gerar_producao_automatica_setores(
         for item in descartes
     }
 
-    cursor.execute(q("""
+    cursor.execute(q(f"""
     SELECT COALESCE(SUM(quantidade), 0) as total
-    FROM apontamentos_descartes
+    FROM {fonte_ativa_cursor(cursor, 'apontamentos_descartes')} vigente
     WHERE op_id = ?
       AND LOWER(unidade) IN ('aves', 'ave', 'unidade', 'unidades')
       AND LOWER(TRIM(motivo)) = 'morte na gaiola'
@@ -1133,9 +1134,9 @@ def buscar_tempos_setor_por_op(op_id):
     conn = conectar()
     cursor = conn.cursor()
 
-    cursor.execute(q("""
+    cursor.execute(q(f"""
     SELECT *
-    FROM apontamentos_tempos_setor
+    FROM {fonte_ativa_cursor(cursor, 'apontamentos_tempos_setor')} vigente
     WHERE op_id = ?
     ORDER BY id ASC
     """), (op_id,))

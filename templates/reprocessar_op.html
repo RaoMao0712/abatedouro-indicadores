@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block conteudo %}
+<section class="card">
+    <h2>Consequências do reprocessamento · OP #{{ dados.op.id }}</h2>
+    <p>Ciclo atual: {{ dados.ciclo.numero }} · Situação: {{ dados.op.status }}</p>
+    <p>Hash da prévia <code>{{ hash_consequencias }}</code></p>
+    {% if dados.impedimentos %}
+    <h3>Impedimentos identificados</h3>
+    <ul>{% for item in dados.impedimentos %}<li>{{ item }}</li>{% endfor %}</ul>
+    {% endif %}
+    <details open>
+        <summary>Produção e Embalagem</summary>
+        <ul>{% for tabela, ids in dados.apontamentos.items() %}
+        <li>{{ tabela|replace('_', ' ') }} · {{ ids|length }} registro(s) passam ao histórico.</li>
+        {% endfor %}</ul>
+    </details>
+    <details>
+        <summary>PI · {{ dados.compensacoes_pi|length }} compensações</summary>
+        <ul>{% for item in dados.compensacoes_pi %}
+        <li>Movimento #{{ item.origem_id }} · {{ item.tipo }} · {{ item.quantidade }} bandejas.</li>
+        {% endfor %}</ul>
+    </details>
+    <details>
+        <summary>Caixas e PA · {{ dados.caixas|length }} posições</summary>
+        <ul>{% for caixa in dados.caixas %}
+        <li>{{ caixa.codigo_caixa }} · {{ caixa.consequencia|replace('_', ' ')|lower }}.</li>
+        {% endfor %}</ul>
+    </details>
+    <details>
+        <summary>Pallets · {{ dados.pallets|length }} vínculos</summary>
+        <ul>{% for item in dados.pallets %}<li>Pallet #{{ item.pallet_id }} · desvincular caixa #{{ item.caixa_id }}.</li>{% endfor %}</ul>
+    </details>
+    <details>
+        <summary>Expedição e vendas · {{ dados.documentos|length }} documentos</summary>
+        <ul>{% for item in dados.itens_documentos %}
+        <li>Documento #{{ item.expedicao_id }} · item #{{ item.id }} ·
+            {% if not item.ativo %}histórico preservado{% elif item.pertence_op %}compensar parcela da OP{% else %}parcela de outra OP permanece ativa{% endif %}.
+        </li>{% endfor %}</ul>
+    </details>
+    <details>
+        <summary>CMV</summary>
+        <ul>{% for evento in dados.cmv %}
+        <li>Evento #{{ evento.id }} · item #{{ evento.item_id }} · {{ evento.quantidade }} · R$ {{ evento.custo_total }} · {{ evento.consequencia }}.</li>
+        {% else %}<li>Nenhum evento de CMV identificado nos itens ativos.</li>{% endfor %}</ul>
+        {% if dados.camadas_cmv %}
+        <ul>{% for camada in dados.camadas_cmv %}
+        <li>Camada #{{ camada.id }} · {{ camada.produto }} · retirar do FIFO e preservar histórico.</li>
+        {% endfor %}</ul>
+        {% endif %}
+    </details>
+    {% if dados.executavel %}
+    <form method="post">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        {% if previa_id %}
+        <input type="hidden" name="acao" value="executar">
+        <input type="hidden" name="plano_id" value="{{ previa_id }}">
+        <label for="motivo-reprocessamento">Motivo do reprocessamento</label>
+        <textarea id="motivo-reprocessamento" name="motivo" required rows="3"></textarea>
+        <label><input type="checkbox" name="confirmacao" value="REPROCESSAR" required> Confirmo o reprocessamento da OP e as consequências apresentadas.</label>
+        <button type="submit" class="botao-perigo">Confirmar reprocessamento</button>
+        {% else %}
+        <input type="hidden" name="acao" value="preparar">
+        <button type="submit">Registrar prévia para confirmação</button>
+        {% endif %}
+    </form>
+    {% endif %}
+    <a href="{{ url_for('consultar_op', op_id=dados.op.id) }}">Voltar à OP</a>
+</section>
+{% endblock %}

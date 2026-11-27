@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 
 from flask import abort, flash, redirect, render_template, request, session, url_for
 
+from modules.producao.ciclos_op import fonte_ativa_cursor, tabela_de_ciclo_existe
 from database import DATABASE_URL, conectar, q
 from modules.auth.decorators import login_obrigatorio, perfil_permitido
 from modules.auth.services import usuario_eh_admin
@@ -679,11 +680,11 @@ def register_producao_routes(app, integracoes=None):
         conn = conectar()
         cursor = conn.cursor()
 
-        cursor.execute(q("""
+        cursor.execute(q(f"""
         SELECT
             m.*,
             o.status as op_status
-        FROM apontamentos_mao_obra m
+        FROM {fonte_ativa_cursor(cursor, 'apontamentos_mao_obra')} m
         JOIN ordens_producao o ON o.id = m.op_id
         WHERE m.id = ?
         """), (mao_obra_id,))
@@ -759,11 +760,11 @@ def register_producao_routes(app, integracoes=None):
         conn = conectar()
         cursor = conn.cursor()
 
-        cursor.execute(q("""
+        cursor.execute(q(f"""
         SELECT
             p.*,
             o.status as op_status
-        FROM apontamentos_paradas p
+        FROM {fonte_ativa_cursor(cursor, 'apontamentos_paradas')} p
         JOIN ordens_producao o ON o.id = p.op_id
         WHERE p.id = ?
         """), (parada_id,))
@@ -1189,6 +1190,71 @@ def register_producao_routes(app, integracoes=None):
         return redirect(url_for("embalagem_secundaria", op_id=op_id))
 
 
+    @app.get("/op/<int:op_id>/ciclos/<int:numero>")
+    @login_obrigatorio
+    def consultar_ciclo_historico_op(op_id, numero):
+        import json
+        from contextlib import closing
+
+        with closing(conectar()) as conn:
+            cursor = conn.cursor()
+            if not tabela_de_ciclo_existe(cursor, "op_ciclos"):
+                abort(404)
+            cursor.execute(q("""SELECT c.numero_ciclo,c.invalidado_em,c.invalidado_por,
+                c.motivo_invalidacao,a.preflight_json,a.efeitos_json
+                FROM op_ciclos c JOIN op_operacoes_auditoria a ON a.idempotency_key=c.operacao_reset_id
+                WHERE c.op_id=? AND c.numero_ciclo=? AND c.corrente=0"""), (op_id, numero))
+            ciclo = cursor.fetchone()
+        if not ciclo:
+            abort(404)
+        return render_template("ciclo_historico_op.html", op_id=op_id, ciclo=ciclo,
+                               previa=json.loads(ciclo["preflight_json"]),
+                               efeitos=json.loads(ciclo["efeitos_json"]))
+
+    @app.route("/op/<int:op_id>/reprocessar", methods=["GET", "POST"])
+    @login_obrigatorio
+    def reprocessar_op_rota(op_id):
+        if not usuario_eh_admin():
+            abort(403)
+        from contextlib import closing
+        from .planejamento_reversao_op import (
+            hash_previa_reprocessamento, planejar_reversao_op, registrar_previa_reprocessamento,
+        )
+        from .reprocessamento_op import executar_reprocessamento_op
+
+        with closing(conectar()) as conn:
+            if not tabela_de_ciclo_existe(conn.cursor(), "op_planos_reprocessamento"):
+                abort(404)
+        token = session.setdefault("csrf_reprocessamento_op", secrets.token_urlsafe(32))
+        identidade = {"usuario": session.get("nome"), "perfil": session.get("perfil")}
+        try:
+            if request.method == "GET":
+                dados = planejar_reversao_op(op_id)
+                previa_id = None
+            else:
+                recebido = request.form.get("csrf_token", "").encode("utf-8")
+                if not secrets.compare_digest(recebido, token.encode("utf-8")):
+                    abort(403)
+                if request.form.get("acao") == "preparar":
+                    previa = registrar_previa_reprocessamento(op_id, **identidade)
+                    dados, previa_id = previa["snapshot"], previa["plano_id"]
+                elif request.form.get("acao") == "executar":
+                    resultado = executar_reprocessamento_op(
+                        op_id, request.form.get("plano_id"), **identidade,
+                        motivo=request.form.get("motivo"), ip_origem=request.remote_addr,
+                        confirmacao=request.form.get("confirmacao") == "REPROCESSAR",
+                    )
+                    flash(f"OP reaberta para reprocessamento. Ciclo anterior {resultado['ciclo_anterior']} "
+                          f"invalidado. Ciclo atual {resultado['ciclo_atual']} ativo.")
+                    return redirect(url_for("consultar_op", op_id=op_id))
+                else:
+                    abort(400)
+        except (PermissionError, ValueError) as erro:
+            flash(str(erro))
+            return redirect(url_for("consultar_op", op_id=op_id))
+        return render_template("reprocessar_op.html", dados=dados, previa_id=previa_id, csrf_token=token,
+                               hash_consequencias=hash_previa_reprocessamento(dados))
+
     @app.route("/op/<int:op_id>/corrigir-fornecedor", methods=["GET", "POST"])
     @login_obrigatorio
     def corrigir_fornecedor_op_rota(op_id):
@@ -1355,6 +1421,7 @@ def register_producao_routes(app, integracoes=None):
         tentativa_divergente = None
         aprovacoes_encerramento = []
         csrf_aprovacao = None
+        ciclos_op = []
 
         if op_id:
             conn = conectar()
@@ -1366,19 +1433,23 @@ def register_producao_routes(app, integracoes=None):
             cursor.execute(q("SELECT * FROM apontamentos_producao WHERE op_id = ? AND COALESCE(vigente,1)=1 ORDER BY id ASC"), (op_id,))
             producoes = cursor.fetchall()
 
-            cursor.execute(q("SELECT * FROM apontamentos_mao_obra WHERE op_id = ? ORDER BY id ASC"), (op_id,))
+            cursor.execute(q(f"SELECT * FROM {fonte_ativa_cursor(cursor, 'apontamentos_mao_obra')} vigente WHERE op_id = ? ORDER BY id ASC"), (op_id,))
             mao_obra = cursor.fetchall()
 
-            cursor.execute(q("SELECT * FROM apontamentos_paradas WHERE op_id = ? ORDER BY id ASC"), (op_id,))
+            cursor.execute(q(f"SELECT * FROM {fonte_ativa_cursor(cursor, 'apontamentos_paradas')} vigente WHERE op_id = ? ORDER BY id ASC"), (op_id,))
             paradas = cursor.fetchall()
 
-            cursor.execute(q("SELECT * FROM apontamentos_descartes WHERE op_id = ? ORDER BY id ASC"), (op_id,))
+            cursor.execute(q(f"SELECT * FROM {fonte_ativa_cursor(cursor, 'apontamentos_descartes')} vigente WHERE op_id = ? ORDER BY id ASC"), (op_id,))
             descartes = cursor.fetchall()
 
-            cursor.execute(q("SELECT * FROM apontamentos_tempos_setor WHERE op_id = ? ORDER BY id ASC"), (op_id,))
+            cursor.execute(q(f"SELECT * FROM {fonte_ativa_cursor(cursor, 'apontamentos_tempos_setor')} vigente WHERE op_id = ? ORDER BY id ASC"), (op_id,))
             tempos_setor = cursor.fetchall()
 
             if op:
+                if tabela_de_ciclo_existe(cursor, "op_ciclos"):
+                    cursor.execute(q("""SELECT numero_ciclo,status,corrente,invalidado_em,motivo_invalidacao
+                        FROM op_ciclos WHERE op_id=? ORDER BY numero_ciclo DESC"""), (op["id"],))
+                    ciclos_op = cursor.fetchall()
                 tentativa_divergente, aprovacoes_encerramento = contexto_aprovacao_encerramento(
                     cursor, op["id"], aberta=op["status"] == "Aberta",
                 )
@@ -1452,6 +1523,7 @@ def register_producao_routes(app, integracoes=None):
             tentativa_divergente=tentativa_divergente,
             aprovacoes_encerramento=aprovacoes_encerramento,
             csrf_aprovacao=csrf_aprovacao,
+            ciclos_op=ciclos_op,
         )
 
     @app.route("/op/<int:op_id>/corrigir-peso-entrada", methods=["POST"])
@@ -1490,13 +1562,13 @@ def register_producao_routes(app, integracoes=None):
         cursor.execute(q("SELECT * FROM apontamentos_producao WHERE op_id = ? AND COALESCE(vigente,1)=1 ORDER BY id ASC"), (op_id,))
         producoes = cursor.fetchall()
 
-        cursor.execute(q("SELECT * FROM apontamentos_mao_obra WHERE op_id = ? ORDER BY id ASC"), (op_id,))
+        cursor.execute(q(f"SELECT * FROM {fonte_ativa_cursor(cursor, 'apontamentos_mao_obra')} vigente WHERE op_id = ? ORDER BY id ASC"), (op_id,))
         mao_obra = cursor.fetchall()
 
-        cursor.execute(q("SELECT * FROM apontamentos_paradas WHERE op_id = ? ORDER BY id ASC"), (op_id,))
+        cursor.execute(q(f"SELECT * FROM {fonte_ativa_cursor(cursor, 'apontamentos_paradas')} vigente WHERE op_id = ? ORDER BY id ASC"), (op_id,))
         paradas = cursor.fetchall()
 
-        cursor.execute(q("SELECT * FROM apontamentos_descartes WHERE op_id = ? ORDER BY id ASC"), (op_id,))
+        cursor.execute(q(f"SELECT * FROM {fonte_ativa_cursor(cursor, 'apontamentos_descartes')} vigente WHERE op_id = ? ORDER BY id ASC"), (op_id,))
         descartes = cursor.fetchall()
 
         resumo = calcular_resumo_op(op, producoes, descartes) if op else None

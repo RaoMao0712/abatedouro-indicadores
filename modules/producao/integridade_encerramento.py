@@ -5,6 +5,7 @@ from decimal import Decimal
 import json
 
 from database import conectar, q
+from modules.producao.ciclos_op import fonte_ativa_cursor
 from modules.producao.skus_legados import (
     SKU_GALINHA_CORTADA,
     SKUS_OPERACIONAIS_LEGADOS,
@@ -162,18 +163,22 @@ def _carregar_snapshots(cursor, *, op_id=None, data_corte=None, limite=None,
                           THEN quantidade ELSE 0 END),0) descartes,
         COALESCE(SUM(CASE WHEN LOWER(TRIM(COALESCE(motivo,'')))='morte na gaiola'
                           THEN quantidade ELSE 0 END),0) mortes_na_gaiola
-        FROM apontamentos_descartes WHERE op_id IN ({marcas})
+        FROM {fonte_ativa_cursor(cursor, 'apontamentos_descartes')} vigente WHERE op_id IN ({marcas})
           AND LOWER(unidade) IN ('aves','ave','unidade','unidades') GROUP BY op_id""", ids)
     pi = _agrupar(cursor, f"""SELECT op_id,
         COALESCE(SUM(CASE WHEN tipo LIKE 'ENTRADA%%' THEN quantidade_bandejas ELSE 0 END),0) entradas_pi,
         COALESCE(SUM(CASE WHEN tipo='SAIDA_EMBALAGEM_SECUNDARIA'
                           THEN quantidade_bandejas ELSE 0 END),0)
           - COALESCE(SUM(CASE WHEN tipo='ENTRADA_ESTORNO_CAIXA'
+                              OR (tipo='ENTRADA_REPROCESSAMENTO_PI' AND EXISTS (
+                                SELECT 1 FROM estoque_produto_intermediario raiz
+                                WHERE raiz.id=pi.movimento_origem_id
+                                  AND raiz.tipo='SAIDA_EMBALAGEM_SECUNDARIA'))
                               THEN quantidade_bandejas ELSE 0 END),0) bandejas_pi,
         COALESCE(SUM(CASE WHEN tipo LIKE 'ENTRADA%%' THEN quantidade_bandejas
                           WHEN tipo LIKE 'SAIDA%%' THEN -quantidade_bandejas
                           ELSE quantidade_bandejas END),0) saldo_pi
-        FROM estoque_produto_intermediario WHERE op_id IN ({marcas}) GROUP BY op_id""", ids)
+        FROM estoque_produto_intermediario pi WHERE op_id IN ({marcas}) GROUP BY op_id""", ids)
     caixas = _agrupar(cursor, f"""SELECT comp.op_id,
         COUNT(DISTINCT cx.id) caixas,
         COUNT(DISTINCT CASE WHEN COALESCE(cx.disponibilidade,'')='PENDENTE_OP'

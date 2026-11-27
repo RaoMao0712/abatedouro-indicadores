@@ -12,6 +12,7 @@ from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
 
+from modules.producao.ciclos_op import fonte_ativa_cursor
 from database import DATABASE_URL, conectar, q
 from .disponibilidade import calcular_disponibilidade
 
@@ -412,8 +413,8 @@ def sugerir_contagem(op_id, *, conn=None):
             return None
         recebidas = Decimal(str(op["quantidade_aves"]))
         mortes_legado = Decimal(str(op["mortes_antes_pendura"] or 0))
-        cursor.execute(q("""SELECT COALESCE(SUM(quantidade),0) AS total
-            FROM apontamentos_descartes WHERE op_id=?
+        cursor.execute(q(f"""SELECT COALESCE(SUM(quantidade),0) AS total
+            FROM {fonte_ativa_cursor(cursor, 'apontamentos_descartes')} vigente WHERE op_id=?
               AND LOWER(TRIM(COALESCE(motivo,'')))='morte na gaiola'
               AND LOWER(TRIM(COALESCE(unidade,''))) IN ('aves','ave','unidade','unidades')"""), (op_id,))
         mortes_descartes = Decimal(str(cursor.fetchone()["total"] or 0))

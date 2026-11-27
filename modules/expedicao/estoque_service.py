@@ -2004,6 +2004,63 @@ def _inativar_itens_romaneio_cursor(cursor, expedicao_id, *, motivo):
     return int(cursor.rowcount or 0)
 
 
+def compensar_estoque_item_romaneio_cursor(cursor, expedicao_id, item, justificativa):
+    """Aplica somente a compensação de estoque do item, sem concluir o documento."""
+    if item["unidade_atual"] == "PACOTE":
+        if int(item["pacotes_reservados_atuais"] or 0) > 0:
+            raise ValueError("Nao e possivel estornar enquanto houver pacotes reservados em outro romaneio.")
+        quantidade = int(item["quantidade_pacotes"] or 0)
+        por_pacote = int(item["galinhas_por_pacote"] or 0)
+        cursor.execute(q("""
+        UPDATE pa_caixas
+        SET quantidade_pacotes = COALESCE(quantidade_pacotes, 0) + ?,
+            quantidade_galinhas = COALESCE(quantidade_galinhas, 0) + ?,
+            quantidade_pacotes_reservados = 0,
+            disponibilidade = ?, status = 'Em estoque',
+            condicao = ?, local_estoque_id = ?,
+            reservado_expedicao_id = NULL
+        WHERE id = ?
+        """), (
+            quantidade,
+            quantidade * por_pacote,
+            item["situacao_anterior"] or STATUS_DISPONIVEL,
+            item["condicao_anterior"] or "CONFORME",
+            item["local_anterior_id"],
+            item["caixa_id"],
+        ))
+    else:
+        cursor.execute(q("""
+        UPDATE pa_caixas
+        SET disponibilidade = ?,
+            status = 'Em estoque',
+            condicao = ?,
+            local_estoque_id = ?,
+            reservado_expedicao_id = NULL
+        WHERE id = ?
+        """), (
+            item["situacao_anterior"] or STATUS_DISPONIVEL,
+            item["condicao_anterior"] or "CONFORME",
+            item["local_anterior_id"],
+            item["caixa_id"],
+        ))
+    _inserir_compensacao(
+        cursor,
+        caixa_id=item["caixa_id"],
+        expedicao_id=expedicao_id,
+        expedicao_item_id=item["id"],
+        acao="ESTORNO_ROMANEIO",
+        situacao_anterior=item["disponibilidade"],
+        situacao_nova=item["situacao_anterior"] or STATUS_DISPONIVEL,
+        condicao_anterior=item["condicao"],
+        condicao_nova=item["condicao_anterior"] or "CONFORME",
+        quantidade=(item["quantidade_pacotes"] if item["unidade_atual"] == "PACOTE"
+                    else (item["quantidade_bandejas"] or 1)),
+        peso=None if item["unidade_atual"] == "PACOTE" else item["peso_liquido"],
+        justificativa=justificativa.strip(),
+        chave_base=f"ESTORNO-ROMANEIO-{expedicao_id}-ITEM-{item['id']}",
+    )
+
+
 def estornar_romaneio(expedicao_id, justificativa):
     if not (justificativa or "").strip():
         raise ValueError("Informe a justificativa do estorno.")
@@ -2027,59 +2084,7 @@ def estornar_romaneio(expedicao_id, justificativa):
         """), (expedicao_id,))
         itens = cursor.fetchall()
         for item in itens:
-            if item["unidade_atual"] == "PACOTE":
-                if int(item["pacotes_reservados_atuais"] or 0) > 0:
-                    raise ValueError("Nao e possivel estornar enquanto houver pacotes reservados em outro romaneio.")
-                quantidade = int(item["quantidade_pacotes"] or 0)
-                por_pacote = int(item["galinhas_por_pacote"] or 0)
-                cursor.execute(q("""
-                UPDATE pa_caixas
-                SET quantidade_pacotes = COALESCE(quantidade_pacotes, 0) + ?,
-                    quantidade_galinhas = COALESCE(quantidade_galinhas, 0) + ?,
-                    quantidade_pacotes_reservados = 0,
-                    disponibilidade = ?, status = 'Em estoque',
-                    condicao = ?, local_estoque_id = ?,
-                    reservado_expedicao_id = NULL
-                WHERE id = ?
-                """), (
-                    quantidade,
-                    quantidade * por_pacote,
-                    item["situacao_anterior"] or STATUS_DISPONIVEL,
-                    item["condicao_anterior"] or "CONFORME",
-                    item["local_anterior_id"],
-                    item["caixa_id"],
-                ))
-            else:
-                cursor.execute(q("""
-                UPDATE pa_caixas
-                SET disponibilidade = ?,
-                    status = 'Em estoque',
-                    condicao = ?,
-                    local_estoque_id = ?,
-                    reservado_expedicao_id = NULL
-                WHERE id = ?
-                """), (
-                    item["situacao_anterior"] or STATUS_DISPONIVEL,
-                    item["condicao_anterior"] or "CONFORME",
-                    item["local_anterior_id"],
-                    item["caixa_id"],
-                ))
-            _inserir_compensacao(
-                cursor,
-                caixa_id=item["caixa_id"],
-                expedicao_id=expedicao_id,
-                expedicao_item_id=item["id"],
-                acao="ESTORNO_ROMANEIO",
-                situacao_anterior=item["disponibilidade"],
-                situacao_nova=item["situacao_anterior"] or STATUS_DISPONIVEL,
-                condicao_anterior=item["condicao"],
-                condicao_nova=item["condicao_anterior"] or "CONFORME",
-                quantidade=(item["quantidade_pacotes"] if item["unidade_atual"] == "PACOTE"
-                            else (item["quantidade_bandejas"] or 1)),
-                peso=None if item["unidade_atual"] == "PACOTE" else item["peso_liquido"],
-                justificativa=justificativa.strip(),
-                chave_base=f"ESTORNO-ROMANEIO-{expedicao_id}-ITEM-{item['id']}",
-            )
+            compensar_estoque_item_romaneio_cursor(cursor, expedicao_id, item, justificativa)
         from modules.qualidade.liberacoes import estornar_baixas_cursor
         estornar_baixas_cursor(cursor, expedicao_id, justificativa.strip(), _usuario(), _perfil(), "romaneio")
         from modules.pedidos_venda.services import estornar_atendimento_cursor

@@ -12,6 +12,7 @@ from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 from database import DATABASE_URL, conectar, q
+from modules.producao.ciclos_op import fonte_ativa_cursor
 
 
 META_RENDIMENTO = 63.0
@@ -257,7 +258,7 @@ def montar_condicoes_ops(filtros, alias="o"):
     elif filtros["causa"] != "Todos":
         condicoes.append(f"""
             EXISTS (
-                SELECT 1 FROM apontamentos_descartes df
+                SELECT 1 FROM ciclo_vigente_apontamentos_descartes df
                 WHERE df.op_id = {alias}.id
                   AND COALESCE(df.motivo, '') = ?
             )
@@ -267,7 +268,7 @@ def montar_condicoes_ops(filtros, alias="o"):
     if filtros["setor"] != "Todos":
         condicoes.append(f"""
             EXISTS (
-                SELECT 1 FROM apontamentos_descartes ds
+                SELECT 1 FROM ciclo_vigente_apontamentos_descartes ds
                 WHERE ds.op_id = {alias}.id
                   AND COALESCE(ds.setor, '') = ?
             )
@@ -398,7 +399,7 @@ def cte_ops_agregadas(filtros, somente_encerradas=False):
             COALESCE(SUM(CASE
                 WHEN LOWER(COALESCE(unidade, '')) = 'kg'
                 THEN quantidade ELSE 0 END), 0) AS perdas_kg
-        FROM apontamentos_descartes
+        FROM ciclo_vigente_apontamentos_descartes vigente
         GROUP BY op_id
     ),
     operacoes AS (
@@ -423,6 +424,10 @@ def cte_ops_agregadas(filtros, somente_encerradas=False):
 def executar_lista(sql, parametros=None):
     conn = conectar()
     cursor = conn.cursor()
+    for tabela in ("apontamentos_descartes", "apontamentos_paradas", "apontamentos_tempos_setor"):
+        marcador = f"ciclo_vigente_{tabela}"
+        if marcador in sql:
+            sql = sql.replace(marcador, fonte_ativa_cursor(cursor, tabela))
     cursor.execute(q(sql), tuple(parametros or []))
     linhas = cursor.fetchall()
     conn.close()
@@ -547,7 +552,7 @@ def buscar_totais_perdas_gerencial(filtros, tipo="todas"):
             d.data,
             COALESCE(d.quantidade, 0) AS quantidade,
             COALESCE(d.unidade, '') AS unidade
-        FROM apontamentos_descartes d
+        FROM ciclo_vigente_apontamentos_descartes d
         INNER JOIN ordens_producao o ON o.id = d.op_id
         WHERE {where_sql}
         ORDER BY d.data DESC, d.id DESC
@@ -897,7 +902,7 @@ def buscar_perdas_detalhadas(filtros, tipo="todas", limite=500):
             WHEN LOWER(COALESCE(d.unidade, '')) = 'kg' THEN 'Perda em kg'
             ELSE 'Descarte operacional'
         END AS tipo_perda
-    FROM apontamentos_descartes d
+    FROM ciclo_vigente_apontamentos_descartes d
     INNER JOIN ordens_producao o ON o.id = d.op_id
     WHERE {where_sql}
     ORDER BY d.data DESC, d.id DESC
@@ -1170,13 +1175,13 @@ def buscar_opcoes_filtro():
         """)],
         "causas": [item["valor"] for item in executar_lista("""
             SELECT DISTINCT COALESCE(motivo, '') AS valor
-            FROM apontamentos_descartes
+            FROM ciclo_vigente_apontamentos_descartes vigente
             WHERE COALESCE(motivo, '') <> ''
             ORDER BY valor
         """)] + ["Mortes antes da pendura"],
         "setores": [item["valor"] for item in executar_lista("""
             SELECT DISTINCT COALESCE(setor, '') AS valor
-            FROM apontamentos_descartes
+            FROM ciclo_vigente_apontamentos_descartes vigente
             WHERE COALESCE(setor, '') <> ''
             ORDER BY valor
         """)],
@@ -1228,7 +1233,7 @@ def buscar_eficiencia_dados(filtros):
             setor,
             hora_inicio,
             hora_fim
-        FROM apontamentos_tempos_setor
+        FROM ciclo_vigente_apontamentos_tempos_setor vigente
     ),
     paradas AS (
         SELECT
@@ -1236,7 +1241,7 @@ def buscar_eficiencia_dados(filtros):
             data,
             setor,
             COALESCE(SUM(horas_paradas), 0) AS horas_paradas
-        FROM apontamentos_paradas
+        FROM ciclo_vigente_apontamentos_paradas vigente
         GROUP BY op_id, data, setor
     )
     SELECT

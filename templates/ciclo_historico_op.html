@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block conteudo %}
+<section class="card">
+  <h2>OP #{{ op_id }} · Histórico do ciclo {{ ciclo.numero_ciclo }}</h2>
+  <p>Invalidado em {{ ciclo.invalidado_em }} por {{ ciclo.invalidado_por }}.</p>
+  <p>Motivo da invalidação {{ ciclo.motivo_invalidacao }}</p>
+  <h3>Caixas e posições</h3>
+  <ul>{% for item in previa.caixas %}
+    {% if item.consequencia != 'PRESERVAR_HISTORICO' %}
+    <li>{{ item.codigo_caixa }} · {{ item.quantidade_bandejas|default('') }} · {{ item.consequencia|replace('_', ' ')|lower }}</li>
+    {% endif %}
+  {% endfor %}</ul>
+  <h3>Apontamentos arquivados</h3>
+  <ul>{% for tabela, registros in efeitos.apontamentos.items() %}
+    {% if registros %}<li>{{ tabela|replace('_', ' ') }} · {{ registros|join(', ') }}</li>{% endif %}
+  {% endfor %}</ul>
+  <h3>Movimentos de PI compensados</h3>
+  <ul>{% for item in efeitos.pi %}<li>#{{ item.origem_id }} · {{ item.quantidade }} bandejas</li>{% endfor %}</ul>
+  <h3>Itens de expedição compensados</h3>
+  <ul>{% for item in efeitos.expedicao %}<li>Item #{{ item.item_id }} · caixa #{{ item.caixa_id }}</li>{% endfor %}</ul>
+  <a href="{{ url_for('consultar_op', op_id=op_id) }}">Voltar à OP</a>
+</section>
+{% endblock %}

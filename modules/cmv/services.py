@@ -315,12 +315,24 @@ def registrar_saida(*, data_evento, documento, produto, unidade, quantidade,
         return dict(cursor.fetchone()), True
 
 
+def invalidar_camadas_op_cursor(cursor, op_id, *, usuario, motivo):
+    """Retira do FIFO as camadas da OP cujo estoque físico foi invalidado."""
+    cursor.execute(q("""UPDATE cmv_camadas SET status='INVALIDADA_REPROCESSAMENTO'
+        WHERE op_id=? AND status IN ('ATIVA','ESGOTADA') RETURNING id"""), (op_id,))
+    ids = sorted(item["id"] for item in cursor.fetchall())
+    for camada_id in ids:
+        _auditar(cursor, "CAMADA", camada_id, "INVALIDADA_REPROCESSAMENTO",
+                 {"op_id": op_id, "motivo": motivo}, usuario)
+    return ids
+
+
 def estornar_saida(evento_id, *, data_evento, idempotency_key, justificativa, usuario="Sistema", cursor=None):
     """Restaura exatamente as camadas consumidas pelo evento original.
 
     Se `cursor` for informado, participa da transação já aberta pelo chamador.
     """
-    criar_tabelas_cmv()
+    if cursor is None:
+        criar_tabelas_cmv()
     if not str(justificativa or "").strip():
         raise ValueError("Justificativa e obrigatoria.")
     with _cursor_ou_transacao(cursor) as cursor:

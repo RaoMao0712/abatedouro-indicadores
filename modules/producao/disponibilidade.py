@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
+from modules.producao.ciclos_op import fonte_ativa_cursor
 from database import DATABASE_URL, conectar, q
 
 
@@ -253,7 +254,7 @@ def salvar_programacao(op_id, inicio_programado, fim_programado, pausas, *,
                     if pausa["categoria"] == "MANUTENCAO_PREVENTIVA_PROGRAMADA"
                 ]
                 if preventivas:
-                    cursor.execute(q("SELECT * FROM apontamentos_paradas WHERE op_id=?"), (op_id,))
+                    cursor.execute(q(f"SELECT * FROM {fonte_ativa_cursor(cursor, 'apontamentos_paradas')} vigente WHERE op_id=?"), (op_id,))
                     for parada in cursor.fetchall():
                         foi_corretiva = (
                             str(parada["manutencao_aberta"] or "").strip().lower() == "sim"
@@ -418,7 +419,7 @@ def reclassificar_parada(parada_id, afeta_linha, justificativa, *, usuario=None,
         raise ValueError("Informe se a parada afetou ou nao a Linha de Abate.")
     novo_valor = 1 if valor_normalizado in {"1", "sim", "true"} else 0
     with _transacao() as (conn, cursor):
-        cursor.execute(q("SELECT * FROM apontamentos_paradas WHERE id=?"), (parada_id,))
+        cursor.execute(q(f"SELECT * FROM {fonte_ativa_cursor(cursor, 'apontamentos_paradas')} vigente WHERE id=?"), (parada_id,))
         parada = cursor.fetchone()
         if not parada:
             raise ValueError("Parada nao encontrada.")
@@ -600,7 +601,7 @@ def calcular_disponibilidade(op_id, *, agora=None, conn=None):
             return base
         atraso_intervalo = _recortar((inicio_p, min(inicio_r, fim_p)), (inicio_p, fim_p)) if inicio_r > inicio_p else None
         antecipado_intervalo = _recortar((max(fim_r, inicio_p), fim_p), (inicio_p, fim_p)) if fim_r < fim_p else None
-        cursor.execute(q("SELECT * FROM apontamentos_paradas WHERE op_id=?"), (op_id,))
+        cursor.execute(q(f"SELECT * FROM {fonte_ativa_cursor(cursor, 'apontamentos_paradas')} vigente WHERE op_id=?"), (op_id,))
         paradas = cursor.fetchall()
         perdas = []
         parada_aberta_em_andamento = False
@@ -729,7 +730,7 @@ def consultar_historico_paradas(filtros=None):
         cursor = conn.cursor()
         cursor.execute(q(f"""SELECT p.*,o.status AS op_status,
             CASE WHEN o.id IS NULL THEN 1 ELSE 0 END AS registro_orfao
-            FROM apontamentos_paradas p LEFT JOIN ordens_producao o ON o.id=p.op_id
+            FROM {fonte_ativa_cursor(cursor, 'apontamentos_paradas')} p LEFT JOIN ordens_producao o ON o.id=p.op_id
             WHERE {' AND '.join(condicoes)} ORDER BY p.data DESC,p.hora_inicio DESC,p.id DESC"""), tuple(parametros))
         return cursor.fetchall()
     finally:

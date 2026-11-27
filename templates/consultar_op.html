@@ -142,12 +142,28 @@
 </details>
 {% endif %}
 
+{% if ciclos_op|length > 1 %}
+<section class="card">
+    <h2>Ciclos da OP</h2>
+    {% for ciclo in ciclos_op %}
+    {% if ciclo.corrente %}
+    <p>Ciclo atual {{ ciclo.numero_ciclo }} — {{ ciclo.status|lower }}</p>
+    {% else %}
+    <p>Ciclo {{ ciclo.numero_ciclo }} — invalidado em {{ ciclo.invalidado_em }}.
+      <a href="{{ url_for('consultar_ciclo_historico_op', op_id=op.id, numero=ciclo.numero_ciclo) }}">Ver histórico do ciclo {{ ciclo.numero_ciclo }}</a>
+    </p>
+    {% endif %}
+    {% endfor %}
+</section>
+{% endif %}
+
 {% if session.get("perfil") in ["admin", "pcp", "gerencia"] %}
 <details class="card op-painel">
 <summary>Ações administrativas</summary>
 <section class="op-painel-conteudo">
     {% if perfil == 'admin' %}
     <p><a class="botao-secundario" href="{{ url_for('corrigir_fornecedor_op_rota', op_id=op.id) }}">Corrigir fornecedor</a></p>
+    {% if ciclos_op %}<p><a class="botao-secundario" href="{{ url_for('reprocessar_op_rota', op_id=op.id) }}">Reprocessar OP</a></p>{% endif %}
     {% endif %}
     <div class="section-title-row">
         <div><span class="eyebrow">P0.2 &middot; governan&ccedil;a</span><h2>Reabertura e estorno da OP</h2></div>

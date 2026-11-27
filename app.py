@@ -41,6 +41,7 @@ from modules.producao.disponibilidade import criar_tabelas_disponibilidade
 from modules.producao.performance import criar_tabelas_performance
 from modules.producao.oee import criar_tabelas_oee
 from modules.producao.operacoes_op import criar_tabelas_operacoes_op
+from modules.producao.ciclos_op import aplicar_migration_ciclos_op_postgres
 from modules.qualidade.routes import register_qualidade_routes
 from modules.qualidade.services import criar_tabelas_sgi
 from modules.expedicao.relatorio_nc_service import criar_tabelas_relatorios_nc
@@ -614,6 +615,7 @@ def inicializar_schema_aplicacao():
         criar_tabelas_estornos_embalagem,
         criar_estrutura_palletizacao,
         criar_tabelas_operacoes_op,
+        *([aplicar_migration_ciclos_op_postgres] if DATABASE_URL else []),
         criar_tabelas_almoxarifado,
         criar_tabelas_estoque_almoxarifado,
         criar_tabelas_receitas_sku,

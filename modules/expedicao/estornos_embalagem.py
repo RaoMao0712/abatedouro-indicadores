@@ -190,17 +190,25 @@ def _carregar_contexto(cursor, op_id, caixa_id):
     return op, caixa, composicoes
 
 
-def _buscar_bloqueios(cursor, caixa):
+def _buscar_bloqueios(cursor, caixa, *, documentos_revertidos=()):
     caixa_id = caixa["id"]
     bloqueios = []
-    cursor.execute(q("""SELECT e.numero_romaneio,e.status FROM expedicao_itens i
+    ativo_sql = ",COALESCE(i.ativo,1) ativo" if documentos_revertidos else ""
+    cursor.execute(q(f"""SELECT e.id,e.numero_romaneio,e.status{ativo_sql} FROM expedicao_itens i
         JOIN expedicoes e ON e.id=i.expedicao_id WHERE i.caixa_id=? ORDER BY e.id"""), (caixa_id,))
     for item in cursor.fetchall():
+        if item["id"] in documentos_revertidos and not item["ativo"]:
+            continue
         bloqueios.append(f"A caixa está vinculada ao Romaneio nº {item['numero_romaneio']} ({item['status']}).")
     cursor.execute(q("SELECT id,status FROM pa_nao_conformes WHERE caixa_id=? ORDER BY id"), (caixa_id,))
     for item in cursor.fetchall():
         bloqueios.append(f"A caixa está vinculada ao Produto Não Conforme nº {item['id']} ({item['status']}).")
     for item in buscar_eventos_sucessores_cursor(cursor, [caixa_id]):
+        if item["expedicao_id"] in documentos_revertidos and item["tipo"] in {
+            "RESERVA", "ATUALIZACAO_RESERVA", "REMOCAO_RESERVA", "LIBERACAO_PARCIAL_RESERVA",
+            "VENDA_DIRETA", "CONFIRMACAO_ROMANEIO", "ESTORNO_ROMANEIO",
+        }:
+            continue
         if item["fonte"] == "pa_movimentacoes_fallback":
             bloqueios.append(f"A caixa possui movimentação posterior de estoque: {item['tipo']}.")
         else:

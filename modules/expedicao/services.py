@@ -5,6 +5,7 @@ from decimal import Decimal
 import json
 import unicodedata
 
+from modules.producao.ciclos_op import fonte_ativa_cursor
 from database import DATABASE_URL, conectar, q, transaction
 from modules.auth.services import nome_usuario_atual, perfil_atual
 from modules.producao.services import buscar_op_por_id, gerar_producao_automatica_setores
@@ -484,24 +485,27 @@ def criar_tabelas_estoque_pi_pa():
 
 
 def remover_movimentacoes_estoque_pi_por_op(op_id):
-    criar_tabelas_estoque_pi_pa()
+    raise ValueError("A remoção física de PI e Embalagem Primária foi desativada. Use a reversão auditável.")
 
-    conn = conectar()
-    cursor = conn.cursor()
 
-    cursor.execute(q("""
-    DELETE FROM estoque_produto_intermediario
-    WHERE op_id = ?
-      AND tipo IN (?, ?)
-    """), (op_id, "ENTRADA_OP", "ENTRADA_EMBALAGEM_PRIMARIA"))
+def _validar_primaria_sem_historico(cursor, op_id):
+    from modules.producao.ciclos_op import fonte_ativa_cursor, numero_ciclo_posicao_cursor
 
-    cursor.execute(q("""
-    DELETE FROM embalagem_primaria_apontamentos
-    WHERE op_id = ?
-    """), (op_id,))
-
-    conn.commit()
-    conn.close()
+    if numero_ciclo_posicao_cursor(cursor, op_id) > 1:
+        fonte = fonte_ativa_cursor(cursor, "embalagem_primaria_apontamentos")
+        cursor.execute(q(f"SELECT id FROM {fonte} vigente WHERE op_id=? AND COALESCE(vigente,1)=1"), (op_id,))
+        if not cursor.fetchone() and pi_primaria_liquido_cursor(cursor, op_id) == 0:
+            return
+        raise ValueError("O ciclo atual já possui apontamento ou saldo de Embalagem Primária.")
+    cursor.execute(q("""SELECT CASE WHEN
+        EXISTS (SELECT 1 FROM estoque_produto_intermediario WHERE op_id=?)
+        OR EXISTS (SELECT 1 FROM embalagem_primaria_apontamentos WHERE op_id=?)
+        THEN 1 ELSE 0 END AS possui_historico"""), (op_id, op_id))
+    if cursor.fetchone()["possui_historico"]:
+        raise ValueError(
+            "A OP já possui histórico de PI ou Embalagem Primária. "
+            "O relançamento exige um novo ciclo operacional para preservar esses registros."
+        )
 
 
 def op_possui_caixa_pa(op_id):
@@ -537,38 +541,25 @@ def registrar_entrada_estoque_pi_op(op, unidades_produzidas, origem="Embalagem P
     sku = validar_sku_operacional(op["sku"])
     bandejas = float(unidades_produzidas or 0)
 
-    # Segurança contra duplicidade: se a OP for reapontada, a entrada anterior é substituída.
-    remover_movimentacoes_estoque_pi_por_op(op_id)
-
-    conn = conectar()
-    cursor = conn.cursor()
-
-    cursor.execute(q("""
-    INSERT INTO estoque_produto_intermediario (
-        data_movimentacao,
-        tipo,
-        op_id,
-        sku,
-        quantidade_bandejas,
-        origem,
-        observacoes
-    ) VALUES (?, ?, ?, ?, ?, ?, ?)
-    """), (
-        op["data"],
-        "ENTRADA_EMBALAGEM_PRIMARIA",
-        op_id,
-        sku,
-        bandejas,
-        origem,
-        observacoes or "Entrada automática de PI gerada no apontamento da Embalagem Primária."
-    ))
-
-    conn.commit()
-    conn.close()
+    with transaction() as conn:
+        cursor = conn.cursor()
+        if not DATABASE_URL:
+            cursor.execute("BEGIN IMMEDIATE")
+        cursor.execute(q("SELECT id FROM ordens_producao WHERE id=?" + (" FOR UPDATE" if DATABASE_URL else "")), (op_id,))
+        if not cursor.fetchone():
+            raise ValueError("OP não encontrada.")
+        _validar_primaria_sem_historico(cursor, op_id)
+        cursor.execute(q("""INSERT INTO estoque_produto_intermediario (
+            data_movimentacao, tipo, op_id, sku, quantidade_bandejas, origem, observacoes
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)"""), (
+            op["data"], "ENTRADA_EMBALAGEM_PRIMARIA", op_id, sku, bandejas, origem,
+            observacoes or "Entrada automática de PI gerada no apontamento da Embalagem Primária.",
+        ))
 
 
 def calcular_perdas_aves_op(cursor, op_id):
-    cursor.execute(q("""
+    descartes_vigentes = fonte_ativa_cursor(cursor, "apontamentos_descartes")
+    cursor.execute(q(f"""
     SELECT
         COALESCE(SUM(CASE
             WHEN LOWER(COALESCE(categoria, '')) LIKE '%%conden%%' THEN quantidade
@@ -583,7 +574,7 @@ def calcular_perdas_aves_op(cursor, op_id):
             WHEN LOWER(TRIM(COALESCE(motivo, ''))) = 'morte na gaiola' THEN quantidade
             ELSE 0
         END), 0) AS mortes_na_gaiola
-    FROM apontamentos_descartes
+    FROM {descartes_vigentes} vigente
     WHERE op_id = ?
       AND LOWER(unidade) IN ('aves', 'ave', 'unidade', 'unidades')
     """), (op_id,))
@@ -671,10 +662,14 @@ def validar_balanco_aves_op(op, aves_produzidas, perdas):
 
 
 def registrar_posicoes_pa_galinha_inteira(cursor, op, pacotes_v1, pacotes_v2, observacoes):
+    from modules.producao.ciclos_op import numero_ciclo_posicao_cursor
+
     data_fabricacao = op["data"] or datetime.now().strftime("%Y-%m-%d")
     data_validade = calcular_validade_padrao(data_fabricacao)
     local_abatedouro_id = obter_local_abatedouro_id(cursor)
     posicoes = []
+    ciclo = numero_ciclo_posicao_cursor(cursor, op["id"])
+    identificador_op = f"{int(op['id']):05d}" if ciclo == 1 else f"{int(op['id']):05d}-C{ciclo}"
     for variacao, quantidade_pacotes, galinhas_por_pacote in (
         ("V1", int(pacotes_v1), 1),
         ("V2", int(pacotes_v2), 2),
@@ -682,7 +677,7 @@ def registrar_posicoes_pa_galinha_inteira(cursor, op, pacotes_v1, pacotes_v2, ob
         if quantidade_pacotes <= 0:
             continue
         quantidade_galinhas = quantidade_pacotes * galinhas_por_pacote
-        codigo_lote = f"GI-PCT-OP-{int(op['id']):05d}-{variacao}"
+        codigo_lote = f"GI-PCT-OP-{identificador_op}-{variacao}"
         apresentacao = (
             "Pacote com 1 galinha inteira"
             if galinhas_por_pacote == 1
@@ -793,8 +788,14 @@ def registrar_apontamento_embalagem_primaria(
         }
 
         def preparar_galinha_inteira(cursor, op_bloqueada, _checkpoint_oficial):
-            cursor.execute(q("""SELECT COUNT(*) total FROM pa_caixa_composicao
-                WHERE op_id=?"""), (op_bloqueada["id"],))
+            from modules.producao.ciclos_op import numero_ciclo_posicao_cursor
+
+            reiniciada = numero_ciclo_posicao_cursor(cursor, op_bloqueada["id"]) > 1
+            filtro_caixa = """AND UPPER(COALESCE(cx.status,'')) NOT IN
+                ('CANCELADA','CANCELADO','ESTORNADA','ESTORNADO')""" if reiniciada else ""
+            cursor.execute(q(f"""SELECT COUNT(*) total FROM pa_caixa_composicao c
+                JOIN pa_caixas cx ON cx.id=c.caixa_id WHERE c.op_id=? {filtro_caixa}"""),
+                (op_bloqueada["id"],))
             if int(cursor.fetchone()["total"] or 0):
                 raise ValueError(
                     "Esta OP já possui posições PA vinculadas. Não é possível reapontar a Embalagem Primária."
@@ -809,8 +810,7 @@ def registrar_apontamento_embalagem_primaria(
             else:
                 if _aprovacao:
                     raise ValueError("A divergência mudou. Faça uma nova tentativa de encerramento.")
-            cursor.execute(q("DELETE FROM estoque_produto_intermediario WHERE op_id = ?"), (op_bloqueada["id"],))
-            cursor.execute(q("DELETE FROM embalagem_primaria_apontamentos WHERE op_id = ?"), (op_bloqueada["id"],))
+            _validar_primaria_sem_historico(cursor, op_bloqueada["id"])
             sql_apontamento = """
             INSERT INTO embalagem_primaria_apontamentos (
                 op_id, data_apontamento, sku, quantidade_bandejas,
@@ -1619,7 +1619,7 @@ def calcular_fechamento_industrial_op(op_id, conn=None):
 
     bandejas_primaria = float(pi_primaria_liquido_cursor(cursor, op_id))
 
-    cursor.execute(q("""
+    cursor.execute(q(f"""
     SELECT
         COALESCE(SUM(CASE
             WHEN LOWER(COALESCE(categoria, '')) LIKE '%%conden%%' THEN quantidade
@@ -1634,7 +1634,7 @@ def calcular_fechamento_industrial_op(op_id, conn=None):
             WHEN LOWER(TRIM(COALESCE(motivo, ''))) = 'morte na gaiola' THEN quantidade
             ELSE 0
         END), 0) AS mortes_na_gaiola
-    FROM apontamentos_descartes
+    FROM {fonte_ativa_cursor(cursor, 'apontamentos_descartes')} vigente
     WHERE op_id = ?
       AND LOWER(unidade) IN ('aves', 'ave', 'unidade', 'unidades')
     """), (op_id,))

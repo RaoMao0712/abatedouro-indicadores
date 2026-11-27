@@ -1,5 +1,6 @@
 """Consultas agregadas do Dashboard."""
 
+from modules.producao.ciclos_op import fonte_ativa_cursor
 from database import conectar, q
 
 
@@ -55,7 +56,7 @@ def buscar_dados_dashboard(data_inicio, data_fim, status_filtro, sku_filtro):
 
     cursor.execute(q(f"""
     SELECT COALESCE(SUM(d.quantidade), 0) as descartes_aves
-    FROM apontamentos_descartes d
+    FROM {fonte_ativa_cursor(cursor, 'apontamentos_descartes')} d
     JOIN ordens_producao o ON o.id = d.op_id
     WHERE o.data BETWEEN ? AND ?
       AND LOWER(d.unidade) IN ('aves', 'ave', 'unidade', 'unidades')
@@ -66,7 +67,7 @@ def buscar_dados_dashboard(data_inicio, data_fim, status_filtro, sku_filtro):
 
     cursor.execute(q(f"""
     SELECT COALESCE(SUM(d.quantidade), 0) as mortes_na_gaiola
-    FROM apontamentos_descartes d
+    FROM {fonte_ativa_cursor(cursor, 'apontamentos_descartes')} d
     JOIN ordens_producao o ON o.id = d.op_id
     WHERE o.data BETWEEN ? AND ?
       AND LOWER(d.unidade) IN ('aves', 'ave', 'unidade', 'unidades')
@@ -78,7 +79,7 @@ def buscar_dados_dashboard(data_inicio, data_fim, status_filtro, sku_filtro):
 
     cursor.execute(q(f"""
     SELECT COALESCE(SUM(d.quantidade), 0) as descartes_kg
-    FROM apontamentos_descartes d
+    FROM {fonte_ativa_cursor(cursor, 'apontamentos_descartes')} d
     JOIN ordens_producao o ON o.id = d.op_id
     WHERE o.data BETWEEN ? AND ?
       AND LOWER(d.unidade) = 'kg'
@@ -167,7 +168,7 @@ def buscar_dados_dashboard(data_inicio, data_fim, status_filtro, sku_filtro):
 
     cursor.execute(q(f"""
     SELECT d.setor, COALESCE(SUM(d.quantidade), 0) as quantidade
-    FROM apontamentos_descartes d
+    FROM {fonte_ativa_cursor(cursor, 'apontamentos_descartes')} d
     JOIN ordens_producao o ON o.id = d.op_id
     WHERE o.data BETWEEN ? AND ?
       AND LOWER(d.unidade) IN ('aves', 'ave', 'unidade', 'unidades')
@@ -180,7 +181,7 @@ def buscar_dados_dashboard(data_inicio, data_fim, status_filtro, sku_filtro):
 
     cursor.execute(q(f"""
     SELECT d.motivo, COALESCE(SUM(d.quantidade), 0) as quantidade
-    FROM apontamentos_descartes d
+    FROM {fonte_ativa_cursor(cursor, 'apontamentos_descartes')} d
     JOIN ordens_producao o ON o.id = d.op_id
     WHERE o.data BETWEEN ? AND ?
       AND LOWER(d.unidade) IN ('aves', 'ave', 'unidade', 'unidades')
@@ -195,7 +196,7 @@ def buscar_dados_dashboard(data_inicio, data_fim, status_filtro, sku_filtro):
     cursor.execute(q(f"""
     SELECT p.id, p.evento_id, p.op_id, o.data as data_op, p.data as data_apontamento,
            p.setor, p.motivo, p.horas_paradas, p.observacoes
-    FROM apontamentos_paradas p
+    FROM {fonte_ativa_cursor(cursor, 'apontamentos_paradas')} p
     JOIN ordens_producao o ON o.id = p.op_id
     WHERE o.data BETWEEN ? AND ?
       AND p.setor <> 'Expedição'
@@ -206,7 +207,7 @@ def buscar_dados_dashboard(data_inicio, data_fim, status_filtro, sku_filtro):
 
     cursor.execute(q(f"""
     SELECT o.id as op_id, o.data as data_op, m.setor, m.colaborador
-    FROM apontamentos_mao_obra m
+    FROM {fonte_ativa_cursor(cursor, 'apontamentos_mao_obra')} m
     JOIN ordens_producao o ON o.id = m.op_id
     WHERE o.data BETWEEN ? AND ?
       AND m.setor <> 'Expedição'
