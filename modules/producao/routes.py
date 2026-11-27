@@ -76,6 +76,7 @@ from .oee import (
     registrar_configuracao_fisica,
 )
 from .operacoes_op import (
+    corrigir_fornecedor_op,
     estornar_op_integral,
     historico_operacoes_op,
     preflight_operacao_op,
@@ -605,7 +606,6 @@ def register_producao_routes(app, integracoes=None):
             fornecedor = parceiro_fornecedor["razao_social"]
             gta = request.form["gta"]
             nota_fiscal = request.form["nota_fiscal"]
-            mortes_antes_pendura = 0
             observacoes = request.form["observacoes"]
             peso_medio = peso_vivo / quantidade_aves if quantidade_aves else 0
 
@@ -626,12 +626,12 @@ def register_producao_routes(app, integracoes=None):
                 cursor.execute(q("""
                 UPDATE ordens_producao
                 SET data = ?, sku = ?, fornecedor = ?, fornecedor_parceiro_id = ?, gta = ?, nota_fiscal = ?,
-                    quantidade_aves = ?, mortes_antes_pendura = ?, peso_vivo = ?,
+                    quantidade_aves = ?, peso_vivo = ?,
                     peso_medio = ?, observacoes = ?
                 WHERE id = ?
                 """), (
                     data, sku, fornecedor, parceiro_fornecedor["id"], gta, nota_fiscal, quantidade_aves,
-                    mortes_antes_pendura, peso_vivo, peso_medio, observacoes, op_id
+                    peso_vivo, peso_medio, observacoes, op_id
                 ))
                 inicio_programado = request.form.get("inicio_programado")
                 fim_programado = request.form.get("fim_programado")
@@ -1188,6 +1188,34 @@ def register_producao_routes(app, integracoes=None):
         flash("Galinha Cortada deve ser encerrada pela validação final da Embalagem Secundária.")
         return redirect(url_for("embalagem_secundaria", op_id=op_id))
 
+
+    @app.route("/op/<int:op_id>/corrigir-fornecedor", methods=["GET", "POST"])
+    @login_obrigatorio
+    def corrigir_fornecedor_op_rota(op_id):
+        if not usuario_eh_admin():
+            abort(403)
+        op = buscar_op_por_id(op_id)
+        if not op:
+            abort(404)
+        if request.method == "POST":
+            recebido = request.form.get("csrf_token", "").encode("utf-8")
+            esperado = session.get("csrf_correcao_fornecedor_op", "").encode("utf-8")
+            if not recebido or not secrets.compare_digest(recebido, esperado):
+                abort(403)
+            try:
+                alterado = corrigir_fornecedor_op(
+                    op_id, request.form.get("fornecedor"), usuario=session.get("nome"),
+                    perfil=session.get("perfil"), motivo=request.form.get("motivo"),
+                    ip_origem=request.remote_addr,
+                )
+            except ValueError as erro:
+                flash(str(erro))
+            else:
+                flash("Fornecedor corrigido." if alterado else "O fornecedor já está atualizado.")
+                return redirect(url_for("consultar_op", op_id=op_id))
+        csrf_token = session.setdefault("csrf_correcao_fornecedor_op", secrets.token_urlsafe(32))
+        return render_template("corrigir_fornecedor_op.html", op=op,
+                               fornecedores=buscar_fornecedores(), csrf_token=csrf_token)
 
     @app.post("/op/<int:op_id>/aprovar-encerramento-divergente")
     @login_obrigatorio

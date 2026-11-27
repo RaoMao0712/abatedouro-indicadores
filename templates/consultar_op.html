@@ -146,6 +146,9 @@
 <details class="card op-painel">
 <summary>Ações administrativas</summary>
 <section class="op-painel-conteudo">
+    {% if perfil == 'admin' %}
+    <p><a class="botao-secundario" href="{{ url_for('corrigir_fornecedor_op_rota', op_id=op.id) }}">Corrigir fornecedor</a></p>
+    {% endif %}
     <div class="section-title-row">
         <div><span class="eyebrow">P0.2 &middot; governan&ccedil;a</span><h2>Reabertura e estorno da OP</h2></div>
         <strong>Estado atual: {{ op.status }}</strong>

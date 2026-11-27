@@ -104,6 +104,32 @@ def test_rota_editar_op_funciona():
     assert resposta.status_code == 200
 
 
+def test_edicao_cadastral_preserva_mortes_antes_da_pendura():
+    op_id = _semear_op_equivalente_op97()
+    parceiro_id = salvar_parceiro(
+        {"tipo_pessoa": "PJ", "razao_social": _nome_unico("Fornecedor"), "papeis": [PAPEL_FORNECEDOR]},
+        usuario="Teste", perfil="admin",
+    )
+    conn = conectar()
+    try:
+        conn.cursor().execute(q("UPDATE ordens_producao SET mortes_antes_pendura=? WHERE id=?"), (3, op_id))
+        conn.commit()
+        cliente = app.test_client()
+        with cliente.session_transaction() as sessao:
+            sessao.update(usuario_id=1, nome="Teste PCP", perfil="pcp")
+        resposta = cliente.post(f"/op/{op_id}/editar", data={
+            "data": "2026-09-14", "sku": "Galinha Inteira", "fornecedor": parceiro_id,
+            "gta": "GTA-97", "nota_fiscal": "NF-97", "quantidade_aves": "1000",
+            "peso_vivo": "2500", "observacoes": "",
+        })
+        assert resposta.location == f"/op/{op_id}/editar"
+        cursor = conn.cursor()
+        cursor.execute(q("SELECT fornecedor_parceiro_id,mortes_antes_pendura FROM ordens_producao WHERE id=?"), (op_id,))
+        assert tuple(cursor.fetchone()) == (parceiro_id, 3)
+    finally:
+        conn.close()
+
+
 def test_rota_consulta_op_funciona():
     op_id = _semear_op_equivalente_op97()
 

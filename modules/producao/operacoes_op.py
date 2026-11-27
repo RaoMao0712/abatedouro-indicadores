@@ -4,6 +4,7 @@ from datetime import datetime
 from decimal import Decimal
 import json
 import os
+from uuid import uuid4
 
 from database import DATABASE_URL, conectar, q, transaction
 from database.migrations import colunas_postgresql
@@ -354,6 +355,41 @@ def _auditar(cursor, *, op_id, tipo, chave, usuario, perfil, motivo, etapa,
         op_id, tipo, chave, usuario, perfil, motivo.strip(), etapa, status_anterior,
         status_posterior, _json(preflight), _json(efeitos), _json(resultado), ip_origem, _agora(),
     ))
+
+
+def corrigir_fornecedor_op(op_id, fornecedor_id, *, usuario, perfil, motivo, ip_origem=None):
+    """Corrige o cadastro da OP sem reclassificar seu ciclo operacional."""
+    from modules.parceiros.services import PAPEL_FORNECEDOR, obter_parceiro_por_papel
+
+    if perfil != "admin":
+        raise PermissionError("Somente administradores podem corrigir o fornecedor da OP.")
+    if not str(usuario or "").strip() or not str(motivo or "").strip():
+        raise ValueError("Informe o responsável e o motivo da correção cadastral.")
+    parceiro = obter_parceiro_por_papel(fornecedor_id, PAPEL_FORNECEDOR)
+    novo = {"id": parceiro["id"], "nome": parceiro["razao_social"]}
+    with transaction() as conn:
+        cursor = conn.cursor()
+        if not DATABASE_URL:
+            cursor.execute("BEGIN IMMEDIATE")
+        cursor.execute(q("""SELECT status, fornecedor, fornecedor_parceiro_id
+            FROM ordens_producao WHERE id=?""" + _bloqueio_sql()), (op_id,))
+        op = cursor.fetchone()
+        if not op:
+            raise ValueError("OP não encontrada.")
+        anterior = {"id": op["fornecedor_parceiro_id"], "nome": op["fornecedor"]}
+        if anterior == novo:
+            return False
+        cursor.execute(q("""UPDATE ordens_producao SET fornecedor=?, fornecedor_parceiro_id=?
+            WHERE id=?"""), (novo["nome"], novo["id"], op_id))
+        _auditar(
+            cursor, op_id=op_id, tipo="CORRECAO_CADASTRAL_FORNECEDOR",
+            chave=f"FORNECEDOR-OP-{op_id}-{uuid4()}", usuario=usuario, perfil=perfil,
+            motivo=motivo, etapa=None, status_anterior=op["status"], status_posterior=op["status"],
+            preflight={"fornecedor": anterior}, efeitos={"fornecedor": novo},
+            resultado={"op_id": op_id, "fornecedor_anterior": anterior, "fornecedor_novo": novo},
+            ip_origem=ip_origem,
+        )
+    return True
 
 
 def retomar_embalagem_secundaria(op_id, *, usuario, perfil, idempotency_key,

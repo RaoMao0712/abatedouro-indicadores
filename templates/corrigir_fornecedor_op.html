@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block conteudo %}
+<section class="card">
+    <h2>Corrigir fornecedor da OP #{{ op.id }}</h2>
+    <p>Fornecedor atual: {{ op.fornecedor }} · Situação: {{ op.status }}</p>
+    <form method="post">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label for="fornecedor-op">Fornecedor correto</label>
+        <select id="fornecedor-op" name="fornecedor" required>
+            <option value="">Selecione</option>
+            {% for fornecedor in fornecedores %}
+            <option value="{{ fornecedor.id }}" {% if fornecedor.id == op.fornecedor_parceiro_id %}selected{% endif %}>{{ fornecedor.nome }}</option>
+            {% endfor %}
+        </select>
+        <label for="motivo-fornecedor-op">Motivo da correção</label>
+        <textarea id="motivo-fornecedor-op" name="motivo" rows="3" required></textarea>
+        <button type="submit">Salvar fornecedor</button>
+        <a href="{{ url_for('consultar_op', op_id=op.id) }}">Voltar à OP</a>
+    </form>
+</section>
+{% endblock %}
